@@ -1,0 +1,58 @@
+import json
+
+from query_builder.cli import main
+
+
+def test_cli_validate_valid(capsys):
+    ret = main(["validate", "SELECT legal_name FROM production.firm_master LIMIT 5;"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    res = json.loads(captured.out)
+    assert res["valid"] is True
+    assert res["statement_type"] == "SELECT"
+
+
+def test_cli_validate_mutation_blocked(capsys):
+    ret = main(["validate", "DELETE FROM production.firm_master;"])
+    assert ret == 1
+    captured = capsys.readouterr()
+    res = json.loads(captured.out)
+    assert res["valid"] is False
+    assert res["injection_risk"] == "CRITICAL"
+
+
+def test_cli_compile(capsys, tmp_path):
+    spec = {
+        "table": "users",
+        "columns": ["users.id", "users.email"],
+        "limit": 5,
+    }
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(spec))
+
+    ret = main(["compile", "--spec", str(spec_file), "--dialect", "postgres"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "--- Main SQL ---" in captured.out
+    assert 'FROM "users" "t1"' in captured.out
+
+
+def test_cli_join_path(capsys, tmp_path):
+    schema = {
+        "tables": {
+            "a": {"columns": [{"name": "id"}]},
+            "b": {"columns": [{"name": "id"}, {"name": "a_id"}]},
+        },
+        "foreign_keys": [
+            {"table": "b", "column": "a_id", "foreign_table": "a", "foreign_column": "id"}
+        ]
+    }
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(schema))
+
+    ret = main(["join-path", "--active", "a", "--target", "b", "--schema", str(schema_file)])
+    assert ret == 0
+    captured = capsys.readouterr()
+    res = json.loads(captured.out)
+    assert len(res) == 1
+    assert res[0]["table"] == "b"
