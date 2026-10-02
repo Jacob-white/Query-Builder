@@ -1,0 +1,36 @@
+{
+  "name": "@jacob-white/query-builder-react",
+  "version": "1.0.0",
+  "description": "Portable, embeddable React Visual SQL Query Builder & Schema Explorer component library.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "react",
+    "sql",
+    "query-builder",
+    "visual-sql",
+    "erd",
+    "database"
+  ],
+  "author": "Jacob White <jake@hobbyhabbit.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
