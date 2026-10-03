@@ -7,11 +7,13 @@ and standardized row mapping for DB-API 2.0 compliant database cursors.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
+from query_builder.middleware import LifecycleInterceptor, MiddlewarePipeline
 
 DEFAULT_TIMEOUT_MS = 5000
 
@@ -119,3 +121,80 @@ def execute_compiled_spec(
         "page": (offset // limit) + 1 if limit else 1,
         "latency_ms": round(latency_ms, 2),
     }
+
+
+async def async_execute(
+    connector: Any,
+    spec: dict[str, Any],
+    schema: dict[str, Any] | None = None,
+    user_id: Any = None,
+    timeout_ms: int | None = None,
+    validate_ast: bool = True,
+    middleware: MiddlewarePipeline | list[LifecycleInterceptor] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Asynchronously executes a query specification against either an AsyncBaseConnector
+    or a synchronous BaseConnector (offloaded to threadpool), with timeout cancellation
+    via asyncio.wait_for and full middleware lifecycle execution.
+    """
+    if connector is None:
+        raise ValueError("Connector cannot be None.")
+    if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
+        raise CompilationError(
+            "Specification must be a dictionary or dataclass instance."
+        )
+
+    if timeout_ms is not None:
+        try:
+            t = int(timeout_ms)
+            if t <= 0:
+                raise ValueError
+        except (ValueError, TypeError) as exc:
+            raise ValueError("timeout_ms must be positive.") from exc
+
+    ctx = context if context is not None else {}
+    pipeline = (
+        MiddlewarePipeline.ensure(middleware)
+        if middleware is not None
+        else getattr(connector, "middleware", MiddlewarePipeline())
+    )
+
+    is_async = asyncio.iscoroutinefunction(getattr(connector, "execute", None))
+    timeout_sec = (timeout_ms / 1000.0) if timeout_ms is not None else None
+
+    async def _run() -> dict[str, Any]:
+        if is_async:
+            return await connector.execute(
+                spec=spec,
+                schema=schema,
+                user_id=user_id,
+                statement_timeout_ms=timeout_ms,
+                validate_ast=validate_ast,
+                middleware=pipeline,
+                context=ctx,
+            )
+        return await asyncio.to_thread(
+            connector.execute,
+            spec=spec,
+            schema=schema,
+            user_id=user_id,
+            statement_timeout_ms=timeout_ms,
+            validate_ast=validate_ast,
+            middleware=pipeline,
+            context=ctx,
+        )
+
+    try:
+        if timeout_sec is not None:
+            return await asyncio.wait_for(_run(), timeout=timeout_sec)
+        return await _run()
+    except TimeoutError as exc:
+        pipeline.run_error(exc, ctx)
+        raise TimeoutError(f"Query execution timed out after {timeout_ms}ms") from exc
+    except asyncio.CancelledError as exc:
+        pipeline.run_error(exc, ctx)
+        raise
+    except Exception as exc:
+        pipeline.run_error(exc, ctx)
+        raise

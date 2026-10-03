@@ -7,6 +7,7 @@ import type { QueryResultData } from "../src/types";
 describe("QueryResultsTable", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    global.URL.revokeObjectURL = vi.fn();
   });
 
   it("renders loading indicator when isLoading is true", () => {
@@ -149,5 +150,76 @@ describe("QueryResultsTable", () => {
     const exportBtn = screen.getByText("📥 Export CSV");
     fireEvent.click(exportBtn);
     expect(mockCreateObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it("handles JSON export trigger correctly", () => {
+    const results: QueryResultData = {
+      columns: ["id", "name"],
+      rows: [
+        { id: 1, name: "Alice" },
+        { id: 2, name: "Bob" },
+      ],
+      count: 2,
+    };
+
+    const mockCreateObjectURL = vi.fn().mockReturnValue("blob:mock-json-url");
+    const mockRevokeObjectURL = vi.fn();
+    global.URL.createObjectURL = mockCreateObjectURL;
+    global.URL.revokeObjectURL = mockRevokeObjectURL;
+
+    const clickSpy = vi.fn();
+    const origCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
+      const el = origCreateElement(tagName);
+      if (tagName === "a") {
+        el.click = clickSpy;
+      }
+      return el;
+    });
+
+    render(<QueryResultsTable results={results} />);
+
+    const exportBtn = screen.getByText("📥 Export JSON");
+    fireEvent.click(exportBtn);
+
+    expect(mockCreateObjectURL).toHaveBeenCalledOnce();
+    expect(clickSpy).toHaveBeenCalledOnce();
+    expect(mockRevokeObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it("does not attempt JSON export when rows array is empty", () => {
+    const results: QueryResultData = {
+      columns: ["id", "name"],
+      rows: [],
+      count: 0,
+    };
+
+    const mockCreateObjectURL = vi.fn();
+    global.URL.createObjectURL = mockCreateObjectURL;
+
+    render(<QueryResultsTable results={results} />);
+
+    const exportBtn = screen.getByText("📥 Export JSON");
+    fireEvent.click(exportBtn);
+
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("verifies ARIA labels and table accessibility roles", () => {
+    const results: QueryResultData = {
+      columns: ["id", "name"],
+      rows: [{ id: 1, name: "Alice" }],
+      count: 1,
+    };
+
+    render(<QueryResultsTable results={results} />);
+
+    expect(screen.getByRole("button", { name: "Export results as CSV" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Export results as JSON" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Search query results" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Query results" })).toBeTruthy();
+    expect(screen.getAllByRole("row").length).toBe(2);
+    expect(screen.getAllByRole("columnheader").length).toBe(2);
+    expect(screen.getAllByRole("cell").length).toBe(2);
   });
 });

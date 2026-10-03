@@ -7,6 +7,7 @@ export * from "./types";
 export * from "./utils/joinUtils";
 export * from "./utils/safety";
 export * from "./utils/compiler";
+export * from "./utils/schemaUtils";
 
 export { VisualQueryBuilder } from "./components/VisualQueryBuilder";
 export { QueryCanvas } from "./components/QueryCanvas";
@@ -16,3 +17,47 @@ export { TableJoinEditor } from "./components/TableJoinEditor";
 export { TableSortsEditor } from "./components/TableSortsEditor";
 export { SchemaErdModal } from "./components/SchemaErdModal";
 export { QueryResultsTable } from "./components/QueryResultsTable";
+export { QueryChartPreview } from "./components/QueryChartPreview";
+export { QueryPlayground } from "./components/QueryPlayground";
+export {
+  QueryTemplateManager,
+  SEED_TEMPLATES,
+  loadTemplates,
+  saveTemplates,
+  resetTemplateStorage,
+} from "./components/QueryTemplateManager";
+
+// Headless Hooks
+export * from "./hooks";
+
+// Theming System
+export {
+  darkTheme,
+  lightTheme,
+  mergeTheme,
+} from "./theme/tokens";
+export type {
+  DeepPartial,
+  QueryBuilderThemeColors,
+  QueryBuilderThemeTypography,
+  QueryBuilderThemeRadii,
+  QueryBuilderThemeShadows,
+  QueryBuilderTheme,
+} from "./theme/tokens";
+
+export {
+  ThemeProvider,
+  useTheme,
+  ThemeContext,
+} from "./theme/ThemeProvider";
+export type {
+  ThemeProviderProps,
+  ThemeContextValue,
+} from "./theme/ThemeProvider";
+
+// Component Showcase
+export { ComponentShowcase } from "./components/ComponentShowcase";
+export type {
+  ComponentShowcaseProps,
+  ShowcaseTab,
+} from "./components/ComponentShowcase";

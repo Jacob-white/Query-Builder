@@ -4,6 +4,8 @@ Query Builder Engine: Universal SQL Compiler, AST Safety Validator & Join Solver
 Package exports for the standalone Query Builder engine.
 """
 
+from __future__ import annotations
+
 __version__ = "1.0.0"
 
 from query_builder.ast_validator import (
@@ -18,6 +20,7 @@ from query_builder.compiler import (
     QueryCompiler,
 )
 from query_builder.connectors import (
+    AsyncBaseConnector,
     AthenaConnector,
     BaseConnector,
     BigQueryConnector,
@@ -105,16 +108,32 @@ from query_builder.dialects import (
     TimescaleDialect,
     TrinoDialect,
     get_dialect,
+    list_dialects,
     quote_alias,
     quote_identifier,
+    register_dialect,
+    unregister_dialect,
 )
 from query_builder.executor import (
+    async_execute,
     execute_compiled_spec,
     execute_cursor_query,
+)
+from query_builder.export import (
+    EXTENSIONS,
+    MIME_TYPES,
+    SUPPORTED_FORMATS,
+    ExportError,
+    export_dataset,
 )
 from query_builder.join_solver import (
     find_best_join_condition,
     find_join_path,
+)
+from query_builder.middleware import (
+    LifecycleInterceptor,
+    MiddlewarePipeline,
+    QueryCancelledError,
 )
 from query_builder.models import (
     ColumnMeta,
@@ -129,21 +148,58 @@ from query_builder.models import (
     TableMeta,
     ValidationResult,
 )
+from query_builder.policy import (
+    SecurityPolicy,
+    TenantContext,
+    apply_security_policy,
+)
+from query_builder.pool import (
+    ConnectionPool,
+    PoolClosedError,
+    PoolError,
+    PoolTimeoutError,
+)
 from query_builder.schema import (
     normalize_schema_snapshot,
+)
+from query_builder.schema_converters import (
+    to_drizzle_schema,
+    to_prisma_schema,
+    to_sqlalchemy_models,
 )
 from query_builder.security import (
     AliasCounter,
     SecurityError,
     resolve_ownership_predicate,
 )
+from query_builder.server import (
+    create_server,
+    generate_openapi_spec,
+    serve_swagger_ui_html,
+)
+from query_builder.telemetry import (
+    ExecutionEvent,
+    TelemetryCollector,
+    hash_query,
+)
+from query_builder.templates import (
+    QueryTemplate,
+    TemplateError,
+    TemplateNotFoundError,
+    TemplateStore,
+    TemplateValidationError,
+)
 
 __all__ = [
     "AGGREGATE_MAP",
+    "EXTENSIONS",
+    "MIME_TYPES",
     "OPERATOR_MAP",
     "RESTRICTED_MUTATION_KEYWORDS",
     "RESTRICTED_SECURITY_TABLES",
+    "SUPPORTED_FORMATS",
     "AliasCounter",
+    "AsyncBaseConnector",
     "AthenaConnector",
     "AthenaDialect",
     "BaseConnector",
@@ -158,6 +214,7 @@ __all__ = [
     "ColumnMeta",
     "CompilationError",
     "ConnectionFailedError",
+    "ConnectionPool",
     "ConnectorError",
     "ConnectorRegistry",
     "CouchbaseConnector",
@@ -177,6 +234,8 @@ __all__ = [
     "DynamoDBPartiQLDialect",
     "ElasticsearchConnector",
     "ElasticsearchDialect",
+    "ExecutionEvent",
+    "ExportError",
     "FilterSpec",
     "FireboltConnector",
     "FireboltDialect",
@@ -185,9 +244,11 @@ __all__ = [
     "HavingSpec",
     "IntrospectionError",
     "JoinSpec",
+    "LifecycleInterceptor",
     "MSSQLConnector",
     "MSSQLDialect",
     "MemSQLConnector",
+    "MiddlewarePipeline",
     "MongoDBAtlasSQLConnector",
     "MongoDBConnector",
     "MongoDBSQLDialect",
@@ -201,12 +262,17 @@ __all__ = [
     "OrderBySpec",
     "PolarsConnector",
     "PolarsDialect",
+    "PoolClosedError",
+    "PoolError",
+    "PoolTimeoutError",
     "PostgresConnector",
     "PostgresDialect",
     "PrestoDialect",
+    "QueryCancelledError",
     "QueryCompiler",
     "QueryResult",
     "QuerySpec",
+    "QueryTemplate",
     "QuestDBConnector",
     "QuestDBDialect",
     "RedshiftConnector",
@@ -215,6 +281,7 @@ __all__ = [
     "SQLiteDialect",
     "SchemaSnapshot",
     "SecurityError",
+    "SecurityPolicy",
     "SingleStoreConnector",
     "SingleStoreDialect",
     "SnowflakeConnector",
@@ -224,6 +291,12 @@ __all__ = [
     "SupabaseConnector",
     "SupabaseDialect",
     "TableMeta",
+    "TelemetryCollector",
+    "TemplateError",
+    "TemplateNotFoundError",
+    "TemplateStore",
+    "TemplateValidationError",
+    "TenantContext",
     "TeradataConnector",
     "TeradataDialect",
     "TiDBConnector",
@@ -234,12 +307,18 @@ __all__ = [
     "TrinoDialect",
     "ValidationResult",
     "__version__",
+    "apply_security_policy",
+    "async_execute",
+    "create_server",
     "execute_compiled_spec",
     "execute_cursor_query",
+    "export_dataset",
     "find_best_join_condition",
     "find_join_path",
+    "generate_openapi_spec",
     "get_connector",
     "get_dialect",
+    "hash_query",
     "introspect_clickhouse",
     "introspect_duckdb",
     "introspect_information_schema",
@@ -247,10 +326,17 @@ __all__ = [
     "introspect_sqlite",
     "introspect_via_sqlalchemy",
     "list_connectors",
+    "list_dialects",
     "normalize_schema_snapshot",
     "quote_alias",
     "quote_identifier",
     "register_connector",
+    "register_dialect",
     "resolve_ownership_predicate",
+    "serve_swagger_ui_html",
+    "to_drizzle_schema",
+    "to_prisma_schema",
+    "to_sqlalchemy_models",
+    "unregister_dialect",
     "validate_sql_ast",
 ]

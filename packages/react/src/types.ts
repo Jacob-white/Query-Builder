@@ -37,54 +37,186 @@ export interface SchemaSnapshot {
   }[];
 }
 
-export interface VisualJoin {
+// ==========================================
+// Generic Database Schema Definitions
+// ==========================================
+
+export type SchemaDataType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "date"
+  | "timestamp"
+  | "json"
+  | "uuid"
+  | "decimal"
+  | "integer"
+  | string;
+
+export interface ColumnDefinition {
+  dataType: SchemaDataType;
+  nullable?: boolean;
+  primaryKey?: boolean;
+  comment?: string;
+}
+
+export interface RelationshipDefinition {
+  targetTable: string;
+  targetColumn?: string;
+  sourceColumn?: string;
+  type?: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
+}
+
+export interface TableDefinition {
+  columns: Record<string, ColumnDefinition | string> | ColumnMeta[];
+  relationships?: Record<string, RelationshipDefinition>;
+  comment?: string;
+}
+
+export interface DatabaseSchemaDefinition {
+  tables: Record<string, TableDefinition>;
+}
+
+// ==========================================
+// Schema Generic Utility Helpers
+// ==========================================
+
+export type SchemaTableNames<Schema> =
+  Schema extends { tables: infer T }
+    ? T extends Record<string, any>
+      ? keyof T & string
+      : string
+    : string;
+
+export type SchemaColumnNames<Schema, Table extends string> =
+  Schema extends {
+    tables: {
+      [K in Table]: {
+        columns: infer C;
+      };
+    };
+  }
+    ? C extends Record<string, any>
+      ? keyof C & string
+      : C extends Array<{ name: infer ColName extends string }>
+        ? ColName
+        : string
+    : string;
+
+export type SchemaColumnRefs<Schema> =
+  SchemaTableNames<Schema> extends infer T extends string
+    ? [T] extends [never]
+      ? string
+      : { [K in T]: `${K}.${SchemaColumnNames<Schema, K>}` }[T]
+    : string;
+
+export type SchemaJoinTargetTables<Schema, SourceTable extends string> =
+  Schema extends {
+    tables: {
+      [K in SourceTable]: {
+        relationships?: infer R;
+      };
+    };
+  }
+    ? R extends Record<string, { targetTable: infer TT extends string }>
+      ? TT
+      : SchemaTableNames<Schema>
+    : SchemaTableNames<Schema>;
+
+export type SchemaColumnType<Schema, Table extends string, Col extends string> =
+  Schema extends {
+    tables: {
+      [T in Table]: {
+        columns: {
+          [C in Col]: { dataType: infer DT } | infer DirectDT;
+        };
+      };
+    };
+  }
+    ? DT extends string
+      ? DT
+      : DirectDT extends string
+        ? DirectDT
+        : unknown
+    : unknown;
+
+// ==========================================
+// Filter and Visual AST Types
+// ==========================================
+
+export type FilterOperator =
+  | "="
+  | "!="
+  | ">"
+  | "<"
+  | ">="
+  | "<="
+  | "STARTS_WITH"
+  | "ENDS_WITH"
+  | "CONTAINS"
+  | "LIKE"
+  | "ILIKE"
+  | "IN"
+  | "NOT IN"
+  | "BETWEEN"
+  | "IS NULL"
+  | "IS NOT NULL";
+
+export interface VisualJoin<Schema = any> {
   id: string;
-  type: "LEFT JOIN" | "INNER JOIN" | "RIGHT JOIN";
-  left_table?: string;
-  table: string;
+  type: "LEFT JOIN" | "INNER JOIN" | "RIGHT JOIN" | "FULL JOIN";
+  left_table?: SchemaTableNames<Schema>;
+  table: SchemaTableNames<Schema>;
   left_col: string;
   right_col: string;
 }
 
-export interface VisualFilter {
+export interface VisualFilter<Schema = any> {
   id: string;
   combiner?: "AND" | "OR";
   parenOpen?: string;
-  tablePrefix?: string;
-  column: string;
-  operator:
-    | "="
-    | "!="
-    | ">"
-    | "<"
-    | ">="
-    | "<="
-    | "STARTS_WITH"
-    | "ENDS_WITH"
-    | "CONTAINS"
-    | "LIKE"
-    | "ILIKE"
-    | "IN"
-    | "NOT IN"
-    | "BETWEEN"
-    | "IS NULL"
-    | "IS NOT NULL";
-  value: string;
+  tablePrefix?: SchemaTableNames<Schema>;
+  column: SchemaColumnNames<Schema, any> | string;
+  operator: FilterOperator;
+  value: string | number | boolean;
   parenClose?: string;
 }
 
-export interface VisualSort {
+export interface VisualSort<Schema = any> {
   id: string;
-  tablePrefix?: string;
-  column: string;
+  tablePrefix?: SchemaTableNames<Schema>;
+  column: SchemaColumnNames<Schema, any> | string;
   direction: "ASC" | "DESC";
 }
 
-export interface VisualColumnSelect {
-  table: string;
-  name: string;
+export interface VisualColumnSelect<Schema = any> {
+  table: SchemaTableNames<Schema>;
+  name: SchemaColumnNames<Schema, any> | string;
   aggregate?: "" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
   alias?: string;
+}
+
+export interface QuerySpec<Schema = any> {
+  table: SchemaTableNames<Schema>;
+  columns: (string | { column: string; agg?: string; alias?: string })[];
+  joins: {
+    table: SchemaTableNames<Schema>;
+    type: string;
+    on?: { left: string; right: string }[];
+    left_table?: SchemaTableNames<Schema>;
+    left_col?: string;
+    right_col?: string;
+  }[];
+  filters: {
+    column: string;
+    op: string;
+    value: string | number | boolean;
+    tablePrefix?: SchemaTableNames<Schema>;
+  }[];
+  filter_join: "AND" | "OR";
+  order_by: { column: string; direction: "ASC" | "DESC" }[];
+  distinct: boolean;
+  limit: number;
 }
 
 export interface SqlPreset {
@@ -152,13 +284,86 @@ export type SqlDialect =
   | "neon"
   | "supabase";
 
-export interface VisualQueryBuilderProps {
-  schema?: SchemaSnapshot | null;
+export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
+  schema?: SchemaSnapshot | Schema | null;
   presets?: SqlPreset[];
-  initialTable?: string;
+  initialTable?: SchemaTableNames<Schema>;
   dialect?: SqlDialect;
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
   onSaveQuery?: (title: string, sql: string, spec: Record<string, unknown>) => void;
   theme?: "dark" | "light" | "auto";
+  readOnly?: boolean;
+  unstyled?: boolean;
+}
+
+// ==========================================
+// Charting Types
+// ==========================================
+
+export type ChartType = "bar" | "line" | "pie";
+
+export type AggregationMode = "SUM" | "COUNT" | "AVG" | "MIN" | "MAX" | "NONE";
+
+export interface QueryChartPreviewProps {
+  results: QueryResultData | null;
+  defaultChartType?: ChartType;
+  defaultCategoryCol?: string;
+  defaultMetricCol?: string;
+  defaultAggregation?: AggregationMode;
+  className?: string;
+  style?: React.CSSProperties;
+  unstyled?: boolean;
+}
+
+export interface ChartDataPoint {
+  category: string;
+  value: number;
+  count: number;
+  rawRows?: Record<string, unknown>[];
+}
+
+// ==========================================
+// Template Management Types
+// ==========================================
+
+export interface QueryTemplate {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string;
+  sql: string;
+  spec?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt?: string;
+  isDefault?: boolean;
+}
+
+export interface QueryTemplateManagerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentSql?: string;
+  currentSpec?: Record<string, unknown>;
+  onLoadTemplate: (template: QueryTemplate) => void;
+  onSaveTemplate?: (template: QueryTemplate) => void;
+  onDeleteTemplate?: (templateId: string) => void;
+  initialTemplates?: QueryTemplate[];
+  defaultMode?: "library" | "save";
+  unstyled?: boolean;
+}
+
+// ==========================================
+// Playground Types
+// ==========================================
+
+export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = any> {
+  schema?: SchemaSnapshot | Schema | null;
+  initialSpec?: QuerySpec<Schema> | Record<string, unknown>;
+  initialTable?: string;
+  dialect?: SqlDialect;
+  unstyled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  onSpecChange?: (spec: QuerySpec<Schema>) => void;
+  onSqlChange?: (sql: string) => void;
   readOnly?: boolean;
 }

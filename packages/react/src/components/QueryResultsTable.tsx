@@ -4,25 +4,32 @@ import type { QueryResultData } from "../types";
 export interface QueryResultsTableProps {
   results: QueryResultData | null;
   isLoading?: boolean;
+  unstyled?: boolean;
 }
 
 export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   results,
   isLoading,
+  unstyled = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
   if (isLoading) {
     return (
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "200px",
-          color: "#94a3b8",
-          fontSize: "0.9rem",
-        }}
+        data-qb="results-table-root"
+        style={
+          unstyled
+            ? undefined
+            : {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "200px",
+                color: "#94a3b8",
+                fontSize: "0.9rem",
+              }
+        }
       >
         <span>⏳ Executing read-only query...</span>
       </div>
@@ -32,15 +39,20 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   if (!results) {
     return (
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "180px",
-          color: "#64748b",
-          fontStyle: "italic",
-          fontSize: "0.85rem",
-        }}
+        data-qb="results-table-root"
+        style={
+          unstyled
+            ? undefined
+            : {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "180px",
+                color: "#64748b",
+                fontStyle: "italic",
+                fontSize: "0.85rem",
+              }
+        }
       >
         No query executed yet. Click "Run Query" to preview results.
       </div>
@@ -59,6 +71,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   });
 
   const handleExportCsv = () => {
+    if (typeof document === "undefined") return;
     if (rows.length === 0) return;
     const header = columns.join(",");
     const body = rows
@@ -79,115 +92,213 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJson = () => {
+    if (typeof document === "undefined") return;
+    if (rows.length === 0) return;
+    const jsonContent = JSON.stringify(rows, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `query_export_${Date.now()}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        height: "100%",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
+      data-qb="results-table-root"
+      style={
+        unstyled
+          ? undefined
+          : {
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              height: "100%",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }
+      }
     >
       {/* Action Bar */}
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "8px",
-        }}
+        data-qb="results-toolbar"
+        style={
+          unstyled
+            ? undefined
+            : {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "8px",
+              }
+        }
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
+        <div
+          data-qb="results-pagination"
+          style={
+            unstyled
+              ? undefined
+              : { display: "flex", alignItems: "center", gap: "10px" }
+          }
+        >
+          <span style={unstyled ? undefined : { fontSize: "0.82rem", color: "#94a3b8" }}>
             Showing <strong>{filteredRows.length}</strong> of <strong>{results.count}</strong> rows
           </span>
           {results.latency_ms !== undefined && (
             <span
-              style={{
-                fontSize: "0.75rem",
-                color: "#10b981",
-                background: "rgba(16, 185, 129, 0.1)",
-                padding: "2px 8px",
-                borderRadius: "12px",
-                fontWeight: 600,
-              }}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      fontSize: "0.75rem",
+                      color: "#10b981",
+                      background: "rgba(16, 185, 129, 0.1)",
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      fontWeight: 600,
+                    }
+              }
             >
               ⚡ {results.latency_ms} ms
             </span>
           )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
           <input
             type="text"
             placeholder="Search results..."
+            aria-label="Search query results"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              background: "#1e293b",
-              color: "#f8fafc",
-              border: "1px solid #475569",
-              borderRadius: "6px",
-              padding: "4px 10px",
-              fontSize: "0.78rem",
-              width: "160px",
-            }}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "#1e293b",
+                    color: "#f8fafc",
+                    border: "1px solid #475569",
+                    borderRadius: "6px",
+                    padding: "4px 10px",
+                    fontSize: "0.78rem",
+                    width: "160px",
+                  }
+            }
           />
           <button
             type="button"
             onClick={handleExportCsv}
-            style={{
-              background: "rgba(59, 130, 246, 0.15)",
-              color: "#60a5fa",
-              border: "1px solid rgba(59, 130, 246, 0.3)",
-              borderRadius: "6px",
-              padding: "4px 12px",
-              fontSize: "0.78rem",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
+            aria-label="Export results as CSV"
+            data-qb="btn-export-csv"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(59, 130, 246, 0.15)",
+                    color: "#60a5fa",
+                    border: "1px solid rgba(59, 130, 246, 0.3)",
+                    borderRadius: "6px",
+                    padding: "4px 12px",
+                    fontSize: "0.78rem",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }
+            }
           >
             📥 Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={handleExportJson}
+            aria-label="Export results as JSON"
+            data-qb="btn-export-json"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(16, 185, 129, 0.15)",
+                    color: "#34d399",
+                    border: "1px solid rgba(16, 185, 129, 0.3)",
+                    borderRadius: "6px",
+                    padding: "4px 12px",
+                    fontSize: "0.78rem",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }
+            }
+          >
+            📥 Export JSON
           </button>
         </div>
       </div>
 
       {/* Table container */}
       <div
-        style={{
-          overflowX: "auto",
-          overflowY: "auto",
-          maxHeight: "360px",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: "8px",
-          background: "rgba(15, 23, 42, 0.6)",
-        }}
+        style={
+          unstyled
+            ? undefined
+            : {
+                overflowX: "auto",
+                overflowY: "auto",
+                maxHeight: "360px",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                borderRadius: "8px",
+                background: "rgba(15, 23, 42, 0.6)",
+              }
+        }
       >
         <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "0.78rem",
-            color: "#e2e8f0",
-            textAlign: "left",
-          }}
+          role="table"
+          aria-label="Query results"
+          data-qb="results-table"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "0.78rem",
+                  color: "#e2e8f0",
+                  textAlign: "left",
+                }
+          }
         >
           <thead>
-            <tr style={{ background: "rgba(30, 41, 59, 0.9)", position: "sticky", top: 0 }}>
+            <tr
+              role="row"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "rgba(30, 41, 59, 0.9)",
+                      position: "sticky",
+                      top: 0,
+                    }
+              }
+            >
               {columns.map((c) => (
                 <th
                   key={c}
-                  style={{
-                    padding: "8px 12px",
-                    fontWeight: 600,
-                    borderBottom: "1px solid #334155",
-                    whiteSpace: "nowrap",
-                    color: "#93c5fd",
-                  }}
+                  role="columnheader"
+                  data-qb="results-th"
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          padding: "8px 12px",
+                          fontWeight: 600,
+                          borderBottom: "1px solid #334155",
+                          whiteSpace: "nowrap",
+                          color: "#93c5fd",
+                        }
+                  }
                 >
                   {c}
                 </th>
@@ -198,23 +309,41 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
             {filteredRows.map((r, idx) => (
               <tr
                 key={idx}
-                style={{
-                  background: idx % 2 === 0 ? "rgba(15, 23, 42, 0.4)" : "rgba(30, 41, 59, 0.3)",
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
-                }}
+                role="row"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background:
+                          idx % 2 === 0
+                            ? "rgba(15, 23, 42, 0.4)"
+                            : "rgba(30, 41, 59, 0.3)",
+                        borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
+                      }
+                }
               >
                 {columns.map((c) => (
                   <td
                     key={c}
-                    style={{
-                      padding: "6px 12px",
-                      whiteSpace: "nowrap",
-                      maxWidth: "240px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
+                    role="cell"
+                    data-qb="results-td"
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            padding: "6px 12px",
+                            whiteSpace: "nowrap",
+                            maxWidth: "240px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }
+                    }
                   >
-                    {r[c] !== null && r[c] !== undefined ? String(r[c]) : <span style={{ color: "#64748b" }}>null</span>}
+                    {r[c] !== null && r[c] !== undefined ? (
+                      String(r[c])
+                    ) : (
+                      <span style={unstyled ? undefined : { color: "#64748b" }}>null</span>
+                    )}
                   </td>
                 ))}
               </tr>
