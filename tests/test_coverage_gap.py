@@ -168,3 +168,63 @@ def test_compiler_fallbacks_and_ilike():
 def test_cli_subcommand_dispatch():
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_ast_validator_comment_only_and_allowed_schemas_mismatch():
+    from query_builder.ast_validator import validate_sql_ast
+
+    res = validate_sql_ast("/* only a multiline comment */")
+    assert not res["valid"]
+
+    # Schema pattern matches, but allowed_schemas doesn't match
+    res_schema = validate_sql_ast(
+        "SELECT * FROM public.orders;", allowed_schemas=["analytics"]
+    )
+    assert not res_schema["valid"]
+    assert (
+        "Queries may only target allowed analytical datasets" in res_schema["message"]
+    )
+
+
+def test_compiler_tenant_id_column_and_having_count_query():
+    schema = {
+        "tables": {
+            "organizations": {
+                "columns": [{"name": "id"}, {"name": "tenant_id"}],
+            }
+        }
+    }
+    spec = {
+        "table": "organizations",
+        "columns": [
+            "tenant_id",
+            {"name": "id", "agg": "count"},
+        ],
+        "having": [{"column": "count_id", "agg": "count", "op": "gt", "value": 5}],
+    }
+    compiler = QueryCompiler(spec, schema=schema, tenant_id="tenant-123")
+    sql, params, count_sql, _ = compiler.compile()
+    assert '"t1"."tenant_id" = %s' in sql
+    assert "tenant-123" in params
+    assert "HAVING" in count_sql
+
+
+def test_executor_validate_ast_false_and_schema_non_dict_col():
+    import sqlite3
+
+    from query_builder.executor import execute_compiled_spec
+    from query_builder.schema import normalize_schema_snapshot
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE users (id INTEGER);")
+    cur.execute("INSERT INTO users VALUES (1);")
+
+    res = execute_compiled_spec(
+        cur, {"table": "users", "columns": ["id"]}, dialect="sqlite", validate_ast=False
+    )
+    assert res["count"] == 1
+
+    # Schema with non-dict, non-str column
+    norm = normalize_schema_snapshot({"tables": {"users": {"columns": [999]}}})
+    assert norm["tables"]["users"]["columns"] == []

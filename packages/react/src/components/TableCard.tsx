@@ -122,7 +122,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                 <input
                   type="checkbox"
                   checked={isColChecked}
-                  onChange={() => {}}
+                  onChange={() => onToggleColumn(col.name)}
                   style={{ cursor: "pointer" }}
                 />
                 <span

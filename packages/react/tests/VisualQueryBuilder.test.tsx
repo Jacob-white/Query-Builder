@@ -146,6 +146,64 @@ describe("VisualQueryBuilder", () => {
     expect(screen.queryByText("users.id")).toBeNull();
   });
 
+  it("switches to Results tab directly when Results tab button is clicked", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const resultsTabBtn = screen.getByText(/📊 Results/);
+    fireEvent.click(resultsTabBtn);
+
+    expect(screen.getByText(/No query executed yet/i)).toBeTruthy();
+  });
+
+  it("closes ERD modal when header close button is clicked", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const erdBtn = screen.getByText("🗺️ Schema ERD");
+    fireEvent.click(erdBtn);
+    expect(screen.getByText("Schema Entity Relationship Diagram (ERD)")).toBeTruthy();
+
+    const closeBtns = screen.getAllByText("✕");
+    // The last '✕' is inside the ERD modal header
+    fireEvent.click(closeBtns[closeBtns.length - 1]);
+    expect(screen.queryByText("Schema Entity Relationship Diagram (ERD)")).toBeNull();
+  });
+
+  it("updates joins, filters, sorts, distinct, and limit through visual canvas", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    // Select id column so projections manager appears
+    fireEvent.click(screen.getByText("id"));
+
+    // Toggle DISTINCT
+    const distinctCheckbox = screen.getByRole("checkbox", { name: /DISTINCT/i });
+    fireEvent.click(distinctCheckbox);
+
+    // Change LIMIT
+    const limitSelect = screen.getByDisplayValue("50");
+    fireEvent.change(limitSelect, { target: { value: "100" } });
+
+    // Add Join via unjoined table dropdown
+    const joinSelect = screen.getByDisplayValue("+ Join Table...");
+    fireEvent.change(joinSelect, { target: { value: "orders" } });
+
+    // Add Filter
+    const addFilterBtn = screen.getByText("+ Add Filter");
+    fireEvent.click(addFilterBtn);
+
+    // Add Sort
+    const addSortBtn = screen.getByText("+ Add Sort");
+    fireEvent.click(addSortBtn);
+
+    // Switch to Raw SQL to verify compiled SQL reflects all state updates
+    fireEvent.click(screen.getByText("📝 Raw SQL"));
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.value).toContain('SELECT DISTINCT "users"."id"');
+    expect(textarea.value).toContain('LEFT JOIN "orders"');
+    expect(textarea.value).toContain('WHERE "users"."id" = \'\'');
+    expect(textarea.value).toContain('ORDER BY "users"."id" ASC');
+    expect(textarea.value).toContain("LIMIT 100;");
+  });
+
   it("handles empty schema and missing initialTable gracefully", () => {
     render(<VisualQueryBuilder schema={{ tables: {}, foreign_keys: [] }} />);
     expect(screen.getByText("🎨 Visual Builder")).toBeTruthy();
