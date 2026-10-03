@@ -209,4 +209,82 @@ describe("TableJoinEditor", () => {
 
     expect(handleChange).toHaveBeenCalledWith([]);
   });
+
+  it("returns early when empty targetTable is selected", () => {
+    const handleChange = vi.fn();
+    render(
+      <TableJoinEditor
+        joins={[]}
+        activeTables={[allTables[0]]}
+        allTables={allTables}
+        schema={mockSchema}
+        onChange={handleChange}
+      />
+    );
+    const select = screen.getByRole("combobox");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it("returns early when activeTables is empty on add join", () => {
+    const handleChange = vi.fn();
+    render(
+      <TableJoinEditor
+        joins={[]}
+        activeTables={[]}
+        allTables={allTables}
+        schema={mockSchema}
+        onChange={handleChange}
+      />
+    );
+    const select = screen.getByRole("combobox");
+    fireEvent.change(select, { target: { value: "orders" } });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it("handles fallback left_table when empty and updates multiple joins list", () => {
+    const handleChange = vi.fn();
+    const twoJoins: VisualJoin[] = [
+      {
+        id: "j1",
+        type: "LEFT JOIN",
+        left_table: "", // triggers fallback to activeTables[0]?.name
+        left_col: "id",
+        table: "orders",
+        right_col: "user_id",
+      },
+      {
+        id: "j2",
+        type: "INNER JOIN",
+        left_table: "orders",
+        left_col: "id",
+        table: "products",
+        right_col: "product_id",
+      },
+    ];
+    render(
+      <TableJoinEditor
+        joins={twoJoins}
+        activeTables={[allTables[0], allTables[1]]}
+        allTables={allTables}
+        schema={mockSchema}
+        onChange={handleChange}
+      />
+    );
+
+    // Left input has fallback users.id
+    const leftInput = screen.getByDisplayValue("users.id");
+    expect(leftInput).toBeTruthy();
+
+    // Change leftInput with invalid text (no dot) to hit parts.length !== 2
+    fireEvent.change(leftInput, { target: { value: "invalid_format" } });
+    expect(handleChange).not.toHaveBeenCalled();
+
+    // Change leftInput with valid text to hit line 37: : j branch for j2
+    fireEvent.change(leftInput, { target: { value: "users.new_col" } });
+    expect(handleChange).toHaveBeenCalledWith([
+      { ...twoJoins[0], left_table: "users", left_col: "new_col" },
+      twoJoins[1],
+    ]);
+  });
 });

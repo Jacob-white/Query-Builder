@@ -327,4 +327,48 @@ describe("VisualQueryBuilder", () => {
 
     expect(screen.queryByText("▶ Run Query")).toBeNull();
   });
+
+  it("handles undefined schema without initialTable", () => {
+    render(<VisualQueryBuilder schema={undefined as any} />);
+    expect(screen.getByText("📋 Active Tables in Query (0)")).toBeTruthy();
+  });
+
+  it("blocks Run Query when SQL is unsafe in raw SQL mode", () => {
+    const handleExecute = vi.fn();
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        onExecuteQuery={handleExecute}
+      />
+    );
+    fireEvent.click(screen.getByText("📝 Raw SQL"));
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "DELETE FROM users;" } });
+    const runBtn = screen.getByText("▶ Run Query");
+    fireEvent.click(runBtn);
+    expect(handleExecute).not.toHaveBeenCalled();
+  });
+
+  it("handles non-Error thrown by onExecuteQuery", async () => {
+    const handleExecute = vi.fn().mockRejectedValue("String network error");
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        onExecuteQuery={handleExecute}
+      />
+    );
+    const runBtn = screen.getByText("▶ Run Query");
+    fireEvent.click(runBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/❌ String network error/i)).toBeTruthy();
+    });
+  });
+
+  it("defaults to first schema table when initialTable is omitted", () => {
+    render(<VisualQueryBuilder schema={mockSchema} />);
+    expect(screen.getByText("📋 Active Tables in Query (1)")).toBeTruthy();
+    expect(screen.getByText("users")).toBeTruthy();
+  });
 });

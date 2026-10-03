@@ -108,4 +108,21 @@ describe("SchemaErdModal", () => {
     render(<SchemaErdModal isOpen={true} onClose={vi.fn()} schema={null} />);
     expect(screen.getByText("0 tables · 0 foreign keys")).toBeTruthy();
   });
+
+  it("renders plural 'relationships' when a table has more than 1 relationship", () => {
+    const multiFkSchema: SchemaSnapshot = {
+      tables: {
+        orders: {
+          name: "orders",
+          columns: [{ name: "id", data_type: "int", is_nullable: false, is_primary: true }],
+        },
+      },
+      foreign_keys: [
+        { table: "orders", column: "c1", foreign_table: "t1", foreign_column: "id" },
+        { table: "orders", column: "c2", foreign_table: "t2", foreign_column: "id" },
+      ],
+    };
+    render(<SchemaErdModal isOpen={true} onClose={vi.fn()} schema={multiFkSchema} />);
+    expect(screen.getByText(/2 relationships/)).toBeTruthy();
+  });
 });

@@ -130,7 +130,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
 
   // Run Query handler
   const handleRunQuery = async () => {
-    if (!currentSql.trim() || !safety.valid) return;
+    if (!safety.valid) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
@@ -297,7 +297,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
             <button
               type="button"
               onClick={handleRunQuery}
-              disabled={isRunning || !safety.valid}
+              disabled={isRunning}
               style={{
                 background: safety.valid ? "#10b981" : "#475569",
                 color: "#ffffff",

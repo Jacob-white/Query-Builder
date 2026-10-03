@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateSqlSafety } from "../src/utils/safety";
+import { validateSqlSafety, extractCteRootWord } from "../src/utils/safety";
 
 describe("validateSqlSafety", () => {
   it("validates empty query as invalid with appropriate message", () => {
@@ -186,5 +186,14 @@ describe("validateSqlSafety", () => {
     expect(validateSqlSafety("SELECT $tag$dollar tag$tag$ AS val;").valid).toBe(true);
     expect(validateSqlSafety("SELECT 'O''Reilly' AS author;").valid).toBe(true);
     expect(validateSqlSafety("WITH malformed_cte").valid).toBe(false);
+
+    // Queries with no keyword (numbers/symbols) to trigger UNKNOWN statement type
+    const resNoWord = validateSqlSafety("123;");
+    expect(resNoWord.valid).toBe(false);
+    expect(resNoWord.statementType).toBe("UNKNOWN");
+
+    // extractCteRootWord on non-WITH statement and CTE followed by numbers (wordMatch null)
+    expect(extractCteRootWord("SELECT 1")).toBe("");
+    expect(extractCteRootWord("WITH t AS (SELECT 1) 123")).toBe("UNKNOWN");
   });
 });
