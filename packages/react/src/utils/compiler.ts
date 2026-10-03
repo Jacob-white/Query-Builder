@@ -205,9 +205,25 @@ export function compileVisualState(
     orderClause = `ORDER BY ${sortParts.join(", ")}`;
   }
 
+  // Group By
+  let groupClause = "";
+  if (hasAggregates) {
+    const nonAggCols = orderedProjectionKeys
+      .map((k) => selectedColumns[k])
+      .filter((item): item is VisualColumnSelect => Boolean(item && !item.aggregate))
+      .map((item) => {
+        const tbl = item.table || cleanPrimary;
+        return `"${tbl}"."${item.name}"`;
+      });
+    if (nonAggCols.length > 0) {
+      groupClause = `GROUP BY ${nonAggCols.join(", ")}`;
+    }
+  }
+
   const queryParts = [`SELECT ${selectClause}`, fromClause];
   if (joinClauses.length > 0) queryParts.push(...joinClauses);
   if (whereClause) queryParts.push(whereClause);
+  if (groupClause) queryParts.push(groupClause);
   if (orderClause) queryParts.push(orderClause);
   queryParts.push(`LIMIT ${limit};`);
 

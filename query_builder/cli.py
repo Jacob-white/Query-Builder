@@ -4,6 +4,7 @@ Command-Line Interface for Query Builder Engine.
 Provides CLI utilities for compiling declarative specs to SQL,
 validating raw SQL strings, and testing join graph pathfinding.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,24 +22,51 @@ def main(argv: list[str] | None = None) -> int:
         prog="query-builder",
         description="Universal SQL Query Builder, Declarative Compiler, and AST Safety Validator.",
     )
-    parser.add_argument("--version", action="version", version=f"query-builder {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"query-builder {__version__}"
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Compile subcommand
-    compile_p = subparsers.add_parser("compile", help="Compile a JSON query spec into parameterized SQL.")
-    compile_p.add_argument("--spec", "-s", required=True, help="Path to JSON query specification file or JSON string.")
-    compile_p.add_argument("--schema", help="Optional path to JSON schema snapshot file.")
-    compile_p.add_argument("--dialect", "-d", default="postgres", help="SQL dialect (postgres, snowflake, mssql, sqlite, mysql).")
+    compile_p = subparsers.add_parser(
+        "compile", help="Compile a JSON query spec into parameterized SQL."
+    )
+    compile_p.add_argument(
+        "--spec",
+        "-s",
+        required=True,
+        help="Path to JSON query specification file or JSON string.",
+    )
+    compile_p.add_argument(
+        "--schema", help="Optional path to JSON schema snapshot file."
+    )
+    compile_p.add_argument(
+        "--dialect",
+        "-d",
+        default="postgres",
+        help="SQL dialect (postgres, snowflake, mssql, sqlite, mysql).",
+    )
 
     # Validate subcommand
-    validate_p = subparsers.add_parser("validate", help="Validate a SQL query string against AST safety rules.")
+    validate_p = subparsers.add_parser(
+        "validate", help="Validate a SQL query string against AST safety rules."
+    )
     validate_p.add_argument("sql", help="SQL query string to validate.")
 
     # Join path subcommand
-    join_p = subparsers.add_parser("join-path", help="Find the shortest join path between tables.")
-    join_p.add_argument("--active", "-a", required=True, help="Comma-separated list of active table names.")
-    join_p.add_argument("--target", "-t", required=True, help="Target table name to join.")
+    join_p = subparsers.add_parser(
+        "join-path", help="Find the shortest join path between tables."
+    )
+    join_p.add_argument(
+        "--active",
+        "-a",
+        required=True,
+        help="Comma-separated list of active table names.",
+    )
+    join_p.add_argument(
+        "--target", "-t", required=True, help="Target table name to join."
+    )
     join_p.add_argument("--schema", help="Optional path to JSON schema snapshot file.")
 
     args = parser.parse_args(argv)
@@ -56,7 +84,9 @@ def main(argv: list[str] | None = None) -> int:
                 with open(args.schema, "r", encoding="utf-8") as f:
                     schema_data = json.load(f)
 
-            compiler = QueryCompiler(spec_data, schema=schema_data, dialect=args.dialect)
+            compiler = QueryCompiler(
+                spec_data, schema=schema_data, dialect=args.dialect
+            )
             main_sql, params, count_sql, _count_params = compiler.compile()
 
             print("--- Main SQL ---")
@@ -85,8 +115,6 @@ def main(argv: list[str] | None = None) -> int:
         path = find_join_path(active, args.target, schema_data)
         print(json.dumps(path, indent=2))
         return 0
-
-    return 0
 
 
 if __name__ == "__main__":

@@ -37,6 +37,30 @@ def test_cli_compile(capsys, tmp_path):
     assert 'FROM "users" "t1"' in captured.out
 
 
+def test_cli_compile_inline_json_with_schema(capsys, tmp_path):
+    schema = {"tables": {"users": {"columns": [{"name": "id"}]}}}
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(schema))
+
+    inline_spec = '{"table": "users", "columns": ["users.id"]}'
+    ret = main(["compile", "--spec", inline_spec, "--schema", str(schema_file)])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert 'FROM "users" "t1"' in captured.out
+
+
+def test_cli_compile_error_returns_one(capsys, tmp_path):
+    schema = {"tables": {"users": {"columns": [{"name": "id"}]}}}
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(schema))
+
+    inline_spec = '{"table": "nonexistent"}'
+    ret = main(["compile", "--spec", inline_spec, "--schema", str(schema_file)])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "Compilation error" in captured.err
+
+
 def test_cli_join_path(capsys, tmp_path):
     schema = {
         "tables": {
@@ -44,13 +68,20 @@ def test_cli_join_path(capsys, tmp_path):
             "b": {"columns": [{"name": "id"}, {"name": "a_id"}]},
         },
         "foreign_keys": [
-            {"table": "b", "column": "a_id", "foreign_table": "a", "foreign_column": "id"}
-        ]
+            {
+                "table": "b",
+                "column": "a_id",
+                "foreign_table": "a",
+                "foreign_column": "id",
+            }
+        ],
     }
     schema_file = tmp_path / "schema.json"
     schema_file.write_text(json.dumps(schema))
 
-    ret = main(["join-path", "--active", "a", "--target", "b", "--schema", str(schema_file)])
+    ret = main(
+        ["join-path", "--active", "a", "--target", "b", "--schema", str(schema_file)]
+    )
     assert ret == 0
     captured = capsys.readouterr()
     res = json.loads(captured.out)

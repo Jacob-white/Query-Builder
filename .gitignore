@@ -40,6 +40,7 @@ venv.bak/
 .coverage
 .coverage.*
 htmlcov/
+coverage/
 coverage.xml
 
 # Linters & Typecheckers

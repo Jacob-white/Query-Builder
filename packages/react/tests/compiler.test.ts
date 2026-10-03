@@ -1,7 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { compileVisualState } from "../src/utils/compiler";
+import type { SchemaSnapshot } from "../src/types";
 
 describe("compileVisualState", () => {
+  const mockSchema: SchemaSnapshot = {
+    tables: {
+      users: {
+        name: "users",
+        columns: [
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+          { name: "email", data_type: "text", is_nullable: false, is_primary: false },
+        ],
+      },
+      orders: {
+        name: "orders",
+        columns: [
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+          { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "amount", data_type: "numeric", is_nullable: false, is_primary: false },
+        ],
+      },
+    },
+    foreign_keys: [],
+  };
+
   it("compiles empty query when no table selected", () => {
     const res = compileVisualState("", {}, [], [], [], []);
     expect(res.sql).toBe("");
@@ -26,6 +48,36 @@ describe("compileVisualState", () => {
     expect(res.sql).toContain('FROM "users"');
     expect(res.sql).toContain("LIMIT 50;");
     expect(res.spec.columns).toHaveLength(2);
+  });
+
+  it("falls back to wildcard when no columns explicitly selected", () => {
+    const res = compileVisualState(
+      "users",
+      {},
+      [],
+      [],
+      [],
+      [],
+      false,
+      25,
+      mockSchema,
+    );
+    expect(res.sql).toContain("SELECT *");
+    expect(res.spec.columns).toEqual(["*"]);
+  });
+
+  it("compiles DISTINCT modifier when requested", () => {
+    const res = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [],
+      [],
+      true,
+      10,
+    );
+    expect(res.sql).toContain('SELECT DISTINCT "users"."id"');
   });
 
   it("compiles joins, filters, and sorts", () => {
@@ -70,18 +122,102 @@ describe("compileVisualState", () => {
     expect(res.sql).toContain('ORDER BY "users"."name" ASC');
   });
 
-  it("compiles aggregate functions and aliases", () => {
+  it("compiles filter operators: IS NULL, IS NOT NULL, STARTS_WITH, ENDS_WITH, CONTAINS, LIKE, ILIKE", () => {
+    const res = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        { id: "f1", tablePrefix: "users", column: "email", operator: "IS NULL", value: "" },
+        { id: "f2", tablePrefix: "users", column: "email", operator: "IS NOT NULL", value: "" },
+        { id: "f3", tablePrefix: "users", column: "name", operator: "STARTS_WITH", value: "J" },
+        { id: "f4", tablePrefix: "users", column: "name", operator: "ENDS_WITH", value: "e" },
+        { id: "f5", tablePrefix: "users", column: "name", operator: "CONTAINS", value: "ac" },
+        { id: "f6", tablePrefix: "users", column: "name", operator: "LIKE", value: "%foo%" },
+        { id: "f7", tablePrefix: "users", column: "name", operator: "ILIKE", value: "%bar%" },
+        { id: "f8", tablePrefix: "users", column: "age", operator: ">", value: "25" },
+      ],
+      [],
+    );
+
+    expect(res.sql).toContain('"users"."email" IS NULL');
+    expect(res.sql).toContain('"users"."email" IS NOT NULL');
+    expect(res.sql).toContain('"users"."name" ILIKE \'J%\'');
+    expect(res.sql).toContain('"users"."name" ILIKE \'%e\'');
+    expect(res.sql).toContain('"users"."name" ILIKE \'%ac%\'');
+    expect(res.sql).toContain('"users"."name" LIKE \'%foo%\'');
+    expect(res.sql).toContain('"users"."name" ILIKE \'%bar%\'');
+    expect(res.sql).toContain('"users"."age" > 25');
+  });
+
+  it("compiles IN and NOT IN filter operators with numbers and strings", () => {
+    const res = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        { id: "f1", tablePrefix: "users", column: "id", operator: "IN", value: "1, 2, 3" },
+        { id: "f2", tablePrefix: "users", column: "role", operator: "NOT IN", value: "admin, guest" },
+      ],
+      [],
+    );
+
+    expect(res.sql).toContain('"users"."id" IN (1, 2, 3)');
+    expect(res.sql).toContain('"users"."role" NOT IN (\'admin\', \'guest\')');
+  });
+
+  it("compiles BETWEEN filter operator with AND and comma delimiters", () => {
+    const resAnd = compileVisualState(
+      "orders",
+      { "orders.id": { table: "orders", name: "id" } },
+      ["orders.id"],
+      [],
+      [
+        { id: "f1", tablePrefix: "orders", column: "amount", operator: "BETWEEN", value: "10 AND 50" },
+        { id: "f2", tablePrefix: "orders", column: "created_at", operator: "BETWEEN", value: "2020-01-01, 2020-12-31" },
+      ],
+      [],
+    );
+
+    expect(resAnd.sql).toContain('"orders"."amount" BETWEEN 10 AND 50');
+    expect(resAnd.sql).toContain('"orders"."created_at" BETWEEN \'2020-01-01\' AND \'2020-12-31\'');
+  });
+
+  it("compiles aggregate functions and derives GROUP BY for mixed projections", () => {
     const res = compileVisualState(
       "users",
       {
+        "users.role": { table: "users", name: "role" },
         "users.id": { table: "users", name: "id", aggregate: "COUNT", alias: "user_count" },
       },
-      ["users.id"],
+      ["users.role", "users.id"],
       [],
       [],
       [],
     );
 
-    expect(res.sql).toContain('COUNT("users"."id") AS "user_count"');
+    expect(res.sql).toContain('SELECT "users"."role", COUNT("users"."id") AS "user_count"');
+    expect(res.sql).toContain('GROUP BY "users"."role"');
+  });
+
+  it("compiles column with custom alias without aggregate", () => {
+    const res = compileVisualState(
+      "users",
+      {
+        "users.email": { table: "users", name: "email", alias: "contact_email" },
+      },
+      ["users.email"],
+      [],
+      [],
+      [],
+    );
+
+    expect(res.sql).toContain('"users"."email" AS "contact_email"');
+    expect(res.spec.columns[0]).toEqual({
+      column: "users.email",
+      alias: "contact_email",
+    });
   });
 });

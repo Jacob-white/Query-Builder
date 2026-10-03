@@ -5,6 +5,7 @@ Performs deep AST parsing via sqlparse to strictly verify queries are read-only
 SELECT/CTE operations, rejecting SQL injection, semicolon chaining, mutation keywords,
 unauthorized schema access, and system/credential table references.
 """
+
 from __future__ import annotations
 
 import re
@@ -30,21 +31,58 @@ FORBIDDEN_SQL_PATTERNS = [
 ]
 
 RESTRICTED_MUTATION_KEYWORDS: set[str] = {
-    "DELETE", "DROP", "UPDATE", "INSERT", "TRUNCATE", "ALTER",
-    "GRANT", "REVOKE", "CREATE", "EXECUTE", "INTO", "COPY",
-    "VACUUM", "REINDEX", "CLUSTER", "LOCK", "CALL"
+    "DELETE",
+    "DROP",
+    "UPDATE",
+    "INSERT",
+    "TRUNCATE",
+    "ALTER",
+    "GRANT",
+    "REVOKE",
+    "CREATE",
+    "EXECUTE",
+    "INTO",
+    "COPY",
+    "VACUUM",
+    "REINDEX",
+    "CLUSTER",
+    "LOCK",
+    "CALL",
 }
 
 RESTRICTED_SECURITY_TABLES: set[str] = {
-    "AUTH_USER", "AUTH_GROUP", "AUTH_PERMISSION", "AUTH_USER_GROUPS", "AUTH_USER_USER_PERMISSIONS",
-    "AUTHTOKEN_TOKEN", "DJANGO_SESSION", "DJANGO_ADMIN_LOG", "DJANGO_CONTENT_TYPE", "DJANGO_MIGRATIONS",
-    "PG_SHADOW", "PG_AUTHID", "PG_USER", "PG_DATABASE", "PG_TABLES", "PG_STAT_ACTIVITY",
-    "PG_ROLES", "PG_SETTINGS", "PG_CONFIG", "PASSWORDS", "CREDENTIALS",
-    "CRM_CONNECTION", "CRM_FIELD_MAPPING", "DJANGO_CACHE_TABLE", "API_AUDITLOG", "USER_PROFILE",
+    "AUTH_USER",
+    "AUTH_GROUP",
+    "AUTH_PERMISSION",
+    "AUTH_USER_GROUPS",
+    "AUTH_USER_USER_PERMISSIONS",
+    "AUTHTOKEN_TOKEN",
+    "DJANGO_SESSION",
+    "DJANGO_ADMIN_LOG",
+    "DJANGO_CONTENT_TYPE",
+    "DJANGO_MIGRATIONS",
+    "PG_SHADOW",
+    "PG_AUTHID",
+    "PG_USER",
+    "PG_DATABASE",
+    "PG_TABLES",
+    "PG_STAT_ACTIVITY",
+    "PG_ROLES",
+    "PG_SETTINGS",
+    "PG_CONFIG",
+    "PASSWORDS",
+    "CREDENTIALS",
+    "CRM_CONNECTION",
+    "CRM_FIELD_MAPPING",
+    "DJANGO_CACHE_TABLE",
+    "API_AUDITLOG",
+    "USER_PROFILE",
 }
 
 DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
-    r"\bPUBLIC\.", r"\bPG_CATALOG\.", r"\bINFORMATION_SCHEMA\."
+    r"\bPUBLIC\.",
+    r"\bPG_CATALOG\.",
+    r"\bINFORMATION_SCHEMA\.",
 ]
 
 
@@ -133,7 +171,11 @@ def validate_sql_ast(
         )
 
     # Check for restricted system/security schema access
-    schema_patterns = restricted_schema_patterns if restricted_schema_patterns is not None else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
+    schema_patterns = (
+        restricted_schema_patterns
+        if restricted_schema_patterns is not None
+        else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
+    )
     for pattern in schema_patterns:
         if re.search(pattern, clean, re.IGNORECASE):
             # If allowed_schemas is explicitly provided, verify if this pattern is an exception
@@ -151,15 +193,25 @@ def validate_sql_ast(
             break
 
     # Deep token inspection for mutation keywords and restricted auth/system tables
-    effective_keywords = restricted_keywords if restricted_keywords is not None else RESTRICTED_MUTATION_KEYWORDS
-    effective_tables = restricted_tables if restricted_tables is not None else RESTRICTED_SECURITY_TABLES
+    effective_keywords = (
+        restricted_keywords
+        if restricted_keywords is not None
+        else RESTRICTED_MUTATION_KEYWORDS
+    )
+    effective_tables = (
+        restricted_tables
+        if restricted_tables is not None
+        else RESTRICTED_SECURITY_TABLES
+    )
 
     for tok in stmt.flatten():
         val = tok.value.upper().strip('"[]`')
         if tok.ttype in (Keyword, DML, DDL) or val in effective_keywords:
             if val in effective_keywords:
                 violations.append(f"Forbidden mutation keyword: '{val}'")
-            elif val == "SET" and not re.search(r"\bSET\s+(?:TRANSACTION|LOCAL)\b", clean, re.IGNORECASE):
+            elif val == "SET" and not re.search(
+                r"\bSET\s+(?:TRANSACTION|LOCAL)\b", clean, re.IGNORECASE
+            ):
                 violations.append("Forbidden session modification keyword: 'SET'")
 
         # Restrict unauthorized tables
@@ -174,15 +226,27 @@ def validate_sql_ast(
         if match:
             matched_kw = match.group(0).upper()
             if f"Forbidden mutation keyword: '{matched_kw}'" not in violations:
-                violations.append(f"Forbidden mutation pattern detected: '{matched_kw}'")
+                violations.append(
+                    f"Forbidden mutation pattern detected: '{matched_kw}'"
+                )
 
     unique_violations = list(dict.fromkeys(violations))
     is_valid = len(unique_violations) == 0
-    detected_type = "SELECT" if (stmt_type == "SELECT" or is_cte) else (stmt_type or first_val or "UNKNOWN")
+    detected_type = (
+        "SELECT"
+        if (stmt_type == "SELECT" or is_cte)
+        else (stmt_type or first_val or "UNKNOWN")
+    )
 
     risk = "NONE"
     if not is_valid:
-        if any("MUTATION" in v.upper() or "KEYWORD" in v.upper() or "CHAINING" in v.upper() or "DENIED" in v.upper() for v in unique_violations):
+        if any(
+            "MUTATION" in v.upper()
+            or "KEYWORD" in v.upper()
+            or "CHAINING" in v.upper()
+            or "DENIED" in v.upper()
+            for v in unique_violations
+        ):
             risk = "CRITICAL"
         else:
             risk = "HIGH"
@@ -194,5 +258,7 @@ def validate_sql_ast(
         "is_read_only": is_valid,
         "violations": unique_violations,
         "injection_risk": risk,
-        "message": "Query passed AST validation and read-only policy." if is_valid else unique_violations[0],
+        "message": "Query passed AST validation and read-only policy."
+        if is_valid
+        else unique_violations[0],
     }

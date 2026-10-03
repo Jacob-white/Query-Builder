@@ -39,8 +39,8 @@ def test_quote_identifier_injection_rejection():
 
 def test_quote_alias_escaping():
     assert quote_alias('user"name', "postgres") == '"user""name"'
-    assert quote_alias('col]name', "mssql") == '[col]]name]'
-    assert quote_alias('col`name', "mysql") == '`col``name`'
+    assert quote_alias("col]name", "mssql") == "[col]]name]"
+    assert quote_alias("col`name", "mysql") == "`col``name`"
 
 
 def test_limit_offset_formatting():
@@ -58,9 +58,13 @@ def test_limit_offset_formatting():
 def test_ilike_formatting():
     pg = get_dialect("postgres")
     assert pg.format_ilike('"t1"."name"') == '"t1"."name" ILIKE %s'
+    assert pg.format_like('"t1"."name"') == '"t1"."name" LIKE %s'
 
     mssql = get_dialect("mssql")
     assert mssql.format_ilike("[t1].[name]") == "LOWER([t1].[name]) LIKE LOWER(%s)"
 
     sqlite = get_dialect("sqlite")
     assert sqlite.format_ilike('"t1"."name"') == '"t1"."name" LIKE ?'
+
+    mysql = get_dialect("mysql")
+    assert mysql.format_ilike("`t1`.`name`") == "LOWER(`t1`.`name`) LIKE LOWER(%s)"
