@@ -671,4 +671,129 @@ describe("compileVisualState", () => {
     expect(formatLimit(25, "databricks")).toBe("LIMIT 25;");
     expect(formatLimit(25, "spanner")).toBe("LIMIT 25;");
   });
+
+  it("handles the latest 10 production engine dialects in quoteIdent and quoteAlias", () => {
+    // Backtick dialects: tidb, singlestore, couchbase
+    expect(quoteIdent("col", "tidb")).toBe("`col`");
+    expect(quoteIdent("col`name", "tidb")).toBe("`col``name`");
+    expect(quoteAlias("alias", "tidb")).toBe("`alias`");
+
+    expect(quoteIdent("col", "singlestore")).toBe("`col`");
+    expect(quoteIdent("col`name", "singlestore")).toBe("`col``name`");
+    expect(quoteAlias("alias", "singlestore")).toBe("`alias`");
+
+    expect(quoteIdent("col", "couchbase")).toBe("`col`");
+    expect(quoteIdent("col`name", "couchbase")).toBe("`col``name`");
+    expect(quoteAlias("alias", "couchbase")).toBe("`alias`");
+
+    // Double-quote dialects: dremio, firebolt, teradata, d1, mongodb, neon, supabase
+    expect(quoteIdent("col", "dremio")).toBe('"col"');
+    expect(quoteIdent("col\"name", "dremio")).toBe('"col""name"');
+    expect(quoteAlias("alias", "dremio")).toBe('"alias"');
+
+    expect(quoteIdent("col", "firebolt")).toBe('"col"');
+    expect(quoteIdent("col", "teradata")).toBe('"col"');
+    expect(quoteIdent("col", "d1")).toBe('"col"');
+    expect(quoteIdent("col", "mongodb")).toBe('"col"');
+    expect(quoteIdent("col", "neon")).toBe('"col"');
+    expect(quoteIdent("col", "supabase")).toBe('"col"');
+  });
+
+  it("handles the latest 10 production engine dialects in formatIlike", () => {
+    // SQLite-style LIKE: d1
+    expect(formatIlike("c", "'%val%'", "d1")).toBe("c LIKE '%val%'");
+
+    // Native ILIKE: dremio, firebolt, neon, supabase
+    expect(formatIlike("c", "'%val%'", "dremio")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "firebolt")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "neon")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "supabase")).toBe("c ILIKE '%val%'");
+
+    // LOWER(...) LIKE LOWER(...): tidb, singlestore, teradata, couchbase, mongodb
+    expect(formatIlike("c", "'%val%'", "tidb")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "singlestore")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "teradata")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "couchbase")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "mongodb")).toBe("LOWER(c) LIKE LOWER('%val%')");
+  });
+
+  it("handles the latest 10 production engine dialects in formatLimit and compileVisualState", () => {
+    expect(formatLimit(30, "teradata")).toBe("OFFSET 0 ROWS FETCH NEXT 30 ROWS ONLY;");
+    expect(formatLimit(30, "dremio")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "firebolt")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "tidb")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "singlestore")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "couchbase")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "d1")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "mongodb")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "neon")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "supabase")).toBe("LIMIT 30;");
+
+    // Test Couchbase compilation
+    const resCouchbase = compileVisualState(
+      "airline",
+      { "airline.id": { table: "airline", name: "id" } },
+      ["airline.id"],
+      [],
+      [{ id: "f1", column: "name", operator: "CONTAINS", value: "Air" }],
+      [{ id: "s1", column: "id", direction: "ASC" }],
+      false,
+      25,
+      null,
+      "couchbase",
+    );
+    expect(resCouchbase.sql).toContain("SELECT `airline`.`id`");
+    expect(resCouchbase.sql).toContain("FROM `airline`");
+    expect(resCouchbase.sql).toContain("LOWER(`airline`.`name`) LIKE LOWER('%Air%')");
+    expect(resCouchbase.sql).toContain("ORDER BY `airline`.`id` ASC");
+    expect(resCouchbase.sql).toContain("LIMIT 25;");
+
+    // Test Cloudflare D1 compilation
+    const resD1 = compileVisualState(
+      "customers",
+      { "customers.name": { table: "customers", name: "name" } },
+      ["customers.name"],
+      [],
+      [{ id: "f1", column: "name", operator: "STARTS_WITH", value: "Acme" }],
+      [],
+      false,
+      10,
+      null,
+      "d1",
+    );
+    expect(resD1.sql).toContain('SELECT "customers"."name"');
+    expect(resD1.sql).toContain('"customers"."name" LIKE \'Acme%\'');
+    expect(resD1.sql).toContain("LIMIT 10;");
+
+    // Test Teradata compilation
+    const resTeradata = compileVisualState(
+      "accounts",
+      { "accounts.balance": { table: "accounts", name: "balance" } },
+      ["accounts.balance"],
+      [],
+      [],
+      [],
+      false,
+      50,
+      null,
+      "teradata",
+    );
+    expect(resTeradata.sql).toContain("OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY;");
+
+    // Test Dremio compilation
+    const resDremio = compileVisualState(
+      "orders",
+      { "orders.status": { table: "orders", name: "status" } },
+      ["orders.status"],
+      [],
+      [{ id: "f1", column: "status", operator: "CONTAINS", value: "shipped" }],
+      [],
+      false,
+      20,
+      null,
+      "dremio",
+    );
+    expect(resDremio.sql).toContain('"orders"."status" ILIKE \'%shipped%\'');
+    expect(resDremio.sql).toContain("LIMIT 20;");
+  });
 });

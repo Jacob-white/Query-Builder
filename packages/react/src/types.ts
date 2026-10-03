@@ -135,7 +135,17 @@ export type SqlDialect =
   | "spanner"
   | "questdb"
   | "elasticsearch"
-  | "dynamodb";
+  | "dynamodb"
+  | "dremio"
+  | "firebolt"
+  | "tidb"
+  | "singlestore"
+  | "teradata"
+  | "couchbase"
+  | "d1"
+  | "mongodb"
+  | "neon"
+  | "supabase";
 
 export interface VisualQueryBuilderProps {
   schema?: SchemaSnapshot | null;

@@ -64,7 +64,10 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
     dialect === "bigquery" ||
     dialect === "clickhouse" ||
     dialect === "databricks" ||
-    dialect === "spanner"
+    dialect === "spanner" ||
+    dialect === "tidb" ||
+    dialect === "singlestore" ||
+    dialect === "couchbase"
   ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
@@ -83,7 +86,7 @@ export function formatIlike(
   valEscaped: string,
   dialect: SqlDialect = "postgres",
 ): string {
-  if (dialect === "sqlite") {
+  if (dialect === "sqlite" || dialect === "d1") {
     return `${colRef} LIKE ${valEscaped}`;
   }
   if (
@@ -95,7 +98,11 @@ export function formatIlike(
     dialect === "polars" ||
     dialect === "questdb" ||
     dialect === "timescaledb" ||
-    dialect === "cockroachdb"
+    dialect === "cockroachdb" ||
+    dialect === "dremio" ||
+    dialect === "firebolt" ||
+    dialect === "neon" ||
+    dialect === "supabase"
   ) {
     return `${colRef} ILIKE ${valEscaped}`;
   }
@@ -103,7 +110,7 @@ export function formatIlike(
 }
 
 export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): string {
-  if (dialect === "mssql" || dialect === "oracle") {
+  if (dialect === "mssql" || dialect === "oracle" || dialect === "teradata") {
     return `OFFSET 0 ROWS FETCH NEXT ${limit} ROWS ONLY;`;
   }
   if (dialect === "trino" || dialect === "presto") {

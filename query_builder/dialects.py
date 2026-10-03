@@ -351,6 +351,96 @@ class DynamoDBPartiQLDialect(BaseDialect):
         return f"LIMIT {self.placeholder}", [limit]
 
 
+class DremioDialect(BaseDialect):
+    """Dremio SQL Lakehouse platform dialect using Arrow Flight / DB-API."""
+
+    name: str = "dremio"
+    placeholder: str = "?"
+
+
+class FireboltDialect(BaseDialect):
+    """Firebolt ultra-low latency cloud data warehouse dialect."""
+
+    name: str = "firebolt"
+    placeholder: str = "?"
+
+
+class TiDBDialect(MySQLDialect):
+    """TiDB distributed HTAP database dialect."""
+
+    name: str = "tidb"
+
+
+class SingleStoreDialect(MySQLDialect):
+    """SingleStore / MemSQL distributed SQL dialect."""
+
+    name: str = "singlestore"
+
+
+class TeradataDialect(BaseDialect):
+    """Teradata enterprise analytical data warehouse dialect."""
+
+    name: str = "teradata"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
+
+
+class CouchbaseDialect(BaseDialect):
+    """Couchbase SQL++ / N1QL dialect using backtick quoting."""
+
+    name: str = "couchbase"
+    placeholder: str = "?"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class D1Dialect(SQLiteDialect):
+    """Cloudflare D1 serverless edge SQL database dialect."""
+
+    name: str = "d1"
+
+
+class MongoDBSQLDialect(BaseDialect):
+    """MongoDB Atlas SQL interface dialect."""
+
+    name: str = "mongodb"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class NeonDialect(PostgresDialect):
+    """Neon serverless PostgreSQL dialect."""
+
+    name: str = "neon"
+
+
+class SupabaseDialect(PostgresDialect):
+    """Supabase managed PostgreSQL dialect."""
+
+    name: str = "supabase"
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -381,6 +471,21 @@ DIALECTS: dict[str, BaseDialect] = {
     "opensearch": ElasticsearchDialect(),
     "dynamodb": DynamoDBPartiQLDialect(),
     "partiql": DynamoDBPartiQLDialect(),
+    "dremio": DremioDialect(),
+    "firebolt": FireboltDialect(),
+    "tidb": TiDBDialect(),
+    "singlestore": SingleStoreDialect(),
+    "memsql": SingleStoreDialect(),
+    "teradata": TeradataDialect(),
+    "couchbase": CouchbaseDialect(),
+    "n1ql": CouchbaseDialect(),
+    "d1": D1Dialect(),
+    "cloudflare_d1": D1Dialect(),
+    "mongodb": MongoDBSQLDialect(),
+    "mongo": MongoDBSQLDialect(),
+    "atlas_sql": MongoDBSQLDialect(),
+    "neon": NeonDialect(),
+    "supabase": SupabaseDialect(),
 }
 
 
