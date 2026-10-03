@@ -2,7 +2,7 @@ import pytest
 
 from query_builder.cli import main
 from query_builder.compiler import CompilationError, QueryCompiler
-from query_builder.join_solver import find_best_join_condition
+from query_builder.join_solver import find_best_join_condition, find_join_path
 
 
 def test_clean_table_name_with_dot():
@@ -228,3 +228,54 @@ def test_executor_validate_ast_false_and_schema_non_dict_col():
     # Schema with non-dict, non-str column
     norm = normalize_schema_snapshot({"tables": {"users": {"columns": [999]}}})
     assert norm["tables"]["users"]["columns"] == []
+
+
+def test_branch_coverage_gap_closures():
+    import sqlparse
+
+    from query_builder.ast_validator import _extract_cte_root_statement
+    from query_builder.compiler import validate_query_spec
+
+    # 1. ast_validator 173->162: non-CTE statement passed to _extract_cte_root_statement
+    stmt = sqlparse.parse("SELECT 1")[0]
+    assert _extract_cte_root_statement(stmt) == "UNKNOWN"
+
+    # 2. compiler 188->194: allow_unknown_keys=True with column dict
+    validate_query_spec(
+        {"table": "users", "columns": [{"name": "id", "extra_prop": 123}]},
+        allow_unknown_keys=True,
+    )
+
+    # 3. compiler 198->202: raw_col == "*" in column dict
+    validate_query_spec(
+        {"table": "users", "columns": [{"name": "*"}]},
+    )
+
+    # 4. compiler 233->239: allow_unknown_keys=True with join dict
+    validate_query_spec(
+        {"table": "users", "joins": [{"table": "orders", "extra_prop": 123}]},
+        allow_unknown_keys=True,
+    )
+
+    # 5. compiler 283->289: allow_unknown_keys=True with filter dict
+    validate_query_spec(
+        {
+            "table": "users",
+            "filters": [{"column": "status", "op": "=", "value": 1, "extra_prop": 123}],
+        },
+        allow_unknown_keys=True,
+    )
+
+    # 6. join_solver 273->270: entity_col in col_names with _id suffix, but base_entity not in tables_meta
+    path = find_join_path(
+        ["orders"],
+        "target",
+        schema_data={
+            "tables": {
+                "orders": {"columns": [{"name": "user_id"}]},
+                "target": {"columns": [{"name": "data"}]},
+            }
+        },
+    )
+    assert len(path) == 1
+    assert path[0]["table"] == "target"
