@@ -847,3 +847,711 @@ def introspect_scylladb(
         raise IntrospectionError(
             f"Failed to introspect ScyllaDB keyspace '{keyspace}': {exc}"
         ) from exc
+
+
+def introspect_sparksql(
+    cursor_or_session: Any, schema_name: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Spark SQL schema using SHOW TABLES or INFORMATION_SCHEMA."""
+    try:
+        cur = (
+            cursor_or_session
+            if hasattr(cursor_or_session, "execute")
+            else (
+                cursor_or_session.cursor()
+                if hasattr(cursor_or_session, "cursor")
+                else cursor_or_session
+            )
+        )
+        try:
+            cur.execute(f"SHOW TABLES IN `{schema_name}`;")
+            table_rows = cur.fetchall()
+            table_names = []
+            for r in table_rows:
+                if r:
+                    t_name = str(r[1]) if len(r) > 1 else str(r[0])
+                    table_names.append(t_name)
+        except Exception:  # noqa: BLE001
+            cur.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s
+                ORDER BY table_name;
+                """,
+                [schema_name],
+            )
+            table_rows = cur.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = []
+            with contextlib.suppress(Exception):
+                cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+                col_rows = cur.fetchall()
+                for cr in col_rows:
+                    if cr and cr[0] and not str(cr[0]).startswith("#"):
+                        c_name = str(cr[0]).strip()
+                        d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name.lower() == "id",
+                                "comment": None,
+                            }
+                        )
+
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Spark SQL schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_chdb(
+    cursor_or_conn: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects chDB in-process ClickHouse schema using system.tables and system.columns."""
+    try:
+        cur = (
+            cursor_or_conn
+            if hasattr(cursor_or_conn, "execute")
+            else (
+                cursor_or_conn.cursor()
+                if hasattr(cursor_or_conn, "cursor")
+                else cursor_or_conn
+            )
+        )
+        cur.execute(
+            """
+            SELECT name
+            FROM system.tables
+            WHERE database = %s
+            ORDER BY name;
+            """,
+            [database],
+        )
+        table_rows = cur.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT table, name, type
+            FROM system.columns
+            WHERE database = %s
+            ORDER BY table, position;
+            """,
+            [database],
+        )
+        col_rows = cur.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+            is_pk = c_name.lower() == "id"
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": "Nullable" in d_type,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect chDB database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_greptimedb(
+    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects GreptimeDB time-series schema using INFORMATION_SCHEMA."""
+    try:
+        cursor.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s
+            ORDER BY table_name;
+            """,
+            [schema_name],
+        )
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cursor.execute(
+            """
+            SELECT table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = %s
+            ORDER BY table_name, ordinal_position;
+            """,
+            [schema_name],
+        )
+        col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = (
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                str(r[3]),
+            )
+            is_pk = c_name in ("greptime_timestamp", "ts", "id")
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": is_null.upper() == "YES",
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect GreptimeDB schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_tdengine(
+    cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects TDengine schema using SHOW TABLES and DESCRIBE."""
+    try:
+        try:
+            cursor.execute(f"SHOW `{database}`.TABLES;")
+        except Exception:  # noqa: BLE001
+            cursor.execute("SHOW TABLES;")
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = []
+            with contextlib.suppress(Exception):
+                cursor.execute(f"DESCRIBE `{tbl}`;")
+                col_rows = cursor.fetchall()
+                for idx, cr in enumerate(col_rows):
+                    if cr:
+                        c_name = str(cr[0])
+                        d_type = str(cr[1]) if len(cr) > 1 else "VARCHAR"
+                        is_pk = (idx == 0) or c_name.lower() == "ts"
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": not is_pk,
+                                "is_primary": is_pk,
+                                "comment": None,
+                            }
+                        )
+
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect TDengine database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_surrealdb(
+    client_or_cursor: Any, database: str = "test", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects SurrealDB schema using INFO FOR DB and table metadata."""
+    try:
+        cur = (
+            client_or_cursor
+            if hasattr(client_or_cursor, "execute")
+            or hasattr(client_or_cursor, "query")
+            else (
+                client_or_cursor.cursor()
+                if hasattr(client_or_cursor, "cursor")
+                else client_or_cursor
+            )
+        )
+        table_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("INFO FOR DB;")
+            res = cur.fetchone()
+            if isinstance(res, dict) and "tables" in res:
+                table_names = list(res["tables"].keys())
+            elif isinstance(res, (list, tuple)) and res:
+                first = res[0]
+                if isinstance(first, dict) and "tables" in first:
+                    table_names = list(first["tables"].keys())
+                else:
+                    table_names = [str(r[0]) for r in res if r and r[0]]
+            elif isinstance(res, str):
+                table_names = [res]
+        elif hasattr(cur, "query"):
+            res = cur.query("INFO FOR DB;")
+            if isinstance(res, list) and res and isinstance(res[0], dict):
+                table_names = list(res[0].get("result", {}).get("tables", {}).keys())
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = [
+                {
+                    "name": "id",
+                    "data_type": "record",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                }
+            ]
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": False,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect SurrealDB database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_arangodb(
+    db_or_cursor: Any, database: str = "_system", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects ArangoDB collections schema."""
+    try:
+        table_names: list[str] = []
+        if hasattr(db_or_cursor, "execute"):
+            db_or_cursor.execute("RETURN COLLECTIONS();")
+            rows = db_or_cursor.fetchall()
+            for r in rows:
+                if r:
+                    val = r[0] if isinstance(r, (list, tuple)) else r
+                    if isinstance(val, list):
+                        for item in val:
+                            name = (
+                                item.get("name")
+                                if isinstance(item, dict)
+                                else str(item)
+                            )
+                            if name and not name.startswith("_"):
+                                table_names.append(name)
+                    elif isinstance(val, dict):
+                        name = val.get("name")
+                        if name and not name.startswith("_"):
+                            table_names.append(name)
+                    else:
+                        table_names.append(str(val))
+        elif hasattr(db_or_cursor, "collections"):
+            colls = db_or_cursor.collections()
+            for c in colls:
+                c_name = (
+                    c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
+                )
+                if not str(c_name).startswith("_"):
+                    table_names.append(str(c_name))
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = [
+                {
+                    "name": "_key",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "_id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": False,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect ArangoDB database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_cassandra(
+    cursor_or_session: Any, keyspace: str = "system", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Cassandra CQL schema using system_schema."""
+    return introspect_scylladb(
+        cursor_or_session, keyspace=keyspace, filter_sensitive=filter_sensitive
+    )
+
+
+def introspect_exasol(
+    cursor: Any, schema_name: str = "PUBLIC", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Exasol schema using EXA_ALL_TABLES and EXA_ALL_COLUMNS."""
+    try:
+        try:
+            cursor.execute(
+                """
+                SELECT TABLE_NAME
+                FROM EXA_ALL_TABLES
+                WHERE TABLE_SCHEMA = ?
+                ORDER BY TABLE_NAME;
+                """,
+                [schema_name.upper()],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT COLUMN_TABLE, COLUMN_NAME, COLUMN_TYPE, COLUMN_IS_NULLABLE
+                FROM EXA_ALL_COLUMNS
+                WHERE COLUMN_SCHEMA = ?
+                ORDER BY COLUMN_TABLE, COLUMN_ORDINAL_POSITION;
+                """,
+                [schema_name.upper()],
+            )
+            col_rows = cursor.fetchall()
+        except Exception:  # noqa: BLE001
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s
+                ORDER BY table_name;
+                """,
+                [schema_name],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT table_name, column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                ORDER BY table_name, ordinal_position;
+                """,
+                [schema_name],
+            )
+            col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = (
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                str(r[3]),
+            )
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null.upper() in ("TRUE", "YES", "Y"),
+                    "is_primary": c_name.lower() == "id",
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(tbl, []) or table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Exasol schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_db2(
+    cursor: Any, schema_name: str = "SYSCAT", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects IBM DB2 schema using SYSCAT tables."""
+    try:
+        try:
+            cursor.execute(
+                """
+                SELECT TABNAME
+                FROM SYSCAT.TABLES
+                WHERE TABSCHEMA = ? AND TYPE = 'T'
+                ORDER BY TABNAME;
+                """,
+                [schema_name.upper()],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT TABNAME, COLNAME, TYPENAME, NULLS
+                FROM SYSCAT.COLUMNS
+                WHERE TABSCHEMA = ?
+                ORDER BY TABNAME, COLNO;
+                """,
+                [schema_name.upper()],
+            )
+            col_rows = cursor.fetchall()
+        except Exception:  # noqa: BLE001
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s
+                ORDER BY table_name;
+                """,
+                [schema_name],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT table_name, column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                ORDER BY table_name, ordinal_position;
+                """,
+                [schema_name],
+            )
+            col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = (
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                str(r[3]),
+            )
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null.upper() in ("Y", "YES", "TRUE"),
+                    "is_primary": c_name.lower() == "id",
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(tbl, []) or table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect IBM DB2 schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_cosmosdb(
+    client_or_container: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Azure Cosmos DB container schemas."""
+    try:
+        target = getattr(client_or_container, "target", client_or_container)
+        table_names: list[str] = []
+        if hasattr(target, "get_database_client"):
+            db_client = target.get_database_client(database)
+            if hasattr(db_client, "list_containers"):
+                for container in db_client.list_containers():
+                    c_id = (
+                        container.get("id")
+                        if isinstance(container, dict)
+                        else getattr(container, "id", None)
+                    )
+                    if c_id:
+                        table_names.append(c_id)
+        elif hasattr(target, "query_items"):
+            items = list(target.query_items("SELECT VALUE c.id FROM c;"))
+            table_names = [str(i) for i in items]
+        elif hasattr(target, "execute"):
+            target.execute("SELECT VALUE c.id FROM c;")
+            rows = target.fetchall()
+            for r in rows:
+                if r:
+                    table_names.append(str(r[0]))
+
+        if not table_names:
+            table_names = ["items"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "_rid",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "_ts",
+                    "data_type": "number",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": False,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Cosmos DB database '{database}': {exc}"
+        ) from exc

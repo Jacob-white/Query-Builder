@@ -763,6 +763,331 @@ class ScyllaDBDialect(BaseDialect):
         return ("", [])
 
 
+class SparkSQLDialect(BaseDialect):
+    """Apache Spark SQL dialect using backticks and Hive metastore / Delta Lake conventions."""
+
+    name: str = "sparksql"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} ORDER BY table_name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class ChDBDialect(ClickHouseDialect):
+    """chDB in-process ClickHouse SQL OLAP dialect."""
+
+    name: str = "chdb"
+
+
+class GreptimeDBDialect(BaseDialect):
+    """GreptimeDB cloud-native distributed time-series database dialect."""
+
+    name: str = "greptimedb"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "public"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} ORDER BY table_name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+
+class TDengineDialect(BaseDialect):
+    """TDengine big data IoT time-series database dialect."""
+
+    name: str = "tdengine"
+    placeholder: str = "?"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return ("SHOW TABLES;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{table_name}`;", [])
+        return ("SHOW TABLES;", [])
+
+
+class SurrealDBDialect(BaseDialect):
+    """SurrealDB multi-model SurrealQL dialect."""
+
+    name: str = "surrealdb"
+    placeholder: str = "?"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"string::lowercase({col_ref}) CONTAINS string::lowercase({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} START {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(self, schema_name: str = "test") -> tuple[str, list[Any]]:
+        return ("INFO FOR DB;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "test", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"INFO FOR TABLE `{table_name}`;", [])
+        return ("INFO FOR DB;", [])
+
+
+class ArangoDBDialect(BaseDialect):
+    """ArangoDB multi-model document and graph database dialect."""
+
+    name: str = "arangodb"
+    placeholder: str = "?"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"CONTAINS(LOWER({col_ref}), LOWER({self.placeholder}))"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}, {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "_system"
+    ) -> tuple[str, list[Any]]:
+        return ("RETURN COLLECTIONS();", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "_system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("RETURN COLLECTIONS();", [])
+
+
+class CassandraDialect(ScyllaDBDialect):
+    """Apache Cassandra CQL dialect."""
+
+    name: str = "scylladb"
+
+
+class ExasolDialect(BaseDialect):
+    """Exasol high-performance in-memory MP-relational analytics dialect."""
+
+    name: str = "exasol"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"REGEXP_LIKE({col_ref}, {self.placeholder}, 'i')"
+
+    def inspect_tables_query(
+        self, schema_name: str = "PUBLIC"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT TABLE_NAME FROM EXA_ALL_TABLES WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME;",
+            [schema_name.upper()],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "PUBLIC", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT COLUMN_TABLE, COLUMN_NAME, COLUMN_TYPE, COLUMN_IS_NULLABLE FROM EXA_ALL_COLUMNS WHERE COLUMN_SCHEMA = {self.placeholder} AND COLUMN_TABLE = {self.placeholder} ORDER BY COLUMN_ORDINAL_POSITION;",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT COLUMN_TABLE, COLUMN_NAME, COLUMN_TYPE, COLUMN_IS_NULLABLE FROM EXA_ALL_COLUMNS WHERE COLUMN_SCHEMA = {self.placeholder} ORDER BY COLUMN_ORDINAL_POSITION;",
+            [schema_name.upper()],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "PUBLIC", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT CONSTRAINT_TABLE, COLUMN_NAME FROM EXA_ALL_CONSTRAINT_COLUMNS WHERE CONSTRAINT_SCHEMA = {self.placeholder} AND CONSTRAINT_TABLE = {self.placeholder} AND CONSTRAINT_TYPE = 'PRIMARY KEY';",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT CONSTRAINT_TABLE, COLUMN_NAME FROM EXA_ALL_CONSTRAINT_COLUMNS WHERE CONSTRAINT_SCHEMA = {self.placeholder} AND CONSTRAINT_TYPE = 'PRIMARY KEY';",
+            [schema_name.upper()],
+        )
+
+
+class DB2Dialect(BaseDialect):
+    """IBM DB2 enterprise relational database dialect."""
+
+    name: str = "db2"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
+
+    def inspect_tables_query(
+        self, schema_name: str = "SYSCAT"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA = {self.placeholder} AND TYPE = 'T' ORDER BY TABNAME;",
+            [schema_name.upper()],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "SYSCAT", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABNAME, COLNAME, TYPENAME, NULLS FROM SYSCAT.COLUMNS WHERE TABSCHEMA = {self.placeholder} AND TABNAME = {self.placeholder} ORDER BY COLNO;",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT TABNAME, COLNAME, TYPENAME, NULLS FROM SYSCAT.COLUMNS WHERE TABSCHEMA = {self.placeholder} ORDER BY TABNAME, COLNO;",
+            [schema_name.upper()],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "SYSCAT", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABNAME, COLNAME FROM SYSCAT.KEYCOLUSE WHERE TABSCHEMA = {self.placeholder} AND TABNAME = {self.placeholder} ORDER BY COLSEQ;",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT TABNAME, COLNAME FROM SYSCAT.KEYCOLUSE WHERE TABSCHEMA = {self.placeholder} ORDER BY COLSEQ;",
+            [schema_name.upper()],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "SYSCAT", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABNAME AS src_table, FK_COLNAMES AS src_column, REFTABNAME AS tgt_table, PK_COLNAMES AS tgt_column FROM SYSCAT.REFERENCES WHERE TABSCHEMA = {self.placeholder} AND TABNAME = {self.placeholder};",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT TABNAME AS src_table, FK_COLNAMES AS src_column, REFTABNAME AS tgt_table, PK_COLNAMES AS tgt_column FROM SYSCAT.REFERENCES WHERE TABSCHEMA = {self.placeholder};",
+            [schema_name.upper()],
+        )
+
+
+class CosmosDBDialect(BaseDialect):
+    """Azure Cosmos DB SQL API dialect."""
+
+    name: str = "cosmosdb"
+    placeholder: str = "@param"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"CONTAINS(LOWER({col_ref}), LOWER({self.placeholder}))"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"OFFSET {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return ("SELECT VALUE c.id FROM c;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("SELECT * FROM c OFFSET 0 LIMIT 1;", [])
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -831,8 +1156,27 @@ DIALECTS: dict[str, BaseDialect] = {
     "oceanbase": OceanBaseDialect(),
     "scylladb": ScyllaDBDialect(),
     "scylla": ScyllaDBDialect(),
-    "cassandra": ScyllaDBDialect(),
-    "cql": ScyllaDBDialect(),
+    "cassandra": CassandraDialect(),
+    "cql": CassandraDialect(),
+    "apache_cassandra": CassandraDialect(),
+    "sparksql": SparkSQLDialect(),
+    "spark_sql": SparkSQLDialect(),
+    "pyspark": SparkSQLDialect(),
+    "chdb": ChDBDialect(),
+    "greptimedb": GreptimeDBDialect(),
+    "greptime": GreptimeDBDialect(),
+    "tdengine": TDengineDialect(),
+    "taos": TDengineDialect(),
+    "surrealdb": SurrealDBDialect(),
+    "surreal": SurrealDBDialect(),
+    "arangodb": ArangoDBDialect(),
+    "arango": ArangoDBDialect(),
+    "aql": ArangoDBDialect(),
+    "exasol": ExasolDialect(),
+    "db2": DB2Dialect(),
+    "ibm_db2": DB2Dialect(),
+    "cosmosdb": CosmosDBDialect(),
+    "azure_cosmos": CosmosDBDialect(),
 }
 
 

@@ -6,6 +6,10 @@ and dynamic registry discovery.
 """
 
 from query_builder.connectors.alloydb import AlloyDBConnector
+from query_builder.connectors.arangodb import (
+    ArangoDBConnector,
+    AsyncArangoDBConnector,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.athena import AthenaConnector
 from query_builder.connectors.base import (
@@ -16,8 +20,23 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.bigquery import BigQueryConnector
+from query_builder.connectors.cassandra import (
+    ApacheCassandraConnector,
+    AsyncApacheCassandraConnector,
+    AsyncCassandraConnector,
+)
+from query_builder.connectors.chdb import (
+    AsyncChDBConnector,
+    ChDBConnector,
+)
 from query_builder.connectors.clickhouse import ClickHouseConnector
 from query_builder.connectors.cockroachdb import CockroachConnector
+from query_builder.connectors.cosmosdb import (
+    AsyncAzureCosmosDBConnector,
+    AsyncCosmosDBConnector,
+    AzureCosmosDBConnector,
+    CosmosDBConnector,
+)
 from query_builder.connectors.couchbase import (
     CouchbaseConnector,
     N1QLConnector,
@@ -34,27 +53,51 @@ from query_builder.connectors.d1 import (
 )
 from query_builder.connectors.databricks import DatabricksConnector
 from query_builder.connectors.datafusion import DataFusionConnector
+from query_builder.connectors.db2 import (
+    AsyncDB2Connector,
+    AsyncIBMDB2Connector,
+    DB2Connector,
+    IBMDB2Connector,
+)
 from query_builder.connectors.dremio import DremioConnector
 from query_builder.connectors.druid import DruidConnector
 from query_builder.connectors.duckdb import DuckDBConnector
 from query_builder.connectors.dynamodb import DynamoDBConnector
 from query_builder.connectors.elasticsearch import ElasticsearchConnector
+from query_builder.connectors.exasol import (
+    AsyncExasolConnector,
+    ExasolConnector,
+)
 from query_builder.connectors.firebolt import FireboltConnector
 from query_builder.connectors.generic import GenericDBAPIConnector
+from query_builder.connectors.greptimedb import (
+    AsyncGreptimeDBConnector,
+    GreptimeDBConnector,
+)
 from query_builder.connectors.influxdb import (
     InfluxDBConnector,
     IOxConnector,
 )
 from query_builder.connectors.introspection import (
+    introspect_arangodb,
+    introspect_cassandra,
+    introspect_chdb,
     introspect_clickhouse,
+    introspect_cosmosdb,
     introspect_cratedb,
+    introspect_db2,
     introspect_druid,
     introspect_duckdb,
+    introspect_exasol,
+    introspect_greptimedb,
     introspect_information_schema,
     introspect_oracle,
     introspect_saphana,
     introspect_scylladb,
+    introspect_sparksql,
     introspect_sqlite,
+    introspect_surrealdb,
+    introspect_tdengine,
     introspect_via_sqlalchemy,
 )
 from query_builder.connectors.materialize import (
@@ -105,12 +148,26 @@ from query_builder.connectors.singlestore import (
 )
 from query_builder.connectors.snowflake import SnowflakeConnector
 from query_builder.connectors.spanner import SpannerConnector
+from query_builder.connectors.spark import (
+    AsyncSparkConnector,
+    AsyncSparkSQLConnector,
+    SparkConnector,
+    SparkSQLConnector,
+)
 from query_builder.connectors.sqlite import SQLiteConnector
 from query_builder.connectors.starrocks import (
     AsyncStarRocksConnector,
     StarRocksConnector,
 )
 from query_builder.connectors.supabase import SupabaseConnector
+from query_builder.connectors.surrealdb import (
+    AsyncSurrealDBConnector,
+    SurrealDBConnector,
+)
+from query_builder.connectors.tdengine import (
+    AsyncTDengineConnector,
+    TDengineConnector,
+)
 from query_builder.connectors.teradata import TeradataConnector
 from query_builder.connectors.tidb import TiDBConnector
 from query_builder.connectors.timescaledb import TimescaleConnector
@@ -185,30 +242,94 @@ ConnectorRegistry.register(
     "scylladb", ScyllaDBConnector, aliases=["scylla", "cassandra", "cql"]
 )
 
+# Lakehouse, in-process, time-series, multi-model, and enterprise engines
+ConnectorRegistry.register(
+    "sparksql", SparkSQLConnector, aliases=["spark_sql", "pyspark"]
+)
+ConnectorRegistry.register(
+    "async_sparksql",
+    AsyncSparkSQLConnector,
+    aliases=["async_spark_sql", "async_pyspark"],
+)
+ConnectorRegistry.register("chdb", ChDBConnector)
+ConnectorRegistry.register("async_chdb", AsyncChDBConnector)
+ConnectorRegistry.register("greptimedb", GreptimeDBConnector, aliases=["greptime"])
+ConnectorRegistry.register(
+    "async_greptimedb", AsyncGreptimeDBConnector, aliases=["async_greptime"]
+)
+ConnectorRegistry.register("tdengine", TDengineConnector, aliases=["taos"])
+ConnectorRegistry.register(
+    "async_tdengine", AsyncTDengineConnector, aliases=["async_taos"]
+)
+ConnectorRegistry.register("surrealdb", SurrealDBConnector, aliases=["surreal"])
+ConnectorRegistry.register(
+    "async_surrealdb", AsyncSurrealDBConnector, aliases=["async_surreal"]
+)
+ConnectorRegistry.register("arangodb", ArangoDBConnector, aliases=["arango", "aql"])
+ConnectorRegistry.register(
+    "async_arangodb", AsyncArangoDBConnector, aliases=["async_arango", "async_aql"]
+)
+ConnectorRegistry.register(
+    "apache_cassandra", ApacheCassandraConnector, aliases=["apache-cassandra"]
+)
+ConnectorRegistry.register(
+    "async_apache_cassandra",
+    AsyncApacheCassandraConnector,
+    aliases=["async_apache-cassandra"],
+)
+ConnectorRegistry.register("exasol", ExasolConnector)
+ConnectorRegistry.register("async_exasol", AsyncExasolConnector)
+ConnectorRegistry.register("db2", DB2Connector, aliases=["ibm_db2"])
+ConnectorRegistry.register("async_db2", AsyncDB2Connector, aliases=["async_ibm_db2"])
+ConnectorRegistry.register("cosmosdb", CosmosDBConnector, aliases=["azure_cosmos"])
+ConnectorRegistry.register(
+    "async_cosmosdb", AsyncCosmosDBConnector, aliases=["async_azure_cosmos"]
+)
+
 __all__ = [
     "AlloyDBConnector",
+    "ApacheCassandraConnector",
+    "ArangoDBConnector",
+    "AsyncApacheCassandraConnector",
+    "AsyncArangoDBConnector",
+    "AsyncAzureCosmosDBConnector",
     "AsyncBaseConnector",
+    "AsyncCassandraConnector",
+    "AsyncChDBConnector",
+    "AsyncCosmosDBConnector",
     "AsyncCrateConnector",
     "AsyncCrateDBConnector",
+    "AsyncDB2Connector",
+    "AsyncExasolConnector",
+    "AsyncGreptimeDBConnector",
+    "AsyncIBMDB2Connector",
     "AsyncMaterializeConnector",
     "AsyncPrestoConnector",
     "AsyncPrestoDBConnector",
     "AsyncRisingWaveConnector",
+    "AsyncSparkConnector",
+    "AsyncSparkSQLConnector",
     "AsyncStarRocksConnector",
+    "AsyncSurrealDBConnector",
+    "AsyncTDengineConnector",
     "AthenaConnector",
+    "AzureCosmosDBConnector",
     "BaseConnector",
     "BigQueryConnector",
     "CassandraConnector",
+    "ChDBConnector",
     "ClickHouseConnector",
     "CloudflareD1Connector",
     "CockroachConnector",
     "ConnectionFailedError",
     "ConnectorError",
     "ConnectorRegistry",
+    "CosmosDBConnector",
     "CouchbaseConnector",
     "CrateConnector",
     "CrateDBConnector",
     "D1Connector",
+    "DB2Connector",
     "DataFusionConnector",
     "DatabricksConnector",
     "DremioConnector",
@@ -217,9 +338,12 @@ __all__ = [
     "DuckDBConnector",
     "DynamoDBConnector",
     "ElasticsearchConnector",
+    "ExasolConnector",
     "FireboltConnector",
     "GenericDBAPIConnector",
+    "GreptimeDBConnector",
     "HANAConnector",
+    "IBMDB2Connector",
     "IOxConnector",
     "InfluxDBConnector",
     "IntrospectionError",
@@ -247,23 +371,37 @@ __all__ = [
     "SingleStoreConnector",
     "SnowflakeConnector",
     "SpannerConnector",
+    "SparkConnector",
+    "SparkSQLConnector",
     "StarRocksConnector",
     "SupabaseConnector",
+    "SurrealDBConnector",
+    "TDengineConnector",
     "TeradataConnector",
     "TiDBConnector",
     "TimescaleConnector",
     "TrinoConnector",
     "VerticaConnector",
     "get_connector",
+    "introspect_arangodb",
+    "introspect_cassandra",
+    "introspect_chdb",
     "introspect_clickhouse",
+    "introspect_cosmosdb",
     "introspect_cratedb",
+    "introspect_db2",
     "introspect_druid",
     "introspect_duckdb",
+    "introspect_exasol",
+    "introspect_greptimedb",
     "introspect_information_schema",
     "introspect_oracle",
     "introspect_saphana",
     "introspect_scylladb",
+    "introspect_sparksql",
     "introspect_sqlite",
+    "introspect_surrealdb",
+    "introspect_tdengine",
     "introspect_via_sqlalchemy",
     "list_connectors",
     "register_connector",

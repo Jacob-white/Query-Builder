@@ -307,7 +307,24 @@ export type SqlDialect =
   | "scylladb"
   | "scylla"
   | "cassandra"
-  | "cql";
+  | "cql"
+  | "sparksql"
+  | "spark"
+  | "chdb"
+  | "greptimedb"
+  | "greptime"
+  | "tdengine"
+  | "taos"
+  | "surrealdb"
+  | "surreal"
+  | "arangodb"
+  | "arango"
+  | "aql"
+  | "exasol"
+  | "db2"
+  | "ibm_db2"
+  | "cosmosdb"
+  | "azure_cosmos";
 
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
   schema?: SchemaSnapshot | Schema | null;
