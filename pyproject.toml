@@ -36,9 +36,16 @@ dev = [
     "ruff>=0.1.0",
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
+    "polars>=1.0.0",
 ]
 duckdb = ["duckdb>=0.9.0"]
 sqlalchemy = ["sqlalchemy>=2.0.0"]
+polars = ["polars>=1.0.0"]
+datafusion = ["datafusion>=38.0.0"]
+databricks = ["databricks-sql-connector>=3.0.0"]
+athena = ["pyathena>=3.0.0"]
+spanner = ["google-cloud-spanner>=3.40.0"]
+dynamodb = ["boto3>=1.34.0"]
 postgres = ["psycopg[binary]>=3.1.0"]
 mysql = ["mysqlclient>=2.2.0"]
 mssql = ["pymssql>=2.2.0"]
@@ -51,6 +58,12 @@ trino = ["trino>=0.320.0"]
 all = [
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
+    "polars>=1.0.0",
+    "datafusion>=38.0.0",
+    "databricks-sql-connector>=3.0.0",
+    "pyathena>=3.0.0",
+    "google-cloud-spanner>=3.40.0",
+    "boto3>=1.34.0",
     "psycopg[binary]>=3.1.0",
     "mysqlclient>=2.2.0",
     "pymssql>=2.2.0",

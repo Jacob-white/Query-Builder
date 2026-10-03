@@ -236,6 +236,121 @@ class PrestoDialect(TrinoDialect):
     name: str = "presto"
 
 
+class DatabricksDialect(BaseDialect):
+    """Databricks and Apache Spark SQL dialect using backtick quoting."""
+
+    name: str = "databricks"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class AthenaDialect(BaseDialect):
+    """AWS Athena dialect based on Presto/Trino standard SQL."""
+
+    name: str = "athena"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class PolarsDialect(BaseDialect):
+    """Polars SQLContext dialect with native ILIKE and question mark placeholders."""
+
+    name: str = "polars"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class DataFusionDialect(BaseDialect):
+    """Apache Arrow DataFusion SQL dialect."""
+
+    name: str = "datafusion"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class TimescaleDialect(PostgresDialect):
+    """TimescaleDB time-series dialect extending PostgreSQL."""
+
+    name: str = "timescaledb"
+
+
+class CockroachDialect(PostgresDialect):
+    """CockroachDB distributed SQL dialect extending PostgreSQL."""
+
+    name: str = "cockroachdb"
+
+
+class SpannerDialect(BaseDialect):
+    """Google Cloud Spanner SQL dialect using backtick quoting."""
+
+    name: str = "spanner"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class QuestDBDialect(BaseDialect):
+    """QuestDB time-series SQL dialect supporting native ILIKE."""
+
+    name: str = "questdb"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class ElasticsearchDialect(BaseDialect):
+    """Elasticsearch / OpenSearch SQL dialect."""
+
+    name: str = "elasticsearch"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class DynamoDBPartiQLDialect(BaseDialect):
+    """Amazon DynamoDB PartiQL dialect."""
+
+    name: str = "dynamodb"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -251,6 +366,21 @@ DIALECTS: dict[str, BaseDialect] = {
     "redshift": RedshiftDialect(),
     "trino": TrinoDialect(),
     "presto": PrestoDialect(),
+    "databricks": DatabricksDialect(),
+    "spark": DatabricksDialect(),
+    "athena": AthenaDialect(),
+    "polars": PolarsDialect(),
+    "datafusion": DataFusionDialect(),
+    "timescaledb": TimescaleDialect(),
+    "timescale": TimescaleDialect(),
+    "cockroachdb": CockroachDialect(),
+    "cockroach": CockroachDialect(),
+    "spanner": SpannerDialect(),
+    "questdb": QuestDBDialect(),
+    "elasticsearch": ElasticsearchDialect(),
+    "opensearch": ElasticsearchDialect(),
+    "dynamodb": DynamoDBPartiQLDialect(),
+    "partiql": DynamoDBPartiQLDialect(),
 }
 
 

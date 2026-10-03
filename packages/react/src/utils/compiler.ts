@@ -59,7 +59,13 @@ const sanitizeIdent = (s: string) =>
 
 export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): string {
   const clean = ident.replace(/[\x00-\x1f\x7f]/g, "");
-  if (dialect === "mysql" || dialect === "bigquery" || dialect === "clickhouse") {
+  if (
+    dialect === "mysql" ||
+    dialect === "bigquery" ||
+    dialect === "clickhouse" ||
+    dialect === "databricks" ||
+    dialect === "spanner"
+  ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
   if (dialect === "mssql") {
@@ -85,7 +91,11 @@ export function formatIlike(
     dialect === "snowflake" ||
     dialect === "duckdb" ||
     dialect === "clickhouse" ||
-    dialect === "redshift"
+    dialect === "redshift" ||
+    dialect === "polars" ||
+    dialect === "questdb" ||
+    dialect === "timescaledb" ||
+    dialect === "cockroachdb"
   ) {
     return `${colRef} ILIKE ${valEscaped}`;
   }

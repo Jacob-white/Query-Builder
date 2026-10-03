@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { compileVisualState } from "../src/utils/compiler";
+import {
+  compileVisualState,
+  formatIlike,
+  formatLimit,
+  quoteAlias,
+  quoteIdent,
+} from "../src/utils/compiler";
 import type { SchemaSnapshot } from "../src/types";
 
 describe("compileVisualState", () => {
@@ -619,5 +625,50 @@ describe("compileVisualState", () => {
       "snowflake",
     );
     expect(resSnowflake.sql).toContain('"users"."email" ILIKE \'admin\'');
+  });
+
+  it("handles newly expanded dialects in quoteIdent and quoteAlias", () => {
+    // Backtick dialects
+    expect(quoteIdent("col", "databricks")).toBe("`col`");
+    expect(quoteIdent("col`name", "databricks")).toBe("`col``name`");
+    expect(quoteIdent("col", "spanner")).toBe("`col`");
+    expect(quoteIdent("col`name", "spanner")).toBe("`col``name`");
+    expect(quoteAlias("alias", "databricks")).toBe("`alias`");
+
+    // Standard double-quote dialects
+    expect(quoteIdent("col", "polars")).toBe('"col"');
+    expect(quoteIdent("col", "athena")).toBe('"col"');
+    expect(quoteIdent("col", "datafusion")).toBe('"col"');
+    expect(quoteIdent("col", "timescaledb")).toBe('"col"');
+    expect(quoteIdent("col", "cockroachdb")).toBe('"col"');
+    expect(quoteIdent("col", "questdb")).toBe('"col"');
+    expect(quoteIdent("col", "elasticsearch")).toBe('"col"');
+    expect(quoteIdent("col", "dynamodb")).toBe('"col"');
+  });
+
+  it("handles newly expanded dialects in formatIlike", () => {
+    // ILIKE supported
+    expect(formatIlike("c", "'%val%'", "polars")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "questdb")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "timescaledb")).toBe("c ILIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "cockroachdb")).toBe("c ILIKE '%val%'");
+
+    // LOWER(...) LIKE LOWER(...) fallback for other dialects
+    expect(formatIlike("c", "'%val%'", "databricks")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "athena")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "spanner")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "datafusion")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "elasticsearch")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "dynamodb")).toBe("LOWER(c) LIKE LOWER('%val%')");
+  });
+
+  it("handles dialect-specific pagination in formatLimit", () => {
+    expect(formatLimit(25, "mssql")).toBe("OFFSET 0 ROWS FETCH NEXT 25 ROWS ONLY;");
+    expect(formatLimit(25, "oracle")).toBe("OFFSET 0 ROWS FETCH NEXT 25 ROWS ONLY;");
+    expect(formatLimit(25, "trino")).toBe("OFFSET 0 LIMIT 25;");
+    expect(formatLimit(25, "presto")).toBe("OFFSET 0 LIMIT 25;");
+    expect(formatLimit(25, "polars")).toBe("LIMIT 25;");
+    expect(formatLimit(25, "databricks")).toBe("LIMIT 25;");
+    expect(formatLimit(25, "spanner")).toBe("LIMIT 25;");
   });
 });

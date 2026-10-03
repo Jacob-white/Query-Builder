@@ -125,7 +125,17 @@ export type SqlDialect =
   | "oracle"
   | "redshift"
   | "trino"
-  | "presto";
+  | "presto"
+  | "databricks"
+  | "athena"
+  | "polars"
+  | "datafusion"
+  | "timescaledb"
+  | "cockroachdb"
+  | "spanner"
+  | "questdb"
+  | "elasticsearch"
+  | "dynamodb";
 
 export interface VisualQueryBuilderProps {
   schema?: SchemaSnapshot | null;
