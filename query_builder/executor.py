@@ -4,6 +4,7 @@ Safe Read-Only Query Execution Harness.
 Provides transaction boundary management, strict statement timeout guards,
 and standardized row mapping for DB-API 2.0 compliant database cursors.
 """
+
 from __future__ import annotations
 
 import time
@@ -75,7 +76,9 @@ def execute_compiled_spec(
     total_count = cursor.fetchone()[0]
 
     # 2. Main paginated query
-    col_names, dict_rows, latency_ms = execute_cursor_query(cursor, main_sql, main_params)
+    col_names, dict_rows, latency_ms = execute_cursor_query(
+        cursor, main_sql, main_params
+    )
 
     limit = int(spec.get("limit", 50))
     offset = int(spec.get("offset", 0))

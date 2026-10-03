@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 from query_builder.compiler import QueryCompiler
 from query_builder.executor import execute_compiled_spec, execute_cursor_query
 from query_builder.schema import normalize_schema_snapshot
@@ -20,14 +22,24 @@ def test_normalize_schema_snapshot_filtering():
                     {"name": "id", "is_primary": True, "data_type": "integer"},
                     {"name": "title", "data_type": "varchar"},
                 ]
-            }
+            },
         },
         "foreign_keys": [
-            {"table": "projects", "column": "user_id", "foreign_table": "users", "foreign_column": "id"}
+            {
+                "table": "projects",
+                "column": "user_id",
+                "foreign_table": "users",
+                "foreign_column": "id",
+            }
         ],
         "relationships": [
-            {"source_table": "projects", "source_column": "user_id", "target_table": "users", "target_column": "id"}
-        ]
+            {
+                "source_table": "projects",
+                "source_column": "user_id",
+                "target_table": "users",
+                "target_column": "id",
+            }
+        ],
     }
     normalized = normalize_schema_snapshot(raw, filter_sensitive=True)
     assert "users" in normalized["tables"]
@@ -40,11 +52,17 @@ def test_sqlite_execution_harness():
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
     cur.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT);")
-    cur.execute("INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com');")
-    cur.execute("INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@example.com');")
+    cur.execute(
+        "INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com');"
+    )
+    cur.execute(
+        "INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@example.com');"
+    )
     conn.commit()
 
-    cols, rows, latency = execute_cursor_query(cur, "SELECT id, name FROM users ORDER BY id ASC;")
+    cols, rows, latency = execute_cursor_query(
+        cur, "SELECT id, name FROM users ORDER BY id ASC;"
+    )
     assert cols == ["id", "name"]
     assert len(rows) == 2
     assert rows[0]["name"] == "Alice"
@@ -54,16 +72,27 @@ def test_sqlite_execution_harness():
     spec = {
         "table": "users",
         "columns": ["users.id", "users.name"],
-        "filters": [
-            {"column": "users.name", "op": "eq", "value": "Alice"}
-        ],
+        "filters": [{"column": "users.name", "op": "eq", "value": "Alice"}],
         "limit": 10,
-        "offset": 0
+        "offset": 0,
     }
     res = execute_compiled_spec(cur, spec, dialect="sqlite")
     assert res["count"] == 1
     assert len(res["rows"]) == 1
     assert res["rows"][0]["users.name"] == "Alice"
+
+    # Test query without filters (count_params empty branch)
+    res_all = execute_compiled_spec(
+        cur, {"table": "users", "columns": ["users.id"]}, dialect="sqlite"
+    )
+    assert res_all["count"] == 2
+
+    # Test AST validation failure in execute_compiled_spec
+    with pytest.raises(Exception) as exc:
+        bad_spec = {"table": "auth_user", "columns": ["*"]}
+        execute_compiled_spec(cur, bad_spec, dialect="sqlite", validate_ast=True)
+    assert "AST safety validation" in str(exc.value)
+
     conn.close()
 
 
@@ -82,9 +111,7 @@ def test_compiler_filters_and_projections():
             {"column": "sku", "op": "ends_with", "value": "XYZ"},
         ],
         "filter_join": "OR",
-        "order_by": [
-            {"column": "price", "direction": "DESC"}
-        ],
+        "order_by": [{"column": "price", "direction": "DESC"}],
         "distinct": True,
         "limit": 25,
         "offset": 5,
@@ -98,7 +125,7 @@ def test_compiler_filters_and_projections():
     assert "IN (%s, %s)" in sql
     assert '"t1"."description" IS NOT NULL' in sql
     assert '"t1"."archived_at" IS NULL' in sql
-    assert 'OR' in sql
+    assert "OR" in sql
     assert 'ORDER BY "t1"."price" DESC' in sql
     assert 10 in params
     assert 50 in params

@@ -95,9 +95,7 @@ spec = {
         {"column": "orders.amount", "op": "gt", "value": 100},
     ],
     "filter_join": "AND",
-    "order_by": [
-        {"column": "orders.id", "direction": "DESC"}
-    ],
+    "order_by": [{"column": "orders.id", "direction": "DESC"}],
     "limit": 25,
     "offset": 0,
 }
@@ -124,7 +122,9 @@ print(params)
 from query_builder import validate_sql_ast
 
 # 1. Safe analytical query
-result = validate_sql_ast("SELECT legal_name, total_aum FROM production.firm_master LIMIT 50;")
+result = validate_sql_ast(
+    "SELECT legal_name, total_aum FROM production.firm_master LIMIT 50;"
+)
 assert result["valid"] is True
 assert result["is_read_only"] is True
 
@@ -147,17 +147,31 @@ from query_builder import find_join_path
 schema = {
     "tables": {
         "firms": {"columns": [{"name": "id"}]},
-        "branches": {"columns": [{"name": "id"}, {"name": "firm_id"}, {"name": "address_id"}]},
+        "branches": {
+            "columns": [{"name": "id"}, {"name": "firm_id"}, {"name": "address_id"}]
+        },
         "addresses": {"columns": [{"name": "id"}, {"name": "city"}]},
     },
     "foreign_keys": [
-        {"table": "branches", "column": "firm_id", "foreign_table": "firms", "foreign_column": "id"},
-        {"table": "branches", "column": "address_id", "foreign_table": "addresses", "foreign_column": "id"},
+        {
+            "table": "branches",
+            "column": "firm_id",
+            "foreign_table": "firms",
+            "foreign_column": "id",
+        },
+        {
+            "table": "branches",
+            "column": "address_id",
+            "foreign_table": "addresses",
+            "foreign_column": "id",
+        },
     ],
 }
 
 # Automatically discovers multi-hop join: firms -> branches -> addresses
-path = find_join_path(active_tables=["firms"], target_table="addresses", schema_data=schema)
+path = find_join_path(
+    active_tables=["firms"], target_table="addresses", schema_data=schema
+)
 print(path)
 # [
 #   {'type': 'LEFT JOIN', 'left_table': 'firms', 'left_col': 'id', 'table': 'branches', 'right_col': 'firm_id'},

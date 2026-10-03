@@ -16,6 +16,7 @@ class DialectError(Exception):
 
 class BaseDialect:
     """Base SQL dialect adhering to ANSI-SQL standards with parameter binding."""
+
     name: str = "base"
     placeholder: str = "%s"
 
@@ -46,16 +47,19 @@ class BaseDialect:
 
 class PostgresDialect(BaseDialect):
     """PostgreSQL dialect."""
+
     name: str = "postgres"
 
 
 class SnowflakeDialect(BaseDialect):
     """Snowflake dialect."""
+
     name: str = "snowflake"
 
 
 class MSSQLDialect(BaseDialect):
     """Microsoft SQL Server dialect using square bracket quoting and FETCH FIRST pagination."""
+
     name: str = "mssql"
     placeholder: str = "%s"
 
@@ -73,11 +77,15 @@ class MSSQLDialect(BaseDialect):
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY", [offset, limit]
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
 
 
 class SQLiteDialect(BaseDialect):
     """SQLite dialect using double-quote escaping and question mark placeholders."""
+
     name: str = "sqlite"
     placeholder: str = "?"
 
@@ -88,6 +96,7 @@ class SQLiteDialect(BaseDialect):
 
 class MySQLDialect(BaseDialect):
     """MySQL dialect using backtick quoting."""
+
     name: str = "mysql"
     placeholder: str = "%s"
 

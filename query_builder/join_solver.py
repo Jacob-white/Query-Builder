@@ -5,6 +5,7 @@ Uses schema foreign key constraints, canonical entity heuristics, and Breadth-Fi
 (BFS) to find optimal multi-hop join paths between database tables without requiring manual
 FOREIGN KEY configuration from the user.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -190,7 +191,10 @@ def find_join_path(
     # Inferred entity bridges
     for tbl_name, meta in tables_meta.items():
         clean_tbl = _clean_table_name(tbl_name)
-        col_names = {c["name"] if isinstance(c, dict) else str(c) for c in meta.get("columns", [])}
+        col_names = {
+            c["name"] if isinstance(c, dict) else str(c)
+            for c in meta.get("columns", [])
+        }
         for entity_col in CANONICAL_ENTITY_COLUMNS:
             if entity_col in col_names and entity_col.endswith("_id"):
                 base_entity = entity_col[:-3]

@@ -5,6 +5,7 @@ Provides fail-closed user and tenant isolation predicate resolution.
 Walks relational foreign key chains to ensure rows in child tables can only be
 accessed if owned by the requesting tenant or authenticated user.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -18,6 +19,7 @@ class SecurityError(Exception):
 
 class AliasCounter:
     """Thread-safe counter generating unique correlation aliases for subqueries."""
+
     def __init__(self, prefix: str = "_own") -> None:
         self._n = 0
         self._prefix = prefix
@@ -82,7 +84,10 @@ def resolve_ownership_predicate(
     q = dialect.quote_identifier
 
     # 1. Direct user ownership column
-    if tbl_info.get("has_user_id") or "user_id" in [c.get("name") if isinstance(c, dict) else str(c) for c in tbl_info.get("columns", [])]:
+    if tbl_info.get("has_user_id") or "user_id" in [
+        c.get("name") if isinstance(c, dict) else str(c)
+        for c in tbl_info.get("columns", [])
+    ]:
         user_col = tbl_info.get("user_col", "user_id")
         params.append(user_id)
         return f"{q(alias)}.{q(user_col)} = {dialect.placeholder}"

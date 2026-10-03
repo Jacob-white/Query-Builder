@@ -9,7 +9,9 @@ def test_validate_sql_ast_empty():
 
 
 def test_validate_sql_ast_valid_select():
-    res = validate_sql_ast("SELECT legal_name, total_aum FROM production.firm_master WHERE total_aum > 1000000 LIMIT 50;")
+    res = validate_sql_ast(
+        "SELECT legal_name, total_aum FROM production.firm_master WHERE total_aum > 1000000 LIMIT 50;"
+    )
     assert res["valid"] is True
     assert res["ast_validated"] is True
     assert res["statement_type"] == "SELECT"
@@ -80,7 +82,9 @@ def test_validate_sql_ast_blocks_restricted_schemas():
     sql = "SELECT * FROM information_schema.tables;"
     res = validate_sql_ast(sql)
     assert res["valid"] is False
-    assert any("analytical" in v.lower() or "schema" in v.lower() for v in res["violations"])
+    assert any(
+        "analytical" in v.lower() or "schema" in v.lower() for v in res["violations"]
+    )
 
 
 def test_validate_sql_ast_permits_safe_set_transaction():
@@ -89,3 +93,36 @@ def test_validate_sql_ast_permits_safe_set_transaction():
     res = validate_sql_ast(sql)
     assert res["valid"] is False
     assert res["statement_type"] == "MULTI_STATEMENT"
+
+
+def test_validate_sql_ast_comments_only():
+    res = validate_sql_ast("; ; ;")
+    assert res["valid"] is False
+    assert "no executable statements" in res["violations"][0].lower()
+
+
+def test_validate_sql_ast_disallow_cte():
+    sql = "WITH cte AS (SELECT 1 AS val) SELECT * FROM cte;"
+    res = validate_sql_ast(sql, allow_cte=False)
+    assert res["valid"] is False
+    assert any(
+        "Common Table Expressions (WITH) are not permitted" in v
+        for v in res["violations"]
+    )
+
+
+def test_validate_sql_ast_allowed_schema_exception():
+    sql = "SELECT id FROM analytics.sales;"
+    res = validate_sql_ast(
+        sql,
+        allowed_schemas=["analytics"],
+        restricted_schema_patterns=[r"\banalytics\."],
+    )
+    assert res["valid"] is True
+
+
+def test_validate_sql_ast_unknown_statement_risk_high():
+    sql = "CHECKPOINT;"
+    res = validate_sql_ast(sql)
+    assert res["valid"] is False
+    assert res["injection_risk"] == "HIGH"
