@@ -32,6 +32,8 @@ class _TDengineCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "SELECT SERVER_VERSION();"
         if hasattr(self.target, "cursor"):
             cur = self.target.cursor()
             if params:

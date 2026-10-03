@@ -368,8 +368,6 @@ def test_new_dialects_behavior():
     scylla = get_dialect("scylladb")
     assert scylla.name == "scylladb"
     assert get_dialect("scylla").name == "scylladb"
-    assert get_dialect("cassandra").name == "scylladb"
-    assert get_dialect("cql").name == "scylladb"
     assert scylla.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
     scylla_clause, scylla_params = scylla.format_limit_offset(10, 20)
     assert scylla_clause == "LIMIT %s"
@@ -377,7 +375,9 @@ def test_new_dialects_behavior():
 
     # Cassandra
     cas = get_dialect("apache_cassandra")
-    assert cas.name == "scylladb"
+    assert cas.name == "cassandra"
+    assert get_dialect("cassandra").name == "cassandra"
+    assert get_dialect("cql").name == "cassandra"
 
     # Spark SQL
     spk = get_dialect("sparksql")
@@ -401,6 +401,12 @@ def test_new_dialects_behavior():
     ch = get_dialect("chdb")
     assert ch.name == "chdb"
     assert ch.format_ilike("`c`") == "`c` ILIKE %s"
+    ch_pk_sql, ch_pk_params = ch.inspect_primary_keys_query("default", "users")
+    assert "is_in_primary_key" in ch_pk_sql and ch_pk_params == ["default", "users"]
+    ch_pk_all, ch_pk_all_params = ch.inspect_primary_keys_query("default")
+    assert "is_in_primary_key" in ch_pk_all and ch_pk_all_params == ["default"]
+    ch_fk_sql, ch_fk_params = ch.inspect_foreign_keys_query("default", "users")
+    assert ch_fk_sql == "" and ch_fk_params == []
 
     # GreptimeDB
     grep = get_dialect("greptimedb")
@@ -413,6 +419,10 @@ def test_new_dialects_behavior():
     assert "information_schema.columns" in gc_sql and gc_params == ["public", "metrics"]
     gc_all_sql, gc_all_params = grep.inspect_columns_query("public")
     assert "information_schema.columns" in gc_all_sql and gc_all_params == ["public"]
+    g_pk_sql, g_pk_params = grep.inspect_primary_keys_query("public", "metrics")
+    assert g_pk_sql == "" and g_pk_params == []
+    g_fk_sql, g_fk_params = grep.inspect_foreign_keys_query("public", "metrics")
+    assert g_fk_sql == "" and g_fk_params == []
 
     # TDengine
     td = get_dialect("tdengine")
@@ -429,6 +439,12 @@ def test_new_dialects_behavior():
     assert td_c_sql == "DESCRIBE `meters`;" and td_c_params == []
     td_c_all_sql, td_c_all_params = td.inspect_columns_query("default")
     assert td_c_all_sql == "SHOW TABLES;" and td_c_all_params == []
+    td_pk_sql, td_pk_params = td.inspect_primary_keys_query("default", "meters")
+    assert td_pk_sql == "DESCRIBE `meters`;" and td_pk_params == []
+    td_pk_all, td_pk_all_params = td.inspect_primary_keys_query("default")
+    assert td_pk_all == "" and td_pk_all_params == []
+    td_fk_sql, td_fk_params = td.inspect_foreign_keys_query("default", "meters")
+    assert td_fk_sql == "" and td_fk_params == []
 
     # SurrealDB
     surr = get_dialect("surrealdb")
@@ -448,6 +464,12 @@ def test_new_dialects_behavior():
     assert surr_c_sql == "INFO FOR TABLE `user`;" and surr_c_params == []
     surr_c_all_sql, surr_c_all_params = surr.inspect_columns_query("test")
     assert surr_c_all_sql == "INFO FOR DB;" and surr_c_all_params == []
+    surr_pk_sql, surr_pk_params = surr.inspect_primary_keys_query("test", "user")
+    assert surr_pk_sql == "INFO FOR TABLE `user`;" and surr_pk_params == []
+    surr_pk_all, surr_pk_all_params = surr.inspect_primary_keys_query("test")
+    assert surr_pk_all == "INFO FOR DB;" and surr_pk_all_params == []
+    surr_fk_sql, surr_fk_params = surr.inspect_foreign_keys_query("test", "user")
+    assert surr_fk_sql == "" and surr_fk_params == []
 
     # ArangoDB
     ar = get_dialect("arangodb")
@@ -463,11 +485,15 @@ def test_new_dialects_behavior():
     assert ar_t_sql == "RETURN COLLECTIONS();" and ar_t_params == []
     ar_c_sql, ar_c_params = ar.inspect_columns_query("_system", "colls")
     assert ar_c_sql == "RETURN COLLECTIONS();" and ar_c_params == []
+    ar_pk_sql, ar_pk_params = ar.inspect_primary_keys_query("_system", "colls")
+    assert ar_pk_sql == "RETURN COLLECTIONS();" and ar_pk_params == []
+    ar_fk_sql, ar_fk_params = ar.inspect_foreign_keys_query("_system", "colls")
+    assert ar_fk_sql == "" and ar_fk_params == []
 
     # Exasol
     exa = get_dialect("exasol")
     assert exa.name == "exasol"
-    assert exa.format_ilike('"col"') == "REGEXP_LIKE(\"col\", ?, 'i')"
+    assert exa.format_ilike('"col"') == 'LOWER("col") LIKE LOWER(?)'
     exa_t_sql, exa_t_params = exa.inspect_tables_query("public")
     assert "EXA_ALL_TABLES" in exa_t_sql and exa_t_params == ["PUBLIC"]
     exa_c_sql, exa_c_params = exa.inspect_columns_query("public", "sales")
@@ -483,6 +509,26 @@ def test_new_dialects_behavior():
     assert "EXA_ALL_CONSTRAINT_COLUMNS" in exa_pk_all_sql and exa_pk_all_params == [
         "PUBLIC"
     ]
+    exa_fk_sql, exa_fk_params = exa.inspect_foreign_keys_query("public", "sales")
+    assert "EXA_ALL_CONSTRAINT_COLUMNS" in exa_fk_sql and exa_fk_params == [
+        "PUBLIC",
+        "SALES",
+    ]
+    exa_fk_all_sql, exa_fk_all_params = exa.inspect_foreign_keys_query("public")
+    assert "EXA_ALL_CONSTRAINT_COLUMNS" in exa_fk_all_sql and exa_fk_all_params == [
+        "PUBLIC"
+    ]
+    # Test BaseDialect convenience aliases
+    assert exa.inspect_tables("public") == exa.inspect_tables_query("public")
+    assert exa.inspect_columns("public", "sales") == exa.inspect_columns_query(
+        "public", "sales"
+    )
+    assert exa.inspect_primary_keys(
+        "public", "sales"
+    ) == exa.inspect_primary_keys_query("public", "sales")
+    assert exa.inspect_foreign_keys(
+        "public", "sales"
+    ) == exa.inspect_foreign_keys_query("public", "sales")
 
     # DB2
     db2 = get_dialect("db2")
@@ -520,6 +566,10 @@ def test_new_dialects_behavior():
     assert "SELECT VALUE c.id FROM c;" in cos_t_sql and cos_t_params == []
     cos_c_sql, cos_c_params = cosmos.inspect_columns_query("default", "items")
     assert "SELECT * FROM c OFFSET 0 LIMIT 1;" in cos_c_sql and cos_c_params == []
+    cos_pk_sql, cos_pk_params = cosmos.inspect_primary_keys_query("default", "items")
+    assert "SELECT VALUE c.id FROM c;" in cos_pk_sql and cos_pk_params == []
+    cos_fk_sql, cos_fk_params = cosmos.inspect_foreign_keys_query("default", "items")
+    assert cos_fk_sql == "" and cos_fk_params == []
 
     # Aliases
     assert get_dialect("postgresql").name == "postgres"

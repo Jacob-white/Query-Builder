@@ -1337,6 +1337,56 @@ def introspect_exasol(
             )
             col_rows = cursor.fetchall()
 
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT CONSTRAINT_TABLE, COLUMN_NAME
+                FROM EXA_ALL_CONSTRAINT_COLUMNS
+                WHERE CONSTRAINT_SCHEMA = ? AND CONSTRAINT_TYPE = 'PRIMARY KEY';
+                """,
+                [schema_name.upper()],
+            )
+            for pkr in cursor.fetchall():
+                pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                    str(pkr[1]).lower()
+                )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT CONSTRAINT_TABLE, COLUMN_NAME, REFERENCED_TABLE, REFERENCED_COLUMN
+                FROM EXA_ALL_CONSTRAINT_COLUMNS
+                WHERE CONSTRAINT_SCHEMA = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY';
+                """,
+                [schema_name.upper()],
+            )
+            for fkr in cursor.fetchall():
+                src_tbl, src_col, tgt_tbl, tgt_col = (
+                    str(fkr[0]).lower(),
+                    str(fkr[1]).lower(),
+                    str(fkr[2]).lower(),
+                    str(fkr[3]).lower(),
+                )
+                foreign_keys.append(
+                    {
+                        "table": src_tbl,
+                        "column": src_col,
+                        "foreign_table": tgt_tbl,
+                        "foreign_column": tgt_col,
+                    }
+                )
+                relationships.append(
+                    {
+                        "source_table": src_tbl,
+                        "source_column": src_col,
+                        "target_table": tgt_tbl,
+                        "target_column": tgt_col,
+                    }
+                )
+
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type, is_null = (
@@ -1345,12 +1395,15 @@ def introspect_exasol(
                 str(r[2]),
                 str(r[3]),
             )
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
             table_cols_map.setdefault(t_name, []).append(
                 {
                     "name": c_name.lower(),
                     "data_type": d_type.lower(),
                     "is_nullable": is_null.upper() in ("TRUE", "YES", "Y"),
-                    "is_primary": c_name.lower() == "id",
+                    "is_primary": is_pk,
                     "comment": None,
                 }
             )
@@ -1370,8 +1423,8 @@ def introspect_exasol(
 
         raw_snapshot = {
             "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
         }
         return normalize_schema_snapshot(
             raw_snapshot, filter_sensitive=filter_sensitive
@@ -1434,6 +1487,56 @@ def introspect_db2(
             )
             col_rows = cursor.fetchall()
 
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT TABNAME, COLNAME
+                FROM SYSCAT.KEYCOLUSE
+                WHERE TABSCHEMA = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for pkr in cursor.fetchall():
+                pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                    str(pkr[1]).lower()
+                )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT TABNAME, FK_COLNAMES, REFTABNAME, PK_COLNAMES
+                FROM SYSCAT.REFERENCES
+                WHERE TABSCHEMA = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for fkr in cursor.fetchall():
+                src_tbl, src_col, tgt_tbl, tgt_col = (
+                    str(fkr[0]).lower(),
+                    str(fkr[1]).lower(),
+                    str(fkr[2]).lower(),
+                    str(fkr[3]).lower(),
+                )
+                foreign_keys.append(
+                    {
+                        "table": src_tbl,
+                        "column": src_col,
+                        "foreign_table": tgt_tbl,
+                        "foreign_column": tgt_col,
+                    }
+                )
+                relationships.append(
+                    {
+                        "source_table": src_tbl,
+                        "source_column": src_col,
+                        "target_table": tgt_tbl,
+                        "target_column": tgt_col,
+                    }
+                )
+
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type, is_null = (
@@ -1442,12 +1545,15 @@ def introspect_db2(
                 str(r[2]),
                 str(r[3]),
             )
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
             table_cols_map.setdefault(t_name, []).append(
                 {
                     "name": c_name.lower(),
                     "data_type": d_type.lower(),
                     "is_nullable": is_null.upper() in ("Y", "YES", "TRUE"),
-                    "is_primary": c_name.lower() == "id",
+                    "is_primary": is_pk,
                     "comment": None,
                 }
             )
@@ -1467,8 +1573,8 @@ def introspect_db2(
 
         raw_snapshot = {
             "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
         }
         return normalize_schema_snapshot(
             raw_snapshot, filter_sensitive=filter_sensitive

@@ -133,8 +133,7 @@ export function formatIlike(
     dialect === "spark" ||
     dialect === "chdb" ||
     dialect === "greptimedb" ||
-    dialect === "greptime" ||
-    dialect === "exasol"
+    dialect === "greptime"
   ) {
     return `${colRef} ILIKE ${valEscaped}`;
   }

@@ -1114,7 +1114,7 @@ describe("compileVisualState", () => {
       null,
       "exasol",
     );
-    expect(resExasol.sql).toContain('"sales"."amt" ILIKE \'%100%\'');
+    expect(resExasol.sql).toContain('LOWER("sales"."amt") LIKE LOWER(\'%100%\')');
 
     // Test DB2
     const resDB2 = compileVisualState(

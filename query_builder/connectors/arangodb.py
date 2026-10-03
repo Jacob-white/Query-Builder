@@ -32,8 +32,23 @@ class _ArangoCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "RETURN 1"
         if hasattr(self.db, "aql") and hasattr(self.db.aql, "execute"):
-            bind_vars = {f"p{i}": p for i, p in enumerate(params)} if params else {}
+            bind_vars: dict[str, Any] = {}
+            if params:
+                if isinstance(params, dict):
+                    bind_vars = params
+                else:
+                    parts = clean_sql.split("?")
+                    if len(parts) - 1 == len(params):
+                        rebuilt = []
+                        for i, part in enumerate(parts[:-1]):
+                            rebuilt.append(part)
+                            rebuilt.append(f"@p{i}")
+                        rebuilt.append(parts[-1])
+                        clean_sql = "".join(rebuilt)
+                    bind_vars = {f"p{i}": p for i, p in enumerate(params)}
             cursor = self.db.aql.execute(clean_sql, bind_vars=bind_vars)
             docs = list(cursor)
             if docs:

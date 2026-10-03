@@ -32,8 +32,24 @@ class _SurrealCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "RETURN 1"
         if hasattr(self.client, "query"):
-            res = self.client.query(clean_sql, params or {})
+            bind_vars: dict[str, Any] = {}
+            if params:
+                if isinstance(params, dict):
+                    bind_vars = params
+                else:
+                    parts = clean_sql.split("?")
+                    if len(parts) - 1 == len(params):
+                        rebuilt = []
+                        for i, part in enumerate(parts[:-1]):
+                            rebuilt.append(part)
+                            rebuilt.append(f"$p{i}")
+                        rebuilt.append(parts[-1])
+                        clean_sql = "".join(rebuilt)
+                    bind_vars = {f"p{i}": p for i, p in enumerate(params)}
+            res = self.client.query(clean_sql, bind_vars)
             if isinstance(res, list) and res:
                 # SurrealDB returns a list of result objects, e.g. [{"result": [...], "status": "OK"}]
                 first = res[0]
@@ -46,6 +62,9 @@ class _SurrealCursorAdapter:
                     else:
                         self.description = [("value",)]
                         self._rows = [[item] for item in items]
+                elif items is not None and not isinstance(items, list):
+                    self.description = [("value",)]
+                    self._rows = [[items]]
                 else:
                     self.description = []
                     self._rows = []
