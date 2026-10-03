@@ -810,5 +810,199 @@ describe("compileVisualState", () => {
     );
     expect(resDremio.sql).toContain('"orders"."status" ILIKE \'%shipped%\'');
     expect(resDremio.sql).toContain("LIMIT 20;");
+
+    // Test PrestoDB compilation
+    const resPresto = compileVisualState(
+      "metrics",
+      { "metrics.val": { table: "metrics", name: "val" } },
+      ["metrics.val"],
+      [],
+      [],
+      [],
+      false,
+      15,
+      null,
+      "prestodb",
+    );
+    expect(resPresto.sql).toContain('SELECT "metrics"."val"');
+    expect(resPresto.sql).toContain("OFFSET 0 LIMIT 15;");
+
+    // Test StarRocks compilation
+    const resStarRocks = compileVisualState(
+      "events",
+      { "events.type": { table: "events", name: "type" } },
+      ["events.type"],
+      [],
+      [{ id: "f1", column: "type", operator: "CONTAINS", value: "click" }],
+      [],
+      false,
+      10,
+      null,
+      "starrocks",
+    );
+    expect(resStarRocks.sql).toContain("SELECT `events`.`type`");
+    expect(resStarRocks.sql).toContain("`events`.`type` ILIKE '%click%'");
+    expect(resStarRocks.sql).toContain("LIMIT 10;");
+
+    // Test Materialize & RisingWave compilation
+    const resMaterialize = compileVisualState(
+      "mv_stream",
+      { "mv_stream.data": { table: "mv_stream", name: "data" } },
+      ["mv_stream.data"],
+      [],
+      [{ id: "f1", column: "data", operator: "CONTAINS", value: "live" }],
+      [],
+      false,
+      30,
+      null,
+      "materialize",
+    );
+    expect(resMaterialize.sql).toContain('"mv_stream"."data" ILIKE \'%live%\'');
+
+    const resRisingWave = compileVisualState(
+      "rw_source",
+      { "rw_source.msg": { table: "rw_source", name: "msg" } },
+      ["rw_source.msg"],
+      [],
+      [{ id: "f1", column: "msg", operator: "CONTAINS", value: "alert" }],
+      [],
+      false,
+      25,
+      null,
+      "risingwave",
+    );
+    expect(resRisingWave.sql).toContain('"rw_source"."msg" ILIKE \'%alert%\'');
+
+    // Test CrateDB & InfluxDB compilation
+    const resCrate = compileVisualState(
+      "logs",
+      { "logs.message": { table: "logs", name: "message" } },
+      ["logs.message"],
+      [],
+      [{ id: "f1", column: "message", operator: "CONTAINS", value: "err" }],
+      [],
+      false,
+      40,
+      null,
+      "cratedb",
+    );
+    expect(resCrate.sql).toContain('"logs"."message" ILIKE \'%err%\'');
+
+    const resInflux = compileVisualState(
+      "cpu",
+      { "cpu.usage": { table: "cpu", name: "usage" } },
+      ["cpu.usage"],
+      [],
+      [{ id: "f1", column: "usage", operator: "CONTAINS", value: "high" }],
+      [],
+      false,
+      50,
+      null,
+      "influxdb",
+    );
+    expect(resInflux.sql).toContain('"cpu"."usage" ILIKE \'%high%\'');
+
+    // Test AlloyDB & Vertica compilation
+    const resAlloy = compileVisualState(
+      "analytics",
+      { "analytics.kpi": { table: "analytics", name: "kpi" } },
+      ["analytics.kpi"],
+      [],
+      [{ id: "f1", column: "kpi", operator: "CONTAINS", value: "rev" }],
+      [],
+      false,
+      5,
+      null,
+      "alloydb",
+    );
+    expect(resAlloy.sql).toContain('"analytics"."kpi" ILIKE \'%rev%\'');
+
+    const resVertica = compileVisualState(
+      "fact_sales",
+      { "fact_sales.tier": { table: "fact_sales", name: "tier" } },
+      ["fact_sales.tier"],
+      [],
+      [{ id: "f1", column: "tier", operator: "CONTAINS", value: "gold" }],
+      [],
+      false,
+      12,
+      null,
+      "vertica",
+    );
+    expect(resVertica.sql).toContain('"fact_sales"."tier" ILIKE \'%gold%\'');
+
+    // Test Druid, Pinot, SAP HANA, OceanBase, ScyllaDB
+    const resDruid = compileVisualState(
+      "druid_tbl",
+      { "druid_tbl.dim": { table: "druid_tbl", name: "dim" } },
+      ["druid_tbl.dim"],
+      [],
+      [{ id: "f1", column: "dim", operator: "CONTAINS", value: "geo" }],
+      [],
+      false,
+      10,
+      null,
+      "druid",
+    );
+    expect(resDruid.sql).toContain("LOWER(\"druid_tbl\".\"dim\") LIKE LOWER('%geo%')");
+
+    const resPinot = compileVisualState(
+      "pinot_tbl",
+      { "pinot_tbl.segment": { table: "pinot_tbl", name: "segment" } },
+      ["pinot_tbl.segment"],
+      [],
+      [{ id: "f1", column: "segment", operator: "CONTAINS", value: "us" }],
+      [],
+      false,
+      10,
+      null,
+      "pinot",
+    );
+    expect(resPinot.sql).toContain("LOWER(\"pinot_tbl\".\"segment\") LIKE LOWER('%us%')");
+
+    const resHana = compileVisualState(
+      "hana_tbl",
+      { "hana_tbl.code": { table: "hana_tbl", name: "code" } },
+      ["hana_tbl.code"],
+      [],
+      [{ id: "f1", column: "code", operator: "CONTAINS", value: "fin" }],
+      [],
+      false,
+      10,
+      null,
+      "saphana",
+    );
+    expect(resHana.sql).toContain("LOWER(\"hana_tbl\".\"code\") LIKE LOWER('%fin%')");
+
+    const resOcean = compileVisualState(
+      "ob_tbl",
+      { "ob_tbl.region": { table: "ob_tbl", name: "region" } },
+      ["ob_tbl.region"],
+      [],
+      [{ id: "f1", column: "region", operator: "CONTAINS", value: "apac" }],
+      [],
+      false,
+      10,
+      null,
+      "oceanbase",
+    );
+    expect(resOcean.sql).toContain("SELECT `ob_tbl`.`region`");
+    expect(resOcean.sql).toContain("LOWER(`ob_tbl`.`region`) LIKE LOWER('%apac%')");
+
+    const resScylla = compileVisualState(
+      "cql_tbl",
+      { "cql_tbl.key": { table: "cql_tbl", name: "key" } },
+      ["cql_tbl.key"],
+      [],
+      [{ id: "f1", column: "key", operator: "CONTAINS", value: "row" }],
+      [],
+      false,
+      10,
+      null,
+      "scylladb",
+    );
+    expect(resScylla.sql).toContain('SELECT "cql_tbl"."key"');
+    expect(resScylla.sql).toContain("LOWER(\"cql_tbl\".\"key\") LIKE LOWER('%row%')");
+    expect(resScylla.sql).toContain("LIMIT 10;");
   });
 });

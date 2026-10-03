@@ -74,6 +74,57 @@ class BaseDialect:
         """Formats LIMIT and OFFSET clause with bind parameters."""
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
+    def inspect_tables_query(
+        self, schema_name: str = "public"
+    ) -> tuple[str, list[Any]]:
+        """Returns the SQL query and parameters to introspect tables for this dialect."""
+        return (
+            f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} AND table_type = 'BASE TABLE' ORDER BY table_name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Returns the SQL query and parameters to introspect columns for this dialect."""
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Returns the SQL query and parameters to introspect primary keys for this dialect."""
+        if table_name:
+            return (
+                f"SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = {self.placeholder} AND tc.table_name = {self.placeholder};",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = {self.placeholder};",
+            [schema_name],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Returns the SQL query and parameters to introspect foreign keys for this dialect."""
+        if table_name:
+            return (
+                f"SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = {self.placeholder} AND tc.table_name = {self.placeholder};",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = {self.placeholder};",
+            [schema_name],
+        )
+
 
 class PostgresDialect(BaseDialect):
     """PostgreSQL dialect."""
@@ -122,6 +173,30 @@ class SQLiteDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         # SQLite LIKE is case-insensitive by default for ASCII
         return f"{col_ref} LIKE {self.placeholder}"
+
+    def inspect_tables_query(self, schema_name: str = "main") -> tuple[str, list[Any]]:
+        return (
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;",
+            [],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "main", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        tbl = table_name or "sqlite_master"
+        return f'PRAGMA table_info("{tbl}");', []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "main", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        tbl = table_name or "sqlite_master"
+        return f'PRAGMA table_info("{tbl}");', []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "main", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        tbl = table_name or "sqlite_master"
+        return f'PRAGMA foreign_key_list("{tbl}");', []
 
 
 class MySQLDialect(BaseDialect):
@@ -193,6 +268,27 @@ class ClickHouseDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
 
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT name FROM system.tables WHERE database = {self.placeholder} ORDER BY name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table, name, type FROM system.columns WHERE database = {self.placeholder} AND table = {self.placeholder} ORDER BY position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table, name, type FROM system.columns WHERE database = {self.placeholder} ORDER BY table, position;",
+            [schema_name],
+        )
+
 
 class OracleDialect(BaseDialect):
     """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
@@ -207,6 +303,14 @@ class OracleDialect(BaseDialect):
         return (
             f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
             [offset, limit],
+        )
+
+    def inspect_tables_query(
+        self, schema_name: str = "SYSTEM"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM all_tables WHERE owner = {self.placeholder} ORDER BY table_name;",
+            [schema_name.upper()],
         )
 
 
@@ -444,6 +548,221 @@ class SupabaseDialect(PostgresDialect):
     name: str = "supabase"
 
 
+class DruidDialect(BaseDialect):
+    """Apache Druid real-time analytical database dialect."""
+
+    name: str = "druid"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def inspect_tables_query(self, schema_name: str = "druid") -> tuple[str, list[Any]]:
+        return (
+            f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "druid", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = {self.placeholder} AND TABLE_NAME = {self.placeholder} ORDER BY ORDINAL_POSITION;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME, ORDINAL_POSITION;",
+            [schema_name],
+        )
+
+
+class PinotDialect(BaseDialect):
+    """Apache Pinot distributed OLAP datastore dialect."""
+
+    name: str = "pinot"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class StarRocksDialect(BaseDialect):
+    """StarRocks distributed MPP analytical database dialect."""
+
+    name: str = "starrocks"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class MaterializeDialect(PostgresDialect):
+    """Materialize streaming SQL database engine dialect."""
+
+    name: str = "materialize"
+
+
+class RisingWaveDialect(PostgresDialect):
+    """RisingWave distributed streaming SQL database dialect."""
+
+    name: str = "risingwave"
+
+
+class CrateDBDialect(BaseDialect):
+    """CrateDB distributed SQL database dialect."""
+
+    name: str = "cratedb"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(self, schema_name: str = "doc") -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} ORDER BY table_name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "doc", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+
+class InfluxDBDialect(BaseDialect):
+    """InfluxDB v3 / IOx SQL time-series engine dialect."""
+
+    name: str = "influxdb"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class AlloyDBDialect(PostgresDialect):
+    """Google Cloud AlloyDB for PostgreSQL dialect."""
+
+    name: str = "alloydb"
+
+
+class VerticaDialect(BaseDialect):
+    """Vertica columnar analytical data warehouse dialect."""
+
+    name: str = "vertica"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class SAPHANADialect(BaseDialect):
+    """SAP HANA in-memory database dialect."""
+
+    name: str = "saphana"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def inspect_tables_query(
+        self, schema_name: str = "SYSTEM"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT TABLE_NAME FROM SYS.TABLES WHERE SCHEMA_NAME = {self.placeholder} ORDER BY TABLE_NAME;",
+            [schema_name.upper()],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "SYSTEM", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE_NAME, IS_NULLABLE FROM SYS.TABLE_COLUMNS WHERE SCHEMA_NAME = {self.placeholder} AND TABLE_NAME = {self.placeholder} ORDER BY POSITION;",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE_NAME, IS_NULLABLE FROM SYS.TABLE_COLUMNS WHERE SCHEMA_NAME = {self.placeholder} ORDER BY TABLE_NAME, POSITION;",
+            [schema_name.upper()],
+        )
+
+
+class OceanBaseDialect(MySQLDialect):
+    """OceanBase distributed SQL database dialect."""
+
+    name: str = "oceanbase"
+
+
+class ScyllaDBDialect(BaseDialect):
+    """ScyllaDB and Apache Cassandra CQL dialect."""
+
+    name: str = "scylladb"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "system"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM system_schema.tables WHERE keyspace_name = {self.placeholder};",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, type, kind FROM system_schema.columns WHERE keyspace_name = {self.placeholder} AND table_name = {self.placeholder};",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, type, kind FROM system_schema.columns WHERE keyspace_name = {self.placeholder};",
+            [schema_name],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name FROM system_schema.columns WHERE keyspace_name = {self.placeholder} AND table_name = {self.placeholder} AND kind IN ('partition_key', 'clustering');",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name FROM system_schema.columns WHERE keyspace_name = {self.placeholder} AND kind IN ('partition_key', 'clustering');",
+            [schema_name],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -459,6 +778,7 @@ DIALECTS: dict[str, BaseDialect] = {
     "redshift": RedshiftDialect(),
     "trino": TrinoDialect(),
     "presto": PrestoDialect(),
+    "prestodb": PrestoDialect(),
     "databricks": DatabricksDialect(),
     "spark": DatabricksDialect(),
     "athena": AthenaDialect(),
@@ -489,6 +809,30 @@ DIALECTS: dict[str, BaseDialect] = {
     "atlas_sql": MongoDBSQLDialect(),
     "neon": NeonDialect(),
     "supabase": SupabaseDialect(),
+    "druid": DruidDialect(),
+    "apache_druid": DruidDialect(),
+    "pinot": PinotDialect(),
+    "apache_pinot": PinotDialect(),
+    "starrocks": StarRocksDialect(),
+    "materialize": MaterializeDialect(),
+    "mz": MaterializeDialect(),
+    "risingwave": RisingWaveDialect(),
+    "rw": RisingWaveDialect(),
+    "cratedb": CrateDBDialect(),
+    "crate": CrateDBDialect(),
+    "influxdb": InfluxDBDialect(),
+    "iox": InfluxDBDialect(),
+    "influx": InfluxDBDialect(),
+    "alloydb": AlloyDBDialect(),
+    "vertica": VerticaDialect(),
+    "saphana": SAPHANADialect(),
+    "hana": SAPHANADialect(),
+    "sap_hana": SAPHANADialect(),
+    "oceanbase": OceanBaseDialect(),
+    "scylladb": ScyllaDBDialect(),
+    "scylla": ScyllaDBDialect(),
+    "cassandra": ScyllaDBDialect(),
+    "cql": ScyllaDBDialect(),
 }
 
 

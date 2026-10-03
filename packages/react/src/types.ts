@@ -282,7 +282,32 @@ export type SqlDialect =
   | "mongo"
   | "atlas_sql"
   | "neon"
-  | "supabase";
+  | "supabase"
+  | "prestodb"
+  | "druid"
+  | "apache_druid"
+  | "pinot"
+  | "apache_pinot"
+  | "starrocks"
+  | "materialize"
+  | "mz"
+  | "risingwave"
+  | "rw"
+  | "cratedb"
+  | "crate"
+  | "influxdb"
+  | "iox"
+  | "influx"
+  | "alloydb"
+  | "vertica"
+  | "saphana"
+  | "hana"
+  | "sap_hana"
+  | "oceanbase"
+  | "scylladb"
+  | "scylla"
+  | "cassandra"
+  | "cql";
 
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
   schema?: SchemaSnapshot | Schema | null;
