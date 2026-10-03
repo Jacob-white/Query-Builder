@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from query_builder.dialects import BaseDialect, get_dialect
+from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect, get_dialect
 from query_builder.join_solver import find_best_join_condition
 from query_builder.security import (
     AliasCounter,
@@ -25,6 +25,51 @@ class CompilationError(Exception):
 
 
 MAX_OFFSET = 1_000_000
+MAX_LIMIT = 10_000
+MAX_PROJECTIONS = 100
+MAX_JOINS = 20
+MAX_FILTERS = 50
+MAX_HAVING = 20
+MAX_ORDER_BY = 20
+MAX_IN_VALUES = 1000
+
+ALLOWED_SPEC_KEYS = {
+    "table",
+    "columns",
+    "joins",
+    "filters",
+    "filter_join",
+    "having",
+    "order_by",
+    "limit",
+    "offset",
+    "distinct",
+}
+
+ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
+ALLOWED_JOIN_KEYS = {"table", "type", "on", "left_table", "left_col", "right_col", "id"}
+ALLOWED_FILTER_KEYS = {
+    "column",
+    "op",
+    "operator",
+    "value",
+    "tablePrefix",
+    "table_prefix",
+    "table",
+    "id",
+    "combiner",
+    "parenOpen",
+    "parenClose",
+}
+ALLOWED_HAVING_KEYS = {"column", "agg", "aggregate", "op", "operator", "value"}
+ALLOWED_ORDER_BY_KEYS = {
+    "column",
+    "direction",
+    "tablePrefix",
+    "table_prefix",
+    "table",
+    "id",
+}
 
 AGGREGATE_MAP = {
     "count": "COUNT({})",
@@ -51,6 +96,188 @@ OPERATOR_MAP = {
 }
 
 
+def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) -> None:
+    """
+    Validates an untrusted query specification dictionary against schema rules,
+    acceptable keys, data types, and defensive DoS limits.
+    """
+    if not isinstance(spec, dict):
+        raise CompilationError(
+            f"Query spec must be a dictionary, got {type(spec).__name__}"
+        )
+
+    if not allow_unknown_keys:
+        unknown = set(spec.keys()) - ALLOWED_SPEC_KEYS
+        if unknown:
+            raise CompilationError(
+                f"Unexpected field(s) in query specification: {', '.join(sorted(unknown))}"
+            )
+
+    table = spec.get("table")
+    if table is None:
+        raise CompilationError(
+            "Missing required 'table' parameter in query specification."
+        )
+    if not isinstance(table, str) or not table.strip():
+        raise CompilationError("Field 'table' must be a non-empty string.")
+    clean_table = table.split(".")[-1]
+    if not IDENTIFIER_REGEX.match(clean_table):
+        raise CompilationError(f"Invalid table identifier name: '{table}'")
+
+    columns = spec.get("columns", [])
+    if columns is not None and not isinstance(columns, (list, tuple)):
+        raise CompilationError("Field 'columns' must be a list.")
+    if columns and len(columns) > MAX_PROJECTIONS:
+        raise CompilationError(
+            f"Too many column projections: {len(columns)} exceeds maximum of {MAX_PROJECTIONS}."
+        )
+    for col in columns or []:
+        if isinstance(col, str):
+            if col != "*" and not IDENTIFIER_REGEX.match(col.split(".")[-1]):
+                raise CompilationError(f"Invalid column identifier name: '{col}'")
+        elif isinstance(col, dict):
+            if not allow_unknown_keys:
+                unknown_col = set(col.keys()) - ALLOWED_COLUMN_KEYS
+                if unknown_col:
+                    raise CompilationError(
+                        f"Unexpected field(s) in column specification: {', '.join(sorted(unknown_col))}"
+                    )
+            raw_col = col.get("column", col.get("name"))
+            if (
+                isinstance(raw_col, str)
+                and raw_col != "*"
+                and not IDENTIFIER_REGEX.match(raw_col.split(".")[-1])
+            ):
+                raise CompilationError(f"Invalid column identifier name: '{raw_col}'")
+            agg = col.get("agg") or col.get("aggregate")
+            if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
+                raise CompilationError(f"Unsupported aggregate function: '{agg}'")
+        else:
+            raise CompilationError(
+                f"Invalid column specification item type: {type(col).__name__}"
+            )
+
+    joins = spec.get("joins", [])
+    if joins is not None and not isinstance(joins, (list, tuple)):
+        raise CompilationError("Field 'joins' must be a list.")
+    if joins and len(joins) > MAX_JOINS:
+        raise CompilationError(
+            f"Too many joins: {len(joins)} exceeds maximum of {MAX_JOINS}."
+        )
+    for j in joins or []:
+        if hasattr(j, "__dict__"):
+            j_dict = {k: v for k, v in j.__dict__.items() if not k.startswith("_")}
+        elif isinstance(j, dict):
+            j_dict = j
+        else:
+            raise CompilationError(f"Invalid join item type: {type(j).__name__}")
+        if not allow_unknown_keys:
+            unknown_j = set(j_dict.keys()) - ALLOWED_JOIN_KEYS
+            if unknown_j:
+                raise CompilationError(
+                    f"Unexpected field(s) in join specification: {', '.join(sorted(unknown_j))}"
+                )
+        j_tbl = j_dict.get("table")
+        if j_tbl is not None:
+            if not isinstance(j_tbl, str) or not j_tbl.strip():
+                raise CompilationError("Join 'table' must be a non-empty string.")
+            if not IDENTIFIER_REGEX.match(j_tbl.split(".")[-1]):
+                raise CompilationError(f"Invalid join table identifier name: '{j_tbl}'")
+
+    filters = spec.get("filters", [])
+    if filters is not None and not isinstance(filters, (list, tuple)):
+        raise CompilationError("Field 'filters' must be a list.")
+    if filters and len(filters) > MAX_FILTERS:
+        raise CompilationError(
+            f"Too many filters: {len(filters)} exceeds maximum of {MAX_FILTERS}."
+        )
+    for flt in filters or []:
+        if hasattr(flt, "__dict__"):
+            flt_dict = {k: v for k, v in flt.__dict__.items() if not k.startswith("_")}
+        elif isinstance(flt, dict):
+            flt_dict = flt
+        else:
+            raise CompilationError(f"Invalid filter item type: {type(flt).__name__}")
+        if not allow_unknown_keys:
+            unknown_flt = set(flt_dict.keys()) - ALLOWED_FILTER_KEYS
+            if unknown_flt:
+                raise CompilationError(
+                    f"Unexpected field(s) in filter specification: {', '.join(sorted(unknown_flt))}"
+                )
+        flt_col = flt_dict.get("column")
+        if isinstance(flt_col, str) and not IDENTIFIER_REGEX.match(
+            flt_col.split(".")[-1]
+        ):
+            raise CompilationError(
+                f"Invalid filter column identifier name: '{flt_col}'"
+            )
+
+    having = spec.get("having", [])
+    if having is not None and not isinstance(having, (list, tuple)):
+        raise CompilationError("Field 'having' must be a list.")
+    if having and len(having) > MAX_HAVING:
+        raise CompilationError(
+            f"Too many having specifications: {len(having)} exceeds maximum of {MAX_HAVING}."
+        )
+    for h in having or []:
+        if hasattr(h, "__dict__"):
+            h_dict = {k: v for k, v in h.__dict__.items() if not k.startswith("_")}
+        elif isinstance(h, dict):
+            h_dict = h
+        else:
+            raise CompilationError(f"Invalid having item type: {type(h).__name__}")
+        if not allow_unknown_keys:
+            unknown_h = set(h_dict.keys()) - ALLOWED_HAVING_KEYS
+            if unknown_h:
+                raise CompilationError(
+                    f"Unexpected field(s) in having specification: {', '.join(sorted(unknown_h))}"
+                )
+
+    order_by = spec.get("order_by", [])
+    if order_by is not None and not isinstance(order_by, (list, tuple)):
+        raise CompilationError("Field 'order_by' must be a list.")
+    if order_by and len(order_by) > MAX_ORDER_BY:
+        raise CompilationError(
+            f"Too many order by specifications: {len(order_by)} exceeds maximum of {MAX_ORDER_BY}."
+        )
+    for o in order_by or []:
+        if hasattr(o, "__dict__"):
+            o_dict = {k: v for k, v in o.__dict__.items() if not k.startswith("_")}
+        elif isinstance(o, dict):
+            o_dict = o
+        else:
+            raise CompilationError(f"Invalid order_by item type: {type(o).__name__}")
+        if not allow_unknown_keys:
+            unknown_o = set(o_dict.keys()) - ALLOWED_ORDER_BY_KEYS
+            if unknown_o:
+                raise CompilationError(
+                    f"Unexpected field(s) in order by specification: {', '.join(sorted(unknown_o))}"
+                )
+
+    if "limit" in spec and spec["limit"] is not None:
+        try:
+            lim = int(spec["limit"])
+            if lim < 0:
+                raise CompilationError("Limit must be non-negative.")
+        except (ValueError, TypeError) as e:
+            raise CompilationError(f"Invalid limit value: {spec['limit']}") from e
+
+    if "offset" in spec and spec["offset"] is not None:
+        try:
+            off = int(spec["offset"])
+            if off < 0:
+                raise CompilationError("Offset must be non-negative.")
+        except (ValueError, TypeError) as e:
+            raise CompilationError(f"Invalid offset value: {spec['offset']}") from e
+
+    if (
+        "distinct" in spec
+        and spec["distinct"] is not None
+        and not isinstance(spec["distinct"], bool)
+    ):
+        raise CompilationError("Field 'distinct' must be a boolean.")
+
+
 class QueryCompiler:
     """
     Translates a declarative JSON QueryBuilderSpec into safe, parameterized SQL.
@@ -68,6 +295,8 @@ class QueryCompiler:
         dialect: str | BaseDialect = "postgres",
         ownership_paths: dict[str, list[list[tuple[str, str, str]]]] | None = None,
         max_limit: int = 100,
+        validate_spec: bool = True,
+        allow_unknown_keys: bool = False,
     ) -> None:
         if hasattr(spec, "__dict__"):
             # Dataclass or Pydantic model
@@ -78,6 +307,9 @@ class QueryCompiler:
             self.spec = spec
         else:
             raise CompilationError(f"Unsupported spec type: {type(spec)}")
+
+        if validate_spec:
+            validate_query_spec(self.spec, allow_unknown_keys=allow_unknown_keys)
 
         self.user_id = user_id
         self.force_user_filter = force_user_filter
@@ -108,7 +340,11 @@ class QueryCompiler:
 
     def _get_alias(self, table_name: str) -> str:
         """Returns or creates a stable short alias (e.g. t1, t2) for a given table."""
+        if not isinstance(table_name, str) or not table_name.strip():
+            raise CompilationError(f"Invalid table name: '{table_name}'")
         clean = table_name.split(".")[-1]
+        if not IDENTIFIER_REGEX.match(clean):
+            raise CompilationError(f"Invalid table identifier name: '{clean}'")
         if clean not in self.table_aliases:
             alias = f"t{len(self.table_aliases) + 1}"
             self.table_aliases[clean] = alias
@@ -118,6 +354,8 @@ class QueryCompiler:
         self, col_ref: str, default_table: str
     ) -> tuple[str, str, str]:
         """Resolves a column reference to (alias, col_name, quoted_column_ref)."""
+        if not isinstance(col_ref, str) or not col_ref.strip():
+            raise CompilationError(f"Invalid column reference: '{col_ref}'")
         if "." in col_ref:
             parts = col_ref.split(".", 1)
             tbl = parts[0]
@@ -125,6 +363,14 @@ class QueryCompiler:
         else:
             tbl = default_table
             col = col_ref
+
+        clean_col = col.split(".")[-1]
+        if clean_col != "*" and not IDENTIFIER_REGEX.match(clean_col):
+            raise CompilationError(f"Invalid column identifier name: '{col}'")
+
+        clean_tbl = tbl.split(".")[-1]
+        if not IDENTIFIER_REGEX.match(clean_tbl):
+            raise CompilationError(f"Invalid table identifier name: '{tbl}'")
 
         alias = self._get_alias(tbl)
         quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(col)}"
@@ -391,6 +637,11 @@ class QueryCompiler:
                     val_list = [v.strip() for v in val.split(",") if v.strip()]
                 else:
                     val_list = [val]
+
+                if len(val_list) > MAX_IN_VALUES:
+                    raise CompilationError(
+                        f"IN clause value count ({len(val_list)}) exceeds maximum limit of {MAX_IN_VALUES}."
+                    )
 
                 placeholders = ", ".join([self.dialect.placeholder] * len(val_list))
                 client_filter_clauses.append(

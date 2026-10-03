@@ -220,4 +220,57 @@ describe("compileVisualState", () => {
       alias: "contact_email",
     });
   });
+
+  it("skips filters with disallowed or malicious operators", () => {
+    const res = compileVisualState(
+      "users",
+      {},
+      [],
+      [],
+      [
+        {
+          id: "f1",
+          column: "status",
+          operator: "EXEC_COMMAND;" as any,
+          value: "test",
+        },
+      ],
+      [],
+    );
+    expect(res.sql).not.toContain("EXEC_COMMAND");
+    expect(res.sql).not.toContain("WHERE");
+  });
+
+  it("handles non-string primary table input safely", () => {
+    const res = compileVisualState(null as unknown as string, {}, [], [], [], []);
+    expect(res.sql).toBe("");
+    expect(res.spec.table).toBe("");
+  });
+
+  it("falls back to LEFT JOIN for invalid join type and ASC for invalid sort direction", () => {
+    const res = compileVisualState(
+      "users",
+      {},
+      [],
+      [
+        {
+          id: "j1",
+          type: "INVALID_JOIN" as any,
+          table: "orders",
+          left_col: "id",
+          right_col: "user_id",
+        },
+      ],
+      [],
+      [
+        {
+          id: "s1",
+          column: "created_at",
+          direction: "SIDEWAYS" as any,
+        },
+      ],
+    );
+    expect(res.sql).toContain('LEFT JOIN "orders"');
+    expect(res.sql).toContain('"users"."created_at" ASC');
+  });
 });

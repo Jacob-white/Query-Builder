@@ -176,4 +176,55 @@ describe("joinUtils", () => {
     expect(match.rightCol).toBe("id");
     expect(match.isFk).toBe(true);
   });
+
+  it("handles empty or invalid table names in findBestJoinCondition", () => {
+    const match1 = findBestJoinCondition("", "orders");
+    expect(match1.leftTable).toBe("t1");
+    expect(match1.rightTable).toBe("orders");
+
+    const match2 = findBestJoinCondition("users", "");
+    expect(match2.leftTable).toBe("users");
+    expect(match2.rightTable).toBe("t2");
+  });
+
+  it("handles invalid targetTable or activeTables inputs in findJoinPath", () => {
+    expect(findJoinPath(["users"], "")).toEqual([]);
+    expect(findJoinPath(["users"], null as unknown as string)).toEqual([]);
+    expect(findJoinPath(null as unknown as string[], "orders")).toEqual([]);
+  });
+
+  it("limits activeTables to MAX_ACTIVE_TABLES", () => {
+    const manyActive = Array.from({ length: 60 }, (_, i) => `table_${i}`);
+    const path = findJoinPath(manyActive, "target_table", mockSchema);
+    expect(path).toHaveLength(1);
+  });
+
+  it("skips malformed table metadata in entity bridges", () => {
+    const badSchema: SchemaSnapshot = {
+      tables: {
+        bad1: null as unknown as any,
+        bad2: { name: "bad2", columns: null as unknown as any },
+      },
+      foreign_keys: [],
+    };
+    const path = findJoinPath(["a"], "b", badSchema);
+    expect(path).toHaveLength(1);
+  });
+
+  it("respects MAX_JOIN_DEPTH in BFS search", () => {
+    // 12-hop linear chain
+    const deepFks = Array.from({ length: 12 }, (_, i) => ({
+      table: String.fromCharCode(97 + i + 1),
+      column: "fk",
+      foreign_table: String.fromCharCode(97 + i),
+      foreign_column: "id",
+    }));
+    const deepSchema: SchemaSnapshot = {
+      tables: {},
+      foreign_keys: deepFks,
+    };
+    const path = findJoinPath(["a"], "m", deepSchema);
+    // Over 10 hops cannot be reached via BFS; falls back to direct join
+    expect(path).toHaveLength(1);
+  });
 });

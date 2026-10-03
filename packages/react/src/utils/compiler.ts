@@ -32,6 +32,29 @@ export interface CompiledVisualQuery {
   };
 }
 
+const ALLOWED_OPERATORS = new Set([
+  "=",
+  "!=",
+  ">",
+  "<",
+  ">=",
+  "<=",
+  "STARTS_WITH",
+  "ENDS_WITH",
+  "CONTAINS",
+  "LIKE",
+  "ILIKE",
+  "IN",
+  "NOT IN",
+  "BETWEEN",
+  "IS NULL",
+  "IS NOT NULL",
+]);
+
+const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
+
+const sanitizeIdent = (s: string) => (s || "").replace(/"/g, '""');
+
 export function compileVisualState(
   primaryTable: string,
   selectedColumns: Record<string, VisualColumnSelect>,
@@ -43,7 +66,7 @@ export function compileVisualState(
   limit: number = 50,
   schemaData?: SchemaSnapshot | null,
 ): CompiledVisualQuery {
-  if (!primaryTable) {
+  if (!primaryTable || typeof primaryTable !== "string") {
     return {
       sql: "",
       spec: {
@@ -59,42 +82,47 @@ export function compileVisualState(
     };
   }
 
-  const cleanPrimary = primaryTable.replace(/^(\w+\.)/, "");
+  const cleanPrimary = sanitizeIdent(primaryTable.replace(/^(\w+\.)/, ""));
   const hasAggregates = orderedProjectionKeys.some(
-    (k) => selectedColumns[k]?.aggregate,
+    (k) => selectedColumns[k]?.aggregate && ALLOWED_AGGREGATES.has(selectedColumns[k]?.aggregate || ""),
   );
 
   // Projections
   let selectClause = "*";
   const specColumns: (string | { column: string; agg?: string; alias?: string })[] = [];
 
-  if (orderedProjectionKeys.length > 0) {
-    selectClause = orderedProjectionKeys
+  const safeProjectionKeys = (orderedProjectionKeys || []).slice(0, 100);
+
+  if (safeProjectionKeys.length > 0) {
+    selectClause = safeProjectionKeys
       .map((compositeKey) => {
         const item = selectedColumns[compositeKey];
         if (!item) return "";
-        const tableAlias = item.table || cleanPrimary;
-        const colRef = `"${tableAlias}"."${item.name}"`;
+        const tableAlias = sanitizeIdent(item.table || cleanPrimary);
+        const colName = sanitizeIdent(item.name);
+        const colRef = `"${tableAlias}"."${colName}"`;
 
-        if (item.aggregate) {
-          const alias = item.alias || `${item.aggregate.toLowerCase()}_${item.name}`;
+        const aggUpper = (item.aggregate || "").toUpperCase();
+        if (aggUpper && ALLOWED_AGGREGATES.has(aggUpper)) {
+          const alias = sanitizeIdent(item.alias || `${aggUpper.toLowerCase()}_${item.name}`);
           specColumns.push({
-            column: `${tableAlias}.${item.name}`,
-            agg: item.aggregate.toLowerCase(),
+            column: `${tableAlias}.${colName}`,
+            agg: aggUpper.toLowerCase(),
             alias,
           });
-          return `${item.aggregate}(${colRef}) AS "${alias}"`;
+          return `${aggUpper}(${colRef}) AS "${alias}"`;
         }
 
         if (item.alias) {
+          const alias = sanitizeIdent(item.alias);
           specColumns.push({
-            column: `${tableAlias}.${item.name}`,
-            alias: item.alias,
+            column: `${tableAlias}.${colName}`,
+            alias,
           });
-          return `${colRef} AS "${item.alias}"`;
+          return `${colRef} AS "${alias}"`;
         }
 
-        specColumns.push(`${tableAlias}.${item.name}`);
+        specColumns.push(`${tableAlias}.${colName}`);
         return colRef;
       })
       .filter(Boolean)
@@ -110,38 +138,45 @@ export function compileVisualState(
   const fromClause = `FROM "${cleanPrimary}"`;
 
   // Joins
+  const validJoinTypes = new Set(["LEFT JOIN", "INNER JOIN", "RIGHT JOIN", "FULL JOIN"]);
   const specJoins: CompiledVisualQuery["spec"]["joins"] = [];
-  const joinClauses = joins.map((j) => {
-    const leftTbl = (j.left_table || cleanPrimary).replace(/^(\w+\.)/, "");
-    const rightTbl = j.table.replace(/^(\w+\.)/, "");
-    const joinType = j.type || "LEFT JOIN";
+  const safeJoins = (joins || []).slice(0, 20);
+  const joinClauses = safeJoins.map((j) => {
+    const leftTbl = sanitizeIdent((j.left_table || cleanPrimary).replace(/^(\w+\.)/, ""));
+    const rightTbl = sanitizeIdent(j.table.replace(/^(\w+\.)/, ""));
+    const leftCol = sanitizeIdent(j.left_col);
+    const rightCol = sanitizeIdent(j.right_col);
+    const joinType = validJoinTypes.has(j.type) ? j.type : "LEFT JOIN";
 
     specJoins.push({
       table: rightTbl,
       type: joinType.replace(" JOIN", ""),
       left_table: leftTbl,
-      left_col: j.left_col,
-      right_col: j.right_col,
-      on: [{ left: `${leftTbl}.${j.left_col}`, right: `${rightTbl}.${j.right_col}` }],
+      left_col: leftCol,
+      right_col: rightCol,
+      on: [{ left: `${leftTbl}.${leftCol}`, right: `${rightTbl}.${rightCol}` }],
     });
 
-    return `${joinType} "${rightTbl}" ON "${leftTbl}"."${j.left_col}" = "${rightTbl}"."${j.right_col}"`;
+    return `${joinType} "${rightTbl}" ON "${leftTbl}"."${leftCol}" = "${rightTbl}"."${rightCol}"`;
   });
 
   // Filters
-  const activeFilters = filters.filter((f) => f.column && f.operator);
+  const activeFilters = (filters || [])
+    .slice(0, 50)
+    .filter((f) => f.column && f.operator && ALLOWED_OPERATORS.has(f.operator));
   const specFilters: CompiledVisualQuery["spec"]["filters"] = [];
   let whereClause = "";
 
   if (activeFilters.length > 0) {
     const parts: string[] = [];
     activeFilters.forEach((f) => {
-      const tbl = (f.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, "");
-      const colRef = `"${tbl}"."${f.column}"`;
+      const tbl = sanitizeIdent((f.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, ""));
+      const colName = sanitizeIdent(f.column);
+      const colRef = `"${tbl}"."${colName}"`;
       let expr = "";
 
       specFilters.push({
-        column: f.column,
+        column: colName,
         op: f.operator.toLowerCase().replace(" ", "_"),
         value: f.value,
         tablePrefix: tbl,
@@ -150,34 +185,41 @@ export function compileVisualState(
       if (f.operator === "IS NULL" || f.operator === "IS NOT NULL") {
         expr = `${colRef} ${f.operator}`;
       } else if (f.operator === "STARTS_WITH") {
-        const clean = f.value.replace(/'/g, "''");
+        const clean = (f.value || "").replace(/'/g, "''");
         expr = `${colRef} ILIKE '${clean}%'`;
       } else if (f.operator === "ENDS_WITH") {
-        const clean = f.value.replace(/'/g, "''");
+        const clean = (f.value || "").replace(/'/g, "''");
         expr = `${colRef} ILIKE '%${clean}'`;
       } else if (f.operator === "CONTAINS") {
-        const clean = f.value.replace(/'/g, "''");
+        const clean = (f.value || "").replace(/'/g, "''");
         expr = `${colRef} ILIKE '%${clean}%'`;
       } else if (f.operator === "LIKE" || f.operator === "ILIKE") {
-        const clean = f.value.replace(/'/g, "''");
+        const clean = (f.value || "").replace(/'/g, "''");
         expr = `${colRef} ${f.operator} '${clean}'`;
       } else if (f.operator === "IN" || f.operator === "NOT IN") {
-        const items = f.value
+        const items = (f.value || "")
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean)
+          .slice(0, 500)
           .map((s) => (isNaN(Number(s)) ? `'${s.replace(/'/g, "''")}'` : s));
         expr = `${colRef} ${f.operator} (${items.join(", ") || "NULL"})`;
       } else if (f.operator === "BETWEEN") {
-        const bounds = f.value.includes(" AND ") ? f.value.split(" AND ") : f.value.split(",");
+        const bounds = (f.value || "").includes(" AND ")
+          ? (f.value || "").split(" AND ")
+          : (f.value || "").split(",");
         if (bounds.length === 2) {
-          const v0 = isNaN(Number(bounds[0])) ? `'${bounds[0].trim().replace(/'/g, "''")}'` : bounds[0].trim();
-          const v1 = isNaN(Number(bounds[1])) ? `'${bounds[1].trim().replace(/'/g, "''")}'` : bounds[1].trim();
+          const v0 = isNaN(Number(bounds[0]))
+            ? `'${bounds[0].trim().replace(/'/g, "''")}'`
+            : bounds[0].trim();
+          const v1 = isNaN(Number(bounds[1]))
+            ? `'${bounds[1].trim().replace(/'/g, "''")}'`
+            : bounds[1].trim();
           expr = `${colRef} BETWEEN ${v0} AND ${v1}`;
         }
       } else {
-        const isNum = !isNaN(Number(f.value)) && f.value.trim() !== "";
-        const valEscaped = isNum ? f.value : `'${f.value.replace(/'/g, "''")}'`;
+        const isNum = !isNaN(Number(f.value)) && (f.value || "").trim() !== "";
+        const valEscaped = isNum ? f.value : `'${(f.value || "").replace(/'/g, "''")}'`;
         expr = `${colRef} ${f.operator} ${valEscaped}`;
       }
 
@@ -192,15 +234,17 @@ export function compileVisualState(
   }
 
   // Sorts
-  const activeSorts = sorts.filter((s) => s.column);
+  const activeSorts = (sorts || []).slice(0, 20).filter((s) => s.column);
   const specSorts: CompiledVisualQuery["spec"]["order_by"] = [];
   let orderClause = "";
 
   if (activeSorts.length > 0) {
     const sortParts = activeSorts.map((s) => {
-      const tbl = (s.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, "");
-      specSorts.push({ column: `${tbl}.${s.column}`, direction: s.direction });
-      return `"${tbl}"."${s.column}" ${s.direction}`;
+      const tbl = sanitizeIdent((s.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, ""));
+      const colName = sanitizeIdent(s.column);
+      const direction = s.direction === "DESC" ? "DESC" : "ASC";
+      specSorts.push({ column: `${tbl}.${colName}`, direction });
+      return `"${tbl}"."${colName}" ${direction}`;
     });
     orderClause = `ORDER BY ${sortParts.join(", ")}`;
   }
@@ -208,12 +252,13 @@ export function compileVisualState(
   // Group By
   let groupClause = "";
   if (hasAggregates) {
-    const nonAggCols = orderedProjectionKeys
+    const nonAggCols = safeProjectionKeys
       .map((k) => selectedColumns[k])
       .filter((item): item is VisualColumnSelect => Boolean(item && !item.aggregate))
       .map((item) => {
-        const tbl = item.table || cleanPrimary;
-        return `"${tbl}"."${item.name}"`;
+        const tbl = sanitizeIdent(item.table || cleanPrimary);
+        const colName = sanitizeIdent(item.name);
+        return `"${tbl}"."${colName}"`;
       });
     if (nonAggCols.length > 0) {
       groupClause = `GROUP BY ${nonAggCols.join(", ")}`;

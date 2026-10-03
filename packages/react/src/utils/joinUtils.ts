@@ -27,13 +27,28 @@ const CANONICAL_IDS = [
   "sec_number",
 ];
 
+export const MAX_JOIN_DEPTH = 10;
+export const MAX_BFS_ITERATIONS = 2000;
+export const MAX_ACTIVE_TABLES = 50;
+
 export function findBestJoinCondition(
   leftTable: string,
   rightTable: string,
   schemaData?: SchemaSnapshot | null,
 ): JoinConditionMatch {
-  const cleanLeft = leftTable.replace(/^(\w+\.)/, "");
-  const cleanRight = rightTable.replace(/^(\w+\.)/, "");
+  const cleanLeft = (leftTable || "").replace(/^(\w+\.)/, "");
+  const cleanRight = (rightTable || "").replace(/^(\w+\.)/, "");
+
+  if (!cleanLeft || !cleanRight) {
+    return {
+      leftTable: cleanLeft || "t1",
+      leftCol: "id",
+      rightTable: cleanRight || "t2",
+      rightCol: "id",
+      isFk: false,
+      reason: "Fallback condition for empty/invalid table name",
+    };
+  }
 
   const leftCols = schemaData?.tables?.[cleanLeft]?.columns || [];
   const rightCols = schemaData?.tables?.[cleanRight]?.columns || [];
@@ -41,7 +56,7 @@ export function findBestJoinCondition(
   const rightColNames = new Set(rightCols.map((c) => c.name));
 
   // 1. Explicit Schema Foreign Keys
-  if (schemaData?.foreign_keys) {
+  if (schemaData?.foreign_keys && Array.isArray(schemaData.foreign_keys)) {
     const directFk = schemaData.foreign_keys.find(
       (fk) => fk.table === cleanRight && fk.foreign_table === cleanLeft,
     );
@@ -139,11 +154,22 @@ export function findJoinPath(
   targetTable: string,
   schemaData?: SchemaSnapshot | null,
 ): VisualJoin[] {
+  if (!targetTable || typeof targetTable !== "string") {
+    return [];
+  }
+  if (!Array.isArray(activeTables) || activeTables.length === 0) {
+    return [];
+  }
+
   const cleanTarget = targetTable.replace(/^(\w+\.)/, "");
-  const cleanActive = activeTables.map((t) => t.replace(/^(\w+\.)/, ""));
+  let cleanActive = activeTables.map((t) => (t || "").replace(/^(\w+\.)/, "")).filter(Boolean);
 
   if (cleanActive.includes(cleanTarget) || cleanActive.length === 0) {
     return [];
+  }
+
+  if (cleanActive.length > MAX_ACTIVE_TABLES) {
+    cleanActive = cleanActive.slice(0, MAX_ACTIVE_TABLES);
   }
 
   const adj = new Map<string, Set<string>>();
@@ -153,16 +179,19 @@ export function findJoinPath(
   };
 
   // Build Adjacency Graph from Schema FKs
-  if (schemaData?.foreign_keys) {
+  if (schemaData?.foreign_keys && Array.isArray(schemaData.foreign_keys)) {
     for (const fk of schemaData.foreign_keys) {
-      getAdj(fk.table).add(fk.foreign_table);
-      getAdj(fk.foreign_table).add(fk.table);
+      if (fk.table && fk.foreign_table) {
+        getAdj(fk.table).add(fk.foreign_table);
+        getAdj(fk.foreign_table).add(fk.table);
+      }
     }
   }
 
   // Entity Bridges
   if (schemaData?.tables) {
     for (const [tblName, meta] of Object.entries(schemaData.tables)) {
+      if (!meta || !Array.isArray(meta.columns)) continue;
       const colNames = meta.columns.map((c) => c.name);
       for (const col of colNames) {
         if (col.endsWith("_id")) {
@@ -184,10 +213,16 @@ export function findJoinPath(
     queue.push({ table: startTable, path: [] });
   }
 
-  while (queue.length > 0) {
+  let iterations = 0;
+  while (queue.length > 0 && iterations < MAX_BFS_ITERATIONS) {
+    iterations++;
     const { table: current, path } = queue.shift()!;
     if (current === cleanTarget) {
       return path;
+    }
+
+    if (path.length >= MAX_JOIN_DEPTH) {
+      continue;
     }
 
     const neighbors = adj.get(current);

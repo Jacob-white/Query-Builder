@@ -24,10 +24,21 @@ FORBIDDEN_SQL_PATTERNS = [
     r"\bGRANT\b",
     r"\bREVOKE\b",
     r"\bCREATE\b",
-    r"\bEXECUTE\b",
+    r"\bEXEC(?:UTE)?\b",
     r"\bCOPY\b",
     r"\bINTO\b",
     r"\bSET\b(?!\s+(?:TRANSACTION|LOCAL))",
+    r"\bATTACH\b",
+    r"\bDETACH\b",
+    r"\bPRAGMA\b",
+    r"\bLOAD_FILE\s*\(",
+    r"\bINTO\s+(?:OUTFILE|DUMPFILE)\b",
+    r"\b(?:XP_CMDSHELL|SP_EXECUTESQL|SP_MAKEWEBTASK)\b",
+    r"\b(?:OPENROWSET|OPENDATASOURCE|OPENQUERY)\b",
+    r"\b(?:PG_SLEEP|SLEEP|BENCHMARK)\s*\(",
+    r"\bWAITFOR\s+DELAY\b",
+    r"\bSHUTDOWN\b",
+    r"/\*!",
 ]
 
 RESTRICTED_MUTATION_KEYWORDS: set[str] = {
@@ -41,6 +52,7 @@ RESTRICTED_MUTATION_KEYWORDS: set[str] = {
     "REVOKE",
     "CREATE",
     "EXECUTE",
+    "EXEC",
     "INTO",
     "COPY",
     "VACUUM",
@@ -48,6 +60,22 @@ RESTRICTED_MUTATION_KEYWORDS: set[str] = {
     "CLUSTER",
     "LOCK",
     "CALL",
+    "ATTACH",
+    "DETACH",
+    "PRAGMA",
+    "SHUTDOWN",
+    "KILL",
+    "LOAD_FILE",
+    "OUTFILE",
+    "DUMPFILE",
+    "XP_CMDSHELL",
+    "SP_EXECUTESQL",
+    "OPENROWSET",
+    "OPENDATASOURCE",
+    "PG_SLEEP",
+    "SLEEP",
+    "BENCHMARK",
+    "WAITFOR",
 }
 
 RESTRICTED_SECURITY_TABLES: set[str] = {
@@ -77,6 +105,12 @@ RESTRICTED_SECURITY_TABLES: set[str] = {
     "DJANGO_CACHE_TABLE",
     "API_AUDITLOG",
     "USER_PROFILE",
+    "SQLITE_MASTER",
+    "SQLITE_SCHEMA",
+    "SQLITE_TEMP_MASTER",
+    "SQLITE_TEMP_SCHEMA",
+    "MYSQL.USER",
+    "SYS.OBJECTS",
 }
 
 DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
@@ -84,6 +118,9 @@ DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
     r"\bPG_CATALOG\.",
     r"\bINFORMATION_SCHEMA\.",
 ]
+
+MAX_SQL_LENGTH = 100_000
+MAX_AST_TOKENS = 10_000
 
 
 def validate_sql_ast(
@@ -93,16 +130,20 @@ def validate_sql_ast(
     restricted_keywords: set[str] | None = None,
     restricted_schema_patterns: list[str] | None = None,
     allow_cte: bool = True,
+    allow_recursive_cte: bool = False,
+    max_sql_length: int = MAX_SQL_LENGTH,
+    max_ast_tokens: int = MAX_AST_TOKENS,
 ) -> dict[str, Any]:
     """
     Performs Abstract Syntax Tree (AST) validation using sqlparse.
     Verifies that:
-    1. The SQL string is non-empty.
-    2. Exactly one non-empty statement exists (rejecting semicolon query chaining/injection).
-    3. The statement type is 'SELECT' (or CTE WITH where the root operation is SELECT).
-    4. No AST tokens match restricted DDL/DML mutation keywords.
-    5. No restricted security, credential, or administration tables are accessed.
-    6. No restricted system/catalog schemas are queried without explicit authorization.
+    1. The SQL string is non-empty and within length bounds.
+    2. No null bytes, disallowed control characters, or executable comment tricks are present.
+    3. Exactly one non-empty statement exists (rejecting semicolon query chaining/injection).
+    4. The statement type is 'SELECT' (or safe CTE WITH where the root operation is SELECT).
+    5. No AST tokens match restricted DDL/DML mutation keywords or injection functions.
+    6. No restricted security, credential, or administration tables are accessed.
+    7. No restricted system/catalog schemas are queried without explicit authorization.
 
     Returns a dictionary detailing validation status, detected statement type, violations, and injection risk.
     """
@@ -118,7 +159,54 @@ def validate_sql_ast(
             "message": "No query provided.",
         }
 
-    parsed = sqlparse.parse(clean)
+    if len(clean) > max_sql_length:
+        return {
+            "valid": False,
+            "ast_validated": False,
+            "statement_type": "NONE",
+            "is_read_only": False,
+            "violations": [
+                f"Query length ({len(clean)}) exceeds maximum allowed length ({max_sql_length})."
+            ],
+            "injection_risk": "HIGH",
+            "message": "Query length exceeds maximum allowed limit.",
+        }
+
+    if "\x00" in clean:
+        return {
+            "valid": False,
+            "ast_validated": False,
+            "statement_type": "NONE",
+            "is_read_only": False,
+            "violations": ["Null byte detected in query string."],
+            "injection_risk": "CRITICAL",
+            "message": "Null byte injection blocked.",
+        }
+
+    violations: list[str] = []
+
+    if re.search(r"[\uff1b\u037e\u2044]", clean):
+        violations.append("Obfuscated statement separator detected.")
+
+    if any(ord(c) < 32 and c not in ("\t", "\n", "\r") for c in clean):
+        violations.append("Disallowed control character detected in query string.")
+
+    if "/*!" in clean:
+        violations.append("Forbidden executable comment syntax ('/*!... */') detected.")
+
+    try:
+        parsed = sqlparse.parse(clean)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "valid": False,
+            "ast_validated": False,
+            "statement_type": "ERROR",
+            "is_read_only": False,
+            "violations": [f"Malformed SQL failed AST parsing: {exc}"],
+            "injection_risk": "CRITICAL",
+            "message": "Query failed AST parsing.",
+        }
+
     statements = [s for s in parsed if s.value.strip().strip(";")]
     if len(statements) == 0:
         return {
@@ -146,7 +234,6 @@ def validate_sql_ast(
 
     stmt = statements[0]
     stmt_type = stmt.get_type()
-    violations: list[str] = []
 
     # Find the first non-comment, non-whitespace token
     first_token = None
@@ -164,6 +251,14 @@ def validate_sql_ast(
 
     if not allow_cte and is_cte:
         violations.append("Common Table Expressions (WITH) are not permitted.")
+    elif (
+        not allow_recursive_cte
+        and is_cte
+        and re.search(r"\bRECURSIVE\b", clean, re.IGNORECASE)
+    ):
+        violations.append(
+            "Recursive Common Table Expressions (WITH RECURSIVE) are not permitted."
+        )
     elif stmt_type != "SELECT" and not (is_cte and stmt_type in ("SELECT", "UNKNOWN")):
         detected_name = stmt_type if stmt_type else (first_val or "UNKNOWN")
         violations.append(
@@ -177,19 +272,17 @@ def validate_sql_ast(
         else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
     )
     for pattern in schema_patterns:
-        if re.search(pattern, clean, re.IGNORECASE):
-            # If allowed_schemas is explicitly provided, verify if this pattern is an exception
+        for m in re.finditer(pattern, clean, re.IGNORECASE):
+            matched_schema = m.group(0).rstrip(".").upper()
             if allowed_schemas:
-                schema_allowed = False
-                for allowed in allowed_schemas:
-                    if re.search(rf"\b{allowed}\.", clean, re.IGNORECASE):
-                        schema_allowed = True
-                        break
-                if schema_allowed:
+                allowed_upper = {s.upper().rstrip(".") for s in allowed_schemas}
+                if matched_schema in allowed_upper:
                     continue
             violations.append(
                 "Access Denied: Queries may only target allowed analytical datasets."
             )
+            break
+        if any("analytical" in v.lower() for v in violations):
             break
 
     # Deep token inspection for mutation keywords and restricted auth/system tables
@@ -204,7 +297,13 @@ def validate_sql_ast(
         else RESTRICTED_SECURITY_TABLES
     )
 
-    for tok in stmt.flatten():
+    tokens_list = list(stmt.flatten())
+    if len(tokens_list) > max_ast_tokens:
+        violations.append(
+            f"Query AST token count ({len(tokens_list)}) exceeds safety threshold ({max_ast_tokens})."
+        )
+
+    for tok in tokens_list:
         val = tok.value.upper().strip('"[]`')
         if tok.ttype in (Keyword, DML, DDL) or val in effective_keywords:
             if val in effective_keywords:
@@ -245,6 +344,9 @@ def validate_sql_ast(
             or "KEYWORD" in v.upper()
             or "CHAINING" in v.upper()
             or "DENIED" in v.upper()
+            or "SEPARATOR" in v.upper()
+            or "COMMENT" in v.upper()
+            or "NULL BYTE" in v.upper()
             for v in unique_violations
         ):
             risk = "CRITICAL"
