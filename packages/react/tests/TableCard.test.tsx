@@ -77,6 +77,21 @@ describe("TableCard", () => {
     expect(handleToggle).toHaveBeenCalledWith("email");
   });
 
+  it("calls onToggleColumn when checkbox is clicked directly", () => {
+    const handleToggle = vi.fn();
+    render(
+      <TableCard
+        table={mockTable}
+        selectedColumns={{}}
+        onToggleColumn={handleToggle}
+      />
+    );
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]);
+    expect(handleToggle).toHaveBeenCalledWith("email");
+  });
+
   it("calls onAddJoin when join button is clicked", () => {
     const handleAddJoin = vi.fn();
     render(
