@@ -22,28 +22,42 @@ from query_builder.connectors import (
     BaseConnector,
     BigQueryConnector,
     ClickHouseConnector,
+    CloudflareD1Connector,
     CockroachConnector,
     ConnectionFailedError,
     ConnectorError,
     ConnectorRegistry,
+    CouchbaseConnector,
+    D1Connector,
     DatabricksConnector,
     DataFusionConnector,
+    DremioConnector,
     DriverNotInstalledError,
     DuckDBConnector,
     DynamoDBConnector,
     ElasticsearchConnector,
+    FireboltConnector,
     GenericDBAPIConnector,
     IntrospectionError,
+    MemSQLConnector,
+    MongoDBAtlasSQLConnector,
+    MongoDBConnector,
     MSSQLConnector,
     MySQLConnector,
+    N1QLConnector,
+    NeonConnector,
     OracleConnector,
     PolarsConnector,
     PostgresConnector,
     QuestDBConnector,
     RedshiftConnector,
+    SingleStoreConnector,
     SnowflakeConnector,
     SpannerConnector,
     SQLiteConnector,
+    SupabaseConnector,
+    TeradataConnector,
+    TiDBConnector,
     TimescaleConnector,
     TrinoConnector,
     get_connector,
@@ -116,6 +130,21 @@ def test_registry_registration_and_lookup():
     assert "questdb" in list_connectors()
     assert "elasticsearch" in list_connectors()
     assert "dynamodb" in list_connectors()
+    assert "dremio" in list_connectors()
+    assert "firebolt" in list_connectors()
+    assert "tidb" in list_connectors()
+    assert "singlestore" in list_connectors()
+    assert "memsql" in list_connectors()
+    assert "teradata" in list_connectors()
+    assert "couchbase" in list_connectors()
+    assert "n1ql" in list_connectors()
+    assert "d1" in list_connectors()
+    assert "cloudflare_d1" in list_connectors()
+    assert "mongodb" in list_connectors()
+    assert "mongo" in list_connectors()
+    assert "atlas_sql" in list_connectors()
+    assert "neon" in list_connectors()
+    assert "supabase" in list_connectors()
 
 
 def test_base_connector_lifecycle_and_errors():
@@ -1860,3 +1889,857 @@ def test_dynamodb_connector_full():
         pytest.raises(CompilationError, match="Generated count query failed"),
     ):
         conn.execute({"table": "users"})
+
+
+# ============================================================================
+# 8. Dremio Connector Tests
+# ============================================================================
+
+
+def test_dremio_connector_lifecycle_and_execution():
+    conn = DremioConnector(
+        host="dremio.internal",
+        port=32010,
+        username="admin",
+        password="secretpassword",
+        flight_endpoint="grpc://dremio.internal:32010",
+        schema_name="space1",
+    )
+    assert conn.dialect_name == "dremio"
+    assert conn.schema_name == "space1"
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"pyarrow": None, "pyarrow.flight": None}),
+        pytest.raises(DriverNotInstalledError, match="pyarrow is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_pyarrow = MagicMock()
+    mock_flight = MagicMock()
+    mock_pyarrow.flight = mock_flight
+    mock_flight.FlightClient.side_effect = RuntimeError("Flight TLS handshake failure")
+    with (
+        patch.dict(
+            sys.modules,
+            {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
+        ),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to Dremio"),
+    ):
+        conn.connect()
+
+    # Connection success with basic auth and custom flight_endpoint
+    mock_client = MagicMock()
+    mock_flight.FlightClient.side_effect = None
+    mock_flight.FlightClient.return_value = mock_client
+    with patch.dict(
+        sys.modules,
+        {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
+    ):
+        c = conn.connect()
+        assert c is mock_client
+        # Cached connection
+        assert conn.connect() is mock_client
+        mock_client.authenticate_basic_token.assert_called_once_with(
+            "admin", "secretpassword"
+        )
+
+    # Test connection without flight_endpoint and without credentials
+    conn_no_auth = DremioConnector(host="localhost", port=32010)
+    with patch.dict(
+        sys.modules,
+        {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
+    ):
+        c2 = conn_no_auth.connect()
+        assert c2 is mock_client
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "Dremio Arrow Flight SQL"
+    assert info["dialect"] == "dremio"
+
+    # introspect_schema success
+    mock_cur.fetchall.side_effect = [
+        [("sales",)],
+        [
+            ("sales", "id", "integer", "NO"),
+            ("sales", "user_id", "integer", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "sales" in schema["tables"]
+    assert schema["tables"]["sales"]["has_user_id"] is True
+
+    # introspect_schema error branch
+    mock_cur.fetchall.side_effect = RuntimeError("Information schema query timeout")
+    with pytest.raises(IntrospectionError, match="Failed to introspect Dremio schema"):
+        conn.introspect_schema()
+
+    # Query execution
+    mock_cur.fetchall.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (10,)
+    mock_cur.fetchall.return_value = [(1, 100)]
+    res = conn.execute({"table": "sales", "limit": 10})
+    assert res["count"] == 10
+    assert len(res["rows"]) == 1
+    assert res["rows"][0]["id"] == 1
+    assert res["dialect"] == "dremio"
+
+
+# ============================================================================
+# 9. Firebolt Connector Tests
+# ============================================================================
+
+
+def test_firebolt_connector_lifecycle_and_execution():
+    conn = FireboltConnector(
+        database="analytics",
+        engine_name="heavy_engine",
+        account_name="my_account",
+        schema_name="public",
+    )
+    assert conn.dialect_name == "firebolt"
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"firebolt": None, "firebolt.db": None}),
+        pytest.raises(DriverNotInstalledError, match="firebolt-sdk is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_firebolt = MagicMock()
+    mock_firebolt_db = MagicMock()
+    mock_firebolt.db = mock_firebolt_db
+    mock_firebolt_db.connect.side_effect = RuntimeError("Invalid Firebolt engine state")
+    with (
+        patch.dict(
+            sys.modules,
+            {"firebolt": mock_firebolt, "firebolt.db": mock_firebolt_db},
+        ),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to Firebolt"),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_conn = MagicMock()
+    mock_firebolt_db.connect.side_effect = None
+    mock_firebolt_db.connect.return_value = mock_conn
+    with patch.dict(
+        sys.modules,
+        {"firebolt": mock_firebolt, "firebolt.db": mock_firebolt_db},
+    ):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "Firebolt Cloud Data Warehouse"
+    assert info["dialect"] == "firebolt"
+
+    # introspect_schema success
+    mock_cur.fetchall.side_effect = [
+        [("metrics",)],
+        [
+            ("metrics", "id", "bigint", "NO"),
+            ("metrics", "user_id", "bigint", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "metrics" in schema["tables"]
+    assert schema["tables"]["metrics"]["has_user_id"] is True
+
+    # introspect_schema error branch
+    mock_cur.fetchall.side_effect = RuntimeError("Firebolt catalog unavailable")
+    with pytest.raises(
+        IntrospectionError, match="Failed to introspect Firebolt schema"
+    ):
+        conn.introspect_schema()
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (5,)
+    mock_cur.fetchall.return_value = [(1, 42)]
+    res = conn.execute({"table": "metrics", "limit": 10})
+    assert res["count"] == 5
+    assert len(res["rows"]) == 1
+    assert res["dialect"] == "firebolt"
+
+
+# ============================================================================
+# 10. TiDB Connector Tests
+# ============================================================================
+
+
+def test_tidb_connector_lifecycle_and_execution():
+    conn = TiDBConnector(database="test_tidb")
+    assert conn.dialect_name == "tidb"
+
+    mock_cur = MagicMock()
+    mock_cur.fetchone.side_effect = [
+        (1,),
+        ("8.0.11-TiDB-v7.5.0",),
+        ("Release Version: v7.5.0",),
+    ]
+    conn._cursor = mock_cur
+
+    info = conn.test_connection()
+    assert info["engine_version"] == "TiDB HTAP"
+    assert "tidb_version" in info
+
+    # test_connection exception branch on SELECT tidb_version()
+    mock_cur.fetchone.side_effect = [
+        (1,),
+        ("8.0.11-TiDB",),
+        RuntimeError("No tidb_version"),
+    ]
+    info2 = conn.test_connection()
+    assert info2["engine_version"] == "TiDB HTAP"
+
+    # test_connection when row is empty
+    mock_cur.fetchone.side_effect = [
+        (1,),
+        ("8.0.11-TiDB",),
+        (None,),
+    ]
+    info3 = conn.test_connection()
+    assert "tidb_version" not in info3
+
+    # apply_statement_timeout
+    conn.apply_statement_timeout(mock_cur, 3500)
+    mock_cur.execute.assert_called_with("SET SESSION max_execution_time = 3500;")
+
+    # introspect_schema
+    mock_cur.fetchall.side_effect = [
+        [("orders",)],
+        [("orders", "id", "int", "NO"), ("orders", "user_id", "int", "YES")],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "orders" in schema["tables"]
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (1,)
+    mock_cur.fetchall.return_value = [(101, 10)]
+    res = conn.execute({"table": "orders"})
+    assert res["count"] == 1
+    assert res["dialect"] == "tidb"
+
+
+# ============================================================================
+# 11. SingleStore Connector Tests
+# ============================================================================
+
+
+def test_singlestore_connector_lifecycle_and_execution():
+    conn = SingleStoreConnector(database="sstore_db")
+    assert conn.dialect_name == "singlestore"
+    assert isinstance(MemSQLConnector(database="sstore_db"), SingleStoreConnector)
+
+    # Driver missing error
+    with (
+        patch.dict(
+            sys.modules,
+            {"singlestoredb": None, "MySQLdb": None, "pymysql": None},
+        ),
+        pytest.raises(
+            DriverNotInstalledError,
+            match="Neither 'singlestoredb' nor 'mysqlclient'/'pymysql'",
+        ),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_sdb = MagicMock()
+    mock_sdb.__name__ = "singlestoredb"
+    mock_sdb.connect.side_effect = RuntimeError("SingleStore connection refused")
+    with (
+        patch.dict(sys.modules, {"singlestoredb": mock_sdb}),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to SingleStore"),
+    ):
+        conn.connect()
+
+    # Connection success with singlestoredb
+    mock_conn = MagicMock()
+    mock_sdb.connect.side_effect = None
+    mock_sdb.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"singlestoredb": mock_sdb}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+        mock_sdb.connect.assert_called_with(database="sstore_db")
+
+    # Connection success with pymysql fallback
+    conn_fallback = SingleStoreConnector(database="sstore_db")
+    mock_pymysql = MagicMock()
+    mock_pymysql.__name__ = "pymysql"
+    mock_pymysql.connect.return_value = mock_conn
+    with patch.dict(
+        sys.modules,
+        {"singlestoredb": None, "MySQLdb": None, "pymysql": mock_pymysql},
+    ):
+        assert conn_fallback.connect() is mock_conn
+        mock_pymysql.connect.assert_called_with(db="sstore_db")
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.side_effect = [(1,), ("8.0.32-SingleStore",)]
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "SingleStore"
+
+    # introspect_schema
+    mock_cur.fetchall.side_effect = [
+        [("events",)],
+        [
+            ("events", "id", "bigint", "NO"),
+            ("events", "user_id", "bigint", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "events" in schema["tables"]
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (3,)
+    mock_cur.fetchall.return_value = [(1, 20)]
+    res = conn.execute({"table": "events"})
+    assert res["count"] == 3
+    assert res["dialect"] == "singlestore"
+
+
+# ============================================================================
+# 12. Teradata Connector Tests
+# ============================================================================
+
+
+def test_teradata_connector_lifecycle_and_execution():
+    conn = TeradataConnector(
+        host="teradata.corp",
+        user="dbc",
+        password="secret",
+        database="finance",
+    )
+    assert conn.dialect_name == "teradata"
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"teradatasql": None}),
+        pytest.raises(DriverNotInstalledError, match="teradatasql is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_td = MagicMock()
+    mock_td.connect.side_effect = RuntimeError("Teradata gateway timed out")
+    with (
+        patch.dict(sys.modules, {"teradatasql": mock_td}),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to Teradata"),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_conn = MagicMock()
+    mock_td.connect.side_effect = None
+    mock_td.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"teradatasql": mock_td}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "Teradata"
+    assert info["dialect"] == "teradata"
+
+    # introspect_schema success
+    mock_cur.fetchall.side_effect = [
+        [("general_ledger",)],
+        [
+            ("general_ledger", "id", "integer", "NO"),
+            ("general_ledger", "user_id", "integer", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "general_ledger" in schema["tables"]
+
+    # introspect_schema error branch
+    mock_cur.fetchall.side_effect = RuntimeError("DBC catalog access denied")
+    with pytest.raises(
+        IntrospectionError, match="Failed to introspect Teradata schema"
+    ):
+        conn.introspect_schema()
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (7,)
+    mock_cur.fetchall.return_value = [(10, 50)]
+    res = conn.execute({"table": "general_ledger", "limit": 25})
+    assert res["count"] == 7
+    assert res["dialect"] == "teradata"
+
+
+# ============================================================================
+# 13. Couchbase Connector Tests
+# ============================================================================
+
+
+def test_couchbase_connector_lifecycle_and_execution():
+    conn = CouchbaseConnector(
+        connstr="couchbase://db.cb.net",
+        username="admin",
+        password="secret",
+        bucket_name="travel-sample",
+    )
+    assert conn.dialect_name == "couchbase"
+    assert isinstance(N1QLConnector(), CouchbaseConnector)
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"couchbase": None, "couchbase.cluster": None}),
+        pytest.raises(DriverNotInstalledError, match="couchbase is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_cb_cluster = MagicMock()
+    mock_cb_cluster.Cluster.side_effect = RuntimeError(
+        "Couchbase bucket authentication failure"
+    )
+    with (
+        patch.dict(
+            sys.modules,
+            {
+                "couchbase": MagicMock(),
+                "couchbase.auth": MagicMock(),
+                "couchbase.cluster": mock_cb_cluster,
+                "couchbase.options": MagicMock(),
+            },
+        ),
+        pytest.raises(
+            ConnectionFailedError,
+            match="Failed to connect to Couchbase cluster",
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_cluster_inst = MagicMock()
+    mock_cb_cluster.Cluster.side_effect = None
+    mock_cb_cluster.Cluster.return_value = mock_cluster_inst
+    with patch.dict(
+        sys.modules,
+        {
+            "couchbase": MagicMock(),
+            "couchbase.auth": MagicMock(),
+            "couchbase.cluster": mock_cb_cluster,
+            "couchbase.options": MagicMock(),
+        },
+    ):
+        assert conn.connect() is mock_cluster_inst
+        # Cached connection
+        assert conn.connect() is mock_cluster_inst
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "Couchbase SQL++"
+    assert info["bucket"] == "travel-sample"
+
+    # introspect_schema success
+    mock_cur.fetchall.side_effect = [
+        [("airline",), ("empty_table",)],
+        [
+            [
+                {
+                    "properties": {
+                        "id": {"type": "number"},
+                        "user_id": {"type": "number"},
+                        "name": {"type": "string"},
+                        "active": "boolean",
+                    }
+                }
+            ]
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "airline" in schema["tables"]
+    assert schema["tables"]["airline"]["has_user_id"] is True
+    assert len(schema["tables"]["airline"]["columns"]) == 4
+    assert "empty_table" in schema["tables"]
+    assert len(schema["tables"]["empty_table"]["columns"]) == 0
+
+    # introspect_schema error branch
+    mock_cur.fetchall.side_effect = RuntimeError("Keyspace query error")
+    with pytest.raises(
+        IntrospectionError, match="Failed to introspect Couchbase schema"
+    ):
+        conn.introspect_schema()
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("name",)]
+    mock_cur.fetchone.return_value = (12,)
+    mock_cur.fetchall.return_value = [(1, "United")]
+    res = conn.execute({"table": "airline", "limit": 10})
+    assert res["count"] == 12
+    assert res["rows"][0]["name"] == "United"
+    assert res["dialect"] == "couchbase"
+
+
+# ============================================================================
+# 14. Cloudflare D1 Connector Tests
+# ============================================================================
+
+
+def test_d1_connector_lifecycle_and_execution():
+    conn = D1Connector(
+        account_id="acc123",
+        database_id="db456",
+        api_token="token789",
+    )
+    assert conn.dialect_name == "d1"
+    assert isinstance(CloudflareD1Connector(), D1Connector)
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"requests": None}),
+        pytest.raises(DriverNotInstalledError, match="requests is not installed"),
+    ):
+        conn.connect()
+
+    # Missing credentials error
+    mock_requests = MagicMock()
+    with patch.dict(sys.modules, {"requests": mock_requests}):
+        empty_conn = D1Connector()
+        with pytest.raises(
+            ConnectionFailedError,
+            match="requires account_id, database_id, and api_token",
+        ):
+            empty_conn.connect()
+
+    # Client instantiation failure
+    with (
+        patch.dict(sys.modules, {"requests": mock_requests}),
+        patch(
+            "query_builder.connectors.d1._D1Client",
+            side_effect=RuntimeError("Client init failed"),
+        ),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Cloudflare D1"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success and cursor execution inside requests mock
+    with patch.dict(sys.modules, {"requests": mock_requests}):
+        client = conn.connect()
+        assert client is not None
+        assert hasattr(client, "cursor")
+        # Cached connection
+        assert conn.connect() is client
+        client.close()
+
+        # D1Cursor execute success with results
+        cursor = client.cursor()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "success": True,
+            "result": [
+                {
+                    "success": True,
+                    "results": [
+                        {"id": 1, "name": "Edge SQL"},
+                        {"id": 2, "name": "Worker"},
+                    ],
+                }
+            ],
+        }
+        mock_requests.post.return_value = mock_resp
+        cursor.execute("SELECT * FROM items WHERE id = ?", [1])
+        assert cursor.description == [("id",), ("name",)]
+        one = cursor.fetchone()
+        assert one == [1, "Edge SQL"]
+        all_rows = cursor.fetchall()
+        assert all_rows == [[2, "Worker"]]
+        assert cursor.fetchone() is None
+        cursor.close()
+
+        # D1Cursor execute empty results
+        mock_resp.json.return_value = {
+            "success": True,
+            "result": [{"success": True, "results": []}],
+        }
+        cursor.execute("SELECT * FROM items WHERE 1=0")
+        assert cursor.description is None
+        assert cursor.fetchall() == []
+
+        # D1Cursor execute query error
+        mock_resp.json.return_value = {
+            "success": False,
+            "errors": [{"message": "syntax error near FOO"}],
+        }
+        with pytest.raises(RuntimeError, match="syntax error near FOO"):
+            cursor.execute("SELECT FOO")
+
+        # D1Cursor execute query error default message
+        mock_resp.json.return_value = {
+            "success": False,
+            "errors": [],
+        }
+        with pytest.raises(RuntimeError, match="Unknown D1 error"):
+            cursor.execute("SELECT BAR")
+
+    # test_connection
+    mock_sqlite_cur = MagicMock()
+    mock_sqlite_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_sqlite_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "Cloudflare D1 REST"
+    assert info["database_id"] == "db456"
+
+    # introspect_schema success
+    mock_sqlite_cur.fetchall.side_effect = [
+        [("users",)],
+        [
+            (0, "id", "INTEGER", 1, None, 1),
+            (1, "user_id", "INTEGER", 0, None, 0),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "users" in schema["tables"]
+    assert schema["tables"]["users"]["has_user_id"] is True
+
+    # introspect_schema error branch
+    mock_sqlite_cur.fetchall.side_effect = RuntimeError("D1 sqlite error")
+    with pytest.raises(
+        IntrospectionError,
+        match="Failed to introspect Cloudflare D1 schema",
+    ):
+        conn.introspect_schema()
+
+    # execute query
+    mock_sqlite_cur.fetchall.side_effect = None
+    mock_sqlite_cur.fetchone.side_effect = None
+    mock_sqlite_cur.description = [("id",), ("user_id",)]
+    mock_sqlite_cur.fetchone.return_value = (2,)
+    mock_sqlite_cur.fetchall.return_value = [(1, 99)]
+    res = conn.execute({"table": "users", "limit": 10})
+    assert res["count"] == 2
+    assert res["dialect"] == "d1"
+
+
+# ============================================================================
+# 15. MongoDB Atlas SQL Connector Tests
+# ============================================================================
+
+
+def test_mongodb_connector_lifecycle_and_execution():
+    conn = MongoDBAtlasSQLConnector(database="sample_mflix")
+    assert conn.dialect_name == "mongodb"
+    assert isinstance(MongoDBConnector(), MongoDBAtlasSQLConnector)
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"pymongosql": None}),
+        pytest.raises(DriverNotInstalledError, match="pymongosql is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_mongo = MagicMock()
+    mock_mongo.connect.side_effect = RuntimeError("Mongo Atlas TLS handshake error")
+    with (
+        patch.dict(sys.modules, {"pymongosql": mock_mongo}),
+        pytest.raises(
+            ConnectionFailedError,
+            match="Failed to connect to MongoDB Atlas SQL",
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_conn = MagicMock()
+    mock_mongo.connect.side_effect = None
+    mock_mongo.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"pymongosql": mock_mongo}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+    conn._cursor = mock_cur
+    info = conn.test_connection()
+    assert info["engine_version"] == "MongoDB Atlas SQL"
+    assert info["database"] == "sample_mflix"
+
+    # introspect_schema success
+    mock_cur.fetchall.side_effect = [
+        [("movies",)],
+        [
+            ("movies", "id", "varchar", "NO"),
+            ("movies", "user_id", "varchar", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "movies" in schema["tables"]
+
+    # introspect_schema error branch
+    mock_cur.fetchall.side_effect = RuntimeError("Collection catalog failure")
+    with pytest.raises(
+        IntrospectionError,
+        match="Failed to introspect MongoDB Atlas SQL schema",
+    ):
+        conn.introspect_schema()
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (100,)
+    mock_cur.fetchall.return_value = [("mov1", "u1")]
+    res = conn.execute({"table": "movies", "limit": 10})
+    assert res["count"] == 100
+    assert res["dialect"] == "mongodb"
+
+
+# ============================================================================
+# 16. Neon and Supabase Connector Tests
+# ============================================================================
+
+
+def test_neon_connector_lifecycle_and_execution():
+    conn = NeonConnector(
+        branch_id="br-main-1234",
+        endpoint_id="ep-floral-5678",
+        schema_name="public",
+    )
+    assert conn.dialect_name == "neon"
+    assert conn.branch_id == "br-main-1234"
+    assert conn.endpoint_id == "ep-floral-5678"
+
+    mock_cur = MagicMock()
+    mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 16.1 (Neon)",)]
+    conn._cursor = mock_cur
+
+    info = conn.test_connection()
+    assert info["engine_version"] == "Neon Serverless Postgres"
+    assert info["neon_branch"] == "br-main-1234"
+    assert info["neon_endpoint"] == "ep-floral-5678"
+
+    # test without branch and endpoint
+    conn_bare = NeonConnector()
+    mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 16.1",)]
+    conn_bare._cursor = mock_cur
+    info_bare = conn_bare.test_connection()
+    assert "neon_branch" not in info_bare
+    assert "neon_endpoint" not in info_bare
+
+    conn.apply_statement_timeout(mock_cur, 4000)
+    mock_cur.execute.assert_called_with("SET LOCAL statement_timeout = 4000;")
+
+    # introspect_schema
+    mock_cur.fetchall.side_effect = [
+        [("projects",)],
+        [
+            ("projects", "id", "integer", "NO"),
+            ("projects", "user_id", "integer", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "projects" in schema["tables"]
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (4,)
+    mock_cur.fetchall.return_value = [(1, 10)]
+    res = conn.execute({"table": "projects"})
+    assert res["count"] == 4
+    assert res["dialect"] == "neon"
+
+
+def test_supabase_connector_lifecycle_and_execution():
+    conn = SupabaseConnector(
+        supabase_url="https://xyzcompany.supabase.co",
+        supabase_key="sb-anon-key-123",
+        schema_name="public",
+    )
+    assert conn.dialect_name == "supabase"
+    assert conn.supabase_url == "https://xyzcompany.supabase.co"
+    assert conn.supabase_key == "sb-anon-key-123"
+
+    mock_cur = MagicMock()
+    mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 15.1 (Supabase)",)]
+    conn._cursor = mock_cur
+
+    info = conn.test_connection()
+    assert info["engine_version"] == "Supabase Managed PostgreSQL"
+    assert info["supabase_url"] == "https://xyzcompany.supabase.co"
+
+    # test without supabase_url
+    conn_bare = SupabaseConnector()
+    mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 15.1",)]
+    conn_bare._cursor = mock_cur
+    info_bare = conn_bare.test_connection()
+    assert "supabase_url" not in info_bare
+
+    conn.apply_statement_timeout(mock_cur, 2000)
+    mock_cur.execute.assert_called_with("SET LOCAL statement_timeout = 2000;")
+
+    # introspect_schema
+    mock_cur.fetchall.side_effect = [
+        [("profiles",)],
+        [
+            ("profiles", "id", "uuid", "NO"),
+            ("profiles", "user_id", "uuid", "YES"),
+        ],
+        [],
+    ]
+    schema = conn.introspect_schema()
+    assert "profiles" in schema["tables"]
+
+    # execute query
+    mock_cur.fetchall.side_effect = None
+    mock_cur.fetchone.side_effect = None
+    mock_cur.description = [("id",), ("user_id",)]
+    mock_cur.fetchone.return_value = (8,)
+    mock_cur.fetchall.return_value = [("p1", "u1")]
+    res = conn.execute({"table": "profiles"})
+    assert res["count"] == 8
+    assert res["dialect"] == "supabase"

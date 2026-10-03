@@ -55,6 +55,16 @@ clickhouse = ["clickhouse-connect>=0.6.0"]
 oracle = ["oracledb>=2.0.0"]
 redshift = ["redshift-connector>=2.0.0"]
 trino = ["trino>=0.320.0"]
+dremio = ["pyarrow>=14.0.0"]
+firebolt = ["firebolt-sdk>=1.0.0"]
+tidb = ["pymysql>=1.1.0"]
+singlestore = ["singlestoredb>=1.0.0"]
+teradata = ["teradatasql>=20.0.0"]
+couchbase = ["couchbase>=4.2.0"]
+d1 = ["requests>=2.28.0"]
+mongodb = ["pymongosql>=0.1.0"]
+neon = ["psycopg[binary]>=3.1.0"]
+supabase = ["psycopg[binary]>=3.1.0"]
 all = [
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
@@ -73,6 +83,14 @@ all = [
     "oracledb>=2.0.0",
     "redshift-connector>=2.0.0",
     "trino>=0.320.0",
+    "pyarrow>=14.0.0",
+    "firebolt-sdk>=1.0.0",
+    "pymysql>=1.1.0",
+    "singlestoredb>=1.0.0",
+    "teradatasql>=20.0.0",
+    "couchbase>=4.2.0",
+    "requests>=2.28.0",
+    "pymongosql>=0.1.0",
 ]
 
 [project.scripts]

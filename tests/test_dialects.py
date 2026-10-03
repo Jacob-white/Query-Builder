@@ -184,6 +184,82 @@ def test_new_dialects_behavior():
     assert params == [10]
     assert get_dialect("partiql").name == "dynamodb"
 
+    # Dremio
+    dre = get_dialect("dremio")
+    assert dre.name == "dremio"
+    assert dre.placeholder == "?"
+    assert dre.quote_identifier("users") == '"users"'
+    assert dre.format_ilike('"c"') == '"c" ILIKE ?'
+
+    # Firebolt
+    fb = get_dialect("firebolt")
+    assert fb.name == "firebolt"
+    assert fb.placeholder == "?"
+    assert fb.quote_identifier("users") == '"users"'
+    assert fb.format_ilike('"c"') == '"c" ILIKE ?'
+
+    # TiDB
+    tidb = get_dialect("tidb")
+    assert tidb.name == "tidb"
+    assert tidb.placeholder == "%s"
+    assert tidb.quote_identifier("users") == "`users`"
+    assert tidb.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+
+    # SingleStore
+    sstore = get_dialect("singlestore")
+    assert sstore.name == "singlestore"
+    assert sstore.placeholder == "%s"
+    assert sstore.quote_identifier("users") == "`users`"
+    assert sstore.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    assert get_dialect("memsql").name == "singlestore"
+
+    # Teradata
+    td = get_dialect("teradata")
+    assert td.name == "teradata"
+    assert td.placeholder == "?"
+    assert td.quote_identifier("users") == '"users"'
+    assert td.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+    td_clause, td_params = td.format_limit_offset(25, 50)
+    assert td_clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+    assert td_params == [50, 25]
+
+    # Couchbase
+    cb = get_dialect("couchbase")
+    assert cb.name == "couchbase"
+    assert cb.placeholder == "?"
+    assert cb.quote_identifier("travel.airline") == "`travel`.`airline`"
+    assert cb.quote_alias("my`alias") == "`my``alias`"
+    assert cb.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
+    assert get_dialect("n1ql").name == "couchbase"
+
+    # Cloudflare D1
+    d1 = get_dialect("d1")
+    assert d1.name == "d1"
+    assert d1.placeholder == "?"
+    assert d1.quote_identifier("users") == '"users"'
+    assert d1.format_ilike('"c"') == '"c" LIKE ?'
+    assert get_dialect("cloudflare_d1").name == "d1"
+
+    # MongoDB Atlas SQL
+    mongo = get_dialect("mongodb")
+    assert mongo.name == "mongodb"
+    assert mongo.placeholder == "?"
+    assert mongo.quote_identifier("users") == '"users"'
+    assert mongo.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+    assert get_dialect("mongo").name == "mongodb"
+    assert get_dialect("atlas_sql").name == "mongodb"
+
+    # Neon & Supabase
+    neon = get_dialect("neon")
+    assert neon.name == "neon"
+    assert neon.placeholder == "%s"
+    assert neon.format_ilike('"c"') == '"c" ILIKE %s'
+
+    supa = get_dialect("supabase")
+    assert supa.name == "supabase"
+    assert supa.placeholder == "%s"
+    assert supa.format_ilike('"c"') == '"c" ILIKE %s'
+
     # Aliases
     assert get_dialect("postgresql").name == "postgres"
     assert get_dialect("sqlserver").name == "mssql"
