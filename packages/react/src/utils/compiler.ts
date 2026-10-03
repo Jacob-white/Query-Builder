@@ -67,7 +67,9 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
     dialect === "spanner" ||
     dialect === "tidb" ||
     dialect === "singlestore" ||
-    dialect === "couchbase"
+    dialect === "memsql" ||
+    dialect === "couchbase" ||
+    dialect === "n1ql"
   ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
@@ -86,7 +88,7 @@ export function formatIlike(
   valEscaped: string,
   dialect: SqlDialect = "postgres",
 ): string {
-  if (dialect === "sqlite" || dialect === "d1") {
+  if (dialect === "sqlite" || dialect === "d1" || dialect === "cloudflare_d1") {
     return `${colRef} LIKE ${valEscaped}`;
   }
   if (

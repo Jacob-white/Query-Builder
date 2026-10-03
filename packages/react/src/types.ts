@@ -140,10 +140,15 @@ export type SqlDialect =
   | "firebolt"
   | "tidb"
   | "singlestore"
+  | "memsql"
   | "teradata"
   | "couchbase"
+  | "n1ql"
   | "d1"
+  | "cloudflare_d1"
   | "mongodb"
+  | "mongo"
+  | "atlas_sql"
   | "neon"
   | "supabase";
 

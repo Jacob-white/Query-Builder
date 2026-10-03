@@ -7,6 +7,8 @@ and schema introspection for Dremio lakehouse datasets.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -16,6 +18,67 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_information_schema
+
+
+class _DremioFlightCursor:
+    """DB-API cursor interface wrapping Dremio Arrow Flight client."""
+
+    def __init__(self, flight_client: Any) -> None:
+        self.flight_client = flight_client
+        self.description: list[tuple[str, ...]] | None = None
+        self._rows: list[list[Any]] = []
+
+    def execute(self, sql: str, params: list[Any] | None = None) -> None:
+        if hasattr(self.flight_client, "get_flight_info"):
+            from pyarrow import flight
+
+            descriptor = flight.FlightDescriptor.for_command(
+                sql.encode("utf-8") if isinstance(sql, str) else sql
+            )
+            flight_info = self.flight_client.get_flight_info(descriptor)
+            endpoints = flight_info.endpoints
+            if not endpoints:
+                self.description = None
+                self._rows = []
+                return
+
+            reader = self.flight_client.do_get(endpoints[0].ticket)
+            table = reader.read_all()
+            names = list(table.column_names)
+            self.description = [(name,) for name in names]
+            pylist = table.to_pylist()
+            self._rows = [[row.get(n) for n in names] for row in pylist]
+            return
+
+        if hasattr(self.flight_client, "execute"):
+            self.flight_client.execute(sql, params)
+            self.description = getattr(self.flight_client, "description", None)
+            self._rows = getattr(self.flight_client, "fetchall", list)()
+
+    def fetchone(self) -> list[Any] | None:
+        return self._rows.pop(0) if self._rows else None
+
+    def fetchall(self) -> list[list[Any]]:
+        res = self._rows
+        self._rows = []
+        return res
+
+    def close(self) -> None:
+        pass
+
+
+class _DremioFlightClient:
+    """Connection abstraction providing cursor creation for Dremio Arrow Flight."""
+
+    def __init__(self, flight_client: Any) -> None:
+        self.flight_client = flight_client
+
+    def cursor(self) -> _DremioFlightCursor:
+        return _DremioFlightCursor(self.flight_client)
+
+    def close(self) -> None:
+        if hasattr(self.flight_client, "close"):
+            self.flight_client.close()
 
 
 class DremioConnector(BaseConnector):
@@ -64,12 +127,34 @@ class DremioConnector(BaseConnector):
             client = flight.FlightClient(location, **self.config)
             if self.username and self.password:
                 client.authenticate_basic_token(self.username, self.password)
-            self._connection = client
+            self._connection = _DremioFlightClient(client)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
                 f"Failed to connect to Dremio at {self.host}:{self.port}: {exc}"
             ) from exc
+
+    @contextlib.contextmanager
+    def get_cursor(self) -> Iterator[Any]:
+        if self._cursor is not None:
+            yield self._cursor
+            return
+
+        conn = self.connect()
+        if hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            try:
+                yield cur
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
+        else:
+            cur = _DremioFlightCursor(conn)
+            try:
+                yield cur
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()

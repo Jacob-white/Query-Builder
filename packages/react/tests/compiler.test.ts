@@ -681,10 +681,12 @@ describe("compileVisualState", () => {
     expect(quoteIdent("col", "singlestore")).toBe("`col`");
     expect(quoteIdent("col`name", "singlestore")).toBe("`col``name`");
     expect(quoteAlias("alias", "singlestore")).toBe("`alias`");
+    expect(quoteIdent("col", "memsql")).toBe("`col`");
 
     expect(quoteIdent("col", "couchbase")).toBe("`col`");
     expect(quoteIdent("col`name", "couchbase")).toBe("`col``name`");
     expect(quoteAlias("alias", "couchbase")).toBe("`alias`");
+    expect(quoteIdent("col", "n1ql")).toBe("`col`");
 
     // Double-quote dialects: dremio, firebolt, teradata, d1, mongodb, neon, supabase
     expect(quoteIdent("col", "dremio")).toBe('"col"');
@@ -694,14 +696,18 @@ describe("compileVisualState", () => {
     expect(quoteIdent("col", "firebolt")).toBe('"col"');
     expect(quoteIdent("col", "teradata")).toBe('"col"');
     expect(quoteIdent("col", "d1")).toBe('"col"');
+    expect(quoteIdent("col", "cloudflare_d1")).toBe('"col"');
     expect(quoteIdent("col", "mongodb")).toBe('"col"');
+    expect(quoteIdent("col", "mongo")).toBe('"col"');
+    expect(quoteIdent("col", "atlas_sql")).toBe('"col"');
     expect(quoteIdent("col", "neon")).toBe('"col"');
     expect(quoteIdent("col", "supabase")).toBe('"col"');
   });
 
   it("handles the latest 10 production engine dialects in formatIlike", () => {
-    // SQLite-style LIKE: d1
+    // SQLite-style LIKE: d1, cloudflare_d1
     expect(formatIlike("c", "'%val%'", "d1")).toBe("c LIKE '%val%'");
+    expect(formatIlike("c", "'%val%'", "cloudflare_d1")).toBe("c LIKE '%val%'");
 
     // Native ILIKE: dremio, firebolt, neon, supabase
     expect(formatIlike("c", "'%val%'", "dremio")).toBe("c ILIKE '%val%'");
@@ -712,9 +718,13 @@ describe("compileVisualState", () => {
     // LOWER(...) LIKE LOWER(...): tidb, singlestore, teradata, couchbase, mongodb
     expect(formatIlike("c", "'%val%'", "tidb")).toBe("LOWER(c) LIKE LOWER('%val%')");
     expect(formatIlike("c", "'%val%'", "singlestore")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "memsql")).toBe("LOWER(c) LIKE LOWER('%val%')");
     expect(formatIlike("c", "'%val%'", "teradata")).toBe("LOWER(c) LIKE LOWER('%val%')");
     expect(formatIlike("c", "'%val%'", "couchbase")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "n1ql")).toBe("LOWER(c) LIKE LOWER('%val%')");
     expect(formatIlike("c", "'%val%'", "mongodb")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "mongo")).toBe("LOWER(c) LIKE LOWER('%val%')");
+    expect(formatIlike("c", "'%val%'", "atlas_sql")).toBe("LOWER(c) LIKE LOWER('%val%')");
   });
 
   it("handles the latest 10 production engine dialects in formatLimit and compileVisualState", () => {
@@ -723,9 +733,14 @@ describe("compileVisualState", () => {
     expect(formatLimit(30, "firebolt")).toBe("LIMIT 30;");
     expect(formatLimit(30, "tidb")).toBe("LIMIT 30;");
     expect(formatLimit(30, "singlestore")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "memsql")).toBe("LIMIT 30;");
     expect(formatLimit(30, "couchbase")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "n1ql")).toBe("LIMIT 30;");
     expect(formatLimit(30, "d1")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "cloudflare_d1")).toBe("LIMIT 30;");
     expect(formatLimit(30, "mongodb")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "mongo")).toBe("LIMIT 30;");
+    expect(formatLimit(30, "atlas_sql")).toBe("LIMIT 30;");
     expect(formatLimit(30, "neon")).toBe("LIMIT 30;");
     expect(formatLimit(30, "supabase")).toBe("LIMIT 30;");
 

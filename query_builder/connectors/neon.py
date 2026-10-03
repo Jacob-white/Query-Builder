@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from query_builder.connectors.base import (
+    ConnectionFailedError,
+    DriverNotInstalledError,
+)
 from query_builder.connectors.postgres import PostgresConnector
 
 
@@ -33,6 +37,36 @@ class NeonConnector(PostgresConnector):
         )
         self.branch_id = branch_id
         self.endpoint_id = endpoint_id
+
+    def connect(self) -> Any:
+        if self._connection is not None:
+            return self._connection
+
+        driver = None
+        for mod_name in ("psycopg", "psycopg2"):
+            try:
+                driver = __import__(mod_name)
+                break
+            except ImportError:
+                continue
+
+        if driver is None:
+            raise DriverNotInstalledError(
+                "Neither 'psycopg' nor 'psycopg2' is installed. "
+                "Install with: pip install 'query-builder-engine[neon]'"
+            )
+
+        conn_config = dict(self.config)
+        if self.endpoint_id and "options" not in conn_config:
+            conn_config["options"] = f"endpoint={self.endpoint_id}"
+
+        try:
+            self._connection = driver.connect(**conn_config)
+            return self._connection
+        except Exception as exc:
+            raise ConnectionFailedError(
+                f"Failed to connect to Neon PostgreSQL: {exc}"
+            ) from exc
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()

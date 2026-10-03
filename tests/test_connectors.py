@@ -1930,20 +1930,22 @@ def test_dremio_connector_lifecycle_and_execution():
         conn.connect()
 
     # Connection success with basic auth and custom flight_endpoint
-    mock_client = MagicMock()
+    mock_raw_client = MagicMock()
     mock_flight.FlightClient.side_effect = None
-    mock_flight.FlightClient.return_value = mock_client
+    mock_flight.FlightClient.return_value = mock_raw_client
     with patch.dict(
         sys.modules,
         {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
     ):
-        c = conn.connect()
-        assert c is mock_client
+        wrapped_client = conn.connect()
+        assert wrapped_client is not None
+        assert hasattr(wrapped_client, "cursor")
         # Cached connection
-        assert conn.connect() is mock_client
-        mock_client.authenticate_basic_token.assert_called_once_with(
+        assert conn.connect() is wrapped_client
+        mock_raw_client.authenticate_basic_token.assert_called_once_with(
             "admin", "secretpassword"
         )
+        wrapped_client.close()
 
     # Test connection without flight_endpoint and without credentials
     conn_no_auth = DremioConnector(host="localhost", port=32010)
@@ -1952,7 +1954,69 @@ def test_dremio_connector_lifecycle_and_execution():
         {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
     ):
         c2 = conn_no_auth.connect()
-        assert c2 is mock_client
+        assert c2 is not None
+
+    # Test _DremioFlightCursor directly
+    mock_table = MagicMock()
+    mock_table.column_names = ["id", "val"]
+    mock_table.to_pylist.return_value = [{"id": 1, "val": "alpha"}]
+    mock_reader = MagicMock()
+    mock_reader.read_all.return_value = mock_table
+    mock_raw_client.do_get.return_value = mock_reader
+
+    mock_info = MagicMock()
+    mock_endpoint = MagicMock()
+    mock_endpoint.ticket = b"ticket-123"
+    mock_info.endpoints = [mock_endpoint]
+    mock_raw_client.get_flight_info.return_value = mock_info
+
+    with patch.dict(
+        sys.modules,
+        {"pyarrow": mock_pyarrow, "pyarrow.flight": mock_flight},
+    ):
+        cursor = wrapped_client.cursor()
+        cursor.execute("SELECT id, val FROM my_space.data")
+        assert cursor.description == [("id",), ("val",)]
+        assert cursor.fetchone() == [1, "alpha"]
+        assert cursor.fetchone() is None
+        assert cursor.fetchall() == []
+        cursor.close()
+
+        # Execute with empty endpoints
+        mock_info_empty = MagicMock()
+        mock_info_empty.endpoints = []
+        mock_raw_client.get_flight_info.return_value = mock_info_empty
+        cursor.execute("SELECT * FROM empty_space")
+        assert cursor.description is None
+        assert cursor.fetchall() == []
+
+        # Execute when flight_client has an execute method directly (DB-API delegate)
+        mock_dbapi_client = MagicMock(spec=["execute", "description", "fetchall"])
+        mock_dbapi_client.description = [("col_a",)]
+        mock_dbapi_client.fetchall.return_value = [[42]]
+        cursor_delegate = wrapped_client.cursor()
+        cursor_delegate.flight_client = mock_dbapi_client
+        cursor_delegate.execute("SELECT 42")
+        mock_dbapi_client.execute.assert_called_with("SELECT 42", None)
+        assert cursor_delegate.description == [("col_a",)]
+        assert cursor_delegate.fetchall() == [[42]]
+
+    # get_cursor with connection that has cursor method
+    conn_with_cursor = DremioConnector(connection=wrapped_client)
+    with conn_with_cursor.get_cursor() as cur:
+        assert cur is not None
+
+    # get_cursor with raw connection that has no cursor method
+    mock_raw_no_cursor = MagicMock(spec=["get_flight_info"])
+    conn_raw = DremioConnector(connection=mock_raw_no_cursor)
+    with conn_raw.get_cursor() as cur:
+        assert cur is not None
+
+    # Test _DremioFlightClient close without close method and cursor execute fallback
+    from query_builder.connectors.dremio import _DremioFlightClient, _DremioFlightCursor
+
+    _DremioFlightClient(object()).close()
+    _DremioFlightCursor(object()).execute("SELECT 1")
 
     # test_connection
     mock_cur = MagicMock()
@@ -2086,6 +2150,42 @@ def test_firebolt_connector_lifecycle_and_execution():
 def test_tidb_connector_lifecycle_and_execution():
     conn = TiDBConnector(database="test_tidb")
     assert conn.dialect_name == "tidb"
+
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"pymysql": None, "MySQLdb": None}),
+        pytest.raises(DriverNotInstalledError, match="query-builder-engine\\[tidb\\]"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_pymysql = MagicMock()
+    mock_pymysql.connect.side_effect = RuntimeError("TiDB node unreachable")
+    with (
+        patch.dict(sys.modules, {"pymysql": mock_pymysql}),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to TiDB database"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success with pymysql
+    mock_conn = MagicMock()
+    mock_pymysql.connect.side_effect = None
+    mock_pymysql.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"pymysql": mock_pymysql}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+        mock_pymysql.connect.assert_called_with(db="test_tidb")
+
+    # Connection success with MySQLdb fallback
+    conn_fallback = TiDBConnector(database="test_tidb")
+    mock_mysqldb = MagicMock()
+    mock_mysqldb.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"pymysql": None, "MySQLdb": mock_mysqldb}):
+        assert conn_fallback.connect() is mock_conn
+        mock_mysqldb.connect.assert_called_with(db="test_tidb")
 
     mock_cur = MagicMock()
     mock_cur.fetchone.side_effect = [
@@ -2360,9 +2460,70 @@ def test_couchbase_connector_lifecycle_and_execution():
             "couchbase.options": MagicMock(),
         },
     ):
-        assert conn.connect() is mock_cluster_inst
+        wrapped = conn.connect()
+        assert wrapped is not None
+        assert hasattr(wrapped, "cursor")
         # Cached connection
-        assert conn.connect() is mock_cluster_inst
+        assert conn.connect() is wrapped
+        wrapped.close()
+
+    # Test _CouchbaseCursor directly with different query row forms
+    cursor = wrapped.cursor()
+
+    # 1. Dict rows
+    mock_cluster_inst.query.return_value = [{"id": 1, "name": "Delta"}]
+    cursor.execute("SELECT id, name FROM `travel-sample`")
+    assert cursor.description == [("id",), ("name",)]
+    assert cursor.fetchone() == [1, "Delta"]
+    assert cursor.fetchone() is None
+    assert cursor.fetchall() == []
+
+    # 2. List / tuple rows
+    mock_cluster_inst.query.return_value = [[10, "United"]]
+    cursor.execute("SELECT 10, 'United'")
+    assert cursor.description == [("col_0",), ("col_1",)]
+    assert cursor.fetchall() == [[10, "United"]]
+
+    # 3. Scalar rows
+    mock_cluster_inst.query.return_value = [100]
+    cursor.execute("SELECT COUNT(*) FROM `travel-sample`")
+    assert cursor.description == [("val",)]
+    assert cursor.fetchall() == [[100]]
+
+    # 4. Empty rows
+    mock_cluster_inst.query.return_value = []
+    cursor.execute("SELECT * FROM empty_space")
+    assert cursor.description is None
+    assert cursor.fetchall() == []
+
+    # 5. DB-API delegate when cluster has execute directly
+    mock_dbapi_cluster = MagicMock(spec=["execute", "description", "fetchall"])
+    mock_dbapi_cluster.description = [("status",)]
+    mock_dbapi_cluster.fetchall.return_value = [["OK"]]
+    cursor_del = wrapped.cursor()
+    cursor_del.cluster = mock_dbapi_cluster
+    cursor_del.execute("SELECT 'OK'")
+    mock_dbapi_cluster.execute.assert_called_with("SELECT 'OK'", None)
+    assert cursor_del.description == [("status",)]
+    assert cursor_del.fetchall() == [["OK"]]
+    cursor.close()
+
+    # get_cursor with connection that has cursor method
+    conn_with_cursor = CouchbaseConnector(connection=wrapped)
+    with conn_with_cursor.get_cursor() as cur:
+        assert cur is not None
+
+    # get_cursor with raw connection that has no cursor method
+    mock_cluster_no_cur = MagicMock(spec=["query"])
+    conn_raw = CouchbaseConnector(connection=mock_cluster_no_cur)
+    with conn_raw.get_cursor() as cur:
+        assert cur is not None
+
+    # Test _CouchbaseClient close without close method and cursor execute fallback
+    from query_builder.connectors.couchbase import _CouchbaseClient, _CouchbaseCursor
+
+    _CouchbaseClient(object()).close()
+    _CouchbaseCursor(object()).execute("SELECT 1")
 
     # test_connection
     mock_cur = MagicMock()
@@ -2372,9 +2533,9 @@ def test_couchbase_connector_lifecycle_and_execution():
     assert info["engine_version"] == "Couchbase SQL++"
     assert info["bucket"] == "travel-sample"
 
-    # introspect_schema success
+    # introspect_schema success with both nested lists and direct dicts
     mock_cur.fetchall.side_effect = [
-        [("airline",), ("empty_table",)],
+        [("airline",), ("routes",), ("scalar_table",), ("empty_table",)],
         [
             [
                 {
@@ -2387,12 +2548,22 @@ def test_couchbase_connector_lifecycle_and_execution():
                 }
             ]
         ],
+        [
+            {
+                "properties": {
+                    "source": {"type": "string"},
+                    "distance": "number",
+                }
+            }
+        ],
+        [42],
         [],
     ]
     schema = conn.introspect_schema()
     assert "airline" in schema["tables"]
     assert schema["tables"]["airline"]["has_user_id"] is True
     assert len(schema["tables"]["airline"]["columns"]) == 4
+    assert "routes" in schema["tables"]
     assert "empty_table" in schema["tables"]
     assert len(schema["tables"]["empty_table"]["columns"]) == 0
 
@@ -2651,6 +2822,39 @@ def test_neon_connector_lifecycle_and_execution():
     assert conn.branch_id == "br-main-1234"
     assert conn.endpoint_id == "ep-floral-5678"
 
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"psycopg": None, "psycopg2": None}),
+        pytest.raises(DriverNotInstalledError, match="query-builder-engine\\[neon\\]"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_psycopg = MagicMock()
+    mock_psycopg.connect.side_effect = RuntimeError("Neon compute branch inactive")
+    with (
+        patch.dict(sys.modules, {"psycopg": mock_psycopg}),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Neon PostgreSQL"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success with endpoint_id
+    mock_conn = MagicMock()
+    mock_psycopg.connect.side_effect = None
+    mock_psycopg.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"psycopg": mock_psycopg}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+        mock_psycopg.connect.assert_called_with(options="endpoint=ep-floral-5678")
+
+    # Connection success without endpoint_id
+    conn_no_ep = NeonConnector(schema_name="public")
+    with patch.dict(sys.modules, {"psycopg": mock_psycopg}):
+        assert conn_no_ep.connect() is mock_conn
+
     mock_cur = MagicMock()
     mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 16.1 (Neon)",)]
     conn._cursor = mock_cur
@@ -2704,6 +2908,35 @@ def test_supabase_connector_lifecycle_and_execution():
     assert conn.supabase_url == "https://xyzcompany.supabase.co"
     assert conn.supabase_key == "sb-anon-key-123"
 
+    # Driver missing error
+    with (
+        patch.dict(sys.modules, {"psycopg": None, "psycopg2": None}),
+        pytest.raises(
+            DriverNotInstalledError, match="query-builder-engine\\[supabase\\]"
+        ),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_psycopg = MagicMock()
+    mock_psycopg.connect.side_effect = RuntimeError("Supabase project paused")
+    with (
+        patch.dict(sys.modules, {"psycopg": mock_psycopg}),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Supabase PostgreSQL"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_conn = MagicMock()
+    mock_psycopg.connect.side_effect = None
+    mock_psycopg.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"psycopg": mock_psycopg}):
+        assert conn.connect() is mock_conn
+        # Cached connection
+        assert conn.connect() is mock_conn
+
     mock_cur = MagicMock()
     mock_cur.fetchone.side_effect = [(1,), ("PostgreSQL 15.1 (Supabase)",)]
     conn._cursor = mock_cur
@@ -2743,3 +2976,36 @@ def test_supabase_connector_lifecycle_and_execution():
     res = conn.execute({"table": "profiles"})
     assert res["count"] == 8
     assert res["dialect"] == "supabase"
+
+
+# ============================================================================
+# 17. Registry & Discovery Tests for New Connectors
+# ============================================================================
+
+
+def test_new_connectors_registry_and_discovery():
+    expected_registrations = {
+        "dremio": DremioConnector,
+        "firebolt": FireboltConnector,
+        "tidb": TiDBConnector,
+        "singlestore": SingleStoreConnector,
+        "memsql": SingleStoreConnector,
+        "teradata": TeradataConnector,
+        "couchbase": CouchbaseConnector,
+        "n1ql": CouchbaseConnector,
+        "d1": D1Connector,
+        "cloudflare_d1": D1Connector,
+        "mongodb": MongoDBAtlasSQLConnector,
+        "mongo": MongoDBAtlasSQLConnector,
+        "atlas_sql": MongoDBAtlasSQLConnector,
+        "neon": NeonConnector,
+        "supabase": SupabaseConnector,
+    }
+
+    available = list_connectors()
+    for name, expected_cls in expected_registrations.items():
+        assert name in available, f"Connector {name} not found in available list"
+        inst = get_connector(name)
+        assert isinstance(inst, expected_cls), (
+            f"get_connector({name}) did not return {expected_cls}"
+        )
