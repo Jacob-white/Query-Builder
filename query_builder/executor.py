@@ -27,6 +27,8 @@ def execute_cursor_query(
     """
     if cursor is None:
         raise ValueError("Database cursor cannot be None.")
+    if not isinstance(sql, str) or not sql.strip():
+        raise ValueError("SQL query must be a non-empty string.")
 
     start_time = time.perf_counter()
     if params:
@@ -62,8 +64,13 @@ def execute_compiled_spec(
             "Specification must be a dictionary or dataclass instance."
         )
 
-    if int(statement_timeout_ms) <= 0:
-        raise ValueError("statement_timeout_ms must be positive.")
+    try:
+        timeout = int(statement_timeout_ms)
+        if timeout <= 0:
+            raise ValueError
+    except (ValueError, TypeError) as exc:
+        raise ValueError("statement_timeout_ms must be positive.") from exc
+
     compiler = QueryCompiler(
         spec=spec,
         schema=schema,
@@ -79,13 +86,19 @@ def execute_compiled_spec(
             raise CompilationError(
                 f"Generated query failed AST safety validation: {validation['message']}"
             )
+        count_validation = validate_sql_ast(count_sql)
+        if not count_validation["valid"]:
+            raise CompilationError(
+                f"Generated count query failed AST safety validation: {count_validation['message']}"
+            )
 
     # 1. Total Count
     if count_params:
         cursor.execute(count_sql, count_params)
     else:
         cursor.execute(count_sql)
-    total_count = cursor.fetchone()[0]
+    count_row = cursor.fetchone()
+    total_count = count_row[0] if (count_row and len(count_row) > 0) else 0
 
     # 2. Main paginated query
     col_names, dict_rows, latency_ms = execute_cursor_query(

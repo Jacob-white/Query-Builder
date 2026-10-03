@@ -489,3 +489,482 @@ def test_compiler_and_join_edge_branches():
     }
     path = find_join_path(["a"], "b", schema_data=schema_weird)  # type: ignore
     assert len(path) == 1
+
+
+def test_deep_security_audit_ast_validator():
+    # 1. CTE with non-SELECT root operations
+    res_do = validate_sql_ast("WITH t AS (SELECT 1) DO $$ BEGIN NULL; END $$;")
+    assert not res_do["valid"]
+    assert "Restricted statement type: DO" in res_do["violations"][0]
+
+    res_merge = validate_sql_ast(
+        "WITH t AS (SELECT 1) MERGE INTO target USING source ON (a = b) WHEN MATCHED THEN DELETE;"
+    )
+    assert not res_merge["valid"]
+    assert any(
+        "MERGE" in v or "Restricted statement type" in v
+        for v in res_merge["violations"]
+    )
+
+    res_cte_del = validate_sql_ast("WITH t AS (SELECT 1) DELETE FROM users;")
+    assert not res_cte_del["valid"]
+    assert any("DELETE" in v for v in res_cte_del["violations"])
+
+    # 2. Valid CTE with parenthesized SELECT root
+    res_cte_paren = validate_sql_ast("WITH t AS (SELECT 1) (SELECT * FROM t);")
+    assert res_cte_paren["valid"]
+    assert res_cte_paren["statement_type"] == "SELECT"
+
+    # 3. Multiple CTE definitions followed by valid SELECT
+    res_multi_cte = validate_sql_ast(
+        "WITH t1 AS (SELECT 1), t2 AS (SELECT 2) SELECT * FROM t1, t2;"
+    )
+    assert res_multi_cte["valid"]
+
+    # 4. Top-level parenthesized SELECT and non-SELECT
+    res_paren_sel = validate_sql_ast("((SELECT 1))")
+    assert res_paren_sel["valid"]
+    assert res_paren_sel["statement_type"] == "SELECT"
+
+    res_paren_del = validate_sql_ast("((DELETE FROM users))")
+    assert not res_paren_del["valid"]
+    assert any("DELETE" in v for v in res_paren_del["violations"])
+
+    # 5. Schema quoting and whitespace evasions
+    assert not validate_sql_ast('SELECT * FROM "pg_catalog"."pg_class"')["valid"]
+    assert not validate_sql_ast("SELECT * FROM [sys].[objects]")["valid"]
+    assert not validate_sql_ast("SELECT * FROM `mysql`.`user`")["valid"]
+    assert not validate_sql_ast("SELECT * FROM pg_catalog . pg_class")["valid"]
+    assert not validate_sql_ast("SELECT * FROM snowflake.account_usage.users")["valid"]
+
+    # 6. Allowed schemas parameter
+    res_allowed = validate_sql_ast(
+        'SELECT * FROM "pg_catalog"."analytics_data"', allowed_schemas=["pg_catalog"]
+    )
+    assert res_allowed["valid"]
+
+    # 7. Qualified sensitive tables
+    assert not validate_sql_ast("SELECT * FROM mysql.user")["valid"]
+    assert not validate_sql_ast("SELECT * FROM sys.objects")["valid"]
+    assert not validate_sql_ast("SELECT * FROM public.auth_user")["valid"]
+
+    # 8. CALL, REPLACE INTO, and WAITFOR with comments
+    assert not validate_sql_ast("CALL my_stored_proc()")["valid"]
+    assert not validate_sql_ast("REPLACE INTO users (id) VALUES (1)")["valid"]
+    assert not validate_sql_ast("SELECT 1 WAITFOR/**/DELAY '0:0:5'")["valid"]
+
+
+def test_deep_input_validation_query_spec():
+    # 1. Table validation
+    with pytest.raises(CompilationError) as exc:
+        validate_query_spec({"table": 123})  # type: ignore
+    assert "must be a non-empty string" in str(exc.value)
+
+    with pytest.raises(CompilationError) as exc:
+        validate_query_spec({"table": "a" * 129})
+    assert "part exceeds maximum allowed length" in str(exc.value)
+
+    with pytest.raises(CompilationError) as exc:
+        validate_query_spec({"table": "bad-schema.users"})
+    assert "Invalid table identifier name" in str(exc.value)
+
+    # 2. Column validation
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "columns": [{"column": 123}]})
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "columns": [{"column": "id", "alias": 123}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "columns": [{"column": "id", "alias": "a" * 257}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "columns": [{"column": "id", "alias": "bad\x00alias"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "columns": [{"column": "id", "table": "bad;tbl"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "columns": ["bad;col"]})
+
+    # 3. Join validation
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "joins": [{"table": None}]})
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "left_table": "bad;tbl"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "left_col": "bad;col"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "right_col": "bad;col"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "on": "not_a_list"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "on": [{}] * 11}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "joins": [{"table": "orders", "on": ["not_a_dict"]}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {
+                "table": "users",
+                "joins": [
+                    {"table": "orders", "on": [{"left": "bad;col", "right": "id"}]}
+                ],
+            }
+        )
+
+    # 4. Filter validation
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "filters": [{"column": "id", "tablePrefix": "bad;tbl"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "filters": [{"column": "id", "op": "unsupported_op"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "in", "value": list(range(1001))}],
+            }
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {
+                "table": "users",
+                "filters": [
+                    {"column": "id", "op": "in", "value": ",".join(["1"] * 1001)}
+                ],
+            }
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "between", "value": [1, 2, 3]}],
+            }
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "between", "value": "no_delimiter"}],
+            }
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "filter_join": 123})  # type: ignore
+
+    # 5. Having and Order by validation
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "having": [{"column": "bad;col"}]})
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "having": [{"column": "id", "agg": "bad_agg"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "having": [{"column": "id", "op": "bad_op"}]}
+        )
+    with pytest.raises(CompilationError):
+        validate_query_spec({"table": "users", "order_by": [{"column": "bad;col"}]})
+    with pytest.raises(CompilationError):
+        validate_query_spec(
+            {"table": "users", "order_by": [{"column": "id", "tablePrefix": "bad;tbl"}]}
+        )
+
+    # 6. Limit and Offset bounds
+    with pytest.raises(CompilationError) as exc_lim:
+        validate_query_spec({"table": "users", "limit": 10001})
+    assert "exceeds maximum allowed limit" in str(exc_lim.value)
+
+    with pytest.raises(CompilationError) as exc_off:
+        validate_query_spec({"table": "users", "offset": 1000001})
+    assert "exceeds maximum allowed limit" in str(exc_off.value)
+
+
+def test_tenant_isolation_fail_closed():
+    schema = {
+        "tables": {
+            "public_docs": {
+                "columns": [{"name": "id"}, {"name": "title"}],
+            }
+        }
+    }
+    # Spec targeting public_docs which does not have client_id or tenant_id
+    compiler = QueryCompiler(
+        {"table": "public_docs"}, schema=schema, tenant_id="tenant-123"
+    )
+    with pytest.raises(CompilationError) as exc:
+        compiler.compile()
+    assert "does not have a client_id or tenant_id column" in str(exc.value)
+
+
+def test_security_module_hardened_boundaries():
+    from query_builder.dialects import BaseDialect
+
+    dialect = BaseDialect()
+    ctr = AliasCounter()
+
+    # 1. Invalid hop identifiers
+    with pytest.raises(SecurityError) as exc1:
+        _build_chain_exists(
+            dialect, {}, "t1", [("bad;col", "orders", "id")], "u1", [], ctr
+        )
+    assert "Invalid foreign key column identifier" in str(exc1.value)
+
+    with pytest.raises(SecurityError) as exc2:
+        _build_chain_exists(dialect, {}, "t1", [("fk", "bad;tbl", "id")], "u1", [], ctr)
+    assert "Invalid target table identifier" in str(exc2.value)
+
+    with pytest.raises(SecurityError) as exc3:
+        _build_chain_exists(
+            dialect, {}, "t1", [("fk", "orders", "bad;pk")], "u1", [], ctr
+        )
+    assert "Invalid target PK column identifier" in str(exc3.value)
+
+    with pytest.raises(SecurityError) as exc4:
+        _build_chain_exists(
+            dialect, {}, "bad;alias", [("fk", "orders", "id")], "u1", [], ctr
+        )
+    assert "Invalid alias in ownership chain" in str(exc4.value)
+
+    with pytest.raises(SecurityError) as exc5:
+        _build_chain_exists(dialect, {}, "t1", [("fk", "a" * 129, "id")], "u1", [], ctr)
+    assert "exceeds maximum allowed length" in str(exc5.value)
+
+    # 2. Invalid user_col in single hop
+    meta_bad_col = {"orders": {"user_col": "bad;col"}}
+    with pytest.raises(SecurityError) as exc6:
+        _build_chain_exists(
+            dialect, meta_bad_col, "t1", [("fk", "orders", "id")], "u1", [], ctr
+        )
+    assert "Invalid user column identifier" in str(exc6.value)
+
+    # 3. Direct table ownership with invalid user_col
+    meta_direct_bad = {"users": {"has_user_id": True, "user_col": "bad;col"}}
+    with pytest.raises(SecurityError) as exc7:
+        resolve_ownership_predicate(dialect, meta_direct_bad, "t1", "users", "u1", [])
+    assert "Invalid user column identifier" in str(exc7.value)
+
+    # 4. Immediate self-cycle detection
+    paths = {"orders": [[("order_id", "orders", "id")]]}
+    with pytest.raises(SecurityError) as exc8:
+        resolve_ownership_predicate(
+            dialect, {}, "t1", "orders", "u1", [], ownership_paths=paths
+        )
+    assert "Cyclic ownership path detected" in str(exc8.value)
+
+    # 5. Invalid table or alias in resolve_ownership_predicate
+    with pytest.raises(SecurityError):
+        resolve_ownership_predicate(dialect, {}, "bad;alias", "users", "u1", [])
+    with pytest.raises(SecurityError):
+        resolve_ownership_predicate(dialect, {}, "t1", "bad;table", "u1", [])
+
+
+def test_executor_and_join_solver_edge_hardening():
+    # 1. execute_cursor_query with empty SQL
+    with pytest.raises(ValueError) as exc:
+        execute_cursor_query("fake_cursor", "")
+    assert "SQL query must be a non-empty string" in str(exc.value)
+
+    # 2. execute_compiled_spec with AST validation failure on count_sql
+    from unittest import mock
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE test_data (id INT);")
+
+    # Mock validate_sql_ast to fail only when validating count_sql
+    real_val = validate_sql_ast
+
+    def mock_val(sql, **kwargs):
+        if "COUNT(*)" in sql:
+            return {"valid": False, "message": "Simulated count AST injection"}
+        return real_val(sql, **kwargs)
+
+    with mock.patch("query_builder.executor.validate_sql_ast", side_effect=mock_val):
+        with pytest.raises(CompilationError) as exc_ast:
+            execute_compiled_spec(cur, {"table": "test_data"})
+        assert "Generated count query failed AST safety validation" in str(
+            exc_ast.value
+        )
+
+    # 3. Join solver default_join_type validation fallback
+    res = find_join_path(["users"], "orders", default_join_type="INVALID_TYPE")
+    assert res[0]["type"] == "LEFT JOIN"
+
+    res_inner = find_join_path(["users"], "orders", default_join_type="INNER")
+    assert res_inner[0]["type"] == "INNER JOIN"
+
+
+def test_full_coverage_gap_closure():
+    from query_builder.cli import main
+
+    # 1. AST validator CTE punctuation, unclosed CTE, and parenthesis branches
+    res_punct = validate_sql_ast("WITH t AS (SELECT 1) , SELECT 1")
+    assert res_punct["valid"]
+
+    res_no_root = validate_sql_ast("WITH t AS (SELECT 1)")
+    assert not res_no_root["valid"]
+
+    res_rec = validate_sql_ast(
+        "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t", allow_recursive_cte=True
+    )
+    assert res_rec["valid"]
+
+    res_empty_p = validate_sql_ast("(( /* empty */ ))")
+    assert not res_empty_p["valid"]
+
+    res_num_p = validate_sql_ast("((123))")
+    assert not res_num_p["valid"]
+
+    # 2. Spec validation branches
+    validate_query_spec({"table": "users", "having": [{"column": None}]})
+    validate_query_spec(
+        {"table": "users", "columns": None, "joins": None, "filters": None}
+    )
+    validate_query_spec({"table": "users", "columns": [{"column": None}]})
+    validate_query_spec(
+        {"table": "users", "having": [{"column": "id", "extra": 1}]},
+        allow_unknown_keys=True,
+    )
+    validate_query_spec(
+        {"table": "users", "order_by": [{"column": "id", "extra": 1}]},
+        allow_unknown_keys=True,
+    )
+
+    # 3. Compiler branches
+    # Tenant ID without schema metadata dictionary
+    comp_tenant = QueryCompiler({"table": "users"}, tenant_id="t1")
+    sql, params, _, _ = comp_tenant.compile()
+    assert '"tenant_id" = %s' in sql
+    assert params[0] == "t1"
+
+    # Missing target table in join with validation bypassed
+    with pytest.raises(CompilationError) as exc_j:
+        QueryCompiler(
+            {"table": "users", "joins": [{"table": ""}]}, validate_spec=False
+        ).compile()
+    assert "Missing join target" in str(exc_j.value)
+
+    # Filter with IN values exceeding max limit
+    with pytest.raises(CompilationError) as exc_in:
+        QueryCompiler(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "in", "value": list(range(1001))}],
+            },
+            validate_spec=False,
+        ).compile()
+    assert "exceeds maximum limit" in str(exc_in.value)
+
+    # Filter with invalid BETWEEN value
+    with pytest.raises(CompilationError) as exc_bt:
+        QueryCompiler(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "between", "value": [1]}],
+            },
+            validate_spec=False,
+        ).compile()
+    assert "requires exactly 2 bounds" in str(exc_bt.value)
+
+    # Filter with invalid op
+    with pytest.raises(CompilationError) as exc_op:
+        QueryCompiler(
+            {
+                "table": "users",
+                "filters": [{"column": "id", "op": "bad_op", "value": 1}],
+            },
+            validate_spec=False,
+        ).compile()
+    assert "Unsupported filter operator" in str(exc_op.value)
+
+    # Projection with empty dict
+    comp_proj = QueryCompiler({"table": "users", "columns": [{}]}, validate_spec=False)
+    sql_proj, _, _, _ = comp_proj.compile()
+    assert "FROM" in sql_proj
+
+    # Having with invalid agg/op ignored when bypassing spec validation
+    comp_hvg = QueryCompiler(
+        {
+            "table": "users",
+            "having": [{"column": "id", "agg": "bad", "op": "bad", "value": 1}],
+        },
+        validate_spec=False,
+    )
+    sql_hvg, _, _, _ = comp_hvg.compile()
+    assert "HAVING" not in sql_hvg
+
+    # Aggregation with group by but without having
+    comp_agg = QueryCompiler(
+        {"table": "users", "columns": ["name", {"column": "id", "agg": "count"}]}
+    )
+    _, _, count_sql, _ = comp_agg.compile()
+    assert "count_subquery" in count_sql
+
+    # Relationship traversal where relationship does not match join table
+    schema_custom = {
+        "tables": {
+            "users": {"columns": ["id"]},
+            "orders": {"columns": ["id", "user_id"]},
+            "logs": {"columns": ["id"]},
+        },
+        "relationships": [
+            {
+                "source_table": "logs",
+                "target_table": "users",
+                "source_column": "id",
+                "target_column": "id",
+            }
+        ],
+        "foreign_keys": [
+            {
+                "table": "orders",
+                "column": "user_id",
+                "foreign_table": "users",
+                "foreign_column": "id",
+            }
+        ],
+    }
+    comp_rel = QueryCompiler(
+        {"table": "users", "joins": [{"table": "orders"}]},
+        schema=schema_custom,
+    )
+    sql_rel, _, _, _ = comp_rel.compile()
+    assert '"user_id"' in sql_rel
+
+    # 4. Join solver edge branches
+    # Empty table in foreign_key
+    res_fk = find_join_path(
+        ["users"],
+        "orders",
+        schema_data={"foreign_keys": [{"table": "", "foreign_table": "orders"}]},
+    )
+    assert len(res_fk) >= 1
+
+    # Canonical column without base entity in tables_meta
+    res_canon = find_join_path(
+        ["users"],
+        "orders",
+        schema_data={"tables": {"users": {"columns": ["nonexistent_id"]}}},
+    )
+    assert len(res_canon) >= 1
+
+    # 5. CLI branches
+    assert main(["join-path", "--active", "users", "--target", "orders"]) == 0

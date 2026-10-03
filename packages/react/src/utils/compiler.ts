@@ -53,7 +53,8 @@ const ALLOWED_OPERATORS = new Set([
 
 const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
 
-const sanitizeIdent = (s: string) => (s || "").replace(/"/g, '""');
+const sanitizeIdent = (s: string) =>
+  (s || "").replace(/[\x00-\x1f\x7f]/g, "").replace(/"/g, '""');
 
 export function compileVisualState(
   primaryTable: string,
@@ -173,6 +174,7 @@ export function compileVisualState(
       const tbl = sanitizeIdent((f.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, ""));
       const colName = sanitizeIdent(f.column);
       const colRef = `"${tbl}"."${colName}"`;
+      const valStr = String(f.value ?? "");
       let expr = "";
 
       specFilters.push({
@@ -185,41 +187,45 @@ export function compileVisualState(
       if (f.operator === "IS NULL" || f.operator === "IS NOT NULL") {
         expr = `${colRef} ${f.operator}`;
       } else if (f.operator === "STARTS_WITH") {
-        const clean = (f.value || "").replace(/'/g, "''");
+        const clean = valStr.replace(/'/g, "''");
         expr = `${colRef} ILIKE '${clean}%'`;
       } else if (f.operator === "ENDS_WITH") {
-        const clean = (f.value || "").replace(/'/g, "''");
+        const clean = valStr.replace(/'/g, "''");
         expr = `${colRef} ILIKE '%${clean}'`;
       } else if (f.operator === "CONTAINS") {
-        const clean = (f.value || "").replace(/'/g, "''");
+        const clean = valStr.replace(/'/g, "''");
         expr = `${colRef} ILIKE '%${clean}%'`;
       } else if (f.operator === "LIKE" || f.operator === "ILIKE") {
-        const clean = (f.value || "").replace(/'/g, "''");
+        const clean = valStr.replace(/'/g, "''");
         expr = `${colRef} ${f.operator} '${clean}'`;
       } else if (f.operator === "IN" || f.operator === "NOT IN") {
-        const items = (f.value || "")
+        const items = valStr
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean)
           .slice(0, 500)
-          .map((s) => (isNaN(Number(s)) ? `'${s.replace(/'/g, "''")}'` : s));
+          .map((s) => (!isNaN(Number(s)) && isFinite(Number(s)) && s !== "" ? s : `'${s.replace(/'/g, "''")}'`));
         expr = `${colRef} ${f.operator} (${items.join(", ") || "NULL"})`;
       } else if (f.operator === "BETWEEN") {
-        const bounds = (f.value || "").includes(" AND ")
-          ? (f.value || "").split(" AND ")
-          : (f.value || "").split(",");
+        const bounds = valStr.includes(" AND ")
+          ? valStr.split(" AND ")
+          : valStr.split(",");
         if (bounds.length === 2) {
-          const v0 = isNaN(Number(bounds[0]))
-            ? `'${bounds[0].trim().replace(/'/g, "''")}'`
-            : bounds[0].trim();
-          const v1 = isNaN(Number(bounds[1]))
-            ? `'${bounds[1].trim().replace(/'/g, "''")}'`
-            : bounds[1].trim();
+          const b0 = bounds[0].trim();
+          const b1 = bounds[1].trim();
+          const v0 = !isNaN(Number(b0)) && isFinite(Number(b0)) && b0 !== ""
+            ? b0
+            : `'${b0.replace(/'/g, "''")}'`;
+          const v1 = !isNaN(Number(b1)) && isFinite(Number(b1)) && b1 !== ""
+            ? b1
+            : `'${b1.replace(/'/g, "''")}'`;
           expr = `${colRef} BETWEEN ${v0} AND ${v1}`;
         }
       } else {
-        const isNum = !isNaN(Number(f.value)) && (f.value || "").trim() !== "";
-        const valEscaped = isNum ? f.value : `'${(f.value || "").replace(/'/g, "''")}'`;
+        const isNum = typeof f.value === "number"
+          ? isFinite(f.value)
+          : !isNaN(Number(f.value)) && isFinite(Number(f.value)) && valStr.trim() !== "";
+        const valEscaped = isNum ? String(f.value) : `'${valStr.replace(/'/g, "''")}'`;
         expr = `${colRef} ${f.operator} ${valEscaped}`;
       }
 

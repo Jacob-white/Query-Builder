@@ -205,6 +205,25 @@ def find_join_path(
     if not isinstance(active_tables, (list, tuple, set)):
         return []
 
+    valid_join_types = {
+        "LEFT JOIN",
+        "INNER JOIN",
+        "RIGHT JOIN",
+        "FULL JOIN",
+        "LEFT",
+        "INNER",
+        "RIGHT",
+        "FULL",
+    }
+    if (
+        not isinstance(default_join_type, str)
+        or default_join_type.upper() not in valid_join_types
+    ):
+        safe_join_type = "LEFT JOIN"
+    else:
+        upper_jt = default_join_type.upper()
+        safe_join_type = upper_jt if upper_jt.endswith("JOIN") else f"{upper_jt} JOIN"
+
     clean_active = [_clean_table_name(t) for t in active_tables if _clean_table_name(t)]
 
     if clean_target in clean_active or not clean_active:
@@ -276,7 +295,7 @@ def find_join_path(
                 visited.add(neighbor)
                 cond = find_best_join_condition(current, neighbor, schema_data)
                 next_join = {
-                    "type": default_join_type,
+                    "type": safe_join_type,
                     "left_table": cond["left_table"],
                     "left_col": cond["left_col"],
                     "table": cond["right_table"],
@@ -289,7 +308,7 @@ def find_join_path(
     cond = find_best_join_condition(fallback_start, clean_target, schema_data)
     return [
         {
-            "type": default_join_type,
+            "type": safe_join_type,
             "left_table": cond["left_table"],
             "left_col": cond["left_col"],
             "table": cond["right_table"],

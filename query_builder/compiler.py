@@ -95,6 +95,59 @@ OPERATOR_MAP = {
     "<=": "<=",
 }
 
+ALLOWED_FILTER_OPS = {
+    "eq",
+    "=",
+    "neq",
+    "!=",
+    "gt",
+    ">",
+    "gte",
+    ">=",
+    "lt",
+    "<",
+    "lte",
+    "<=",
+    "is_null",
+    "is null",
+    "is_not_null",
+    "is not null",
+    "contains",
+    "starts_with",
+    "startswith",
+    "ends_with",
+    "endswith",
+    "like",
+    "ilike",
+    "in",
+    "not in",
+    "not_in",
+    "between",
+}
+
+ALLOWED_JOIN_TYPES = {
+    "left",
+    "inner",
+    "right",
+    "full",
+    "left join",
+    "inner join",
+    "right join",
+    "full join",
+}
+
+
+def _check_ident(ident: Any, label: str) -> None:
+    if not isinstance(ident, str) or not ident.strip():
+        raise CompilationError(f"Field '{label}' must be a non-empty string.")
+    if not IDENTIFIER_REGEX.match(ident):
+        raise CompilationError(f"Invalid {label} identifier name: '{ident}'")
+    parts = ident.split(".")
+    if any(len(p) > 128 for p in parts):
+        raise CompilationError(
+            f"{label} identifier part exceeds maximum allowed length (128): '{ident}'"
+        )
+
 
 def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) -> None:
     """
@@ -118,11 +171,7 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         raise CompilationError(
             "Missing required 'table' parameter in query specification."
         )
-    if not isinstance(table, str) or not table.strip():
-        raise CompilationError("Field 'table' must be a non-empty string.")
-    clean_table = table.split(".")[-1]
-    if not IDENTIFIER_REGEX.match(clean_table):
-        raise CompilationError(f"Invalid table identifier name: '{table}'")
+    _check_ident(table, "table")
 
     columns = spec.get("columns", [])
     if columns is not None and not isinstance(columns, (list, tuple)):
@@ -133,8 +182,8 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         )
     for col in columns or []:
         if isinstance(col, str):
-            if col != "*" and not IDENTIFIER_REGEX.match(col.split(".")[-1]):
-                raise CompilationError(f"Invalid column identifier name: '{col}'")
+            if col != "*":
+                _check_ident(col, "column")
         elif isinstance(col, dict):
             if not allow_unknown_keys:
                 unknown_col = set(col.keys()) - ALLOWED_COLUMN_KEYS
@@ -143,15 +192,25 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                         f"Unexpected field(s) in column specification: {', '.join(sorted(unknown_col))}"
                     )
             raw_col = col.get("column", col.get("name"))
-            if (
-                isinstance(raw_col, str)
-                and raw_col != "*"
-                and not IDENTIFIER_REGEX.match(raw_col.split(".")[-1])
-            ):
-                raise CompilationError(f"Invalid column identifier name: '{raw_col}'")
+            if raw_col is None:
+                continue
+            if isinstance(raw_col, str):
+                if raw_col != "*":
+                    _check_ident(raw_col, "column")
+            else:
+                raise CompilationError("Column name must be a string.")
             agg = col.get("agg") or col.get("aggregate")
             if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
                 raise CompilationError(f"Unsupported aggregate function: '{agg}'")
+            alias = col.get("alias")
+            if alias is not None:
+                if not isinstance(alias, str):
+                    raise CompilationError("Column 'alias' must be a string.")
+                if len(alias) > 256 or "\x00" in alias:
+                    raise CompilationError(f"Invalid column alias: '{alias}'")
+            tbl = col.get("table")
+            if tbl is not None:
+                _check_ident(tbl, "column table")
         else:
             raise CompilationError(
                 f"Invalid column specification item type: {type(col).__name__}"
@@ -179,10 +238,33 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 )
         j_tbl = j_dict.get("table")
         if j_tbl is not None:
-            if not isinstance(j_tbl, str) or not j_tbl.strip():
-                raise CompilationError("Join 'table' must be a non-empty string.")
-            if not IDENTIFIER_REGEX.match(j_tbl.split(".")[-1]):
-                raise CompilationError(f"Invalid join table identifier name: '{j_tbl}'")
+            _check_ident(j_tbl, "join table")
+        else:
+            raise CompilationError("Missing join target 'table'.")
+        if j_dict.get("left_table"):
+            _check_ident(j_dict["left_table"], "join left_table")
+        if j_dict.get("left_col"):
+            _check_ident(j_dict["left_col"], "join left_col")
+        if j_dict.get("right_col"):
+            _check_ident(j_dict["right_col"], "join right_col")
+        if "on" in j_dict and j_dict["on"] is not None:
+            on_val = j_dict["on"]
+            if not isinstance(on_val, (list, tuple)):
+                raise CompilationError("Join 'on' condition must be a list.")
+            if len(on_val) > 10:
+                raise CompilationError("Too many join ON conditions (maximum 10).")
+            for cond in on_val:
+                c_dict = cond.__dict__ if hasattr(cond, "__dict__") else cond
+                if (
+                    not isinstance(c_dict, dict)
+                    or "left" not in c_dict
+                    or "right" not in c_dict
+                ):
+                    raise CompilationError(
+                        "Join ON condition must contain 'left' and 'right'."
+                    )
+                _check_ident(c_dict["left"], "join on left")
+                _check_ident(c_dict["right"], "join on right")
 
     filters = spec.get("filters", [])
     if filters is not None and not isinstance(filters, (list, tuple)):
@@ -205,12 +287,46 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                     f"Unexpected field(s) in filter specification: {', '.join(sorted(unknown_flt))}"
                 )
         flt_col = flt_dict.get("column")
-        if isinstance(flt_col, str) and not IDENTIFIER_REGEX.match(
-            flt_col.split(".")[-1]
+        if flt_col is None:
+            continue
+        _check_ident(flt_col, "filter column")
+
+        prefix = (
+            flt_dict.get("tablePrefix")
+            or flt_dict.get("table_prefix")
+            or flt_dict.get("table")
+        )
+        if prefix is not None:
+            _check_ident(prefix, "filter table prefix")
+
+        op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
+        if op not in ALLOWED_FILTER_OPS:
+            raise CompilationError(f"Unsupported filter operator: '{op}'")
+
+        val = flt_dict.get("value")
+        if op in ("in", "not in", "not_in"):
+            if isinstance(val, (list, tuple, set)) and len(val) > MAX_IN_VALUES:
+                raise CompilationError(
+                    f"IN filter value count ({len(val)}) exceeds maximum limit of {MAX_IN_VALUES}."
+                )
+            elif isinstance(val, str):
+                items = [v for v in val.split(",") if v.strip()]
+                if len(items) > MAX_IN_VALUES:
+                    raise CompilationError(
+                        f"IN filter value count ({len(items)}) exceeds maximum limit of {MAX_IN_VALUES}."
+                    )
+        elif op == "between" and (
+            (isinstance(val, (list, tuple)) and len(val) != 2)
+            or (isinstance(val, str) and (" AND " not in val and "," not in val))
         ):
-            raise CompilationError(
-                f"Invalid filter column identifier name: '{flt_col}'"
-            )
+            raise CompilationError("BETWEEN filter requires exactly 2 bounds.")
+
+    if (
+        "filter_join" in spec
+        and spec["filter_join"] is not None
+        and not isinstance(spec["filter_join"], str)
+    ):
+        raise CompilationError("Field 'filter_join' must be a string.")
 
     having = spec.get("having", [])
     if having is not None and not isinstance(having, (list, tuple)):
@@ -232,6 +348,16 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 raise CompilationError(
                     f"Unexpected field(s) in having specification: {', '.join(sorted(unknown_h))}"
                 )
+        h_col = h_dict.get("column")
+        if h_col is None:
+            continue
+        _check_ident(h_col, "having column")
+        h_agg = str(h_dict.get("agg", h_dict.get("aggregate", "count"))).lower()
+        if h_agg not in AGGREGATE_MAP:
+            raise CompilationError(f"Unsupported having aggregate: '{h_agg}'")
+        h_op = str(h_dict.get("op", h_dict.get("operator", "gt"))).lower()
+        if h_op not in OPERATOR_MAP:
+            raise CompilationError(f"Unsupported having operator: '{h_op}'")
 
     order_by = spec.get("order_by", [])
     if order_by is not None and not isinstance(order_by, (list, tuple)):
@@ -253,22 +379,41 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 raise CompilationError(
                     f"Unexpected field(s) in order by specification: {', '.join(sorted(unknown_o))}"
                 )
+        o_col = o_dict.get("column")
+        if o_col is None:
+            continue
+        _check_ident(o_col, "order_by column")
+        o_pfx = (
+            o_dict.get("tablePrefix")
+            or o_dict.get("table_prefix")
+            or o_dict.get("table")
+        )
+        if o_pfx is not None:
+            _check_ident(o_pfx, "order_by table prefix")
 
     if "limit" in spec and spec["limit"] is not None:
         try:
             lim = int(spec["limit"])
-            if lim < 0:
-                raise CompilationError("Limit must be non-negative.")
         except (ValueError, TypeError) as e:
             raise CompilationError(f"Invalid limit value: {spec['limit']}") from e
+        if lim < 0:
+            raise CompilationError("Limit must be non-negative.")
+        if lim > MAX_LIMIT:
+            raise CompilationError(
+                f"Limit ({lim}) exceeds maximum allowed limit of {MAX_LIMIT}."
+            )
 
     if "offset" in spec and spec["offset"] is not None:
         try:
             off = int(spec["offset"])
-            if off < 0:
-                raise CompilationError("Offset must be non-negative.")
         except (ValueError, TypeError) as e:
             raise CompilationError(f"Invalid offset value: {spec['offset']}") from e
+        if off < 0:
+            raise CompilationError("Offset must be non-negative.")
+        if off > MAX_OFFSET:
+            raise CompilationError(
+                f"Offset ({off}) exceeds maximum allowed limit of {MAX_OFFSET}."
+            )
 
     if (
         "distinct" in spec
@@ -425,6 +570,16 @@ class QueryCompiler:
                     f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier(col_name)} = {self.dialect.placeholder}"
                 )
                 self.params.append(self.tenant_id)
+            elif self.tables_meta:
+                raise CompilationError(
+                    f"Table '{clean_base_table}' does not have a client_id or tenant_id column for tenant isolation."
+                )
+            else:
+                # Default fallback when no schema metadata dictionary is provided
+                self.where_clauses.append(
+                    f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier('tenant_id')} = {self.dialect.placeholder}"
+                )
+                self.params.append(self.tenant_id)
 
         # 2. Process Joins
         joins_spec = self.spec.get("joins", [])
@@ -536,7 +691,7 @@ class QueryCompiler:
             if clean_base_table in self.tables_meta:
                 base_meta = self.tables_meta[clean_base_table]
                 columns_spec = [
-                    f"{clean_base_table}.{c['name']}"
+                    f"{clean_base_table}.{c['name'] if isinstance(c, dict) else str(c)}"
                     for c in base_meta.get("columns", [])
                 ]
             else:
@@ -614,7 +769,7 @@ class QueryCompiler:
                     f"{quoted_ref} {sql_op} {self.dialect.placeholder}"
                 )
                 self.params.append(val)
-            elif op in ("contains", "contains"):
+            elif op == "contains":
                 client_filter_clauses.append(self.dialect.format_ilike(quoted_ref))
                 self.params.append(f"%{val}%")
             elif op in ("starts_with", "startswith"):

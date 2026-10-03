@@ -27,6 +27,10 @@ FORBIDDEN_SQL_PATTERNS = [
     r"\bEXEC(?:UTE)?\b",
     r"\bCOPY\b",
     r"\bINTO\b",
+    r"\bMERGE\b",
+    r"\bDO\b(?:\s+\$\$|\s+[0-9a-zA-Z_\(])",
+    r"\bCALL\b",
+    r"\bREPLACE\s+INTO\b",
     r"\bSET\b(?!\s+(?:TRANSACTION|LOCAL))",
     r"\bATTACH\b",
     r"\bDETACH\b",
@@ -36,7 +40,7 @@ FORBIDDEN_SQL_PATTERNS = [
     r"\b(?:XP_CMDSHELL|SP_EXECUTESQL|SP_MAKEWEBTASK)\b",
     r"\b(?:OPENROWSET|OPENDATASOURCE|OPENQUERY)\b",
     r"\b(?:PG_SLEEP|SLEEP|BENCHMARK)\s*\(",
-    r"\bWAITFOR\s+DELAY\b",
+    r"\bWAITFOR(?:\s+|\/\*.*?\*\/)+DELAY\b",
     r"\bSHUTDOWN\b",
     r"/\*!",
 ]
@@ -60,6 +64,8 @@ RESTRICTED_MUTATION_KEYWORDS: set[str] = {
     "CLUSTER",
     "LOCK",
     "CALL",
+    "MERGE",
+    "DO",
     "ATTACH",
     "DETACH",
     "PRAGMA",
@@ -98,6 +104,11 @@ RESTRICTED_SECURITY_TABLES: set[str] = {
     "PG_ROLES",
     "PG_SETTINGS",
     "PG_CONFIG",
+    "PG_CLASS",
+    "PG_PROC",
+    "PG_TYPE",
+    "PG_STATISTIC",
+    "PG_STAT_STATEMENTS",
     "PASSWORDS",
     "CREDENTIALS",
     "CRM_CONNECTION",
@@ -109,18 +120,82 @@ RESTRICTED_SECURITY_TABLES: set[str] = {
     "SQLITE_SCHEMA",
     "SQLITE_TEMP_MASTER",
     "SQLITE_TEMP_SCHEMA",
+    "SQLITE_SEQUENCE",
+    "SQLITE_STAT1",
     "MYSQL.USER",
+    "MYSQL.DB",
+    "MYSQL.TABLES_PRIV",
+    "MYSQL.COLUMNS_PRIV",
     "SYS.OBJECTS",
+    "SYS.TABLES",
+    "SYS.SCHEMAS",
+    "SYS.DATABASE_PRINCIPALS",
+    "SYS.SQL_LOGINS",
+    "SYS.SYSLOGINS",
+    "INFORMATION_SCHEMA.TABLES",
+    "INFORMATION_SCHEMA.COLUMNS",
+}
+
+DEFAULT_RESTRICTED_SCHEMA_NAMES: set[str] = {
+    "PUBLIC",
+    "PG_CATALOG",
+    "INFORMATION_SCHEMA",
+    "MYSQL",
+    "PERFORMANCE_SCHEMA",
+    "SYS",
+    "MSDB",
+    "MASTER",
+    "SNOWFLAKE",
 }
 
 DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
-    r"\bPUBLIC\.",
-    r"\bPG_CATALOG\.",
-    r"\bINFORMATION_SCHEMA\.",
+    r"(?:^|[^\w$])(?:[\"`\[]?)(PUBLIC|PG_CATALOG|INFORMATION_SCHEMA|MYSQL|PERFORMANCE_SCHEMA|SYS|MSDB|MASTER|SNOWFLAKE)(?:[\"`\]]?)\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
 ]
 
 MAX_SQL_LENGTH = 100_000
 MAX_AST_TOKENS = 10_000
+
+
+def _extract_cte_root_statement(stmt: sqlparse.sql.Statement) -> str:
+    """Finds the root statement keyword (e.g. SELECT, DO, MERGE, DELETE) for a CTE."""
+    found_with = False
+    for tok in stmt.tokens:
+        if tok.is_whitespace or tok.ttype in (
+            sqlparse.tokens.Comment,
+            sqlparse.tokens.Comment.Single,
+            sqlparse.tokens.Comment.Multiline,
+        ):
+            continue
+        v = tok.value.upper().strip('"[]`')
+        if v == "WITH":
+            found_with = True
+            continue
+        if found_with:
+            if v == "RECURSIVE":
+                continue
+            if isinstance(tok, (sqlparse.sql.Identifier, sqlparse.sql.IdentifierList)):
+                continue
+            if tok.ttype in (
+                sqlparse.tokens.Punctuation,
+                sqlparse.tokens.Keyword.CTE,
+            ) and v in (",", "AS"):
+                continue
+            if isinstance(tok, sqlparse.sql.Parenthesis):
+                inner = [
+                    it.value.upper().strip('"[]`')
+                    for it in tok.tokens
+                    if not it.is_whitespace
+                    and it.ttype
+                    not in (
+                        sqlparse.tokens.Comment,
+                        sqlparse.tokens.Comment.Single,
+                        sqlparse.tokens.Comment.Multiline,
+                    )
+                    and it.value not in ("(", ")")
+                ]
+                return inner[0] if inner else "UNKNOWN"
+            return v
+    return "UNKNOWN"
 
 
 def validate_sql_ast(
@@ -248,18 +323,48 @@ def validate_sql_ast(
 
     first_val = first_token.value.upper() if first_token else ""
     is_cte = first_val == "WITH"
+    cte_root = _extract_cte_root_statement(stmt) if is_cte else ""
 
-    if not allow_cte and is_cte:
-        violations.append("Common Table Expressions (WITH) are not permitted.")
-    elif (
-        not allow_recursive_cte
-        and is_cte
-        and re.search(r"\bRECURSIVE\b", clean, re.IGNORECASE)
-    ):
-        violations.append(
-            "Recursive Common Table Expressions (WITH RECURSIVE) are not permitted."
-        )
-    elif stmt_type != "SELECT" and not (is_cte and stmt_type in ("SELECT", "UNKNOWN")):
+    # Support parenthesized queries like ((SELECT 1))
+    if stmt_type == "UNKNOWN" and clean.startswith("("):
+        for tok in stmt.flatten():
+            if (
+                not tok.is_whitespace
+                and tok.ttype
+                not in (
+                    sqlparse.tokens.Comment,
+                    sqlparse.tokens.Comment.Single,
+                    sqlparse.tokens.Comment.Multiline,
+                )
+                and tok.value not in ("(", ")")
+            ):
+                inner_val = tok.value.upper().strip('"[]`')
+                if inner_val == "SELECT":
+                    stmt_type = "SELECT"
+                elif (
+                    tok.ttype in (Keyword, DML, DDL)
+                    or inner_val in RESTRICTED_MUTATION_KEYWORDS
+                ):
+                    stmt_type = inner_val
+                break
+
+    if is_cte:
+        if not allow_cte:
+            violations.append("Common Table Expressions (WITH) are not permitted.")
+        elif not allow_recursive_cte and re.search(
+            r"\bRECURSIVE\b", clean, re.IGNORECASE
+        ):
+            violations.append(
+                "Recursive Common Table Expressions (WITH RECURSIVE) are not permitted."
+            )
+        elif cte_root != "SELECT":
+            violations.append(
+                f"Restricted statement type: {cte_root}. Only SELECT queries are permitted."
+            )
+            stmt_type = cte_root
+        else:
+            stmt_type = "SELECT"
+    elif stmt_type != "SELECT":
         detected_name = stmt_type if stmt_type else (first_val or "UNKNOWN")
         violations.append(
             f"Restricted statement type: {detected_name}. Only SELECT queries are permitted."
@@ -273,9 +378,21 @@ def validate_sql_ast(
     )
     for pattern in schema_patterns:
         for m in re.finditer(pattern, clean, re.IGNORECASE):
-            matched_schema = m.group(0).rstrip(".").upper()
+            if m.lastindex and m.lastindex >= 1:
+                matched_schema = m.group(1).upper()
+            else:
+                matched_schema = (
+                    m.group(0)
+                    .rstrip(".")
+                    .strip(' "`[]')
+                    .split(".")[0]
+                    .strip(' "`[]')
+                    .upper()
+                )
             if allowed_schemas:
-                allowed_upper = {s.upper().rstrip(".") for s in allowed_schemas}
+                allowed_upper = {
+                    s.upper().rstrip(".").strip(' "`[]') for s in allowed_schemas
+                }
                 if matched_schema in allowed_upper:
                     continue
             violations.append(
@@ -319,6 +436,22 @@ def validate_sql_ast(
                 f"Access Denied: Table '{val}' is restricted. Authentication, credentials, and session data cannot be queried."
             )
 
+    # Check qualified table names like mysql.user, sys.objects, etc.
+    for m in re.finditer(
+        r"(?:^|[^\w$])(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
+        clean,
+    ):
+        s_part, t_part = m.group(1).upper(), m.group(2).upper()
+        qualified_tbl = f"{s_part}.{t_part}"
+        if qualified_tbl in effective_tables:
+            violations.append(
+                f"Access Denied: Table '{qualified_tbl}' is restricted. Authentication, credentials, and session data cannot be queried."
+            )
+        elif t_part in effective_tables:
+            violations.append(
+                f"Access Denied: Table '{t_part}' is restricted. Authentication, credentials, and session data cannot be queried."
+            )
+
     # Regex safety fallback against obfuscated mutations
     for pattern in FORBIDDEN_SQL_PATTERNS:
         match = re.search(pattern, clean, re.IGNORECASE)
@@ -333,7 +466,7 @@ def validate_sql_ast(
     is_valid = len(unique_violations) == 0
     detected_type = (
         "SELECT"
-        if (stmt_type == "SELECT" or is_cte)
+        if (stmt_type == "SELECT" or (is_cte and cte_root == "SELECT"))
         else (stmt_type or first_val or "UNKNOWN")
     )
 
