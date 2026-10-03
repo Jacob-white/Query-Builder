@@ -189,27 +189,44 @@ def test_new_dialects_behavior():
     assert dre.name == "dremio"
     assert dre.placeholder == "?"
     assert dre.quote_identifier("users") == '"users"'
+    assert dre.quote_alias("my_alias") == '"my_alias"'
+    assert dre.format_like('"c"') == '"c" LIKE ?'
     assert dre.format_ilike('"c"') == '"c" ILIKE ?'
+    dre_clause, dre_params = dre.format_limit_offset(10, 20)
+    assert dre_clause == "LIMIT ? OFFSET ?"
+    assert dre_params == [10, 20]
 
     # Firebolt
     fb = get_dialect("firebolt")
     assert fb.name == "firebolt"
     assert fb.placeholder == "?"
     assert fb.quote_identifier("users") == '"users"'
+    assert fb.quote_alias("my_alias") == '"my_alias"'
+    assert fb.format_like('"c"') == '"c" LIKE ?'
     assert fb.format_ilike('"c"') == '"c" ILIKE ?'
+    fb_clause, fb_params = fb.format_limit_offset(15, 0)
+    assert fb_clause == "LIMIT ? OFFSET ?"
+    assert fb_params == [15, 0]
 
     # TiDB
     tidb = get_dialect("tidb")
     assert tidb.name == "tidb"
     assert tidb.placeholder == "%s"
     assert tidb.quote_identifier("users") == "`users`"
+    assert tidb.quote_alias("my`alias") == "`my``alias`"
+    assert tidb.format_like("`c`") == "`c` LIKE %s"
     assert tidb.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    tidb_clause, tidb_params = tidb.format_limit_offset(5, 10)
+    assert tidb_clause == "LIMIT %s OFFSET %s"
+    assert tidb_params == [5, 10]
 
     # SingleStore
     sstore = get_dialect("singlestore")
     assert sstore.name == "singlestore"
     assert sstore.placeholder == "%s"
     assert sstore.quote_identifier("users") == "`users`"
+    assert sstore.quote_alias("my_alias") == "`my_alias`"
+    assert sstore.format_like("`c`") == "`c` LIKE %s"
     assert sstore.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
     assert get_dialect("memsql").name == "singlestore"
 
@@ -218,6 +235,8 @@ def test_new_dialects_behavior():
     assert td.name == "teradata"
     assert td.placeholder == "?"
     assert td.quote_identifier("users") == '"users"'
+    assert td.quote_alias('my"alias') == '"my""alias"'
+    assert td.format_like('"c"') == '"c" LIKE ?'
     assert td.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
     td_clause, td_params = td.format_limit_offset(25, 50)
     assert td_clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
@@ -229,7 +248,11 @@ def test_new_dialects_behavior():
     assert cb.placeholder == "?"
     assert cb.quote_identifier("travel.airline") == "`travel`.`airline`"
     assert cb.quote_alias("my`alias") == "`my``alias`"
+    assert cb.format_like("`c`") == "`c` LIKE ?"
     assert cb.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
+    cb_clause, cb_params = cb.format_limit_offset(10, 5)
+    assert cb_clause == "LIMIT ? OFFSET ?"
+    assert cb_params == [10, 5]
     assert get_dialect("n1ql").name == "couchbase"
 
     # Cloudflare D1
@@ -237,6 +260,8 @@ def test_new_dialects_behavior():
     assert d1.name == "d1"
     assert d1.placeholder == "?"
     assert d1.quote_identifier("users") == '"users"'
+    assert d1.quote_alias("my_alias") == '"my_alias"'
+    assert d1.format_like('"c"') == '"c" LIKE ?'
     assert d1.format_ilike('"c"') == '"c" LIKE ?'
     assert get_dialect("cloudflare_d1").name == "d1"
 
@@ -245,7 +270,12 @@ def test_new_dialects_behavior():
     assert mongo.name == "mongodb"
     assert mongo.placeholder == "?"
     assert mongo.quote_identifier("users") == '"users"'
+    assert mongo.quote_alias("my_alias") == '"my_alias"'
+    assert mongo.format_like('"c"') == '"c" LIKE ?'
     assert mongo.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+    mongo_clause, mongo_params = mongo.format_limit_offset(100, 200)
+    assert mongo_clause == "LIMIT ? OFFSET ?"
+    assert mongo_params == [100, 200]
     assert get_dialect("mongo").name == "mongodb"
     assert get_dialect("atlas_sql").name == "mongodb"
 
@@ -253,11 +283,20 @@ def test_new_dialects_behavior():
     neon = get_dialect("neon")
     assert neon.name == "neon"
     assert neon.placeholder == "%s"
+    assert neon.quote_identifier("users") == '"users"'
+    assert neon.quote_alias("my_alias") == '"my_alias"'
+    assert neon.format_like('"c"') == '"c" LIKE %s'
     assert neon.format_ilike('"c"') == '"c" ILIKE %s'
+    neon_clause, neon_params = neon.format_limit_offset(20, 40)
+    assert neon_clause == "LIMIT %s OFFSET %s"
+    assert neon_params == [20, 40]
 
     supa = get_dialect("supabase")
     assert supa.name == "supabase"
     assert supa.placeholder == "%s"
+    assert supa.quote_identifier("users") == '"users"'
+    assert supa.quote_alias("my_alias") == '"my_alias"'
+    assert supa.format_like('"c"') == '"c" LIKE %s'
     assert supa.format_ilike('"c"') == '"c" ILIKE %s'
 
     # Aliases

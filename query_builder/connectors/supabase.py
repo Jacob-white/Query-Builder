@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from query_builder.connectors.base import (
+    ConnectionFailedError,
+    DriverNotInstalledError,
+)
 from query_builder.connectors.postgres import PostgresConnector
 
 
@@ -33,6 +37,32 @@ class SupabaseConnector(PostgresConnector):
         )
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
+
+    def connect(self) -> Any:
+        if self._connection is not None:
+            return self._connection
+
+        driver = None
+        for mod_name in ("psycopg", "psycopg2"):
+            try:
+                driver = __import__(mod_name)
+                break
+            except ImportError:
+                continue
+
+        if driver is None:
+            raise DriverNotInstalledError(
+                "Neither 'psycopg' nor 'psycopg2' is installed. "
+                "Install with: pip install 'query-builder-engine[supabase]'"
+            )
+
+        try:
+            self._connection = driver.connect(**self.config)
+            return self._connection
+        except Exception as exc:
+            raise ConnectionFailedError(
+                f"Failed to connect to Supabase PostgreSQL: {exc}"
+            ) from exc
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()

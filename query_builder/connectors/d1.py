@@ -38,9 +38,9 @@ class _D1Cursor:
             msg = errors[0].get("message") if errors else "Unknown D1 error"
             raise RuntimeError(f"Cloudflare D1 query execution failed: {msg}")
 
-        result_list = data.get("result", [])
+        result_list = data.get("result") or []
         result = result_list[0] if result_list else {}
-        results_rows = result.get("results", [])
+        results_rows = result.get("results") or []
         if results_rows:
             keys = list(results_rows[0].keys())
             self.description = [(k,) for k in keys]
