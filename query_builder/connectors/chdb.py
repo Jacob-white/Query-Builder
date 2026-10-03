@@ -37,8 +37,18 @@ class _ChDBCursorAdapter:
         if params:
             # Inline parameter substitution for chDB if DBAPI isn't used
             for p in params:
-                val = f"'{p}'" if isinstance(p, str) else str(p)
-                clean_sql = clean_sql.replace("%s", val, 1)
+                if p is None:
+                    val = "NULL"
+                elif isinstance(p, bool):
+                    val = "1" if p else "0"
+                elif isinstance(p, str):
+                    val = "'" + p.replace("'", "\\'") + "'"
+                else:
+                    val = str(p)
+                if "%s" in clean_sql:
+                    clean_sql = clean_sql.replace("%s", val, 1)
+                else:
+                    clean_sql = clean_sql.replace("?", val, 1)
 
         try:
             if hasattr(self.chdb, "query"):

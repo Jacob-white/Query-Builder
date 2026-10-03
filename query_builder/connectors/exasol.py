@@ -39,7 +39,13 @@ class _ExasolCursorAdapter:
                 else self.conn.execute(clean_sql)
             )
             if hasattr(stmt, "columns"):
-                self.description = [(col,) for col in stmt.columns()]
+                cols_obj = stmt.columns() if callable(stmt.columns) else stmt.columns
+                cols = (
+                    list(cols_obj.keys())
+                    if isinstance(cols_obj, dict)
+                    else list(cols_obj)
+                )
+                self.description = [(col,) for col in cols]
             elif hasattr(stmt, "description"):
                 self.description = stmt.description
             else:

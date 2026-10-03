@@ -125,6 +125,28 @@ class BaseDialect:
             [schema_name],
         )
 
+    def inspect_tables(self, schema_name: str = "public") -> tuple[str, list[Any]]:
+        """Convenience alias for inspect_tables_query."""
+        return self.inspect_tables_query(schema_name)
+
+    def inspect_columns(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Convenience alias for inspect_columns_query."""
+        return self.inspect_columns_query(schema_name, table_name)
+
+    def inspect_primary_keys(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Convenience alias for inspect_primary_keys_query."""
+        return self.inspect_primary_keys_query(schema_name, table_name)
+
+    def inspect_foreign_keys(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        """Convenience alias for inspect_foreign_keys_query."""
+        return self.inspect_foreign_keys_query(schema_name, table_name)
+
 
 class PostgresDialect(BaseDialect):
     """PostgreSQL dialect."""
@@ -288,6 +310,24 @@ class ClickHouseDialect(BaseDialect):
             f"SELECT table, name, type FROM system.columns WHERE database = {self.placeholder} ORDER BY table, position;",
             [schema_name],
         )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table, name FROM system.columns WHERE database = {self.placeholder} AND table = {self.placeholder} AND is_in_primary_key = 1 ORDER BY position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table, name FROM system.columns WHERE database = {self.placeholder} AND is_in_primary_key = 1 ORDER BY table, position;",
+            [schema_name],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
 
 
 class OracleDialect(BaseDialect):
@@ -850,6 +890,16 @@ class GreptimeDBDialect(BaseDialect):
             [schema_name],
         )
 
+    def inspect_primary_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
 
 class TDengineDialect(BaseDialect):
     """TDengine big data IoT time-series database dialect."""
@@ -885,6 +935,18 @@ class TDengineDialect(BaseDialect):
             return (f"DESCRIBE `{table_name}`;", [])
         return ("SHOW TABLES;", [])
 
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{table_name}`;", [])
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
 
 class SurrealDBDialect(BaseDialect):
     """SurrealDB multi-model SurrealQL dialect."""
@@ -917,6 +979,18 @@ class SurrealDBDialect(BaseDialect):
         if table_name:
             return (f"INFO FOR TABLE `{table_name}`;", [])
         return ("INFO FOR DB;", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "test", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"INFO FOR TABLE `{table_name}`;", [])
+        return ("INFO FOR DB;", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "test", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
 
 
 class ArangoDBDialect(BaseDialect):
@@ -951,11 +1025,21 @@ class ArangoDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         return ("RETURN COLLECTIONS();", [])
 
+    def inspect_primary_keys_query(
+        self, schema_name: str = "_system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("RETURN COLLECTIONS();", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "_system", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
 
 class CassandraDialect(ScyllaDBDialect):
     """Apache Cassandra CQL dialect."""
 
-    name: str = "scylladb"
+    name: str = "cassandra"
 
 
 class ExasolDialect(BaseDialect):
@@ -965,7 +1049,7 @@ class ExasolDialect(BaseDialect):
     placeholder: str = "?"
 
     def format_ilike(self, col_ref: str) -> str:
-        return f"REGEXP_LIKE({col_ref}, {self.placeholder}, 'i')"
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "PUBLIC"
@@ -998,6 +1082,19 @@ class ExasolDialect(BaseDialect):
             )
         return (
             f"SELECT CONSTRAINT_TABLE, COLUMN_NAME FROM EXA_ALL_CONSTRAINT_COLUMNS WHERE CONSTRAINT_SCHEMA = {self.placeholder} AND CONSTRAINT_TYPE = 'PRIMARY KEY';",
+            [schema_name.upper()],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "PUBLIC", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT CONSTRAINT_TABLE AS src_table, COLUMN_NAME AS src_column, REFERENCED_TABLE AS tgt_table, REFERENCED_COLUMN AS tgt_column FROM EXA_ALL_CONSTRAINT_COLUMNS WHERE CONSTRAINT_SCHEMA = {self.placeholder} AND CONSTRAINT_TABLE = {self.placeholder} AND CONSTRAINT_TYPE = 'FOREIGN KEY';",
+                [schema_name.upper(), table_name.upper()],
+            )
+        return (
+            f"SELECT CONSTRAINT_TABLE AS src_table, COLUMN_NAME AS src_column, REFERENCED_TABLE AS tgt_table, REFERENCED_COLUMN AS tgt_column FROM EXA_ALL_CONSTRAINT_COLUMNS WHERE CONSTRAINT_SCHEMA = {self.placeholder} AND CONSTRAINT_TYPE = 'FOREIGN KEY';",
             [schema_name.upper()],
         )
 
@@ -1086,6 +1183,16 @@ class CosmosDBDialect(BaseDialect):
         self, schema_name: str = "default", table_name: str | None = None
     ) -> tuple[str, list[Any]]:
         return ("SELECT * FROM c OFFSET 0 LIMIT 1;", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("SELECT VALUE c.id FROM c;", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
 
 
 DIALECTS: dict[str, BaseDialect] = {

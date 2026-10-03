@@ -765,3 +765,77 @@ def test_cursor_close_and_introspection_final_branches():
     mock_client_no_list = MagicMock(spec=["get_database_client"])
     mock_client_no_list.get_database_client.return_value = object()
     assert "items" in introspect_cosmosdb(mock_client_no_list)["tables"]
+
+
+def test_arangodb_adapter_parameter_and_scalar_branches():
+    mock_db = MagicMock()
+    mock_db.aql.execute.return_value = [123, 456]
+    adapter = _ArangoCursorAdapter(mock_db)
+    # List params with ? in sql
+    adapter.execute("SELECT * FROM u WHERE age > ? AND active = ?", [21, True])
+    mock_db.aql.execute.assert_called_with(
+        "SELECT * FROM u WHERE age > @p0 AND active = @p1",
+        bind_vars={"p0": 21, "p1": True},
+    )
+    assert adapter.description == [("value",)]
+    assert adapter.fetchall() == [[123], [456]]
+
+    # Dict params and empty docs
+    mock_db.aql.execute.return_value = []
+    adapter.execute("FOR u IN users RETURN u", {"foo": "bar"})
+    mock_db.aql.execute.assert_called_with(
+        "FOR u IN users RETURN u", bind_vars={"foo": "bar"}
+    )
+    assert adapter.description == []
+    assert adapter.fetchall() == []
+
+
+def test_chdb_adapter_param_types_and_placeholders():
+    mock_chdb = MagicMock()
+    mock_res = MagicMock()
+    mock_res.bytes = b'{"col1": null}\n'
+    mock_chdb.query.return_value = mock_res
+    adapter = _ChDBCursorAdapter(mock_chdb)
+
+    # params: None, bool, str with single quote, and '?' placeholder
+    adapter.execute("SELECT ?, ?, ?, ?", [None, True, False, "O'Reilly"])
+    call_sql = mock_chdb.query.call_args[0][0]
+    assert "NULL, 1, 0, 'O\\'Reilly'" in call_sql
+
+
+def test_cosmosdb_adapter_at_param_rebuilding():
+    mock_container = MagicMock()
+    mock_container.query_items.return_value = [{"id": "item1", "cnt": 10}]
+    adapter = _CosmosDBCursorAdapter(mock_container)
+
+    # Query with multiple @param placeholders
+    adapter.execute(
+        "SELECT * FROM c WHERE c.name = @param AND c.age = @param", ["Alice", 30]
+    )
+    mock_container.query_items.assert_called_once_with(
+        query="SELECT * FROM c WHERE c.name = @p0 AND c.age = @p1",
+        parameters=[{"name": "@p0", "value": "Alice"}, {"name": "@p1", "value": 30}],
+        enable_cross_partition_query=True,
+    )
+    assert adapter.description == [("id",), ("cnt",)]
+    assert adapter.fetchall() == [["item1", 10]]
+
+
+def test_surrealdb_adapter_parameters_and_scalar_result():
+    mock_client = MagicMock()
+    mock_client.query.return_value = [{"result": 999}]
+    adapter = _SurrealCursorAdapter(mock_client)
+
+    # List params with ? in sql
+    adapter.execute("SELECT * FROM account WHERE score > ? AND active = ?", [500, True])
+    mock_client.query.assert_called_with(
+        "SELECT * FROM account WHERE score > $p0 AND active = $p1",
+        {"p0": 500, "p1": True},
+    )
+    assert adapter.description == [("value",)]
+    assert adapter.fetchall() == [[999]]
+
+    # Dict params
+    mock_client.query.return_value = []
+    adapter.execute("SELECT * FROM account", {"limit": 10})
+    mock_client.query.assert_called_with("SELECT * FROM account", {"limit": 10})

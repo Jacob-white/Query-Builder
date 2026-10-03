@@ -1338,12 +1338,16 @@ def test_exasol_connector_sync_and_async():
     mock_cur.fetchall.side_effect = [
         [("sales",)],
         [("sales", "id", "DECIMAL", "N"), ("sales", "amt", "DOUBLE", "Y")],
+        [("sales", "id")],
+        [("sales", "id", "orders", "sales_id")],
     ]
     snap = conn_cur.introspect_schema()
     assert "sales" in snap["tables"]
     cols = snap["tables"]["sales"]["columns"]
     assert cols[0]["name"] == "id" and cols[0]["is_primary"] is True
     assert cols[1]["is_nullable"] is True
+    assert len(snap["foreign_keys"]) == 1
+    assert snap["foreign_keys"][0]["foreign_table"] == "orders"
 
     # Introspection via information_schema fallback
     mock_cur.fetchall.side_effect = [
@@ -1435,16 +1439,21 @@ def test_db2_connector_sync_and_async():
     conn_cur = DB2Connector(cursor=mock_cur)
     info = conn_cur.test_connection()
     assert info["engine_version"] == "IBM DB2"
+    mock_cur.execute.assert_called_with("SELECT 1 FROM SYSIBM.SYSDUMMY1")
 
     mock_cur.fetchall.side_effect = [
         [("CUSTOMERS",)],
         [("CUSTOMERS", "ID", "INTEGER", "N"), ("CUSTOMERS", "NAME", "VARCHAR", "Y")],
+        [("CUSTOMERS", "ID")],
+        [("ORDERS", "CUST_ID", "CUSTOMERS", "ID")],
     ]
     snap = conn_cur.introspect_schema()
     assert "customers" in snap["tables"]
     cols = snap["tables"]["customers"]["columns"]
     assert cols[0]["name"] == "id" and cols[0]["is_primary"] is True
     assert cols[1]["is_nullable"] is True
+    assert len(snap["foreign_keys"]) == 1
+    assert snap["foreign_keys"][0]["foreign_table"] == "customers"
 
     # Fallback to information_schema
     mock_cur.fetchall.side_effect = [

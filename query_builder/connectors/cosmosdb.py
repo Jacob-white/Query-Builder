@@ -33,8 +33,18 @@ class _CosmosDBCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "SELECT VALUE 1"
         cosmos_params = []
         if params:
+            parts = clean_sql.split("@param")
+            if len(parts) - 1 == len(params):
+                rebuilt = []
+                for i, part in enumerate(parts[:-1]):
+                    rebuilt.append(part)
+                    rebuilt.append(f"@p{i}")
+                rebuilt.append(parts[-1])
+                clean_sql = "".join(rebuilt)
             cosmos_params = [
                 {"name": f"@p{i}", "value": p} for i, p in enumerate(params)
             ]

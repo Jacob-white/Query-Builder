@@ -32,6 +32,8 @@ class _CassandraCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "SELECT release_version FROM system.local LIMIT 1"
         if hasattr(self.session, "execute"):
             if params:
                 result_set = self.session.execute(clean_sql, params)
@@ -57,7 +59,11 @@ class _CassandraCursorAdapter:
             self._rows = [
                 list(r.values())
                 if hasattr(r, "values")
-                else (list(r) if isinstance(r, (list, tuple)) else [r])
+                else (
+                    [getattr(r, f) for f in r._fields]
+                    if hasattr(r, "_fields")
+                    else (list(r) if isinstance(r, (list, tuple)) else [r])
+                )
                 for r in rows
             ]
         elif hasattr(self.session, "cursor"):
