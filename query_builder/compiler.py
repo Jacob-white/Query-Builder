@@ -650,13 +650,12 @@ class QueryCompiler:
                     cond = find_best_join_condition(
                         clean_base_table, clean_target_table, self.schema
                     )
-                    if cond:
-                        l_alias = self._get_alias(cond["left_table"])
-                        r_alias = self._get_alias(cond["right_table"])
-                        q_l = f"{self.dialect.quote_identifier(l_alias)}.{self.dialect.quote_identifier(cond['left_col'])}"
-                        q_r = f"{self.dialect.quote_identifier(r_alias)}.{self.dialect.quote_identifier(cond['right_col'])}"
-                        on_conditions.append(f"{q_l} = {q_r}")
-                        found_rel = True
+                    l_alias = self._get_alias(cond["left_table"])
+                    r_alias = self._get_alias(cond["right_table"])
+                    q_l = f"{self.dialect.quote_identifier(l_alias)}.{self.dialect.quote_identifier(cond['left_col'])}"
+                    q_r = f"{self.dialect.quote_identifier(r_alias)}.{self.dialect.quote_identifier(cond['right_col'])}"
+                    on_conditions.append(f"{q_l} = {q_r}")
+                    found_rel = True
 
                 if not found_rel:
                     raise CompilationError(
@@ -713,7 +712,7 @@ class QueryCompiler:
                 )
                 self.select_column_names.append(col_item)
                 self.group_by_items.append(quoted_ref)
-            elif isinstance(col_item, dict):
+            else:
                 raw_col_ref = col_item.get("column", col_item.get("name"))
                 if not raw_col_ref or not isinstance(raw_col_ref, str):
                     continue

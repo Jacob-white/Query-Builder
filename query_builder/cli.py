@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(res, indent=2))
         return 0 if res["valid"] else 1
 
-    elif args.command == "join-path":
+    else:
         active = [t.strip() for t in args.active.split(",") if t.strip()]
         schema_data = None
         if args.schema:
