@@ -32,8 +32,16 @@ CANONICAL_ENTITY_COLUMNS: list[str] = [
 ]
 
 
-def _clean_table_name(tbl: str) -> str:
+MAX_JOIN_DEPTH = 10
+MAX_BFS_ITERATIONS = 5000
+MAX_ACTIVE_TABLES = 50
+MAX_FOREIGN_KEYS = 5000
+
+
+def _clean_table_name(tbl: Any) -> str:
     """Strips schema prefixes such as 'production.' or 'public.'."""
+    if not tbl or not isinstance(tbl, str):
+        return ""
     if "." in tbl:
         return tbl.split(".", 1)[1]
     return tbl
@@ -54,12 +62,35 @@ def find_best_join_condition(
     """
     clean_left = _clean_table_name(left_table)
     clean_right = _clean_table_name(right_table)
+    if not clean_left or not clean_right:
+        return {
+            "left_table": clean_left or "t1",
+            "left_col": "id",
+            "right_table": clean_right or "t2",
+            "right_col": "id",
+            "is_fk": False,
+            "reason": "Fallback condition for empty/invalid table name",
+        }
 
-    tables_meta = schema_data.get("tables", {}) if schema_data else {}
-    foreign_keys = schema_data.get("foreign_keys", []) if schema_data else []
+    tables_meta = schema_data.get("tables", {}) if isinstance(schema_data, dict) else {}
+    if not isinstance(tables_meta, dict):
+        tables_meta = {}
+    foreign_keys = (
+        schema_data.get("foreign_keys", []) if isinstance(schema_data, dict) else []
+    )
+    if not isinstance(foreign_keys, list):
+        foreign_keys = []
 
-    left_tbl_meta = tables_meta.get(clean_left, {})
-    right_tbl_meta = tables_meta.get(clean_right, {})
+    left_tbl_meta = (
+        tables_meta.get(clean_left, {})
+        if isinstance(tables_meta.get(clean_left), dict)
+        else {}
+    )
+    right_tbl_meta = (
+        tables_meta.get(clean_right, {})
+        if isinstance(tables_meta.get(clean_right), dict)
+        else {}
+    )
 
     left_cols = left_tbl_meta.get("columns", [])
     right_cols = right_tbl_meta.get("columns", [])
@@ -69,6 +100,8 @@ def find_best_join_condition(
 
     # 1. Explicit FK match
     for fk in foreign_keys:
+        if not isinstance(fk, dict):
+            continue
         fk_tbl = _clean_table_name(fk.get("table", ""))
         fk_foreign_tbl = _clean_table_name(fk.get("foreign_table", ""))
         col = fk.get("column", "")
@@ -162,18 +195,34 @@ def find_join_path(
     """
     Finds the shortest join path from any table in active_tables to target_table
     using Breadth-First Search (BFS) across foreign keys and canonical entity bridges.
+
+    Protected against infinite loops, deep recursion, and large schema DoS.
     """
     clean_target = _clean_table_name(target_table)
-    clean_active = [_clean_table_name(t) for t in active_tables]
-
-    if clean_target in clean_active:
+    if not clean_target:
         return []
 
-    if not clean_active:
+    if not isinstance(active_tables, (list, tuple, set)):
         return []
 
-    tables_meta = schema_data.get("tables", {}) if schema_data else {}
-    foreign_keys = schema_data.get("foreign_keys", []) if schema_data else []
+    clean_active = [_clean_table_name(t) for t in active_tables if _clean_table_name(t)]
+
+    if clean_target in clean_active or not clean_active:
+        return []
+
+    if len(clean_active) > MAX_ACTIVE_TABLES:
+        clean_active = clean_active[:MAX_ACTIVE_TABLES]
+
+    tables_meta = schema_data.get("tables", {}) if isinstance(schema_data, dict) else {}
+    if not isinstance(tables_meta, dict):
+        tables_meta = {}
+    foreign_keys = (
+        schema_data.get("foreign_keys", []) if isinstance(schema_data, dict) else []
+    )
+    if not isinstance(foreign_keys, list):
+        foreign_keys = []
+    if len(foreign_keys) > MAX_FOREIGN_KEYS:
+        foreign_keys = foreign_keys[:MAX_FOREIGN_KEYS]
 
     # Build adjacency graph
     adj: dict[str, set[str]] = {}
@@ -183,6 +232,8 @@ def find_join_path(
         adj.setdefault(v, set()).add(u)
 
     for fk in foreign_keys:
+        if not isinstance(fk, dict):
+            continue
         t1 = _clean_table_name(fk.get("table", ""))
         t2 = _clean_table_name(fk.get("foreign_table", ""))
         if t1 and t2:
@@ -190,6 +241,8 @@ def find_join_path(
 
     # Inferred entity bridges
     for tbl_name, meta in tables_meta.items():
+        if not isinstance(meta, dict):
+            continue
         clean_tbl = _clean_table_name(tbl_name)
         col_names = {
             c["name"] if isinstance(c, dict) else str(c)
@@ -208,10 +261,15 @@ def find_join_path(
     for start_table in clean_active:
         queue.append((start_table, []))
 
-    while queue:
+    iterations = 0
+    while queue and iterations < MAX_BFS_ITERATIONS:
+        iterations += 1
         current, path = queue.popleft()
         if current == clean_target:
             return path
+
+        if len(path) >= MAX_JOIN_DEPTH:
+            continue
 
         for neighbor in adj.get(current, set()):
             if neighbor not in visited:

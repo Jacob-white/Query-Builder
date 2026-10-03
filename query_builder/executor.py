@@ -25,6 +25,9 @@ def execute_cursor_query(
     Executes a SQL query against an open DB-API cursor, measuring latency
     and mapping output rows into dictionaries.
     """
+    if cursor is None:
+        raise ValueError("Database cursor cannot be None.")
+
     start_time = time.perf_counter()
     if params:
         cursor.execute(sql, params)
@@ -52,6 +55,15 @@ def execute_compiled_spec(
     Compiles a QueryBuilderSpec, validates the resulting AST for mutation-free execution,
     and executes both the pagination query and count subquery.
     """
+    if cursor is None:
+        raise ValueError("Database cursor cannot be None.")
+    if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
+        raise CompilationError(
+            "Specification must be a dictionary or dataclass instance."
+        )
+
+    if int(statement_timeout_ms) <= 0:
+        raise ValueError("statement_timeout_ms must be positive.")
     compiler = QueryCompiler(
         spec=spec,
         schema=schema,

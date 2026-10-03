@@ -83,4 +83,71 @@ describe("validateSqlSafety", () => {
     expect(res.valid).toBe(false);
     expect(res.statementType).toBe("EXPLAIN");
   });
+
+  it("blocks queries exceeding maximum length", () => {
+    const res = validateSqlSafety("SELECT " + "a".repeat(100_001));
+    expect(res.valid).toBe(false);
+    expect(res.violations[0]).toContain("exceeds maximum limit");
+    expect(res.injectionRisk).toBe("HIGH");
+  });
+
+  it("blocks null byte injection", () => {
+    const res = validateSqlSafety("SELECT 1\0; DROP TABLE users;");
+    expect(res.valid).toBe(false);
+    expect(res.violations[0]).toContain("Null byte detected");
+    expect(res.injectionRisk).toBe("CRITICAL");
+  });
+
+  it("blocks executable comment syntax (/*!... */)", () => {
+    const res = validateSqlSafety("SELECT 1 /*!50000 , (SELECT * FROM users) */");
+    expect(res.valid).toBe(false);
+    expect(res.violations.some((v) => v.includes("executable comment syntax"))).toBe(true);
+    expect(res.injectionRisk).toBe("CRITICAL");
+  });
+
+  it("blocks obfuscated statement separators", () => {
+    const res = validateSqlSafety("SELECT 1\uff1bDROP TABLE users;");
+    expect(res.valid).toBe(false);
+    expect(res.violations.some((v) => v.includes("separator"))).toBe(true);
+  });
+
+  it("blocks disallowed control characters", () => {
+    const res = validateSqlSafety("SELECT 1 \x07 FROM users;");
+    expect(res.valid).toBe(false);
+    expect(res.violations.some((v) => v.includes("control character"))).toBe(true);
+  });
+
+  it("blocks recursive CTEs to prevent DoS", () => {
+    const res = validateSqlSafety(
+      "WITH RECURSIVE bomb AS (SELECT 1 UNION ALL SELECT n+1 FROM bomb) SELECT * FROM bomb;",
+    );
+    expect(res.valid).toBe(false);
+    expect(res.violations.some((v) => v.includes("WITH RECURSIVE"))).toBe(true);
+  });
+
+  it("blocks WAITFOR DELAY and INTO OUTFILE", () => {
+    const resWait = validateSqlSafety("SELECT 1 WAITFOR DELAY '00:00:05';");
+    expect(resWait.valid).toBe(false);
+    expect(resWait.violations.some((v) => v.includes("WAITFOR DELAY"))).toBe(true);
+
+    const resOut = validateSqlSafety("SELECT * INTO OUTFILE '/tmp/dump' FROM users;");
+    expect(resOut.valid).toBe(false);
+    expect(resOut.violations.some((v) => v.includes("INTO OUTFILE"))).toBe(true);
+  });
+
+  it("enforces schema restrictions and respects allowedSchemas exception", () => {
+    const resPublic = validateSqlSafety("SELECT * FROM public.orders;");
+    expect(resPublic.valid).toBe(false);
+    expect(resPublic.violations.some((v) => v.includes("allowed analytical datasets"))).toBe(true);
+
+    const resAllowed = validateSqlSafety("SELECT * FROM public.orders;", ["public"]);
+    expect(resAllowed.valid).toBe(true);
+
+    const resMixed = validateSqlSafety(
+      "SELECT * FROM public.orders JOIN pg_catalog.pg_shadow ON 1=1;",
+      ["public"],
+    );
+    expect(resMixed.valid).toBe(false);
+    expect(resMixed.violations.some((v) => v.includes("allowed analytical datasets"))).toBe(true);
+  });
 });
