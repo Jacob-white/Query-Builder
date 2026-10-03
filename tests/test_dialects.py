@@ -123,6 +123,67 @@ def test_new_dialects_behavior():
     assert presto.name == "presto"
     assert presto.placeholder == "?"
 
+    # Databricks
+    dbx = get_dialect("databricks")
+    assert dbx.name == "databricks"
+    assert dbx.placeholder == "%s"
+    assert dbx.quote_identifier("catalog.schema.table") == "`catalog`.`schema`.`table`"
+    assert dbx.quote_alias("my`alias") == "`my``alias`"
+    assert dbx.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    assert get_dialect("spark").name == "databricks"
+
+    # Athena
+    ath = get_dialect("athena")
+    assert ath.name == "athena"
+    assert ath.placeholder == "?"
+    assert ath.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+
+    # Polars
+    pol = get_dialect("polars")
+    assert pol.name == "polars"
+    assert pol.placeholder == "?"
+    assert pol.format_ilike('"c"') == '"c" ILIKE ?'
+
+    # DataFusion
+    df = get_dialect("datafusion")
+    assert df.name == "datafusion"
+    assert df.placeholder == "?"
+    assert df.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+
+    # Timescale & Cockroach
+    assert get_dialect("timescaledb").name == "timescaledb"
+    assert get_dialect("timescale").name == "timescaledb"
+    assert get_dialect("cockroachdb").name == "cockroachdb"
+    assert get_dialect("cockroach").name == "cockroachdb"
+
+    # Spanner
+    spn = get_dialect("spanner")
+    assert spn.name == "spanner"
+    assert spn.quote_identifier("users") == "`users`"
+    assert spn.quote_alias("u`a") == "`u``a`"
+    assert spn.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+
+    # QuestDB
+    qdb = get_dialect("questdb")
+    assert qdb.name == "questdb"
+    assert qdb.format_ilike('"c"') == '"c" ILIKE %s'
+
+    # Elasticsearch
+    es = get_dialect("elasticsearch")
+    assert es.name == "elasticsearch"
+    assert es.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+    assert get_dialect("opensearch").name == "elasticsearch"
+
+    # DynamoDB
+    ddb = get_dialect("dynamodb")
+    assert ddb.name == "dynamodb"
+    assert ddb.placeholder == "?"
+    assert ddb.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+    clause, params = ddb.format_limit_offset(10, 0)
+    assert clause == "LIMIT ?"
+    assert params == [10]
+    assert get_dialect("partiql").name == "dynamodb"
+
     # Aliases
     assert get_dialect("postgresql").name == "postgres"
     assert get_dialect("sqlserver").name == "mssql"

@@ -18,23 +18,33 @@ from sqlalchemy import create_engine
 
 from query_builder.compiler import CompilationError
 from query_builder.connectors import (
+    AthenaConnector,
     BaseConnector,
     BigQueryConnector,
     ClickHouseConnector,
+    CockroachConnector,
     ConnectionFailedError,
     ConnectorError,
     ConnectorRegistry,
+    DatabricksConnector,
+    DataFusionConnector,
     DriverNotInstalledError,
     DuckDBConnector,
+    DynamoDBConnector,
+    ElasticsearchConnector,
     GenericDBAPIConnector,
     IntrospectionError,
     MSSQLConnector,
     MySQLConnector,
     OracleConnector,
+    PolarsConnector,
     PostgresConnector,
+    QuestDBConnector,
     RedshiftConnector,
     SnowflakeConnector,
+    SpannerConnector,
     SQLiteConnector,
+    TimescaleConnector,
     TrinoConnector,
     get_connector,
     introspect_clickhouse,
@@ -89,20 +99,23 @@ def test_registry_registration_and_lookup():
     assert len(list_connectors()) == 0
 
     # Re-register
-    import query_builder.connectors  # noqa: F401
+    import importlib
 
-    ConnectorRegistry.register("sqlite", SQLiteConnector)
-    ConnectorRegistry.register("duckdb", DuckDBConnector)
-    ConnectorRegistry.register("postgres", PostgresConnector, aliases=["postgresql"])
-    ConnectorRegistry.register("mysql", MySQLConnector, aliases=["mariadb"])
-    ConnectorRegistry.register("mssql", MSSQLConnector, aliases=["sqlserver"])
-    ConnectorRegistry.register("snowflake", SnowflakeConnector)
-    ConnectorRegistry.register("bigquery", BigQueryConnector)
-    ConnectorRegistry.register("clickhouse", ClickHouseConnector)
-    ConnectorRegistry.register("oracle", OracleConnector)
-    ConnectorRegistry.register("redshift", RedshiftConnector)
-    ConnectorRegistry.register("trino", TrinoConnector, aliases=["presto"])
-    ConnectorRegistry.register("generic", GenericDBAPIConnector, aliases=["dbapi"])
+    import query_builder.connectors
+
+    importlib.reload(query_builder.connectors)
+    assert "sqlite" in list_connectors()
+    assert "polars" in list_connectors()
+    assert "databricks" in list_connectors()
+    assert "spark" in list_connectors()
+    assert "athena" in list_connectors()
+    assert "datafusion" in list_connectors()
+    assert "timescaledb" in list_connectors()
+    assert "cockroachdb" in list_connectors()
+    assert "spanner" in list_connectors()
+    assert "questdb" in list_connectors()
+    assert "elasticsearch" in list_connectors()
+    assert "dynamodb" in list_connectors()
 
 
 def test_base_connector_lifecycle_and_errors():
@@ -1097,3 +1110,753 @@ def test_introspection_error_handling():
         IntrospectionError, match="Failed to introspect schema via SQLAlchemy"
     ):
         introspect_via_sqlalchemy(MagicMock(side_effect=RuntimeError("Fail")))
+
+
+# ============================================================================
+# 8. Expanded Connectors Suite
+# ============================================================================
+
+
+def test_polars_connector_full():
+    import polars as pl
+
+    df = pl.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "user_id": [10, 10, 20],
+        }
+    )
+    conn = PolarsConnector(tables={"users": df})
+    # connect caching
+    ctx = conn.connect()
+    assert conn.connect() is ctx
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["status"] == "healthy"
+    assert "Polars" in info["engine_version"]
+
+    # introspect_schema (with schema on table df)
+    schema = conn.introspect_schema()
+    assert "users" in schema["tables"]
+    users_tbl = schema["tables"]["users"]
+    assert users_tbl["has_user_id"] is True
+    assert users_tbl["columns"][0]["is_primary"] is True
+
+    # introspect_schema (fallback discovery when table not in _tables)
+    conn_fallback = PolarsConnector()
+    fallback_ctx = conn_fallback.connect()
+    fallback_ctx.register(
+        "orders", pl.DataFrame({"id": [101], "user_id": [10], "amount": [99.5]})
+    )
+    schema_fb = conn_fallback.introspect_schema()
+    assert "orders" in schema_fb["tables"]
+    assert schema_fb["tables"]["orders"]["has_user_id"] is True
+
+    # introspect_schema error branch
+    with (
+        patch.object(ctx, "tables", side_effect=RuntimeError("tables fail")),
+        pytest.raises(IntrospectionError, match="Failed to introspect Polars"),
+    ):
+        conn.introspect_schema()
+
+    # execute normal with limit/offset
+    res = conn.execute({"table": "users", "limit": 2, "offset": 0})
+    assert res["count"] == 3
+    assert len(res["rows"]) == 2
+    assert res["page"] == 1
+    assert res["dialect"] == "polars"
+
+    # execute with limit=0
+    res0 = conn.execute({"table": "users", "limit": 0})
+    assert res0["count"] == 3
+    assert res0["page"] == 1
+
+    # execute with filter (string & int params)
+    res_f = conn.execute(
+        {
+            "table": "users",
+            "filters": [
+                {"column": "name", "op": "eq", "value": "Alice"},
+                {"column": "id", "op": "eq", "value": 1},
+            ],
+        }
+    )
+    assert res_f["count"] == 1
+    assert res_f["rows"][0]["name"] == "Alice"
+
+    # execute with empty count_df height=0
+    mock_empty_count = pl.DataFrame()
+    with patch.object(ctx, "execute") as mock_exec:
+        mock_exec.return_value.collect.side_effect = [
+            mock_empty_count,
+            pl.DataFrame({"id": [1]}),
+        ]
+        res_empty = conn.execute({"table": "users"})
+        assert res_empty["count"] == 0
+
+    # execute spec validation error
+    with pytest.raises(CompilationError, match="Specification must be a dictionary"):
+        conn.execute("invalid")  # type: ignore
+
+    # AST validation failure on main query
+    with (
+        patch(
+            "query_builder.connectors.polars.validate_sql_ast",
+            return_value={"valid": False, "message": "Disallowed query"},
+        ),
+        pytest.raises(CompilationError, match="safety validation"),
+    ):
+        conn.execute({"table": "users"})
+
+    # AST validation failure on count query
+    with (
+        patch(
+            "query_builder.connectors.polars.validate_sql_ast",
+            side_effect=[
+                {"valid": True, "message": "OK"},
+                {"valid": False, "message": "Bad count query"},
+            ],
+        ),
+        pytest.raises(CompilationError, match="Generated count query failed"),
+    ):
+        conn.execute({"table": "users"})
+
+    # register_table
+    conn.register_table("items", pl.DataFrame({"id": [100]}))
+    assert "items" in conn._tables
+
+    # execute with validate_ast=False
+    res_no_ast = conn.execute({"table": "users"}, validate_ast=False)
+    assert res_no_ast["count"] == 3
+
+    # driver missing
+    orig_import = builtins.__import__
+
+    def mock_no_polars(name, *args, **kwargs):
+        if name == "polars" or name.startswith("polars"):
+            raise ImportError("No polars")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_polars),
+        pytest.raises(DriverNotInstalledError, match="polars is not installed"),
+    ):
+        PolarsConnector().connect()
+
+    # test_connection with driver missing
+    mock_ctx_dummy = MagicMock()
+    with patch("builtins.__import__", side_effect=mock_no_polars):
+        info_no_polars = PolarsConnector(context=mock_ctx_dummy).test_connection()
+        assert "engine_version" not in info_no_polars
+
+    # connection failed
+    with (
+        patch("polars.SQLContext", side_effect=RuntimeError("SQLContext init failed")),
+        pytest.raises(ConnectionFailedError, match="Failed to initialize Polars"),
+    ):
+        PolarsConnector().connect()
+
+
+def test_datafusion_connector_full():
+    mock_field_id = MagicMock()
+    mock_field_id.name = "id"
+    mock_field_id.type = "Int64"
+    mock_field_id.nullable = False
+
+    mock_field_user = MagicMock()
+    mock_field_user.name = "user_id"
+    mock_field_user.type = "Int64"
+    mock_field_user.nullable = False
+
+    mock_table = MagicMock()
+    mock_table.schema.return_value = [mock_field_id, mock_field_user]
+
+    mock_batch = MagicMock()
+    mock_batch.schema.names = ["id", "user_id"]
+    mock_batch.to_pylist.return_value = [{"id": 1, "user_id": 10}]
+
+    mock_ctx = MagicMock()
+    mock_ctx.table.return_value = mock_table
+
+    mock_scalar = MagicMock()
+    mock_scalar.as_py.return_value = 5
+    mock_count_batch = [[mock_scalar]]
+
+    mock_ctx.sql.return_value.collect.side_effect = [
+        [mock_count_batch],
+        [mock_batch],
+    ]
+
+    conn = DataFusionConnector(context=mock_ctx, tables={"users": mock_table})
+    assert conn.connect() is mock_ctx
+
+    info = conn.test_connection()
+    assert info["status"] == "healthy"
+    assert info["engine_version"] == "Apache Arrow DataFusion"
+
+    # introspect_schema
+    schema = conn.introspect_schema()
+    assert "users" in schema["tables"]
+    assert schema["tables"]["users"]["has_user_id"] is True
+
+    # introspect_schema error branch
+    mock_ctx.table.side_effect = RuntimeError("DF table exploded")
+    with pytest.raises(IntrospectionError, match="Failed to introspect DataFusion"):
+        conn.introspect_schema()
+    mock_ctx.table.side_effect = None
+
+    # register_table
+    conn.register_table("items", MagicMock())
+    assert "items" in conn._tables
+
+    # execute normal
+    mock_ctx.sql.return_value.collect.side_effect = [
+        [mock_count_batch],
+        [mock_batch],
+    ]
+    res = conn.execute(
+        {
+            "table": "users",
+            "filters": [
+                {"column": "user_id", "op": "eq", "value": 10},
+                {"column": "name", "op": "eq", "value": "Alice"},
+            ],
+            "limit": 10,
+            "offset": 0,
+        }
+    )
+    assert res["count"] == 5
+    assert len(res["rows"]) == 1
+    assert res["columns"] == ["id", "user_id"]
+    assert res["dialect"] == "datafusion"
+
+    # execute with limit=0 and empty batches
+    mock_ctx.sql.return_value.collect.side_effect = [[], []]
+    res0 = conn.execute({"table": "users", "limit": 0})
+    assert res0["count"] == 0
+    assert res0["page"] == 1
+    assert res0["rows"] == []
+
+    # execute with validate_ast=False
+    mock_ctx.sql.return_value.collect.side_effect = [[mock_count_batch], [mock_batch]]
+    res_no_ast = conn.execute({"table": "users"}, validate_ast=False)
+    assert res_no_ast["count"] == 5
+
+    # execute spec validation error
+    with pytest.raises(CompilationError, match="Specification must be a dictionary"):
+        conn.execute("invalid")  # type: ignore
+
+    # AST validation failure on main query
+    with (
+        patch(
+            "query_builder.connectors.datafusion.validate_sql_ast",
+            return_value={"valid": False, "message": "Disallowed DF query"},
+        ),
+        pytest.raises(CompilationError, match="safety validation"),
+    ):
+        conn.execute({"table": "users"})
+
+    # AST validation failure on count query
+    with (
+        patch(
+            "query_builder.connectors.datafusion.validate_sql_ast",
+            side_effect=[
+                {"valid": True, "message": "OK"},
+                {"valid": False, "message": "Bad DF count query"},
+            ],
+        ),
+        pytest.raises(CompilationError, match="Generated count query failed"),
+    ):
+        conn.execute({"table": "users"})
+
+    # missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_df(name, *args, **kwargs):
+        if name == "datafusion" or name.startswith("datafusion"):
+            raise ImportError("No datafusion")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_df),
+        pytest.raises(DriverNotInstalledError, match="datafusion is not installed"),
+    ):
+        DataFusionConnector().connect()
+
+    # connection failed
+    mock_df_mod = MagicMock()
+    mock_df_mod.SessionContext.side_effect = RuntimeError("SessionContext failed")
+    with (
+        patch.dict(sys.modules, {"datafusion": mock_df_mod}),
+        pytest.raises(ConnectionFailedError, match="Failed to initialize DataFusion"),
+    ):
+        DataFusionConnector().connect()
+
+    # SessionContext init success with tables registration
+    mock_df_mod_ok = MagicMock()
+    mock_ctx_inst = MagicMock()
+    mock_df_mod_ok.SessionContext.return_value = mock_ctx_inst
+    with patch.dict(sys.modules, {"datafusion": mock_df_mod_ok}):
+        df_conn = DataFusionConnector(tables={"users": MagicMock()})
+        assert df_conn.connect() is mock_ctx_inst
+        mock_ctx_inst.register_table.assert_called_once()
+
+
+def test_databricks_connector_full():
+    mock_conn = MagicMock()
+    conn = DatabricksConnector(catalog="lakehouse", schema_name="silver")
+    conn._connection = mock_conn
+    assert conn.connect() is mock_conn
+    conn._connection = None
+
+    # Missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_db(name, *args, **kwargs):
+        if name == "databricks" or name.startswith("databricks"):
+            raise ImportError("No databricks")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_db),
+        pytest.raises(
+            DriverNotInstalledError, match="databricks-sql-connector is not installed"
+        ),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_sql = MagicMock()
+    mock_sql.connect.side_effect = RuntimeError("Databricks auth fail")
+    mock_db_pkg = MagicMock(sql=mock_sql)
+    with (
+        patch.dict(
+            sys.modules, {"databricks": mock_db_pkg, "databricks.sql": mock_sql}
+        ),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to Databricks"),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_sql.connect.side_effect = None
+    mock_sql.connect.return_value = mock_conn
+    with patch.dict(
+        sys.modules, {"databricks": mock_db_pkg, "databricks.sql": mock_sql}
+    ):
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["engine_version"] == "Databricks Spark SQL"
+
+    # introspect_schema
+    with patch(
+        "query_builder.connectors.databricks.introspect_information_schema"
+    ) as mock_intro:
+        mock_intro.return_value = {"tables": {}, "foreign_keys": []}
+        res = conn.introspect_schema()
+        assert "tables" in res
+
+
+def test_athena_connector_full():
+    mock_conn = MagicMock()
+    conn = AthenaConnector(s3_staging_dir="s3://lake/staging", schema_name="analytics")
+    conn._connection = mock_conn
+    assert conn.connect() is mock_conn
+    conn._connection = None
+
+    # Missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_athena(name, *args, **kwargs):
+        if name == "pyathena" or name.startswith("pyathena"):
+            raise ImportError("No pyathena")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_athena),
+        pytest.raises(DriverNotInstalledError, match="pyathena is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_pyathena = MagicMock()
+    mock_pyathena.connect.side_effect = RuntimeError("S3 permission denied")
+    with (
+        patch.dict(sys.modules, {"pyathena": mock_pyathena}),
+        pytest.raises(ConnectionFailedError, match="Failed to connect to AWS Athena"),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_pyathena.connect.side_effect = None
+    mock_pyathena.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"pyathena": mock_pyathena}):
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["engine_version"] == "AWS Athena Presto/Trino Engine"
+
+    # introspect_schema
+    with patch(
+        "query_builder.connectors.athena.introspect_information_schema"
+    ) as mock_intro:
+        mock_intro.return_value = {"tables": {}, "foreign_keys": []}
+        res = conn.introspect_schema()
+        assert "tables" in res
+
+
+def test_timescale_connector_full():
+    mock_cur = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cur
+
+    # Timescale extension exists
+    mock_cur.fetchone.return_value = ("2.14.0",)
+    conn = TimescaleConnector(connection=mock_conn, cursor=mock_cur)
+    info = conn.test_connection()
+    assert info["timescale_version"] == "2.14.0"
+
+    # Timescale extension does not exist
+    mock_cur.fetchone.return_value = None
+    info_none = conn.test_connection()
+    assert "timescale_version" not in info_none
+
+
+def test_cockroach_connector_full():
+    mock_cur = MagicMock()
+    conn = CockroachConnector(cursor=mock_cur)
+    conn.apply_statement_timeout(mock_cur, 4500)
+    mock_cur.execute.assert_called_with("SET statement_timeout = '4500ms';")
+
+
+def test_spanner_connector_full():
+    mock_conn = MagicMock()
+    conn = SpannerConnector(instance_id="prod", database_id="orders")
+    conn._connection = mock_conn
+    assert conn.connect() is mock_conn
+    conn._connection = None
+
+    # Missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_spanner(name, *args, **kwargs):
+        if "spanner" in name:
+            raise ImportError("No spanner")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_spanner),
+        pytest.raises(
+            DriverNotInstalledError, match="google-cloud-spanner is not installed"
+        ),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_spanner_dbapi = MagicMock()
+    mock_spanner_dbapi.connect.side_effect = RuntimeError("GCP quota exceeded")
+    with (
+        patch.dict(
+            sys.modules,
+            {
+                "google.cloud.spanner_dbapi": mock_spanner_dbapi,
+            },
+        ),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Google Cloud Spanner"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_spanner_dbapi.connect.side_effect = None
+    mock_spanner_dbapi.connect.return_value = mock_conn
+    with patch.dict(
+        sys.modules,
+        {
+            "google.cloud.spanner_dbapi": mock_spanner_dbapi,
+        },
+    ):
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["engine_version"] == "Google Cloud Spanner GoogleSQL"
+
+    # introspect_schema
+    with patch(
+        "query_builder.connectors.spanner.introspect_information_schema"
+    ) as mock_intro:
+        mock_intro.return_value = {"tables": {}, "foreign_keys": []}
+        res = conn.introspect_schema()
+        assert "tables" in res
+
+
+def test_questdb_connector_full():
+    mock_cur = MagicMock()
+    conn = QuestDBConnector(cursor=mock_cur)
+    info = conn.test_connection()
+    assert info["engine_version"] == "QuestDB"
+
+
+def test_elasticsearch_connector_full():
+    mock_conn = MagicMock()
+    conn = ElasticsearchConnector(endpoint="http://localhost:9200")
+    conn._connection = mock_conn
+    assert conn.connect() is mock_conn
+    conn._connection = None
+
+    # Missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_es(name, *args, **kwargs):
+        if name == "elasticsearch" or name.startswith("elasticsearch"):
+            raise ImportError("No elasticsearch")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_es),
+        pytest.raises(DriverNotInstalledError, match="elasticsearch is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_es_cls = MagicMock(side_effect=RuntimeError("ES connection timeout"))
+    mock_es_mod = MagicMock(Elasticsearch=mock_es_cls)
+    with (
+        patch.dict(sys.modules, {"elasticsearch": mock_es_mod}),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Elasticsearch"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_es_cls.side_effect = None
+    mock_es_cls.return_value = mock_conn
+    with patch.dict(sys.modules, {"elasticsearch": mock_es_mod}):
+        assert conn.connect() is mock_conn
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["engine_version"] == "Elasticsearch SQL"
+
+    # introspect_schema
+    mock_cur = MagicMock()
+    mock_cur.fetchall.side_effect = [
+        [("metrics",)],
+        [("id", "keyword"), ("user_id", "keyword"), ("cpu", "float")],
+    ]
+    conn_intro = ElasticsearchConnector(cursor=mock_cur)
+    schema = conn_intro.introspect_schema()
+    assert "metrics" in schema["tables"]
+    assert schema["tables"]["metrics"]["has_user_id"] is True
+    assert schema["tables"]["metrics"]["columns"][0]["is_primary"] is True
+
+    # introspect_schema error branch
+    mock_cur_bad = MagicMock()
+    mock_cur_bad.execute.side_effect = RuntimeError("Bad ES query")
+    conn_bad = ElasticsearchConnector(cursor=mock_cur_bad)
+    with pytest.raises(
+        IntrospectionError, match="Failed to introspect Elasticsearch indices"
+    ):
+        conn_bad.introspect_schema()
+
+
+def test_dynamodb_connector_full():
+    mock_client = MagicMock()
+    conn = DynamoDBConnector(region_name="us-west-2")
+    conn._client = mock_client
+    assert conn.connect() is mock_client
+    conn._client = None
+
+    # Missing driver
+    orig_import = builtins.__import__
+
+    def mock_no_boto(name, *args, **kwargs):
+        if name == "boto3" or name.startswith("boto3"):
+            raise ImportError("No boto3")
+        return orig_import(name, *args, **kwargs)
+
+    with (
+        patch("builtins.__import__", side_effect=mock_no_boto),
+        pytest.raises(DriverNotInstalledError, match="boto3 is not installed"),
+    ):
+        conn.connect()
+
+    # Connection failure
+    mock_boto = MagicMock()
+    mock_boto.client.side_effect = RuntimeError("AWS credentials missing")
+    with (
+        patch.dict(sys.modules, {"boto3": mock_boto}),
+        pytest.raises(
+            ConnectionFailedError, match="Failed to connect to Amazon DynamoDB"
+        ),
+    ):
+        conn.connect()
+
+    # Connection success
+    mock_boto.client.side_effect = None
+    mock_boto.client.return_value = mock_client
+    with patch.dict(sys.modules, {"boto3": mock_boto}):
+        assert conn.connect() is mock_client
+
+    # test_connection
+    info = conn.test_connection()
+    assert info["engine_version"] == "Amazon DynamoDB PartiQL"
+
+    # introspect_schema
+    mock_client.list_tables.return_value = {"TableNames": ["users"]}
+    mock_client.describe_table.return_value = {
+        "Table": {
+            "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
+            "AttributeDefinitions": [
+                {"AttributeName": "id", "AttributeType": "N"},
+                {"AttributeName": "user_id", "AttributeType": "N"},
+                {"AttributeName": "status", "AttributeType": "S"},
+            ],
+        }
+    }
+    schema = conn.introspect_schema()
+    assert "users" in schema["tables"]
+    assert schema["tables"]["users"]["has_user_id"] is True
+    assert schema["tables"]["users"]["columns"][0]["is_primary"] is True
+
+    # introspect_schema error branch
+    mock_client.list_tables.side_effect = RuntimeError("DynamoDB throttling")
+    with pytest.raises(
+        IntrospectionError, match="Failed to introspect DynamoDB tables"
+    ):
+        conn.introspect_schema()
+    mock_client.list_tables.side_effect = None
+
+    # _to_dynamo_param
+    assert DynamoDBConnector._to_dynamo_param(True) == {"BOOL": True}
+    assert DynamoDBConnector._to_dynamo_param(42) == {"N": "42"}
+    assert DynamoDBConnector._to_dynamo_param(3.14) == {"N": "3.14"}
+    assert DynamoDBConnector._to_dynamo_param(None) == {"NULL": True}
+    assert DynamoDBConnector._to_dynamo_param("abc") == {"S": "abc"}
+
+    # _unmarshal_item
+    assert DynamoDBConnector._unmarshal_item(
+        {
+            "s": {"S": "text"},
+            "n_int": {"N": "10"},
+            "n_float": {"N": "10.5"},
+            "b": {"BOOL": True},
+            "nil": {"NULL": True},
+            "custom": {"L": ["val"]},
+            "empty": {},
+        }
+    ) == {
+        "s": "text",
+        "n_int": 10,
+        "n_float": 10.5,
+        "b": True,
+        "nil": None,
+        "custom": ["val"],
+        "empty": None,
+    }
+
+    # execute normal
+    mock_client.execute_statement.side_effect = [
+        {"Items": [{"cnt": {"N": "10"}}]},
+        {
+            "Items": [
+                {
+                    "id": {"N": "1"},
+                    "user_id": {"N": "100"},
+                    "status": {"S": "active"},
+                }
+            ]
+        },
+    ]
+    res = conn.execute(
+        {
+            "table": "users",
+            "filters": [{"column": "id", "op": "eq", "value": 1}],
+            "limit": 10,
+            "offset": 0,
+        }
+    )
+    assert res["count"] == 10
+    assert len(res["rows"]) == 1
+    assert res["rows"][0]["status"] == "active"
+    assert res["columns"] == ["id", "user_id", "status"]
+    assert res["dialect"] == "dynamodb"
+
+    # execute with limit=0 and empty items
+    mock_client.execute_statement.side_effect = [{"Items": []}, {"Items": []}]
+    res0 = conn.execute({"table": "users", "limit": 0})
+    assert res0["count"] == 0
+    assert res0["page"] == 1
+    assert res0["rows"] == []
+    assert res0["columns"] == []
+
+    # execute count query error branch
+    mock_client.execute_statement.side_effect = [
+        RuntimeError("Count query error"),
+        {"Items": [{"id": {"N": "2"}}]},
+    ]
+    res_cnt_err = conn.execute({"table": "users"})
+    assert res_cnt_err["count"] == 0
+    assert len(res_cnt_err["rows"]) == 1
+
+    # execute with validate_ast=False
+    mock_client.execute_statement.side_effect = [
+        {"Items": [{"cnt": {"N": "3"}}]},
+        {"Items": []},
+    ]
+    res_no_ast = conn.execute({"table": "users"}, validate_ast=False)
+    assert res_no_ast["count"] == 3
+
+    # execute with non-numeric count item
+    mock_client.execute_statement.side_effect = [
+        {"Items": [{"cnt": {"S": "invalid"}}]},
+        {"Items": []},
+    ]
+    res_nan = conn.execute({"table": "users"})
+    assert res_nan["count"] == 0
+
+    # execute with empty main_params and count_params
+    with patch(
+        "query_builder.connectors.dynamodb.QueryCompiler.compile",
+        return_value=("SELECT * FROM users", [], "SELECT COUNT(*) FROM users", []),
+    ):
+        mock_client.execute_statement.side_effect = [
+            {"Items": [{"cnt": {"N": "1"}}]},
+            {"Items": []},
+        ]
+        res_no_p = conn.execute({"table": "users"})
+        assert res_no_p["count"] == 1
+
+    # execute spec validation error
+    with pytest.raises(CompilationError, match="Specification must be a dictionary"):
+        conn.execute("invalid")  # type: ignore
+
+    # AST validation failure on main query
+    with (
+        patch(
+            "query_builder.connectors.dynamodb.validate_sql_ast",
+            return_value={"valid": False, "message": "Disallowed Dynamo query"},
+        ),
+        pytest.raises(CompilationError, match="safety validation"),
+    ):
+        conn.execute({"table": "users"})
+
+    # AST validation failure on count query
+    with (
+        patch(
+            "query_builder.connectors.dynamodb.validate_sql_ast",
+            side_effect=[
+                {"valid": True, "message": "OK"},
+                {"valid": False, "message": "Bad Dynamo count query"},
+            ],
+        ),
+        pytest.raises(CompilationError, match="Generated count query failed"),
+    ):
+        conn.execute({"table": "users"})
