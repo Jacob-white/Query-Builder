@@ -375,6 +375,152 @@ def test_new_dialects_behavior():
     assert scylla_clause == "LIMIT %s"
     assert scylla_params == [10]
 
+    # Cassandra
+    cas = get_dialect("apache_cassandra")
+    assert cas.name == "scylladb"
+
+    # Spark SQL
+    spk = get_dialect("sparksql")
+    assert spk.name == "sparksql"
+    assert get_dialect("pyspark").name == "sparksql"
+    assert spk.quote_identifier("db.users") == "`db`.`users`"
+    assert spk.quote_alias("my`alias") == "`my``alias`"
+    assert spk.format_ilike("`c`") == "`c` ILIKE %s"
+    t_sql, t_params = spk.inspect_tables_query("default")
+    assert "information_schema.tables" in t_sql and t_params == ["default"]
+    c_sql, c_params = spk.inspect_columns_query("default", "users")
+    assert "information_schema.columns" in c_sql and c_params == ["default", "users"]
+    c_all_sql, c_all_params = spk.inspect_columns_query("default")
+    assert "information_schema.columns" in c_all_sql and c_all_params == ["default"]
+    pk_sql, pk_params = spk.inspect_primary_keys_query("default", "users")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = spk.inspect_foreign_keys_query("default", "users")
+    assert fk_sql == "" and fk_params == []
+
+    # chDB
+    ch = get_dialect("chdb")
+    assert ch.name == "chdb"
+    assert ch.format_ilike("`c`") == "`c` ILIKE %s"
+
+    # GreptimeDB
+    grep = get_dialect("greptimedb")
+    assert grep.name == "greptimedb"
+    assert get_dialect("greptime").name == "greptimedb"
+    assert grep.format_ilike('"c"') == '"c" ILIKE %s'
+    gt_sql, gt_params = grep.inspect_tables_query("public")
+    assert "information_schema.tables" in gt_sql and gt_params == ["public"]
+    gc_sql, gc_params = grep.inspect_columns_query("public", "metrics")
+    assert "information_schema.columns" in gc_sql and gc_params == ["public", "metrics"]
+    gc_all_sql, gc_all_params = grep.inspect_columns_query("public")
+    assert "information_schema.columns" in gc_all_sql and gc_all_params == ["public"]
+
+    # TDengine
+    td = get_dialect("tdengine")
+    assert td.name == "tdengine"
+    assert get_dialect("taos").name == "tdengine"
+    assert td.quote_identifier("db.meters") == "`db`.`meters`"
+    assert td.quote_alias("alias`1") == "`alias``1`"
+    assert td.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
+    td_clause, td_params = td.format_limit_offset(10, 20)
+    assert td_clause == "LIMIT ? OFFSET ?" and td_params == [10, 20]
+    td_t_sql, td_t_params = td.inspect_tables_query("default")
+    assert td_t_sql == "SHOW TABLES;" and td_t_params == []
+    td_c_sql, td_c_params = td.inspect_columns_query("default", "meters")
+    assert td_c_sql == "DESCRIBE `meters`;" and td_c_params == []
+    td_c_all_sql, td_c_all_params = td.inspect_columns_query("default")
+    assert td_c_all_sql == "SHOW TABLES;" and td_c_all_params == []
+
+    # SurrealDB
+    surr = get_dialect("surrealdb")
+    assert surr.name == "surrealdb"
+    assert get_dialect("surreal").name == "surrealdb"
+    assert surr.quote_identifier("doc.user") == "`doc`.`user`"
+    assert surr.quote_alias("al`ias") == "`al``ias`"
+    assert (
+        surr.format_ilike("`name`")
+        == "string::lowercase(`name`) CONTAINS string::lowercase(?)"
+    )
+    surr_clause, surr_params = surr.format_limit_offset(5, 15)
+    assert surr_clause == "LIMIT ? START ?" and surr_params == [5, 15]
+    surr_t_sql, surr_t_params = surr.inspect_tables_query("test")
+    assert surr_t_sql == "INFO FOR DB;" and surr_t_params == []
+    surr_c_sql, surr_c_params = surr.inspect_columns_query("test", "user")
+    assert surr_c_sql == "INFO FOR TABLE `user`;" and surr_c_params == []
+    surr_c_all_sql, surr_c_all_params = surr.inspect_columns_query("test")
+    assert surr_c_all_sql == "INFO FOR DB;" and surr_c_all_params == []
+
+    # ArangoDB
+    ar = get_dialect("arangodb")
+    assert ar.name == "arangodb"
+    assert get_dialect("arango").name == "arangodb"
+    assert get_dialect("aql").name == "arangodb"
+    assert ar.quote_identifier("c.prop") == "`c`.`prop`"
+    assert ar.quote_alias("my`alias") == "`my``alias`"
+    assert ar.format_ilike("`title`") == "CONTAINS(LOWER(`title`), LOWER(?))"
+    ar_clause, ar_params = ar.format_limit_offset(10, 5)
+    assert ar_clause == "LIMIT ?, ?" and ar_params == [5, 10]
+    ar_t_sql, ar_t_params = ar.inspect_tables_query("_system")
+    assert ar_t_sql == "RETURN COLLECTIONS();" and ar_t_params == []
+    ar_c_sql, ar_c_params = ar.inspect_columns_query("_system", "colls")
+    assert ar_c_sql == "RETURN COLLECTIONS();" and ar_c_params == []
+
+    # Exasol
+    exa = get_dialect("exasol")
+    assert exa.name == "exasol"
+    assert exa.format_ilike('"col"') == "REGEXP_LIKE(\"col\", ?, 'i')"
+    exa_t_sql, exa_t_params = exa.inspect_tables_query("public")
+    assert "EXA_ALL_TABLES" in exa_t_sql and exa_t_params == ["PUBLIC"]
+    exa_c_sql, exa_c_params = exa.inspect_columns_query("public", "sales")
+    assert "EXA_ALL_COLUMNS" in exa_c_sql and exa_c_params == ["PUBLIC", "SALES"]
+    exa_c_all_sql, exa_c_all_params = exa.inspect_columns_query("public")
+    assert "EXA_ALL_COLUMNS" in exa_c_all_sql and exa_c_all_params == ["PUBLIC"]
+    exa_pk_sql, exa_pk_params = exa.inspect_primary_keys_query("public", "sales")
+    assert "EXA_ALL_CONSTRAINT_COLUMNS" in exa_pk_sql and exa_pk_params == [
+        "PUBLIC",
+        "SALES",
+    ]
+    exa_pk_all_sql, exa_pk_all_params = exa.inspect_primary_keys_query("public")
+    assert "EXA_ALL_CONSTRAINT_COLUMNS" in exa_pk_all_sql and exa_pk_all_params == [
+        "PUBLIC"
+    ]
+
+    # DB2
+    db2 = get_dialect("db2")
+    assert db2.name == "db2"
+    assert get_dialect("ibm_db2").name == "db2"
+    assert db2.format_ilike('"name"') == 'LOWER("name") LIKE LOWER(?)'
+    db2_clause, db2_params = db2.format_limit_offset(10, 20)
+    assert db2_clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and db2_params == [
+        20,
+        10,
+    ]
+    db2_t_sql, db2_t_params = db2.inspect_tables_query("syscat")
+    assert "SYSCAT.TABLES" in db2_t_sql and db2_t_params == ["SYSCAT"]
+    db2_c_sql, db2_c_params = db2.inspect_columns_query("syscat", "orders")
+    assert "SYSCAT.COLUMNS" in db2_c_sql and db2_c_params == ["SYSCAT", "ORDERS"]
+    db2_c_all_sql, db2_c_all_params = db2.inspect_columns_query("syscat")
+    assert "SYSCAT.COLUMNS" in db2_c_all_sql and db2_c_all_params == ["SYSCAT"]
+    db2_pk_sql, db2_pk_params = db2.inspect_primary_keys_query("syscat", "orders")
+    assert "SYSCAT.KEYCOLUSE" in db2_pk_sql and db2_pk_params == ["SYSCAT", "ORDERS"]
+    db2_pk_all_sql, db2_pk_all_params = db2.inspect_primary_keys_query("syscat")
+    assert "SYSCAT.KEYCOLUSE" in db2_pk_all_sql and db2_pk_all_params == ["SYSCAT"]
+    db2_fk_sql, db2_fk_params = db2.inspect_foreign_keys_query("syscat", "orders")
+    assert "SYSCAT.REFERENCES" in db2_fk_sql and db2_fk_params == ["SYSCAT", "ORDERS"]
+    db2_fk_all_sql, db2_fk_all_params = db2.inspect_foreign_keys_query("syscat")
+    assert "SYSCAT.REFERENCES" in db2_fk_all_sql and db2_fk_all_params == ["SYSCAT"]
+
+    # Cosmos DB
+    cosmos = get_dialect("cosmosdb")
+    assert cosmos.name == "cosmosdb"
+    assert get_dialect("azure_cosmos").name == "cosmosdb"
+    assert cosmos.format_ilike('"doc"') == 'CONTAINS(LOWER("doc"), LOWER(@param))'
+    cos_clause, cos_params = cosmos.format_limit_offset(10, 30)
+    assert cos_clause == "OFFSET @param LIMIT @param" and cos_params == [30, 10]
+    cos_t_sql, cos_t_params = cosmos.inspect_tables_query("default")
+    assert "SELECT VALUE c.id FROM c;" in cos_t_sql and cos_t_params == []
+    cos_c_sql, cos_c_params = cosmos.inspect_columns_query("default", "items")
+    assert "SELECT * FROM c OFFSET 0 LIMIT 1;" in cos_c_sql and cos_c_params == []
+
     # Aliases
     assert get_dialect("postgresql").name == "postgres"
     assert get_dialect("sqlserver").name == "mssql"

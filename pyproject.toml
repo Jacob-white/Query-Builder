@@ -78,6 +78,16 @@ vertica = ["vertica-python>=1.3.0"]
 saphana = ["hdbcli>=2.18.0"]
 oceanbase = ["pyoceanbase>=0.1.0"]
 scylladb = ["scylla-driver>=3.25.0"]
+spark = ["pyspark>=3.5.0"]
+chdb = ["chdb>=2.0.0"]
+greptimedb = ["greptimedb>=0.1.0"]
+tdengine = ["taospy>=2.7.0"]
+surrealdb = ["surrealdb>=0.3.0"]
+arangodb = ["python-arango>=7.0.0"]
+cassandra = ["cassandra-driver>=3.28.0"]
+exasol = ["pyexasol>=0.25.0"]
+db2 = ["ibm-db>=3.2.0"]
+cosmosdb = ["azure-cosmos>=4.5.0"]
 all = [
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",

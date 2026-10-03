@@ -1004,5 +1004,148 @@ describe("compileVisualState", () => {
     expect(resScylla.sql).toContain('SELECT "cql_tbl"."key"');
     expect(resScylla.sql).toContain("LOWER(\"cql_tbl\".\"key\") LIKE LOWER('%row%')");
     expect(resScylla.sql).toContain("LIMIT 10;");
+
+    // Test Spark SQL
+    const resSpark = compileVisualState(
+      "spark_table",
+      { "spark_table.id": { table: "spark_table", name: "id" } },
+      ["spark_table.id"],
+      [],
+      [{ id: "f1", column: "id", operator: "CONTAINS", value: "spk" }],
+      [],
+      false,
+      10,
+      null,
+      "sparksql",
+    );
+    expect(resSpark.sql).toContain("SELECT `spark_table`.`id`");
+    expect(resSpark.sql).toContain("`spark_table`.`id` ILIKE '%spk%'");
+    expect(resSpark.sql).toContain("LIMIT 10;");
+
+    // Test chDB
+    const resChDB = compileVisualState(
+      "ch_table",
+      { "ch_table.col": { table: "ch_table", name: "col" } },
+      ["ch_table.col"],
+      [],
+      [{ id: "f1", column: "col", operator: "CONTAINS", value: "fast" }],
+      [],
+      false,
+      10,
+      null,
+      "chdb",
+    );
+    expect(resChDB.sql).toContain("SELECT `ch_table`.`col`");
+    expect(resChDB.sql).toContain("`ch_table`.`col` ILIKE '%fast%'");
+
+    // Test GreptimeDB
+    const resGreptime = compileVisualState(
+      "greptime_metrics",
+      { "greptime_metrics.val": { table: "greptime_metrics", name: "val" } },
+      ["greptime_metrics.val"],
+      [],
+      [{ id: "f1", column: "val", operator: "CONTAINS", value: "high" }],
+      [],
+      false,
+      10,
+      null,
+      "greptimedb",
+    );
+    expect(resGreptime.sql).toContain('"greptime_metrics"."val" ILIKE \'%high%\'');
+
+    // Test TDengine
+    const resTD = compileVisualState(
+      "meters",
+      { "meters.voltage": { table: "meters", name: "voltage" } },
+      ["meters.voltage"],
+      [],
+      [{ id: "f1", column: "voltage", operator: "CONTAINS", value: "220" }],
+      [],
+      false,
+      10,
+      null,
+      "tdengine",
+    );
+    expect(resTD.sql).toContain("SELECT `meters`.`voltage`");
+    expect(resTD.sql).toContain("LOWER(`meters`.`voltage`) LIKE LOWER('%220%')");
+
+    // Test SurrealDB
+    const resSurreal = compileVisualState(
+      "users",
+      { "users.name": { table: "users", name: "name" } },
+      ["users.name"],
+      [],
+      [{ id: "f1", column: "name", operator: "CONTAINS", value: "alice" }],
+      [],
+      false,
+      10,
+      null,
+      "surrealdb",
+    );
+    expect(resSurreal.sql).toContain("SELECT `users`.`name`");
+    expect(resSurreal.sql).toContain("LIMIT 10 START 0;");
+
+    // Test ArangoDB
+    const resArango = compileVisualState(
+      "vertices",
+      { "vertices.label": { table: "vertices", name: "label" } },
+      ["vertices.label"],
+      [],
+      [{ id: "f1", column: "label", operator: "CONTAINS", value: "node" }],
+      [],
+      false,
+      10,
+      null,
+      "arangodb",
+    );
+    expect(resArango.sql).toContain("SELECT `vertices`.`label`");
+    expect(resArango.sql).toContain("LIMIT 0, 10;");
+
+    // Test Exasol
+    const resExasol = compileVisualState(
+      "sales",
+      { "sales.amt": { table: "sales", name: "amt" } },
+      ["sales.amt"],
+      [],
+      [{ id: "f1", column: "amt", operator: "CONTAINS", value: "100" }],
+      [],
+      false,
+      10,
+      null,
+      "exasol",
+    );
+    expect(resExasol.sql).toContain('"sales"."amt" ILIKE \'%100%\'');
+
+    // Test DB2
+    const resDB2 = compileVisualState(
+      "customers",
+      { "customers.country": { table: "customers", name: "country" } },
+      ["customers.country"],
+      [],
+      [{ id: "f1", column: "country", operator: "CONTAINS", value: "US" }],
+      [],
+      false,
+      10,
+      null,
+      "db2",
+    );
+    expect(resDB2.sql).toContain('"customers"."country"');
+    expect(resDB2.sql).toContain("OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;");
+
+    // Test Cosmos DB
+    const resCosmos = compileVisualState(
+      "docs",
+      { "docs.pk": { table: "docs", name: "pk" } },
+      ["docs.pk"],
+      [],
+      [{ id: "f1", column: "pk", operator: "CONTAINS", value: "part" }],
+      [],
+      false,
+      10,
+      null,
+      "cosmosdb",
+    );
+    expect(resCosmos.sql).toContain('"docs"."pk"');
+    expect(resCosmos.sql).toContain("OFFSET 0 LIMIT 10;");
   });
 });

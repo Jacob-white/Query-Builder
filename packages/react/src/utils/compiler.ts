@@ -71,7 +71,17 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
     dialect === "couchbase" ||
     dialect === "n1ql" ||
     dialect === "starrocks" ||
-    dialect === "oceanbase"
+    dialect === "oceanbase" ||
+    dialect === "sparksql" ||
+    dialect === "spark" ||
+    dialect === "chdb" ||
+    dialect === "tdengine" ||
+    dialect === "taos" ||
+    dialect === "surrealdb" ||
+    dialect === "surreal" ||
+    dialect === "arangodb" ||
+    dialect === "arango" ||
+    dialect === "aql"
   ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
@@ -118,7 +128,13 @@ export function formatIlike(
     dialect === "iox" ||
     dialect === "influx" ||
     dialect === "alloydb" ||
-    dialect === "vertica"
+    dialect === "vertica" ||
+    dialect === "sparksql" ||
+    dialect === "spark" ||
+    dialect === "chdb" ||
+    dialect === "greptimedb" ||
+    dialect === "greptime" ||
+    dialect === "exasol"
   ) {
     return `${colRef} ILIKE ${valEscaped}`;
   }
@@ -126,11 +142,29 @@ export function formatIlike(
 }
 
 export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): string {
-  if (dialect === "mssql" || dialect === "oracle" || dialect === "teradata") {
+  if (
+    dialect === "mssql" ||
+    dialect === "oracle" ||
+    dialect === "teradata" ||
+    dialect === "db2" ||
+    dialect === "ibm_db2"
+  ) {
     return `OFFSET 0 ROWS FETCH NEXT ${limit} ROWS ONLY;`;
   }
-  if (dialect === "trino" || dialect === "presto" || dialect === "prestodb") {
+  if (
+    dialect === "trino" ||
+    dialect === "presto" ||
+    dialect === "prestodb" ||
+    dialect === "cosmosdb" ||
+    dialect === "azure_cosmos"
+  ) {
     return `OFFSET 0 LIMIT ${limit};`;
+  }
+  if (dialect === "surrealdb" || dialect === "surreal") {
+    return `LIMIT ${limit} START 0;`;
+  }
+  if (dialect === "arangodb" || dialect === "arango" || dialect === "aql") {
+    return `LIMIT 0, ${limit};`;
   }
   return `LIMIT ${limit};`;
 }
