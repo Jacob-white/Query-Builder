@@ -141,6 +141,101 @@ class MySQLDialect(BaseDialect):
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
 
+class DuckDBDialect(BaseDialect):
+    """DuckDB dialect supporting native ILIKE and question mark placeholders."""
+
+    name: str = "duckdb"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class BigQueryDialect(BaseDialect):
+    """Google BigQuery standard SQL dialect using backtick quoting."""
+
+    name: str = "bigquery"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+
+class ClickHouseDialect(BaseDialect):
+    """ClickHouse dialect using backtick quoting and native ILIKE."""
+
+    name: str = "clickhouse"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+
+class OracleDialect(BaseDialect):
+    """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
+
+    name: str = "oracle"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
+
+
+class RedshiftDialect(BaseDialect):
+    """Amazon Redshift dialect."""
+
+    name: str = "redshift"
+    placeholder: str = "%s"
+
+
+class TrinoDialect(BaseDialect):
+    """Trino SQL dialect using double-quote escaping and OFFSET/LIMIT pagination."""
+
+    name: str = "trino"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return (
+            f"OFFSET {self.placeholder} LIMIT {self.placeholder}",
+            [offset, limit],
+        )
+
+
+class PrestoDialect(TrinoDialect):
+    """Presto SQL dialect."""
+
+    name: str = "presto"
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -149,6 +244,13 @@ DIALECTS: dict[str, BaseDialect] = {
     "sqlserver": MSSQLDialect(),
     "sqlite": SQLiteDialect(),
     "mysql": MySQLDialect(),
+    "duckdb": DuckDBDialect(),
+    "bigquery": BigQueryDialect(),
+    "clickhouse": ClickHouseDialect(),
+    "oracle": OracleDialect(),
+    "redshift": RedshiftDialect(),
+    "trino": TrinoDialect(),
+    "presto": PrestoDialect(),
 }
 
 
