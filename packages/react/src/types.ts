@@ -113,10 +113,25 @@ export interface QueryResultData {
   latency_ms?: number;
 }
 
+export type SqlDialect =
+  | "postgres"
+  | "snowflake"
+  | "mssql"
+  | "sqlite"
+  | "mysql"
+  | "duckdb"
+  | "bigquery"
+  | "clickhouse"
+  | "oracle"
+  | "redshift"
+  | "trino"
+  | "presto";
+
 export interface VisualQueryBuilderProps {
   schema?: SchemaSnapshot | null;
   presets?: SqlPreset[];
   initialTable?: string;
+  dialect?: SqlDialect;
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
   onSaveQuery?: (title: string, sql: string, spec: Record<string, unknown>) => void;
   theme?: "dark" | "light" | "auto";

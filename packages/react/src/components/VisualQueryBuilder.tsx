@@ -18,6 +18,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
   schema,
   presets = [],
   initialTable,
+  dialect = "postgres",
   onExecuteQuery,
   onSaveQuery,
   readOnly = false,
@@ -68,6 +69,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
       isDistinct,
       limit,
       schema,
+      dialect,
     );
   }, [
     primaryTable,
@@ -79,6 +81,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
     isDistinct,
     limit,
     schema,
+    dialect,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -259,6 +262,21 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
 
         {/* Action Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span
+            data-testid="dialect-badge"
+            style={{
+              padding: "4px 8px",
+              background: "#0f172a",
+              border: "1px solid #334155",
+              borderRadius: "4px",
+              fontSize: "0.75rem",
+              fontFamily: "monospace",
+              color: "#94a3b8",
+              textTransform: "uppercase",
+            }}
+          >
+            {dialect}
+          </span>
           {/* Preset templates */}
           {presets.length > 0 && (
             <select

@@ -389,4 +389,235 @@ describe("compileVisualState", () => {
     );
     expect(resUndefProjections.sql).toContain("SELECT *");
   });
+
+  it("handles multi-dialect compilation, identifier quoting, and pagination", () => {
+    // MySQL / BigQuery / ClickHouse backtick quoting
+    const resMySQL = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [
+        {
+          id: "j1",
+          type: "LEFT JOIN",
+          left_table: "users",
+          table: "orders",
+          left_col: "id",
+          right_col: "user_id",
+        },
+      ],
+      [
+        {
+          id: "f1",
+          column: "email",
+          operator: "STARTS_WITH",
+          value: "admin",
+          tablePrefix: "users",
+        },
+      ],
+      [{ id: "s1", column: "id", direction: "DESC", tablePrefix: "users" }],
+      false,
+      25,
+      null,
+      "mysql",
+    );
+    expect(resMySQL.sql).toContain("SELECT `users`.`id`");
+    expect(resMySQL.sql).toContain("FROM `users`");
+    expect(resMySQL.sql).toContain("LEFT JOIN `orders` ON `users`.`id` = `orders`.`user_id`");
+    expect(resMySQL.sql).toContain("LOWER(`users`.`email`) LIKE LOWER('admin%')");
+    expect(resMySQL.sql).toContain("ORDER BY `users`.`id` DESC");
+    expect(resMySQL.sql).toContain("LIMIT 25;");
+
+    // BigQuery and ClickHouse quoting
+    const resBQ = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id", alias: "user`id" } },
+      ["users.id"],
+      [],
+      [],
+      [],
+      false,
+      50,
+      null,
+      "bigquery",
+    );
+    expect(resBQ.sql).toContain("SELECT `users`.`id` AS `user``id`");
+
+    const resCH = compileVisualState(
+      "events",
+      { "events.id": { table: "events", name: "id" } },
+      ["events.id"],
+      [],
+      [
+        {
+          id: "f1",
+          column: "action",
+          operator: "ILIKE",
+          value: "click",
+        },
+      ],
+      [],
+      false,
+      10,
+      null,
+      "clickhouse",
+    );
+    expect(resCH.sql).toContain("`events`.`action` ILIKE 'click'");
+
+    // MSSQL square brackets and FETCH pagination
+    const resMSSQL = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id", alias: "col]name" } },
+      ["users.id"],
+      [],
+      [],
+      [{ id: "s1", column: "id", direction: "ASC" }],
+      false,
+      10,
+      null,
+      "mssql",
+    );
+    expect(resMSSQL.sql).toContain("SELECT [users].[id] AS [col]]name]");
+    expect(resMSSQL.sql).toContain("FROM [users]");
+    expect(resMSSQL.sql).toContain("ORDER BY [users].[id] ASC");
+    expect(resMSSQL.sql).toContain("OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;");
+
+    // Oracle FETCH pagination
+    const resOracle = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [],
+      [],
+      false,
+      15,
+      null,
+      "oracle",
+    );
+    expect(resOracle.sql).toContain("OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY;");
+
+    // Trino and Presto OFFSET LIMIT pagination
+    const resTrino = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [],
+      [],
+      false,
+      30,
+      null,
+      "trino",
+    );
+    expect(resTrino.sql).toContain("OFFSET 0 LIMIT 30;");
+
+    const resPresto = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [],
+      [],
+      false,
+      40,
+      null,
+      "presto",
+    );
+    expect(resPresto.sql).toContain("OFFSET 0 LIMIT 40;");
+
+    // SQLite LIKE operator
+    const resSQLite = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        {
+          id: "f1",
+          column: "email",
+          operator: "STARTS_WITH",
+          value: "test",
+        },
+      ],
+      [],
+      false,
+      50,
+      null,
+      "sqlite",
+    );
+    expect(resSQLite.sql).toContain('"users"."email" LIKE \'test%\'');
+
+    // DuckDB and Snowflake native ILIKE
+    const resDuckDB = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        {
+          id: "f1",
+          column: "email",
+          operator: "ENDS_WITH",
+          value: "@corp.com",
+        },
+        {
+          id: "f2",
+          column: "name",
+          operator: "CONTAINS",
+          value: "Smith",
+        },
+      ],
+      [],
+      false,
+      50,
+      null,
+      "duckdb",
+    );
+    expect(resDuckDB.sql).toContain('"users"."email" ILIKE \'%@corp.com\'');
+    expect(resDuckDB.sql).toContain('"users"."name" ILIKE \'%Smith%\'');
+
+    // Redshift and Snowflake
+    const resRedshift = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        {
+          id: "f1",
+          column: "email",
+          operator: "ILIKE",
+          value: "admin",
+        },
+      ],
+      [],
+      false,
+      50,
+      null,
+      "redshift",
+    );
+    expect(resRedshift.sql).toContain('"users"."email" ILIKE \'admin\'');
+
+    const resSnowflake = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [
+        {
+          id: "f1",
+          column: "email",
+          operator: "ILIKE",
+          value: "admin",
+        },
+      ],
+      [],
+      false,
+      50,
+      null,
+      "snowflake",
+    );
+    expect(resSnowflake.sql).toContain('"users"."email" ILIKE \'admin\'');
+  });
 });

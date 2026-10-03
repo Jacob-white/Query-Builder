@@ -34,6 +34,32 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
+    "duckdb>=0.9.0",
+    "sqlalchemy>=2.0.0",
+]
+duckdb = ["duckdb>=0.9.0"]
+sqlalchemy = ["sqlalchemy>=2.0.0"]
+postgres = ["psycopg[binary]>=3.1.0"]
+mysql = ["mysqlclient>=2.2.0"]
+mssql = ["pymssql>=2.2.0"]
+snowflake = ["snowflake-connector-python>=3.0.0"]
+bigquery = ["google-cloud-bigquery>=3.0.0"]
+clickhouse = ["clickhouse-connect>=0.6.0"]
+oracle = ["oracledb>=2.0.0"]
+redshift = ["redshift-connector>=2.0.0"]
+trino = ["trino>=0.320.0"]
+all = [
+    "duckdb>=0.9.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+    "mysqlclient>=2.2.0",
+    "pymssql>=2.2.0",
+    "snowflake-connector-python>=3.0.0",
+    "google-cloud-bigquery>=3.0.0",
+    "clickhouse-connect>=0.6.0",
+    "oracledb>=2.0.0",
+    "redshift-connector>=2.0.0",
+    "trino>=0.320.0",
 ]
 
 [project.scripts]

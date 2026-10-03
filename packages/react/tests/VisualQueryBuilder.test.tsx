@@ -41,6 +41,12 @@ describe("VisualQueryBuilder", () => {
     expect(screen.getByText("📊 Results")).toBeTruthy();
     expect(screen.getByText("🛡️ Read-Only Protected (AST Verified)")).toBeTruthy();
     expect(screen.getByText("📋 Active Tables in Query (1)")).toBeTruthy();
+    expect(screen.getByTestId("dialect-badge").textContent).toBe("postgres");
+  });
+
+  it("renders with custom dialect prop and displays badge", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" dialect="duckdb" />);
+    expect(screen.getByTestId("dialect-badge").textContent).toBe("duckdb");
   });
 
   it("switches to Raw SQL tab and updates AST safety banner when dangerous SQL is typed", () => {
