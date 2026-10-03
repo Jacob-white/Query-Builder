@@ -93,6 +93,34 @@ class AsyncBaseConnector(ABC):
             filter_sensitive=filter_sensitive,
         )
 
+    async def inspect_tables(self) -> list[str]:
+        """Returns a sorted list of table names in the database schema asynchronously."""
+        snapshot = await self.introspect_schema()
+        return sorted(snapshot.get("tables", {}).keys())
+
+    async def inspect_columns(self, table_name: str) -> list[dict[str, Any]]:
+        """Returns column metadata dictionaries for the specified table asynchronously."""
+        snapshot = await self.introspect_schema()
+        table_meta = snapshot.get("tables", {}).get(table_name)
+        if not table_meta:
+            return []
+        return table_meta.get("columns", [])
+
+    async def inspect_primary_keys(self, table_name: str) -> list[str]:
+        """Returns the primary key column names for the specified table asynchronously."""
+        cols = await self.inspect_columns(table_name)
+        return [c["name"] for c in cols if c.get("is_primary")]
+
+    async def inspect_foreign_keys(
+        self, table_name: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Returns foreign key relationships, optionally filtered by table asynchronously."""
+        snapshot = await self.introspect_schema()
+        fks = snapshot.get("foreign_keys", [])
+        if table_name is not None:
+            return [fk for fk in fks if fk.get("table") == table_name]
+        return fks
+
     async def execute_raw(
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:

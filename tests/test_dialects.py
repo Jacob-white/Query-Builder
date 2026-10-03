@@ -299,6 +299,82 @@ def test_new_dialects_behavior():
     assert supa.format_like('"c"') == '"c" LIKE %s'
     assert supa.format_ilike('"c"') == '"c" ILIKE %s'
 
+    # PrestoDB
+    pdb = get_dialect("prestodb")
+    assert pdb.name == "presto"
+
+    # Druid
+    dr = get_dialect("druid")
+    assert dr.name == "druid"
+    assert dr.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+    assert get_dialect("apache_druid").name == "druid"
+
+    # Pinot
+    pi = get_dialect("pinot")
+    assert pi.name == "pinot"
+    assert pi.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+    assert get_dialect("apache_pinot").name == "pinot"
+
+    # StarRocks
+    sr = get_dialect("starrocks")
+    assert sr.name == "starrocks"
+    assert sr.quote_identifier("users") == "`users`"
+    assert sr.quote_alias("my`alias") == "`my``alias`"
+    assert sr.format_ilike("`c`") == "`c` ILIKE %s"
+
+    # Materialize & RisingWave
+    mz = get_dialect("materialize")
+    assert mz.name == "materialize"
+    assert get_dialect("mz").name == "materialize"
+    assert mz.format_ilike('"c"') == '"c" ILIKE %s'
+
+    rw = get_dialect("risingwave")
+    assert rw.name == "risingwave"
+    assert get_dialect("rw").name == "risingwave"
+    assert rw.format_ilike('"c"') == '"c" ILIKE %s'
+
+    # CrateDB & InfluxDB
+    crate = get_dialect("cratedb")
+    assert crate.name == "cratedb"
+    assert get_dialect("crate").name == "cratedb"
+    assert crate.format_ilike('"c"') == '"c" ILIKE %s'
+
+    influx = get_dialect("influxdb")
+    assert influx.name == "influxdb"
+    assert get_dialect("iox").name == "influxdb"
+    assert get_dialect("influx").name == "influxdb"
+    assert influx.format_ilike('"c"') == '"c" ILIKE %s'
+
+    # AlloyDB & Vertica
+    alloy = get_dialect("alloydb")
+    assert alloy.name == "alloydb"
+    assert alloy.format_ilike('"c"') == '"c" ILIKE %s'
+
+    vert = get_dialect("vertica")
+    assert vert.name == "vertica"
+    assert vert.format_ilike('"c"') == '"c" ILIKE %s'
+
+    # SAP HANA, OceanBase, ScyllaDB
+    hana = get_dialect("saphana")
+    assert hana.name == "saphana"
+    assert get_dialect("hana").name == "saphana"
+    assert get_dialect("sap_hana").name == "saphana"
+    assert hana.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+
+    ob = get_dialect("oceanbase")
+    assert ob.name == "oceanbase"
+    assert ob.quote_identifier("users") == "`users`"
+
+    scylla = get_dialect("scylladb")
+    assert scylla.name == "scylladb"
+    assert get_dialect("scylla").name == "scylladb"
+    assert get_dialect("cassandra").name == "scylladb"
+    assert get_dialect("cql").name == "scylladb"
+    assert scylla.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+    scylla_clause, scylla_params = scylla.format_limit_offset(10, 20)
+    assert scylla_clause == "LIMIT %s"
+    assert scylla_params == [10]
+
     # Aliases
     assert get_dialect("postgresql").name == "postgres"
     assert get_dialect("sqlserver").name == "mssql"

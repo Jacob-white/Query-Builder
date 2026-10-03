@@ -559,3 +559,291 @@ def introspect_via_sqlalchemy(
         raise IntrospectionError(
             f"Failed to introspect schema via SQLAlchemy: {exc}"
         ) from exc
+
+
+def introspect_cratedb(
+    cursor: Any, schema_name: str = "doc", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects CrateDB schema using information_schema.tables and columns."""
+    try:
+        cursor.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s
+            ORDER BY table_name;
+            """,
+            [schema_name],
+        )
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cursor.execute(
+            """
+            SELECT table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = %s
+            ORDER BY table_name, ordinal_position;
+            """,
+            [schema_name],
+        )
+        col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = str(r[0]), str(r[1]), str(r[2]), str(r[3])
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": is_null.upper() == "YES",
+                    "is_primary": c_name == "id",
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect CrateDB schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_druid(
+    cursor: Any, schema_name: str = "druid", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Druid schema using INFORMATION_SCHEMA."""
+    try:
+        cursor.execute(
+            """
+            SELECT TABLE_NAME
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = %s
+            ORDER BY TABLE_NAME;
+            """,
+            [schema_name],
+        )
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cursor.execute(
+            """
+            SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+            ORDER BY TABLE_NAME, ORDINAL_POSITION;
+            """,
+            [schema_name],
+        )
+        col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = str(r[0]), str(r[1]), str(r[2]), str(r[3])
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": is_null.upper() == "YES",
+                    "is_primary": c_name == "__time" or c_name == "id",
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Druid schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_saphana(
+    cursor: Any, schema_name: str = "SYSTEM", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects SAP HANA schema using SYS.TABLES and SYS.TABLE_COLUMNS."""
+    try:
+        try:
+            cursor.execute(
+                """
+                SELECT TABLE_NAME
+                FROM SYS.TABLES
+                WHERE SCHEMA_NAME = %s
+                ORDER BY TABLE_NAME;
+                """,
+                [schema_name.upper()],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE_NAME, IS_NULLABLE
+                FROM SYS.TABLE_COLUMNS
+                WHERE SCHEMA_NAME = %s
+                ORDER BY TABLE_NAME, POSITION;
+                """,
+                [schema_name.upper()],
+            )
+            col_rows = cursor.fetchall()
+        except Exception:  # noqa: BLE001
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s
+                ORDER BY table_name;
+                """,
+                [schema_name],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+            cursor.execute(
+                """
+                SELECT table_name, column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                ORDER BY table_name, ordinal_position;
+                """,
+                [schema_name],
+            )
+            col_rows = cursor.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = str(r[0]), str(r[1]), str(r[2]), str(r[3])
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null.upper() in ("TRUE", "YES", "Y"),
+                    "is_primary": c_name.lower() == "id",
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect SAP HANA schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_scylladb(
+    cursor_or_session: Any, keyspace: str = "system", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects ScyllaDB and Apache Cassandra schema using system_schema."""
+    try:
+        cur = (
+            cursor_or_session.cursor()
+            if hasattr(cursor_or_session, "cursor")
+            else cursor_or_session
+        )
+
+        cur.execute(
+            f"SELECT table_name FROM system_schema.tables WHERE keyspace_name = '{keyspace}';"
+        )
+        table_rows = cur.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cur.execute(
+            f"SELECT table_name, column_name, type, kind FROM system_schema.columns WHERE keyspace_name = '{keyspace}';"
+        )
+        col_rows = cur.fetchall()
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, kind = str(r[0]), str(r[1]), str(r[2]), str(r[3])
+            is_pk = kind in ("partition_key", "clustering")
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": not is_pk,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect ScyllaDB keyspace '{keyspace}': {exc}"
+        ) from exc
