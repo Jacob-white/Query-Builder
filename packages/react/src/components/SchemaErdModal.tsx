@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import type { SchemaSnapshot } from "../types";
 
 export interface SchemaErdModalProps {
@@ -14,6 +14,17 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
   schema,
   onSelectTable,
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const tables = Object.values(schema?.tables || {});
@@ -21,6 +32,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
 
   return (
     <div
+      role="presentation"
       style={{
         position: "fixed",
         inset: 0,
@@ -35,6 +47,9 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="schema-erd-title"
         style={{
           background: "#0f172a",
           border: "1px solid rgba(255, 255, 255, 0.15)",
@@ -63,7 +78,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ fontSize: "1.2rem" }}>🗺️</span>
-            <span style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+            <span id="schema-erd-title" style={{ fontWeight: 700, fontSize: "1.1rem" }}>
               Schema Entity Relationship Diagram (ERD)
             </span>
             <span style={{ fontSize: "0.8rem", color: "#64748b", marginLeft: "8px" }}>
@@ -73,6 +88,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close schema ERD modal"
             style={{
               background: "transparent",
               border: "none",
@@ -132,6 +148,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                         onSelectTable(t.name);
                         onClose();
                       }}
+                      aria-label={`Select table ${t.name}`}
                       style={{
                         background: "rgba(56, 189, 248, 0.15)",
                         color: "#38bdf8",

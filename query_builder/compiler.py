@@ -442,7 +442,14 @@ class QueryCompiler:
         max_limit: int = 100,
         validate_spec: bool = True,
         allow_unknown_keys: bool = False,
+        middleware: Any = None,
     ) -> None:
+        if middleware is not None:
+            from query_builder.middleware import MiddlewarePipeline
+
+            self.middleware = MiddlewarePipeline.ensure(middleware)
+        else:
+            self.middleware = None
         if hasattr(spec, "__dict__"):
             # Dataclass or Pydantic model
             self.spec = {
@@ -521,12 +528,18 @@ class QueryCompiler:
         quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(col)}"
         return alias, col, quoted_ref
 
-    def compile(self) -> tuple[str, list[Any], str, list[Any]]:
+    def compile(
+        self, context: dict[str, Any] | None = None
+    ) -> tuple[str, list[Any], str, list[Any]]:
         """
         Compiles the query specification.
         Returns:
             Tuple: (main_sql, main_params, count_sql, count_params)
         """
+        ctx = context if context is not None else {}
+        if self.middleware is not None:
+            self.spec = self.middleware.run_pre_compile(self.spec, ctx)
+
         base_table = self.spec.get("table")
         if not base_table:
             raise CompilationError(
@@ -925,4 +938,21 @@ class QueryCompiler:
         else:
             count_sql = "\n".join(count_query_parts)
 
-        return main_sql, main_params, count_sql, list(self.params)
+        count_params = list(self.params)
+
+        if self.middleware is not None:
+            compilation = {
+                "main_sql": main_sql,
+                "main_params": main_params,
+                "count_sql": count_sql,
+                "count_params": count_params,
+            }
+            compilation = self.middleware.run_post_compile(compilation, ctx)
+            return (
+                compilation["main_sql"],
+                compilation["main_params"],
+                compilation["count_sql"],
+                compilation["count_params"],
+            )
+
+        return main_sql, main_params, count_sql, count_params

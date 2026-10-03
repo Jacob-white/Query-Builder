@@ -18,6 +18,7 @@ from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.dialects import BaseDialect, get_dialect
 from query_builder.executor import execute_cursor_query
+from query_builder.middleware import LifecycleInterceptor, MiddlewarePipeline
 
 
 class ConnectorError(Exception):
@@ -50,11 +51,13 @@ class BaseConnector(ABC):
         connection: Any = None,
         cursor: Any = None,
         dialect: str | BaseDialect | None = None,
+        middleware: MiddlewarePipeline | list[LifecycleInterceptor] | None = None,
         **config: Any,
     ) -> None:
         self._connection = connection
         self._cursor = cursor
         self.config = config
+        self.middleware = MiddlewarePipeline.ensure(middleware)
 
         if dialect is not None:
             self.dialect = (
@@ -141,10 +144,12 @@ class BaseConnector(ABC):
         user_id: Any = None,
         statement_timeout_ms: int | None = None,
         validate_ast: bool = True,
+        middleware: MiddlewarePipeline | list[LifecycleInterceptor] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Compiles a query specification into the connector's dialect, validates AST safety,
-        applies statement timeouts, and executes count and paginated data queries.
+        applies statement timeouts, executes count and paginated data queries with middleware hooks.
         """
         if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
             raise CompilationError(
@@ -159,59 +164,142 @@ class BaseConnector(ABC):
         if timeout <= 0:
             raise ValueError("statement_timeout_ms must be positive.")
 
-        compiler = QueryCompiler(
-            spec=spec,
-            schema=schema,
-            user_id=user_id,
-            force_user_filter=bool(user_id),
-            dialect=self.dialect,
+        ctx = context if context is not None else {}
+        pipeline = (
+            MiddlewarePipeline.ensure(middleware)
+            if middleware is not None
+            else self.middleware
         )
-        main_sql, main_params, count_sql, count_params = compiler.compile()
 
-        if validate_ast:
-            v_main = validate_sql_ast(main_sql)
-            if not v_main["valid"]:
-                raise CompilationError(
-                    f"Generated query failed AST safety validation: {v_main['message']}"
-                )
-            v_count = validate_sql_ast(count_sql)
-            if not v_count["valid"]:
-                raise CompilationError(
-                    f"Generated count query failed AST safety validation: {v_count['message']}"
-                )
-
-        with self.get_cursor() as cur:
-            self.apply_statement_timeout(cur, timeout)
-
-            # 1. Total Count query
-            if count_params:
-                cur.execute(count_sql, count_params)
-            else:
-                cur.execute(count_sql)
-            count_row = cur.fetchone()
-            total_count = count_row[0] if (count_row and len(count_row) > 0) else 0
-
-            # 2. Main paginated query
-            col_names, dict_rows, latency_ms = execute_cursor_query(
-                cur, main_sql, main_params
+        try:
+            spec_dict = (
+                {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
+                if hasattr(spec, "__dict__") and not isinstance(spec, dict)
+                else spec
             )
 
-        limit = int(spec.get("limit", 50))
-        offset = int(spec.get("offset", 0))
+            # Pre-compile hook
+            compiled_spec = pipeline.run_pre_compile(spec_dict, ctx)
 
-        return {
-            "sql": main_sql,
-            "params": [str(p) for p in main_params],
-            "columns": col_names,
-            "rows": dict_rows,
-            "count": total_count,
-            "limit": limit,
-            "offset": offset,
-            "page": (offset // limit) + 1 if limit else 1,
-            "latency_ms": round(latency_ms, 2),
-            "dialect": self.dialect_name,
-        }
+            compiler = QueryCompiler(
+                spec=compiled_spec,
+                schema=schema,
+                user_id=user_id,
+                force_user_filter=bool(user_id),
+                dialect=self.dialect,
+            )
+            main_sql, main_params, count_sql, count_params = compiler.compile()
 
-    @abstractmethod
+            # Post-compile hook
+            compilation = {
+                "main_sql": main_sql,
+                "main_params": main_params,
+                "count_sql": count_sql,
+                "count_params": count_params,
+            }
+            compilation = pipeline.run_post_compile(compilation, ctx)
+            main_sql = compilation["main_sql"]
+            main_params = compilation["main_params"]
+            count_sql = compilation["count_sql"]
+            count_params = compilation["count_params"]
+
+            if validate_ast:
+                v_main = validate_sql_ast(main_sql)
+                if not v_main["valid"]:
+                    raise CompilationError(
+                        f"Generated query failed AST safety validation: {v_main['message']}"
+                    )
+                v_count = validate_sql_ast(count_sql)
+                if not v_count["valid"]:
+                    raise CompilationError(
+                        f"Generated count query failed AST safety validation: {v_count['message']}"
+                    )
+
+            execution_plan = {
+                "main_sql": main_sql,
+                "main_params": main_params,
+                "count_sql": count_sql,
+                "count_params": count_params,
+                "spec": compiled_spec,
+            }
+
+            # Pre-execute hook (short-circuit support)
+            short_circuited, result_or_plan = pipeline.run_pre_execute(
+                execution_plan, ctx
+            )
+            if short_circuited:
+                return pipeline.run_post_execute(result_or_plan, ctx)
+
+            with self.get_cursor() as cur:
+                self.apply_statement_timeout(cur, timeout)
+
+                # 1. Total Count query
+                if count_params:
+                    cur.execute(count_sql, count_params)
+                else:
+                    cur.execute(count_sql)
+                count_row = cur.fetchone()
+                total_count = count_row[0] if (count_row and len(count_row) > 0) else 0
+
+                # 2. Main paginated query
+                col_names, dict_rows, latency_ms = execute_cursor_query(
+                    cur, main_sql, main_params
+                )
+
+            limit = int(compiled_spec.get("limit", 50))
+            offset = int(compiled_spec.get("offset", 0))
+
+            raw_result = {
+                "sql": main_sql,
+                "params": [str(p) for p in main_params],
+                "columns": col_names,
+                "rows": dict_rows,
+                "count": total_count,
+                "limit": limit,
+                "offset": offset,
+                "page": (offset // limit) + 1 if limit else 1,
+                "latency_ms": round(latency_ms, 2),
+                "dialect": self.dialect_name,
+            }
+
+            return pipeline.run_post_execute(raw_result, ctx)
+
+        except Exception as exc:
+            pipeline.run_error(exc, ctx)
+            raise
+
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
-        """Automatically reverse-engineers tables, columns, primary keys, and relationships."""
+        """
+        Automatically reverse-engineers tables, columns, primary keys, and relationships.
+
+        Fallback implementation attempts dialect-specific inspection via cursor:
+        1. SQLite introspection if dialect is sqlite or connection is sqlite3.
+        2. ANSI information_schema catalog query if supported.
+        3. Returns a normalized empty schema snapshot if catalogs are unavailable.
+        """
+        try:
+            with self.get_cursor() as cur:
+                if self.dialect_name in ("sqlite", "sqlite3") or hasattr(
+                    self._connection, "backup"
+                ):
+                    from query_builder.connectors.introspection import introspect_sqlite
+
+                    return introspect_sqlite(cur, filter_sensitive=filter_sensitive)
+
+                schema_name = getattr(self, "schema_name", None) or self.config.get(
+                    "schema_name", "public"
+                )
+                from query_builder.connectors.introspection import (
+                    introspect_information_schema,
+                )
+
+                return introspect_information_schema(
+                    cur, schema_name=schema_name, filter_sensitive=filter_sensitive
+                )
+        except Exception:  # noqa: BLE001
+            from query_builder.schema import normalize_schema_snapshot
+
+            return normalize_schema_snapshot(
+                {"tables": {}, "foreign_keys": [], "relationships": []},
+                filter_sensitive=filter_sensitive,
+            )

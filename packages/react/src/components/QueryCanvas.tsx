@@ -33,6 +33,7 @@ export interface QueryCanvasProps {
   onSortsChange: (sorts: VisualSort[]) => void;
   onDistinctChange: (distinct: boolean) => void;
   onLimitChange: (limit: number) => void;
+  unstyled?: boolean;
 }
 
 export const QueryCanvas: React.FC<QueryCanvasProps> = ({
@@ -56,6 +57,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onSortsChange,
   onDistinctChange,
   onLimitChange,
+  unstyled = false,
 }) => {
   const allTables = Object.values(schema?.tables || {});
   const availableToAdd = allTables.filter(
@@ -64,44 +66,67 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
 
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "16px",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
+      data-qb="canvas"
+      style={
+        unstyled
+          ? undefined
+          : {
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }
+      }
     >
       {/* Tables row / workspace */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div
+        data-qb="canvas-tables"
+        style={unstyled ? undefined : { display: "flex", flexDirection: "column", gap: "10px" }}
+      >
         <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
+          style={
+            unstyled
+              ? undefined
+              : {
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }
+          }
         >
-          <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#cbd5e1" }}>
+          <span
+            style={
+              unstyled
+                ? undefined
+                : { fontSize: "0.88rem", fontWeight: 700, color: "#cbd5e1" }
+            }
+          >
             📋 Active Tables in Query ({activeTables.length})
           </span>
           {availableToAdd.length > 0 && (
             <select
               defaultValue=""
+              data-qb="select-add-table"
               onChange={(e) => {
                 if (e.target.value) {
                   onAddTableToCanvas(e.target.value);
                   e.target.value = "";
                 }
               }}
-              style={{
-                background: "#1e293b",
-                color: "#60a5fa",
-                border: "1px solid rgba(59, 130, 246, 0.4)",
-                borderRadius: "6px",
-                padding: "4px 10px",
-                fontSize: "0.78rem",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "#1e293b",
+                      color: "#60a5fa",
+                      border: "1px solid rgba(59, 130, 246, 0.4)",
+                      borderRadius: "6px",
+                      padding: "4px 10px",
+                      fontSize: "0.78rem",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }
+              }
             >
               <option value="" disabled>
                 + Add Table to Canvas...
@@ -116,12 +141,17 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         </div>
 
         <div
-          style={{
-            display: "flex",
-            gap: "16px",
-            overflowX: "auto",
-            paddingBottom: "8px",
-          }}
+          data-qb="table-cards-list"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  display: "flex",
+                  gap: "16px",
+                  overflowX: "auto",
+                  paddingBottom: "8px",
+                }
+          }
         >
           {activeTables.map((t) => (
             <TableCard
@@ -131,6 +161,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
               selectedColumns={selectedColumns}
               onToggleColumn={(col) => onToggleColumn(t.name, col)}
               onRemoveTable={() => onRemoveTable(t.name)}
+              unstyled={unstyled}
             />
           ))}
         </div>
@@ -139,48 +170,97 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       {/* Projection fields manager */}
       {orderedProjectionKeys.length > 0 && (
         <div
-          style={{
-            background: "rgba(15, 23, 42, 0.6)",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-            borderRadius: "8px",
-            padding: "12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-          }}
+          data-qb="canvas-projections"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  background: "rgba(15, 23, 42, 0.6)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }
+          }
         >
           <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
+            data-qb="canvas-options"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }
+            }
           >
-            <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }}>
+            <span
+              style={
+                unstyled
+                  ? undefined
+                  : { fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }
+              }
+            >
               ✨ Selected Columns & Projections ({orderedProjectionKeys.length})
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <label style={{ fontSize: "0.78rem", color: "#cbd5e1", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <div
+              style={
+                unstyled
+                  ? undefined
+                  : { display: "flex", alignItems: "center", gap: "10px" }
+              }
+            >
+              <label
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        fontSize: "0.78rem",
+                        color: "#cbd5e1",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        cursor: "pointer",
+                      }
+                }
+              >
                 <input
                   type="checkbox"
+                  data-qb="checkbox-distinct"
                   checked={isDistinct}
                   onChange={(e) => onDistinctChange(e.target.checked)}
                 />
                 DISTINCT
               </label>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Limit:</span>
+              <div
+                style={
+                  unstyled
+                    ? undefined
+                    : { display: "flex", alignItems: "center", gap: "6px" }
+                }
+              >
+                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+                  Limit:
+                </span>
                 <select
                   value={limit}
+                  data-qb="input-limit"
                   onChange={(e) => onLimitChange(Number(e.target.value))}
-                  style={{
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
-                    borderRadius: "4px",
-                    padding: "2px 6px",
-                    fontSize: "0.75rem",
-                  }}
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          background: "#1e293b",
+                          color: "#f8fafc",
+                          border: "1px solid #475569",
+                          borderRadius: "4px",
+                          padding: "2px 6px",
+                          fontSize: "0.75rem",
+                        }
+                  }
                 >
                   <option value={10}>10</option>
                   <option value={25}>25</option>
@@ -192,7 +272,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             </div>
           </div>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          <div
+            style={
+              unstyled
+                ? undefined
+                : { display: "flex", flexWrap: "wrap", gap: "8px" }
+            }
+          >
             {orderedProjectionKeys.map((key) => {
               const item = selectedColumns[key];
               if (!item) return null;
@@ -200,18 +286,30 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
               return (
                 <div
                   key={key}
-                  style={{
-                    background: "rgba(30, 41, 59, 0.7)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "6px",
-                    padding: "4px 8px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    fontSize: "0.78rem",
-                  }}
+                  data-qb="projection-item"
+                  data-qb-column={key}
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          background: "rgba(30, 41, 59, 0.7)",
+                          border: "1px solid rgba(255, 255, 255, 0.1)",
+                          borderRadius: "6px",
+                          padding: "4px 8px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "0.78rem",
+                        }
+                  }
                 >
-                  <span style={{ color: "#93c5fd", fontWeight: 600 }}>
+                  <span
+                    style={
+                      unstyled
+                        ? undefined
+                        : { color: "#93c5fd", fontWeight: 600 }
+                    }
+                  >
                     {item.table}.{item.name}
                   </span>
 
@@ -222,14 +320,18 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                         aggregate: e.target.value as VisualColumnSelect["aggregate"],
                       })
                     }
-                    style={{
-                      background: "#0f172a",
-                      color: item.aggregate ? "#f59e0b" : "#64748b",
-                      border: "1px solid #334155",
-                      borderRadius: "4px",
-                      padding: "1px 4px",
-                      fontSize: "0.7rem",
-                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "#0f172a",
+                            color: item.aggregate ? "#f59e0b" : "#64748b",
+                            border: "1px solid #334155",
+                            borderRadius: "4px",
+                            padding: "1px 4px",
+                            fontSize: "0.7rem",
+                          }
+                    }
                   >
                     <option value="">(none)</option>
                     <option value="COUNT">COUNT</option>
@@ -242,13 +344,17 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   <button
                     type="button"
                     onClick={() => onRemoveColumnProjection(key)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "#94a3b8",
-                      cursor: "pointer",
-                      fontSize: "0.75rem",
-                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "transparent",
+                            border: "none",
+                            color: "#94a3b8",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                          }
+                    }
                     title="Remove column"
                   >
                     ✕
@@ -267,6 +373,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         allTables={allTables}
         schema={schema}
         onChange={onJoinsChange}
+        unstyled={unstyled}
       />
 
       {/* Filter Conditions */}
@@ -274,6 +381,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         filters={filters}
         activeTables={activeTables}
         onChange={onFiltersChange}
+        unstyled={unstyled}
       />
 
       {/* Sorting */}
@@ -281,6 +389,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         sorts={sorts}
         activeTables={activeTables}
         onChange={onSortsChange}
+        unstyled={unstyled}
       />
     </div>
   );

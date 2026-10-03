@@ -64,6 +64,6 @@ dist-ssr/
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
+# Agents scratch & teamwork logs
+.agents/
+

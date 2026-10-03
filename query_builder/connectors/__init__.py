@@ -5,6 +5,7 @@ Provides pre-configured database connectors, introspection utilities,
 and dynamic registry discovery.
 """
 
+from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.athena import AthenaConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -110,6 +111,7 @@ ConnectorRegistry.register("neon", NeonConnector)
 ConnectorRegistry.register("supabase", SupabaseConnector)
 
 __all__ = [
+    "AsyncBaseConnector",
     "AthenaConnector",
     "BaseConnector",
     "BigQueryConnector",

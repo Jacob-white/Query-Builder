@@ -8,6 +8,7 @@ export interface TableCardProps {
   onToggleColumn: (colName: string) => void;
   onRemoveTable?: () => void;
   onAddJoin?: () => void;
+  unstyled?: boolean;
 }
 
 export const TableCard: React.FC<TableCardProps> = ({
@@ -17,54 +18,79 @@ export const TableCard: React.FC<TableCardProps> = ({
   onToggleColumn,
   onRemoveTable,
   onAddJoin,
+  unstyled = false,
 }) => {
   return (
     <div
-      style={{
-        background: "rgba(30, 41, 59, 0.8)",
-        backdropFilter: "blur(8px)",
-        borderRadius: "10px",
-        border: isSelected ? "1.5px solid #3b82f6" : "1px solid rgba(255, 255, 255, 0.1)",
-        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.3)",
-        overflow: "hidden",
-        width: "280px",
-        display: "flex",
-        flexDirection: "column",
-        color: "#f8fafc",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
+      role="region"
+      aria-label={`Table ${table.name}`}
+      data-qb="table-card"
+      data-qb-table={table.name}
+      data-qb-selected={isSelected ? "true" : "false"}
+      style={
+        unstyled
+          ? undefined
+          : {
+              background: "rgba(30, 41, 59, 0.8)",
+              backdropFilter: "blur(8px)",
+              borderRadius: "10px",
+              border: isSelected ? "1.5px solid #3b82f6" : "1px solid rgba(255, 255, 255, 0.1)",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.3)",
+              overflow: "hidden",
+              width: "280px",
+              display: "flex",
+              flexDirection: "column",
+              color: "#f8fafc",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }
+      }
     >
       {/* Header */}
       <div
-        style={{
-          padding: "10px 14px",
-          background: "rgba(15, 23, 42, 0.9)",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
+        data-qb="table-card-header"
+        style={
+          unstyled
+            ? undefined
+            : {
+                padding: "10px 14px",
+                background: "rgba(15, 23, 42, 0.9)",
+                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }
+        }
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "1rem" }}>🗄️</span>
-          <span style={{ fontWeight: 600, fontSize: "0.88rem" }} title={table.name}>
+        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={unstyled ? undefined : { fontSize: "1rem" }}>🗄️</span>
+          <span
+            data-qb="table-card-title"
+            style={unstyled ? undefined : { fontWeight: 600, fontSize: "0.88rem" }}
+            title={table.name}
+          >
             {table.name}
           </span>
         </div>
-        <div style={{ display: "flex", gap: "4px" }}>
+        <div style={unstyled ? undefined : { display: "flex", gap: "4px" }}>
           {onAddJoin && (
             <button
               type="button"
               onClick={onAddJoin}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#60a5fa",
-                cursor: "pointer",
-                padding: "2px 6px",
-                borderRadius: "4px",
-                fontSize: "0.75rem",
-              }}
+              aria-label={`Add join for table ${table.name}`}
+              data-qb="table-card-btn-join"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "transparent",
+                      border: "none",
+                      color: "#60a5fa",
+                      cursor: "pointer",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                    }
+              }
               title="Add Join to this table"
             >
               🔗
@@ -74,15 +100,21 @@ export const TableCard: React.FC<TableCardProps> = ({
             <button
               type="button"
               onClick={onRemoveTable}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#ef4444",
-                cursor: "pointer",
-                padding: "2px 6px",
-                borderRadius: "4px",
-                fontSize: "0.85rem",
-              }}
+              aria-label={`Remove table ${table.name}`}
+              data-qb="table-card-btn-remove"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "transparent",
+                      border: "none",
+                      color: "#ef4444",
+                      cursor: "pointer",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      fontSize: "0.85rem",
+                    }
+              }
               title="Remove table"
             >
               ✕
@@ -93,11 +125,16 @@ export const TableCard: React.FC<TableCardProps> = ({
 
       {/* Columns list */}
       <div
-        style={{
-          maxHeight: "260px",
-          overflowY: "auto",
-          padding: "6px 0",
-        }}
+        data-qb="table-card-columns-list"
+        style={
+          unstyled
+            ? undefined
+            : {
+                maxHeight: "260px",
+                overflowY: "auto",
+                padding: "6px 0",
+              }
+        }
       >
         {table.columns.map((col) => {
           const key = `${table.name}.${col.name}`;
@@ -106,50 +143,87 @@ export const TableCard: React.FC<TableCardProps> = ({
           return (
             <div
               key={col.name}
+              data-qb="table-card-column-row"
+              data-qb-column={col.name}
+              data-qb-selected={isColChecked ? "true" : "false"}
               onClick={() => onToggleColumn(col.name)}
-              style={{
-                padding: "6px 14px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                cursor: "pointer",
-                background: isColChecked ? "rgba(59, 130, 246, 0.12)" : "transparent",
-                transition: "background 0.15s ease",
-                fontSize: "0.8rem",
-              }}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      padding: "6px 14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      background: isColChecked ? "rgba(59, 130, 246, 0.12)" : "transparent",
+                      transition: "background 0.15s ease",
+                      fontSize: "0.8rem",
+                    }
+              }
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div
+                style={
+                  unstyled
+                    ? undefined
+                    : { display: "flex", alignItems: "center", gap: "8px" }
+                }
+              >
                 <input
                   type="checkbox"
+                  data-qb="table-card-column-checkbox"
                   checked={isColChecked}
                   onChange={() => onToggleColumn(col.name)}
-                  style={{ cursor: "pointer" }}
+                  aria-label={`Select column ${table.name}.${col.name}`}
+                  style={unstyled ? undefined : { cursor: "pointer" }}
                 />
                 <span
-                  style={{
-                    color: isColChecked ? "#93c5fd" : "#cbd5e1",
-                    fontWeight: isColChecked ? 600 : 400,
-                  }}
+                  data-qb="table-card-column-name"
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          color: isColChecked ? "#93c5fd" : "#cbd5e1",
+                          fontWeight: isColChecked ? 600 : 400,
+                        }
+                  }
                 >
                   {col.name}
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div
+                style={
+                  unstyled
+                    ? undefined
+                    : { display: "flex", alignItems: "center", gap: "4px" }
+                }
+              >
                 {col.is_primary && (
                   <span
-                    style={{
-                      background: "rgba(245, 158, 11, 0.2)",
-                      color: "#fbbf24",
-                      fontSize: "0.65rem",
-                      fontWeight: 700,
-                      padding: "1px 4px",
-                      borderRadius: "4px",
-                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "rgba(245, 158, 11, 0.2)",
+                            color: "#fbbf24",
+                            fontSize: "0.65rem",
+                            fontWeight: 700,
+                            padding: "1px 4px",
+                            borderRadius: "4px",
+                          }
+                    }
                   >
                     PK
                   </span>
                 )}
-                <span style={{ color: "#64748b", fontSize: "0.7rem" }}>
+                <span
+                  data-qb="table-card-column-type"
+                  style={
+                    unstyled
+                      ? undefined
+                      : { color: "#64748b", fontSize: "0.7rem" }
+                  }
+                >
                   {col.data_type}
                 </span>
               </div>

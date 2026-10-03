@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
 import type { SchemaSnapshot, QueryResultData } from "../src/types";
+import { saveTemplates, resetTemplateStorage } from "../src/components/QueryTemplateManager";
 
 describe("VisualQueryBuilder", () => {
   const mockSchema: SchemaSnapshot = {
@@ -377,5 +378,151 @@ describe("VisualQueryBuilder", () => {
     render(<VisualQueryBuilder schema={mockSchema} />);
     expect(screen.getByText("📋 Active Tables in Query (1)")).toBeTruthy();
     expect(screen.getByText("users")).toBeTruthy();
+  });
+
+  it("renders 4th tab Visual Chart and switches to chart view", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const chartTabBtn = screen.getByText("📈 Visual Chart");
+    expect(chartTabBtn).toBeTruthy();
+
+    fireEvent.click(chartTabBtn);
+    expect(screen.getByRole("region", { name: "Visual Chart Preview" })).toBeTruthy();
+    expect(screen.getByText(/No data available to chart/i)).toBeTruthy();
+  });
+
+  it("opens QueryTemplateManager in save mode from header action and closes", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const saveTemplateBtn = screen.getByRole("button", { name: "Save query as template" });
+    fireEvent.click(saveTemplateBtn);
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByLabelText("Template Title")).toBeTruthy();
+
+    // Close
+    fireEvent.click(screen.getByLabelText("Close template manager"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens QueryTemplateManager in library mode from header action and closes", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const libraryTemplateBtn = screen.getByRole("button", { name: "Open template library" });
+    fireEvent.click(libraryTemplateBtn);
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByLabelText("Search templates")).toBeTruthy();
+
+    // Close
+    fireEvent.click(screen.getByLabelText("Close template manager"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("loads template with visual spec and hydrates canvas state", () => {
+    resetTemplateStorage();
+    const customTemplateWithSpec = {
+      id: "spec_tpl",
+      title: "Spec Hydration Query",
+      category: "Test",
+      sql: 'SELECT "orders"."id" FROM "orders";',
+      spec: {
+        primaryTable: "orders",
+        selectedColumns: {
+          "orders.id": { table: "orders", name: "id" },
+        },
+        orderedProjectionKeys: ["orders.id"],
+        joins: [],
+        filters: [{ id: "f1", column: "id", tablePrefix: "orders", operator: ">", value: "10" }],
+        sorts: [{ id: "s1", column: "id", tablePrefix: "orders", direction: "DESC" }],
+        isDistinct: true,
+        limit: 25,
+      },
+      createdAt: new Date().toISOString(),
+      isDefault: false,
+    };
+    saveTemplates([customTemplateWithSpec]);
+
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    // Open library
+    fireEvent.click(screen.getByRole("button", { name: "Open template library" }));
+
+    // Load template
+    const loadBtn = screen.getByText("▶ Load Template");
+    fireEvent.click(loadBtn);
+
+    // Modal closed and visual builder hydrated
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("🎨 Visual Builder")).toBeTruthy();
+    expect(screen.getAllByText("orders.id").length).toBeGreaterThan(0);
+
+    // Also load a template with activeTables array
+    const tplWithActiveTables = {
+      id: "spec_active_tpl",
+      title: "Spec With Active Tables",
+      category: "Test",
+      sql: 'SELECT "users"."id" FROM "users";',
+      spec: {
+        primaryTable: "users",
+        activeTables: ["users"],
+        selectedColumns: { "users.id": { table: "users", name: "id" } },
+      },
+      createdAt: new Date().toISOString(),
+      isDefault: false,
+    };
+    saveTemplates([tplWithActiveTables]);
+    fireEvent.click(screen.getByRole("button", { name: "Open template library" }));
+    fireEvent.click(screen.getByText("▶ Load Template"));
+    expect(screen.getAllByText("users.id").length).toBeGreaterThan(0);
+  });
+
+  it("loads template with raw SQL only and switches to SQL tab", () => {
+    resetTemplateStorage();
+    const rawSqlTemplate = {
+      id: "raw_only_tpl",
+      title: "Raw SQL Only Query",
+      category: "Raw",
+      sql: "SELECT 42 AS answer;",
+      createdAt: new Date().toISOString(),
+      isDefault: false,
+    };
+    saveTemplates([rawSqlTemplate]);
+
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    // Open library
+    fireEvent.click(screen.getByRole("button", { name: "Open template library" }));
+
+    // Click load
+    const loadBtn = screen.getByText("▶ Load Template");
+    fireEvent.click(loadBtn);
+
+    // Should switch to SQL tab with raw SQL
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("SELECT 42 AS answer;");
+  });
+
+  it("calls onSaveQuery prop when a template is saved from modal", () => {
+    const handleSaveQuery = vi.fn();
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        onSaveQuery={handleSaveQuery}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save query as template" }));
+    fireEvent.change(screen.getByLabelText("Template Title"), { target: { value: "Saved Query For Prop" } });
+    fireEvent.click(screen.getByRole("button", { name: "💾 Save Template" }));
+
+    expect(handleSaveQuery).toHaveBeenCalledOnce();
+    expect(handleSaveQuery).toHaveBeenCalledWith(
+      "Saved Query For Prop",
+      expect.stringContaining('FROM "users"'),
+      expect.any(Object)
+    );
   });
 });

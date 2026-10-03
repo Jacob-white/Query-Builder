@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import type {
   VisualQueryBuilderProps,
   TableMeta,
@@ -7,26 +7,59 @@ import type {
   VisualJoin,
   VisualSort,
   QueryResultData,
+  QueryTemplate,
+  DatabaseSchemaDefinition,
 } from "../types";
 import { QueryCanvas } from "./QueryCanvas";
 import { QueryResultsTable } from "./QueryResultsTable";
 import { SchemaErdModal } from "./SchemaErdModal";
+import { QueryChartPreview } from "./QueryChartPreview";
+import { QueryTemplateManager } from "./QueryTemplateManager";
 import { compileVisualState } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
+import { normalizeSchema } from "../utils/schemaUtils";
+import { useTheme } from "../theme/ThemeProvider";
+import { darkTheme, lightTheme, type QueryBuilderTheme } from "../theme/tokens";
 
-export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
+export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
+  VisualQueryBuilderProps<Schema>,
+  "theme"
+> & {
+  theme?: "dark" | "light" | "auto" | QueryBuilderTheme;
+  unstyled?: boolean;
+};
+
+export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   schema,
   presets = [],
   initialTable,
   dialect = "postgres",
   onExecuteQuery,
   onSaveQuery,
+  theme: propTheme,
   readOnly = false,
+  unstyled = false,
 }) => {
-  const allTables = useMemo(() => Object.values(schema?.tables || {}), [schema]);
+  const { theme: contextTheme } = useTheme();
+
+  const activeTheme: QueryBuilderTheme = useMemo(() => {
+    if (propTheme && typeof propTheme === "object" && "colors" in propTheme) {
+      return propTheme as QueryBuilderTheme;
+    }
+    if (propTheme === "light") {
+      return lightTheme;
+    }
+    if (propTheme === "dark") {
+      return darkTheme;
+    }
+    return contextTheme;
+  }, [propTheme, contextTheme]);
+
+  const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
+  const allTables = useMemo(() => Object.values(normalizedSchema?.tables || {}), [normalizedSchema]);
   const defaultTable = initialTable || allTables[0]?.name || "";
 
-  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results">("visual");
+  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart">("visual");
   const [primaryTable, setPrimaryTable] = useState<string>(defaultTable);
   const [activeTableNames, setActiveTableNames] = useState<string[]>(
     defaultTable ? [defaultTable] : [],
@@ -45,17 +78,39 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
   const [rawSql, setRawSql] = useState<string>("");
   const [isRawMode, setIsRawMode] = useState<boolean>(false);
   const [isErdOpen, setIsErdOpen] = useState<boolean>(false);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState<boolean>(false);
+  const [templateManagerMode, setTemplateManagerMode] = useState<"library" | "save">("library");
 
   const [queryResults, setQueryResults] = useState<QueryResultData | null>(null);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
 
+  const tabRefs = {
+    visual: useRef<HTMLButtonElement | null>(null),
+    sql: useRef<HTMLButtonElement | null>(null),
+    results: useRef<HTMLButtonElement | null>(null),
+    chart: useRef<HTMLButtonElement | null>(null),
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isErdOpen) setIsErdOpen(false);
+        if (isTemplateManagerOpen) setIsTemplateManagerOpen(false);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isErdOpen, isTemplateManagerOpen]);
+
   // Active table metadata
   const activeTables: TableMeta[] = useMemo(() => {
     return activeTableNames
-      .map((name) => schema?.tables?.[name])
+      .map((name) => normalizedSchema?.tables?.[name])
       .filter((t): t is TableMeta => Boolean(t));
-  }, [activeTableNames, schema]);
+  }, [activeTableNames, normalizedSchema]);
 
   // Compiled visual query
   const compiled = useMemo(() => {
@@ -68,7 +123,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
       sorts,
       isDistinct,
       limit,
-      schema,
+      normalizedSchema,
       dialect,
     );
   }, [
@@ -80,7 +135,7 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
     sorts,
     isDistinct,
     limit,
-    schema,
+    normalizedSchema,
     dialect,
   ]);
 
@@ -103,17 +158,26 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
     });
   };
 
+  // Add table to canvas
   const handleAddTableToCanvas = (tableName: string) => {
+    if (!tableName) return;
     if (!activeTableNames.includes(tableName)) {
       setActiveTableNames((prev) => [...prev, tableName]);
-      if (!primaryTable) {
-        setPrimaryTable(tableName);
-      }
+    }
+    if (!primaryTable) {
+      setPrimaryTable(tableName);
     }
   };
 
+  // Remove table from canvas
   const handleRemoveTable = (tableName: string) => {
-    setActiveTableNames((prev) => prev.filter((t) => t !== tableName));
+    setActiveTableNames((prev) => {
+      const next = prev.filter((t) => t !== tableName);
+      if (primaryTable === tableName) {
+        setPrimaryTable(next[0] || "");
+      }
+      return next;
+    });
     setJoins((prev) => prev.filter((j) => j.table !== tableName && j.left_table !== tableName));
     setSelectedColumns((prev) => {
       const next = { ...prev };
@@ -122,122 +186,261 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
       });
       return next;
     });
-    setOrderedProjectionKeys((prev) =>
-      prev.filter((k) => !k.startsWith(`${tableName}.`)),
-    );
-    if (primaryTable === tableName) {
-      const remaining = activeTableNames.filter((t) => t !== tableName);
-      setPrimaryTable(remaining[0] || "");
-    }
+    setOrderedProjectionKeys((prev) => prev.filter((k) => !k.startsWith(`${tableName}.`)));
   };
 
-  // Run Query handler
+  // Execute current query
   const handleRunQuery = async () => {
+    if (!onExecuteQuery) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
-      if (onExecuteQuery) {
-        const res = await onExecuteQuery(currentSql, compiled.spec);
-        if (res) {
-          setQueryResults(res);
-          setActiveTab("results");
-        }
+      const result = await onExecuteQuery(currentSql, compiled.spec);
+      if (result) {
+        setQueryResults(result);
+        setActiveTab("results");
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setExecutionError(message);
+      setExecutionError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
     }
   };
 
+  // Save template handler
+  const handleSaveTemplate = (template: QueryTemplate) => {
+    if (onSaveQuery) {
+      onSaveQuery(template.title, template.sql, template.spec || compiled.spec);
+    }
+    setIsTemplateManagerOpen(false);
+  };
+
+  // Load template handler
+  const handleLoadTemplate = (template: QueryTemplate) => {
+    if (template.spec && Object.keys(template.spec).length > 0) {
+      const s = template.spec as any;
+      if (s.primaryTable) setPrimaryTable(s.primaryTable);
+      if (Array.isArray(s.activeTables)) setActiveTableNames(s.activeTables);
+      if (s.selectedColumns) setSelectedColumns(s.selectedColumns);
+      if (Array.isArray(s.orderedProjectionKeys)) setOrderedProjectionKeys(s.orderedProjectionKeys);
+      if (Array.isArray(s.joins)) setJoins(s.joins);
+      if (Array.isArray(s.filters)) setFilters(s.filters);
+      if (Array.isArray(s.sorts)) setSorts(s.sorts);
+      if (typeof s.limit === "number") setLimit(s.limit);
+      setIsRawMode(false);
+    } else if (template.sql) {
+      setRawSql(template.sql);
+      setIsRawMode(true);
+      setActiveTab("sql");
+    }
+    setIsTemplateManagerOpen(false);
+  };
+
+  const handleTabKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    tab: "visual" | "sql" | "results" | "chart",
+  ) => {
+    const tabs: ("visual" | "sql" | "results" | "chart")[] = ["visual", "sql", "results", "chart"];
+    const currentIndex = tabs.indexOf(tab);
+    let targetTab: "visual" | "sql" | "results" | "chart" | null = null;
+
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      targetTab = tabs[(currentIndex + 1) % tabs.length];
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      targetTab = tabs[(currentIndex - 1 + tabs.length) % tabs.length];
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      targetTab = tabs[0];
+    } else if (e.key === "End") {
+      e.preventDefault();
+      targetTab = tabs[tabs.length - 1];
+    }
+
+    if (targetTab) {
+      if (targetTab === "sql" && !isRawMode) {
+        setRawSql(compiled.sql);
+      }
+      setActiveTab(targetTab);
+      tabRefs[targetTab].current?.focus();
+    }
+  };
+
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "14px",
-        background: "#090d16",
-        color: "#f8fafc",
-        borderRadius: "12px",
-        border: "1px solid rgba(255, 255, 255, 0.1)",
-        padding: "16px",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
+      data-qb="root"
+      data-qb-mode={activeTab}
+      data-qb-unstyled={unstyled ? "true" : undefined}
+      style={
+        unstyled
+          ? undefined
+          : {
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              background: activeTheme.colors.background,
+              color: activeTheme.colors.text,
+              borderRadius: activeTheme.radii.xl,
+              border: `1px solid ${activeTheme.colors.border}`,
+              padding: "16px",
+              fontFamily: activeTheme.typography.fontFamily,
+            }
+      }
     >
       {/* Top Controls Bar */}
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "10px",
-          paddingBottom: "12px",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-        }}
+        data-qb="top-bar"
+        style={
+          unstyled
+            ? undefined
+            : {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "10px",
+                paddingBottom: "12px",
+                borderBottom: `1px solid ${activeTheme.colors.border}`,
+              }
+        }
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
           {/* Tabs */}
           <div
-            style={{
-              display: "flex",
-              background: "rgba(30, 41, 59, 0.7)",
-              borderRadius: "8px",
-              padding: "2px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-            }}
+            role="tablist"
+            aria-label="Query builder tabs"
+            data-qb="tab-list"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    background: activeTheme.colors.surface,
+                    borderRadius: activeTheme.radii.md,
+                    padding: "2px",
+                    border: `1px solid ${activeTheme.colors.border}`,
+                  }
+            }
           >
             <button
+              ref={tabRefs.visual}
+              role="tab"
+              id="tab-visual"
+              aria-controls="panel-visual"
+              aria-selected={activeTab === "visual"}
+              tabIndex={activeTab === "visual" ? 0 : -1}
+              onKeyDown={(e) => handleTabKeyDown(e, "visual")}
               type="button"
               onClick={() => setActiveTab("visual")}
-              style={{
-                background: activeTab === "visual" ? "#3b82f6" : "transparent",
-                color: activeTab === "visual" ? "#fff" : "#94a3b8",
-                border: "none",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              data-qb="tab"
+              data-qb-tab="visual"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: activeTab === "visual" ? activeTheme.colors.primary : "transparent",
+                      color: activeTab === "visual" ? "#fff" : activeTheme.colors.textMuted,
+                      border: "none",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
             >
               🎨 Visual Builder
             </button>
             <button
+              ref={tabRefs.sql}
+              role="tab"
+              id="tab-sql"
+              aria-controls="panel-sql"
+              aria-selected={activeTab === "sql"}
+              tabIndex={activeTab === "sql" ? 0 : -1}
+              onKeyDown={(e) => handleTabKeyDown(e, "sql")}
               type="button"
               onClick={() => {
                 if (!isRawMode) setRawSql(compiled.sql);
                 setActiveTab("sql");
               }}
-              style={{
-                background: activeTab === "sql" ? "#3b82f6" : "transparent",
-                color: activeTab === "sql" ? "#fff" : "#94a3b8",
-                border: "none",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              data-qb="tab"
+              data-qb-tab="sql"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: activeTab === "sql" ? activeTheme.colors.primary : "transparent",
+                      color: activeTab === "sql" ? "#fff" : activeTheme.colors.textMuted,
+                      border: "none",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
             >
               📝 Raw SQL
             </button>
             <button
+              ref={tabRefs.results}
+              role="tab"
+              id="tab-results"
+              aria-controls="panel-results"
+              aria-selected={activeTab === "results"}
+              tabIndex={activeTab === "results" ? 0 : -1}
+              onKeyDown={(e) => handleTabKeyDown(e, "results")}
               type="button"
               onClick={() => setActiveTab("results")}
-              style={{
-                background: activeTab === "results" ? "#3b82f6" : "transparent",
-                color: activeTab === "results" ? "#fff" : "#94a3b8",
-                border: "none",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              data-qb="tab"
+              data-qb-tab="results"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: activeTab === "results" ? activeTheme.colors.primary : "transparent",
+                      color: activeTab === "results" ? "#fff" : activeTheme.colors.textMuted,
+                      border: "none",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
             >
               📊 Results {queryResults ? `(${queryResults.count})` : ""}
+            </button>
+            <button
+              ref={tabRefs.chart}
+              role="tab"
+              id="tab-chart"
+              aria-controls="panel-chart"
+              aria-selected={activeTab === "chart"}
+              tabIndex={activeTab === "chart" ? 0 : -1}
+              onKeyDown={(e) => handleTabKeyDown(e, "chart")}
+              type="button"
+              onClick={() => setActiveTab("chart")}
+              data-qb="tab"
+              data-qb-tab="chart"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: activeTab === "chart" ? activeTheme.colors.primary : "transparent",
+                      color: activeTab === "chart" ? "#fff" : activeTheme.colors.textMuted,
+                      border: "none",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              📈 Visual Chart
             </button>
           </div>
 
@@ -245,41 +448,105 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
           <button
             type="button"
             onClick={() => setIsErdOpen(true)}
-            style={{
-              background: "rgba(30, 41, 59, 0.5)",
-              color: "#38bdf8",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
-              borderRadius: "6px",
-              padding: "6px 12px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
+            aria-label="Open schema ERD modal"
+            data-qb="btn-erd"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(30, 41, 59, 0.5)",
+                    color: "#38bdf8",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 12px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    fontWeight: activeTheme.typography.fontWeightSemibold,
+                    cursor: "pointer",
+                  }
+            }
           >
             🗺️ Schema ERD
           </button>
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div
+          data-qb="actions-bar"
+          style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "10px" }}
+        >
           <span
             data-testid="dialect-badge"
-            style={{
-              padding: "4px 8px",
-              background: "#0f172a",
-              border: "1px solid #334155",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              fontFamily: "monospace",
-              color: "#94a3b8",
-              textTransform: "uppercase",
-            }}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    padding: "4px 8px",
+                    background: activeTheme.colors.surface,
+                    border: `1px solid ${activeTheme.colors.border}`,
+                    borderRadius: activeTheme.radii.xs,
+                    fontSize: activeTheme.typography.fontSizeXs,
+                    fontFamily: activeTheme.typography.fontMono,
+                    color: activeTheme.colors.textMuted,
+                    textTransform: "uppercase",
+                  }
+            }
           >
             {dialect}
           </span>
+          <button
+            type="button"
+            onClick={() => {
+              setTemplateManagerMode("save");
+              setIsTemplateManagerOpen(true);
+            }}
+            aria-label="Save query as template"
+            data-qb="btn-templates"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: activeTheme.colors.successLight,
+                    color: activeTheme.colors.success,
+                    border: `1px solid ${activeTheme.colors.success}`,
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 12px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    fontWeight: activeTheme.typography.fontWeightSemibold,
+                    cursor: "pointer",
+                  }
+            }
+          >
+            💾 Save Template
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTemplateManagerMode("library");
+              setIsTemplateManagerOpen(true);
+            }}
+            aria-label="Open template library"
+            data-qb="btn-templates"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(99, 102, 241, 0.15)",
+                    color: "#818cf8",
+                    border: "1px solid rgba(99, 102, 241, 0.3)",
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 12px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    fontWeight: activeTheme.typography.fontWeightSemibold,
+                    cursor: "pointer",
+                  }
+            }
+          >
+            📚 Template Library
+          </button>
           {/* Preset templates */}
           {presets.length > 0 && (
             <select
+              aria-label="Starter query presets"
               defaultValue=""
               onChange={(e) => {
                 const preset = presets.find((p) => p.id === e.target.value);
@@ -289,14 +556,18 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
                   setActiveTab("sql");
                 }
               }}
-              style={{
-                background: "#1e293b",
-                color: "#e2e8f0",
-                border: "1px solid #475569",
-                borderRadius: "6px",
-                padding: "6px 10px",
-                fontSize: "0.8rem",
-              }}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: activeTheme.colors.surface,
+                      color: activeTheme.colors.textSecondary,
+                      border: `1px solid ${activeTheme.colors.border}`,
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 10px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                    }
+              }
             >
               <option value="" disabled>
                 ⚡ Starters & Presets...
@@ -315,20 +586,29 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
               type="button"
               onClick={handleRunQuery}
               disabled={isRunning || !safety.valid}
-              style={{
-                background: safety.valid ? "#10b981" : "#475569",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "6px",
-                padding: "6px 16px",
-                fontSize: "0.85rem",
-                fontWeight: 700,
-                cursor: safety.valid && !isRunning ? "pointer" : "not-allowed",
-                boxShadow: safety.valid ? "0 4px 12px rgba(16, 185, 129, 0.3)" : "none",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
+              aria-label="Run query"
+              data-qb="btn-run"
+              data-qb-running={isRunning ? "true" : "false"}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: safety.valid
+                        ? activeTheme.colors.success
+                        : activeTheme.colors.surfaceHover,
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 16px",
+                      fontSize: activeTheme.typography.fontSizeBase,
+                      fontWeight: activeTheme.typography.fontWeightBold,
+                      cursor: safety.valid && !isRunning ? "pointer" : "not-allowed",
+                      boxShadow: safety.valid ? "0 4px 12px rgba(16, 185, 129, 0.3)" : "none",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }
+              }
             >
               {isRunning ? "⏳ Running..." : "▶ Run Query"}
             </button>
@@ -338,35 +618,57 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
 
       {/* Safety & AST Status banner */}
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          fontSize: "0.78rem",
-          padding: "6px 12px",
-          borderRadius: "6px",
-          background: safety.valid ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.1)",
-          border: safety.valid ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid rgba(239, 68, 68, 0.3)",
-          color: safety.valid ? "#34d399" : "#f87171",
-        }}
+        role="status"
+        aria-live="polite"
+        data-qb="safety-badge"
+        data-qb-safety={safety.valid ? "valid" : "invalid"}
+        style={
+          unstyled
+            ? undefined
+            : {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: activeTheme.typography.fontSizeXs,
+                padding: "6px 12px",
+                borderRadius: activeTheme.radii.sm,
+                background: safety.valid
+                  ? activeTheme.colors.successLight
+                  : activeTheme.colors.errorLight,
+                border: safety.valid
+                  ? `1px solid ${activeTheme.colors.success}`
+                  : `1px solid ${activeTheme.colors.error}`,
+                color: safety.valid ? activeTheme.colors.success : activeTheme.colors.error,
+              }
+        }
       >
         <span>
-          {safety.valid ? "🛡️ Read-Only Protected (AST Verified)" : `⚠️ Security Notice: ${safety.message}`}
+          {safety.valid
+            ? "🛡️ Read-Only Protected (AST Verified)"
+            : `⚠️ Security Notice: ${safety.message}`}
         </span>
-        <span style={{ color: "#64748b" }}>Dialect: ANSI / PostgreSQL</span>
+        <span style={unstyled ? undefined : { color: activeTheme.colors.textMuted }}>
+          Dialect: ANSI / PostgreSQL
+        </span>
       </div>
 
       {/* Error message banner */}
       {executionError && (
         <div
-          style={{
-            padding: "8px 12px",
-            borderRadius: "6px",
-            background: "rgba(239, 68, 68, 0.15)",
-            border: "1px solid rgba(239, 68, 68, 0.4)",
-            color: "#fca5a5",
-            fontSize: "0.82rem",
-          }}
+          role="alert"
+          aria-live="assertive"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  padding: "8px 12px",
+                  borderRadius: activeTheme.radii.sm,
+                  background: activeTheme.colors.errorLight,
+                  border: `1px solid ${activeTheme.colors.error}`,
+                  color: activeTheme.colors.error,
+                  fontSize: activeTheme.typography.fontSizeSm,
+                }
+          }
         >
           ❌ {executionError}
         </div>
@@ -374,100 +676,183 @@ export const VisualQueryBuilder: React.FC<VisualQueryBuilderProps> = ({
 
       {/* Tab Panels */}
       {activeTab === "visual" && (
-        <QueryCanvas
-          schema={schema}
-          activeTables={activeTables}
-          primaryTable={primaryTable}
-          selectedColumns={selectedColumns}
-          orderedProjectionKeys={orderedProjectionKeys}
-          joins={joins}
-          filters={filters}
-          sorts={sorts}
-          isDistinct={isDistinct}
-          limit={limit}
-          onToggleColumn={handleToggleColumn}
-          onRemoveTable={handleRemoveTable}
-          onAddTableToCanvas={handleAddTableToCanvas}
-          onUpdateColumnSelect={(key, updates) =>
-            setSelectedColumns((prev) => ({
-              ...prev,
-              [key]: { ...prev[key], ...updates },
-            }))
-          }
-          onRemoveColumnProjection={(key) => {
-            setSelectedColumns((prev) => {
-              const next = { ...prev };
-              delete next[key];
-              return next;
-            });
-            setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
-          }}
-          onJoinsChange={setJoins}
-          onFiltersChange={setFilters}
-          onSortsChange={setSorts}
-          onDistinctChange={setIsDistinct}
-          onLimitChange={setLimit}
-        />
+        <div
+          role="tabpanel"
+          id="panel-visual"
+          aria-labelledby="tab-visual"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="visual"
+        >
+          <QueryCanvas
+            schema={normalizedSchema}
+            activeTables={activeTables}
+            primaryTable={primaryTable}
+            selectedColumns={selectedColumns}
+            orderedProjectionKeys={orderedProjectionKeys}
+            joins={joins}
+            filters={filters}
+            sorts={sorts}
+            isDistinct={isDistinct}
+            limit={limit}
+            onToggleColumn={handleToggleColumn}
+            onRemoveTable={handleRemoveTable}
+            onAddTableToCanvas={handleAddTableToCanvas}
+            onUpdateColumnSelect={(key, updates) =>
+              setSelectedColumns((prev) => ({
+                ...prev,
+                [key]: { ...prev[key], ...updates },
+              }))
+            }
+            onRemoveColumnProjection={(key) => {
+              setSelectedColumns((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+              });
+              setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
+            }}
+            onJoinsChange={setJoins}
+            onFiltersChange={setFilters}
+            onSortsChange={setSorts}
+            onDistinctChange={setIsDistinct}
+            onLimitChange={setLimit}
+            unstyled={unstyled}
+          />
+        </div>
       )}
 
       {activeTab === "sql" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.85rem", color: "#94a3b8", fontWeight: 600 }}>
+        <div
+          role="tabpanel"
+          id="panel-sql"
+          aria-labelledby="tab-sql"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="sql"
+          style={
+            unstyled
+              ? undefined
+              : { display: "flex", flexDirection: "column", gap: "8px" }
+          }
+        >
+          <div
+            style={
+              unstyled
+                ? undefined
+                : { display: "flex", justifyContent: "space-between", alignItems: "center" }
+            }
+          >
+            <span
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      fontSize: activeTheme.typography.fontSizeBase,
+                      color: activeTheme.colors.textMuted,
+                      fontWeight: 600,
+                    }
+              }
+            >
               Live SQL Code Editor
             </span>
             <button
               type="button"
+              aria-label="Sync with visual canvas"
               onClick={() => {
                 setRawSql(compiled.sql);
                 setIsRawMode(false);
               }}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#60a5fa",
-                cursor: "pointer",
-                fontSize: "0.75rem",
-              }}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "transparent",
+                      border: "none",
+                      color: activeTheme.colors.primary,
+                      cursor: "pointer",
+                      fontSize: activeTheme.typography.fontSizeXs,
+                    }
+              }
             >
               🔄 Sync with Visual Canvas
             </button>
           </div>
           <textarea
+            aria-label="Raw SQL code"
+            data-qb="sql-editor"
             value={currentSql}
             onChange={(e) => {
               setIsRawMode(true);
               setRawSql(e.target.value);
             }}
             rows={12}
-            style={{
-              width: "100%",
-              background: "#0f172a",
-              color: "#38bdf8",
-              fontFamily: "monospace",
-              fontSize: "0.85rem",
-              border: "1px solid #334155",
-              borderRadius: "8px",
-              padding: "12px",
-              lineHeight: 1.5,
-              resize: "vertical",
-              outline: "none",
-              boxSizing: "border-box",
-            }}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    width: "100%",
+                    background: activeTheme.colors.background,
+                    color: "#38bdf8",
+                    fontFamily: activeTheme.typography.fontMono,
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    border: `1px solid ${activeTheme.colors.border}`,
+                    borderRadius: activeTheme.radii.md,
+                    padding: "12px",
+                    lineHeight: 1.5,
+                    resize: "vertical",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }
+            }
           />
         </div>
       )}
 
       {activeTab === "results" && (
-        <QueryResultsTable results={queryResults} isLoading={isRunning} />
+        <div
+          role="tabpanel"
+          id="panel-results"
+          aria-labelledby="tab-results"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="results"
+        >
+          <QueryResultsTable results={queryResults} isLoading={isRunning} unstyled={unstyled} />
+        </div>
+      )}
+
+      {activeTab === "chart" && (
+        <div
+          role="tabpanel"
+          id="panel-chart"
+          aria-labelledby="tab-chart"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="chart"
+        >
+          <QueryChartPreview results={queryResults} unstyled={unstyled} />
+        </div>
       )}
 
       {/* Schema ERD Modal */}
       <SchemaErdModal
         isOpen={isErdOpen}
         onClose={() => setIsErdOpen(false)}
-        schema={schema}
+        schema={normalizedSchema}
         onSelectTable={(tbl) => handleAddTableToCanvas(tbl)}
+      />
+
+      {/* Query Template Manager Modal */}
+      <QueryTemplateManager
+        isOpen={isTemplateManagerOpen}
+        onClose={() => setIsTemplateManagerOpen(false)}
+        currentSql={currentSql}
+        currentSpec={compiled.spec}
+        onLoadTemplate={handleLoadTemplate}
+        onSaveTemplate={handleSaveTemplate}
+        defaultMode={templateManagerMode}
+        unstyled={unstyled}
       />
     </div>
   );

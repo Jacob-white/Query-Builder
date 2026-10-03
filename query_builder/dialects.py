@@ -5,7 +5,10 @@ Provides quote escaping, parameter placeholder handling, and dialect-specific
 SQL syntax generation for PostgreSQL, Snowflake, Microsoft SQL Server, SQLite, and MySQL.
 """
 
+from __future__ import annotations
+
 import re
+from typing import Any
 
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 MAX_IDENTIFIER_LENGTH = 128
@@ -491,7 +494,7 @@ DIALECTS: dict[str, BaseDialect] = {
 
 def get_dialect(name: str = "postgres") -> BaseDialect:
     """Returns the dialect instance for the specified name (defaults to postgres)."""
-    return DIALECTS.get(name.lower(), DIALECTS["postgres"])
+    return DIALECTS.get(name.lower().strip(), DIALECTS["postgres"])
 
 
 def quote_identifier(ident: str, dialect_name: str = "postgres") -> str:
@@ -502,3 +505,92 @@ def quote_identifier(ident: str, dialect_name: str = "postgres") -> str:
 def quote_alias(alias_name: str, dialect_name: str = "postgres") -> str:
     """Convenience helper to quote an alias with the named dialect."""
     return get_dialect(dialect_name).quote_alias(alias_name)
+
+
+def register_dialect(
+    name: str | BaseDialect | type[BaseDialect],
+    dialect: BaseDialect | type[BaseDialect] | None = None,
+    aliases: list[str] | None = None,
+) -> Any:
+    """
+    Registers a SQL dialect dynamically or as a class decorator.
+
+    Supports:
+    - Bare decorator: @register_dialect
+    - Decorator with name: @register_dialect("my_sql", aliases=[...])
+    - Functional registration: register_dialect("my_sql", dialect_or_cls, aliases=[...])
+    """
+    # Bare decorator: @register_dialect
+    if dialect is None and isinstance(name, type) and issubclass(name, BaseDialect):
+        instance = name()
+        inferred_name = name.__dict__.get("name") or name.__name__.lower()
+        clean_name = inferred_name.lower().strip()
+        DIALECTS[clean_name] = instance
+        if aliases:
+            for alias in aliases:
+                clean_alias = alias.lower().strip()
+                if clean_alias:
+                    DIALECTS[clean_alias] = instance
+        return name
+
+    # Decorator factory: @register_dialect("my_sql", aliases=[...])
+    if dialect is None and isinstance(name, str):
+        clean_name = name.lower().strip()
+        if not clean_name:
+            raise ValueError("Dialect name cannot be empty.")
+
+        def decorator(cls: type[BaseDialect]) -> type[BaseDialect]:
+            if not (isinstance(cls, type) and issubclass(cls, BaseDialect)):
+                raise TypeError(
+                    f"Dialect must be an instance or subclass of BaseDialect, got {type(cls).__name__}"
+                )
+            instance = cls()
+            DIALECTS[clean_name] = instance
+            if aliases:
+                for alias in aliases:
+                    clean_alias = alias.lower().strip()
+                    if clean_alias:
+                        DIALECTS[clean_alias] = instance
+            return cls
+
+        return decorator
+
+    if dialect is None:
+        raise TypeError(
+            f"Dialect name must be a string or dialect class, got {type(name).__name__}"
+        )
+
+    # Functional registration: register_dialect("my_sql", dialect_or_cls, aliases=[...])
+    if not isinstance(name, str):
+        raise TypeError(f"Dialect name must be a string, got {type(name).__name__}")
+    clean_name = name.lower().strip()
+    if not clean_name:
+        raise ValueError("Dialect name cannot be empty.")
+
+    if isinstance(dialect, type) and issubclass(dialect, BaseDialect):
+        instance = dialect()
+    elif isinstance(dialect, BaseDialect):
+        instance = dialect
+    else:
+        raise TypeError(
+            f"Dialect must be an instance or subclass of BaseDialect, got {type(dialect).__name__}"
+        )
+
+    DIALECTS[clean_name] = instance
+    if aliases:
+        for alias in aliases:
+            clean_alias = alias.lower().strip()
+            if clean_alias:
+                DIALECTS[clean_alias] = instance
+    return instance
+
+
+def unregister_dialect(name: str) -> None:
+    """Removes a dialect from the registered dialects map."""
+    clean_name = name.lower().strip()
+    DIALECTS.pop(clean_name, None)
+
+
+def list_dialects() -> list[str]:
+    """Returns a sorted list of registered dialect names and aliases."""
+    return sorted(DIALECTS.keys())
