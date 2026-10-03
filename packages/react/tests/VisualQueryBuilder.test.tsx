@@ -345,7 +345,8 @@ describe("VisualQueryBuilder", () => {
     fireEvent.click(screen.getByText("📝 Raw SQL"));
     const textarea = screen.getByRole("textbox");
     fireEvent.change(textarea, { target: { value: "DELETE FROM users;" } });
-    const runBtn = screen.getByText("▶ Run Query");
+    const runBtn = screen.getByText("▶ Run Query") as HTMLButtonElement;
+    expect(runBtn.disabled).toBe(true);
     fireEvent.click(runBtn);
     expect(handleExecute).not.toHaveBeenCalled();
   });
