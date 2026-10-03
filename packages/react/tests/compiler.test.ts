@@ -273,4 +273,24 @@ describe("compileVisualState", () => {
     expect(res.sql).toContain('LEFT JOIN "orders"');
     expect(res.sql).toContain('"users"."created_at" ASC');
   });
+
+  it("compiles numeric filter value without quotes", () => {
+    const res = compileVisualState(
+      "users",
+      { "users.age": { table: "users", name: "age" } },
+      ["users.age"],
+      [],
+      [
+        {
+          id: "f1",
+          tablePrefix: "users",
+          column: "age",
+          operator: "=",
+          value: 25 as any,
+        },
+      ],
+      [],
+    );
+    expect(res.sql).toContain('"users"."age" = 25');
+  });
 });

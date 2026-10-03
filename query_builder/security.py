@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from query_builder.dialects import BaseDialect
+from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect
 
 
 class SecurityError(Exception):
@@ -63,12 +63,22 @@ def _build_chain_exists(
         raise SecurityError(f"Invalid ownership chain element format: {hop}")
 
     fk_col, target_table, target_pk = hop
-    if not isinstance(target_table, str) or not target_table.strip():
-        raise SecurityError(f"Invalid target table in ownership chain: {target_table}")
-    if not isinstance(fk_col, str) or not fk_col.strip():
-        raise SecurityError(f"Invalid foreign key column in ownership chain: {fk_col}")
-    if not isinstance(target_pk, str) or not target_pk.strip():
-        raise SecurityError(f"Invalid target PK column in ownership chain: {target_pk}")
+    for name, label in (
+        (target_table, "target table"),
+        (fk_col, "foreign key column"),
+        (target_pk, "target PK column"),
+    ):
+        if not isinstance(name, str) or not IDENTIFIER_REGEX.match(name):
+            raise SecurityError(
+                f"Invalid {label} identifier in ownership chain: '{name}'"
+            )
+        if any(len(p) > 128 for p in name.split(".")):
+            raise SecurityError(
+                f"{label} identifier part exceeds maximum allowed length (128): '{name}'"
+            )
+
+    if not isinstance(from_alias, str) or not IDENTIFIER_REGEX.match(from_alias):
+        raise SecurityError(f"Invalid alias in ownership chain: '{from_alias}'")
 
     visited = set(visited_tables) if visited_tables is not None else set()
     if target_table in visited:
@@ -86,6 +96,8 @@ def _build_chain_exists(
             tables_meta.get(target_table, {}) if isinstance(tables_meta, dict) else {}
         )
         user_col = tgt_info.get("user_col", "user_id")
+        if not isinstance(user_col, str) or not IDENTIFIER_REGEX.match(user_col):
+            raise SecurityError(f"Invalid user column identifier: '{user_col}'")
         conditions.append(f"{q(tmp_alias)}.{q(user_col)} = {dialect.placeholder}")
         params.append(user_id)
     else:
@@ -126,10 +138,12 @@ def resolve_ownership_predicate(
     """
     if user_id is None:
         raise SecurityError("Tenant isolation requires a valid, non-null user_id.")
-    if not isinstance(table, str) or not table.strip():
-        raise SecurityError("Invalid table name for ownership resolution.")
-    if not isinstance(alias, str) or not alias.strip():
-        raise SecurityError("Invalid alias for ownership resolution.")
+    if not isinstance(table, str) or not IDENTIFIER_REGEX.match(table):
+        raise SecurityError(
+            f"Invalid table identifier for ownership resolution: '{table}'"
+        )
+    if not isinstance(alias, str) or not IDENTIFIER_REGEX.match(alias):
+        raise SecurityError(f"Invalid alias for ownership resolution: '{alias}'")
 
     meta = tables_meta if isinstance(tables_meta, dict) else {}
     tbl_info = meta.get(table, {})
@@ -141,6 +155,8 @@ def resolve_ownership_predicate(
         for c in tbl_info.get("columns", [])
     ]:
         user_col = tbl_info.get("user_col", "user_id")
+        if not isinstance(user_col, str) or not IDENTIFIER_REGEX.match(user_col):
+            raise SecurityError(f"Invalid user column identifier: '{user_col}'")
         params.append(user_id)
         return f"{q(alias)}.{q(user_col)} = {dialect.placeholder}"
 
@@ -154,7 +170,9 @@ def resolve_ownership_predicate(
 
     ctr = counter or AliasCounter()
     or_parts = [
-        _build_chain_exists(dialect, meta, alias, chain, user_id, params, ctr)
+        _build_chain_exists(
+            dialect, meta, alias, chain, user_id, params, ctr, visited_tables={table}
+        )
         for chain in chains
     ]
     return "(" + " OR ".join(or_parts) + ")"

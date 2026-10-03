@@ -34,6 +34,17 @@ DEFAULT_SENSITIVE_TABLES: set[str] = {
     "django_cache_table",
     "api_auditlog",
     "user_profile",
+    "sqlite_master",
+    "sqlite_schema",
+    "sqlite_temp_master",
+    "sqlite_temp_schema",
+    "sqlite_sequence",
+    "sqlite_stat1",
+    "mysql.user",
+    "mysql.db",
+    "sys.objects",
+    "sys.tables",
+    "sys.sql_logins",
 }
 
 

@@ -150,4 +150,41 @@ describe("validateSqlSafety", () => {
     expect(resMixed.valid).toBe(false);
     expect(resMixed.violations.some((v) => v.includes("allowed analytical datasets"))).toBe(true);
   });
+
+  it("handles CTEs with non-SELECT root operations and parenthesized queries", () => {
+    const resDo = validateSqlSafety("WITH t AS (SELECT 1) DO $$ BEGIN NULL; END $$;");
+    expect(resDo.valid).toBe(false);
+    expect(resDo.statementType).toBe("DO");
+
+    const resDel = validateSqlSafety("WITH t AS (SELECT 1) DELETE FROM users;");
+    expect(resDel.valid).toBe(false);
+    expect(resDel.statementType).toBe("DELETE");
+
+    const resReplace = validateSqlSafety("REPLACE INTO users (id) VALUES (1);");
+    expect(resReplace.valid).toBe(false);
+    expect(resReplace.violations.some((v) => v.includes("REPLACE INTO"))).toBe(true);
+
+    const resParenSel = validateSqlSafety("((SELECT 1));");
+    expect(resParenSel.valid).toBe(true);
+    expect(resParenSel.statementType).toBe("SELECT");
+
+    const resParenDel = validateSqlSafety("((DELETE FROM users));");
+    expect(resParenDel.valid).toBe(false);
+
+    const resWaitComment = validateSqlSafety("SELECT 1; WAITFOR/**/DELAY '00:00:05';");
+    expect(resWaitComment.valid).toBe(false);
+
+    expect(validateSqlSafety("SELECT * FROM [sys].[objects];").valid).toBe(false);
+    expect(validateSqlSafety("SELECT * FROM `mysql`.`user`;").valid).toBe(false);
+    expect(validateSqlSafety("SELECT * FROM pg_catalog . pg_class;").valid).toBe(false);
+    expect(validateSqlSafety("SELECT * FROM mysql.user;").valid).toBe(false);
+
+    expect(validateSqlSafety("/* outer /* inner */ */ SELECT 1;").valid).toBe(true);
+    expect(validateSqlSafety("# MySQL comment\nSELECT 1;").valid).toBe(true);
+    expect(validateSqlSafety("-- Line comment\r\nSELECT 1;").valid).toBe(true);
+    expect(validateSqlSafety("SELECT $$dollar string$$ AS val;").valid).toBe(true);
+    expect(validateSqlSafety("SELECT $tag$dollar tag$tag$ AS val;").valid).toBe(true);
+    expect(validateSqlSafety("SELECT 'O''Reilly' AS author;").valid).toBe(true);
+    expect(validateSqlSafety("WITH malformed_cte").valid).toBe(false);
+  });
 });
