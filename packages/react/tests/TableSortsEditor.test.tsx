@@ -131,4 +131,41 @@ describe("TableSortsEditor", () => {
 
     expect(handleChange).toHaveBeenCalledWith([]);
   });
+
+  it("handles adding sort when activeTables is empty and preserves other sorts during update", () => {
+    // 1. Add sort when activeTables is empty (lines 27-28)
+    const handleAddChange = vi.fn();
+    render(
+      <TableSortsEditor
+        sorts={[]}
+        activeTables={[]}
+        onChange={handleAddChange}
+      />
+    );
+    fireEvent.click(screen.getByText("+ Add Sort"));
+    expect(handleAddChange).toHaveBeenCalledOnce();
+    const addedSort = handleAddChange.mock.calls[0][0][0] as VisualSort;
+    expect(addedSort.tablePrefix).toBe("");
+    expect(addedSort.column).toBe("");
+
+    // 2. Update one of multiple sorts (line 35: : s branch)
+    const handleUpdateChange = vi.fn();
+    const twoSorts: VisualSort[] = [
+      { id: "s1", tablePrefix: "users", column: "id", direction: "ASC" },
+      { id: "s2", tablePrefix: "users", column: "created_at", direction: "DESC" },
+    ];
+    render(
+      <TableSortsEditor
+        sorts={twoSorts}
+        activeTables={activeTables}
+        onChange={handleUpdateChange}
+      />
+    );
+    const firstSelect = screen.getByDisplayValue("users.id");
+    fireEvent.change(firstSelect, { target: { value: "users.created_at" } });
+    expect(handleUpdateChange).toHaveBeenCalledWith([
+      { ...twoSorts[0], column: "created_at" },
+      twoSorts[1],
+    ]);
+  });
 });

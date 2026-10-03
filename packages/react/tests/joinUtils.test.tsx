@@ -227,4 +227,38 @@ describe("joinUtils", () => {
     // Over 10 hops cannot be reached via BFS; falls back to direct join
     expect(path).toHaveLength(1);
   });
+
+  it("handles empty columns fallback to 'id' and falsy active table items", () => {
+    const emptyColsSchema: SchemaSnapshot = {
+      tables: {
+        t1: { name: "t1", columns: [] },
+        t2: { name: "t2", columns: [] },
+      },
+      foreign_keys: [],
+    };
+    const cond = findBestJoinCondition("t1", "t2", emptyColsSchema);
+    expect(cond.leftCol).toBe("id");
+    expect(cond.rightCol).toBe("id");
+    expect(cond.reason).toBe("Primary key fallback");
+
+    const noPkSchema: SchemaSnapshot = {
+      tables: {
+        t1: {
+          name: "t1",
+          columns: [{ name: "col_a", data_type: "text", is_nullable: true, is_primary: false }],
+        },
+        t2: {
+          name: "t2",
+          columns: [{ name: "col_b", data_type: "text", is_nullable: true, is_primary: false }],
+        },
+      },
+      foreign_keys: [],
+    };
+    const cond2 = findBestJoinCondition("t1", "t2", noPkSchema);
+    expect(cond2.leftCol).toBe("col_a");
+    expect(cond2.rightCol).toBe("col_b");
+
+    const path = findJoinPath(["", "users"], "orders", mockSchema);
+    expect(path.length).toBeGreaterThanOrEqual(1);
+  });
 });

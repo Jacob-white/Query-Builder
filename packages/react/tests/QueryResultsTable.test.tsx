@@ -119,4 +119,35 @@ describe("QueryResultsTable", () => {
 
     expect(mockCreateObjectURL).not.toHaveBeenCalled();
   });
+
+  it("handles undefined columns/rows, and null values in search filter and CSV export", () => {
+    // 1. undefined columns and rows (lines 50-51)
+    const { unmount: unmount1 } = render(<QueryResultsTable results={{} as any} />);
+    expect(screen.getByText(/Showing/)).toBeTruthy();
+    unmount1();
+
+    // 2. null values in row during search filter (line 57)
+    const resultsWithNull: QueryResultData = {
+      columns: ["id", "val"],
+      rows: [
+        { id: 1, val: null },
+        { id: 2, val: undefined },
+        { id: 3, val: "matched" },
+      ],
+      count: 3,
+    };
+    const { unmount } = render(<QueryResultsTable results={resultsWithNull} />);
+    const searchInput = screen.getByPlaceholderText("Search results...");
+    fireEvent.change(searchInput, { target: { value: "matched" } });
+    expect(screen.getByText("matched")).toBeTruthy();
+    unmount();
+
+    // 3. null values during CSV export (line 68)
+    const mockCreateObjectURL = vi.fn().mockReturnValue("blob:mock-url");
+    global.URL.createObjectURL = mockCreateObjectURL;
+    render(<QueryResultsTable results={resultsWithNull} />);
+    const exportBtn = screen.getByText("📥 Export CSV");
+    fireEvent.click(exportBtn);
+    expect(mockCreateObjectURL).toHaveBeenCalledOnce();
+  });
 });

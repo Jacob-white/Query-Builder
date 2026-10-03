@@ -348,9 +348,9 @@ export function validateSqlSafety(
     }
     if (cteRoot !== "SELECT") {
       violations.push(
-        `Restricted statement type: ${cteRoot || "UNKNOWN"}. Only SELECT queries are permitted.`,
+        `Restricted statement type: ${cteRoot}. Only SELECT queries are permitted.`,
       );
-      stmtType = cteRoot || "UNKNOWN";
+      stmtType = cteRoot;
     } else {
       stmtType = "WITH";
     }

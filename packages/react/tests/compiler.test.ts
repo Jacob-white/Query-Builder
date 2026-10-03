@@ -293,4 +293,100 @@ describe("compileVisualState", () => {
     );
     expect(res.sql).toContain('"users"."age" = 25');
   });
+
+  it("handles aggregate without alias, DESC sort direction, undefined sorts, and table fallback in GROUP BY", () => {
+    // 1. Aggregate without alias and non-agg column with empty table (testing fallback to cleanPrimary)
+    const resAgg = compileVisualState(
+      "users",
+      {
+        "users.id": { table: "users", name: "id", aggregate: "COUNT" },
+        "users.status": { table: "", name: "status" },
+      },
+      ["users.id", "users.status"],
+      [],
+      [],
+      [
+        {
+          id: "s1",
+          column: "created_at",
+          direction: "DESC",
+        },
+      ],
+    );
+    expect(resAgg.sql).toContain('COUNT("users"."id") AS "count_id"');
+    expect(resAgg.sql).toContain('GROUP BY "users"."status"');
+    expect(resAgg.sql).toContain('"users"."created_at" DESC');
+
+    // 2. Undefined sorts, joins, filters parameter
+    const resUndefSorts = compileVisualState(
+      "users",
+      {},
+      [],
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
+    expect(resUndefSorts.sql).toContain('FROM "users"');
+
+    // 3. Filter with empty tablePrefix, null value, and empty IN value
+    const resFilterFallbacks = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [
+        {
+          id: "j1",
+          type: "LEFT JOIN",
+          left_table: "",
+          left_col: "id",
+          table: "orders",
+          right_col: "user_id",
+        },
+      ],
+      [
+        {
+          id: "f1",
+          tablePrefix: "",
+          column: "status",
+          operator: "=",
+          value: null as any,
+        },
+        {
+          id: "f2",
+          tablePrefix: "users",
+          column: "role",
+          operator: "IN",
+          value: "",
+        },
+      ],
+      [],
+    );
+    expect(resFilterFallbacks.sql).toContain('"users"."status" = \'\'');
+    expect(resFilterFallbacks.sql).toContain('"users"."role" IN (NULL)');
+    expect(resFilterFallbacks.sql).toContain('LEFT JOIN "orders" ON "users"."id" = "orders"."user_id"');
+
+    // 4. Missing projection item in selectedColumns and invalid aggregate
+    const resMissingItem = compileVisualState(
+      "users",
+      {
+        "users.invalid_agg": { table: "users", name: "id", aggregate: "INVALID_AGG" },
+      },
+      ["missing_item", "users.invalid_agg"],
+      [],
+      [],
+      [],
+    );
+    expect(resMissingItem.sql).toContain('SELECT "users"."id"');
+
+    // 5. Undefined orderedProjectionKeys
+    const resUndefProjections = compileVisualState(
+      "users",
+      {},
+      undefined as any,
+      [],
+      [],
+      [],
+    );
+    expect(resUndefProjections.sql).toContain("SELECT *");
+  });
 });

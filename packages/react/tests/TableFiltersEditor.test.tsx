@@ -192,4 +192,41 @@ describe("TableFiltersEditor", () => {
 
     expect(handleChange).toHaveBeenCalledWith([filters[1]]);
   });
+
+  it("handles adding filter when activeTables is empty and preserves other filters during update", () => {
+    // 1. Add filter with empty activeTables (lines 28-29)
+    const handleAddChange = vi.fn();
+    render(
+      <TableFiltersEditor
+        filters={[]}
+        activeTables={[]}
+        onChange={handleAddChange}
+      />
+    );
+    fireEvent.click(screen.getByText("+ Add Filter"));
+    expect(handleAddChange).toHaveBeenCalledOnce();
+    const addedFilter = handleAddChange.mock.calls[0][0][0] as VisualFilter;
+    expect(addedFilter.tablePrefix).toBe("");
+    expect(addedFilter.column).toBe("");
+
+    // 2. Update one of multiple filters (line 38: : f branch)
+    const handleUpdateChange = vi.fn();
+    const twoFilters: VisualFilter[] = [
+      { id: "f1", tablePrefix: "users", column: "id", operator: "=", value: "100" },
+      { id: "f2", tablePrefix: "orders", column: "amount", operator: ">", value: "50" },
+    ];
+    render(
+      <TableFiltersEditor
+        filters={twoFilters}
+        activeTables={activeTables}
+        onChange={handleUpdateChange}
+      />
+    );
+    const firstInput = screen.getByDisplayValue("100");
+    fireEvent.change(firstInput, { target: { value: "200" } });
+    expect(handleUpdateChange).toHaveBeenCalledWith([
+      { ...twoFilters[0], value: "200" },
+      twoFilters[1],
+    ]);
+  });
 });

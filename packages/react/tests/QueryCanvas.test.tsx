@@ -79,8 +79,9 @@ describe("QueryCanvas", () => {
         primaryTable="users"
         selectedColumns={{
           "users.id": { table: "users", name: "id", aggregate: undefined },
+          "users.email": { table: "users", name: "email", aggregate: "COUNT" },
         }}
-        orderedProjectionKeys={["users.id"]}
+        orderedProjectionKeys={["users.id", "users.email"]}
         joins={[]}
         filters={[]}
         sorts={[]}
@@ -99,7 +100,7 @@ describe("QueryCanvas", () => {
       />
     );
 
-    expect(screen.getByText("✨ Selected Columns & Projections (1)")).toBeTruthy();
+    expect(screen.getByText("✨ Selected Columns & Projections (2)")).toBeTruthy();
     expect(screen.getByText("users.id")).toBeTruthy();
 
     // Toggle DISTINCT
@@ -118,8 +119,8 @@ describe("QueryCanvas", () => {
     expect(handleUpdateCol).toHaveBeenCalledWith("users.id", { aggregate: "COUNT" });
 
     // Remove projection pill
-    const removeBtn = screen.getByTitle("Remove column");
-    fireEvent.click(removeBtn);
+    const removeBtns = screen.getAllByTitle("Remove column");
+    fireEvent.click(removeBtns[0]);
     expect(handleRemoveCol).toHaveBeenCalledWith("users.id");
   });
 
@@ -160,5 +161,35 @@ describe("QueryCanvas", () => {
     const removeBtn = screen.getByTitle("Remove table");
     fireEvent.click(removeBtn);
     expect(handleRemove).toHaveBeenCalledWith("users");
+  });
+
+  it("handles undefined schema tables and missing items in orderedProjectionKeys", () => {
+    render(
+      <QueryCanvas
+        schema={undefined as any}
+        activeTables={[usersTable]}
+        primaryTable="users"
+        selectedColumns={{}}
+        orderedProjectionKeys={["non_existent_key"]}
+        joins={[]}
+        filters={[]}
+        sorts={[]}
+        isDistinct={false}
+        limit={50}
+        onToggleColumn={vi.fn()}
+        onRemoveTable={vi.fn()}
+        onAddTableToCanvas={vi.fn()}
+        onUpdateColumnSelect={vi.fn()}
+        onRemoveColumnProjection={vi.fn()}
+        onJoinsChange={vi.fn()}
+        onFiltersChange={vi.fn()}
+        onSortsChange={vi.fn()}
+        onDistinctChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("✨ Selected Columns & Projections (1)")).toBeTruthy();
+    expect(screen.queryByTitle("Remove column")).toBeNull();
   });
 });
