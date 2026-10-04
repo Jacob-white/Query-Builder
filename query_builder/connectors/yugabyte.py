@@ -163,9 +163,8 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
                 latency_ms = (time.perf_counter() - start) * 1000.0
                 return col_names, dict_rows, latency_ms
             finally:
-                if hasattr(cur, "close"):
-                    with contextlib.suppress(Exception):
-                        cur.close()
+                with contextlib.suppress(Exception):
+                    cur.close()
         elif hasattr(conn, "fetch"):
             # asyncpg
             records = await conn.fetch(sql, *(params or []))
@@ -173,6 +172,29 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
             dict_rows = [dict(r) for r in records]
             latency_ms = (time.perf_counter() - start) * 1000.0
             return col_names, dict_rows, latency_ms
+        elif hasattr(conn, "execute"):
+            res = conn.execute(sql, *(params or [])) if params else conn.execute(sql)
+            if hasattr(res, "__await__"):
+                res = await res
+            desc = (
+                getattr(conn, "description", None)
+                or getattr(res, "description", None)
+                or []
+            )
+            col_names = [col[0] for col in desc]
+            fetchall_fn = getattr(conn, "fetchall", None) or getattr(
+                res, "fetchall", None
+            )
+            raw_rows = fetchall_fn() if fetchall_fn else []
+            if hasattr(raw_rows, "__await__"):
+                raw_rows = await raw_rows
+            dict_rows = [
+                dict(zip(col_names, r)) if not isinstance(r, dict) else r
+                for r in (raw_rows or [])
+            ]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return col_names, dict_rows, latency_ms
+        return None
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
@@ -186,7 +208,8 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
                         filter_sensitive=filter_sensitive,
                     )
                 finally:
-                    cur.close()
+                    with contextlib.suppress(Exception):
+                        cur.close()
             return introspect_yugabyte(
                 conn,
                 schema_name=self.schema_name,

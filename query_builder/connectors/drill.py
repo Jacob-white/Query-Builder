@@ -40,14 +40,18 @@ class _DrillCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
-        if _has_attr(self.target, "cursor"):
+        if _has_attr(self.target, "cursor") and not _has_attr(self.target, "fetchall"):
             cur = self.target.cursor()
-            if params:
-                cur.execute(clean_sql, params)
-            else:
-                cur.execute(clean_sql)
-            self.description = getattr(cur, "description", None)
-            self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            try:
+                if params:
+                    cur.execute(clean_sql, params)
+                else:
+                    cur.execute(clean_sql)
+                self.description = getattr(cur, "description", None)
+                self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
         elif _has_attr(self.target, "query"):
             # pydrill.client.PyDrill
             res = self.target.query(clean_sql)
@@ -67,7 +71,7 @@ class _DrillCursorAdapter:
                 ]
                 for row in raw_rows
             ]
-        elif _has_attr(self.target, "execute"):
+        elif _has_attr(self.target, "execute") or _has_attr(self.target, "fetchall"):
             if params:
                 self.target.execute(clean_sql, params)
             else:

@@ -1800,3 +1800,205 @@ def test_introspection_branch_exhaustion():
     # 9. introspect_clickhouse_native with non-cursor/non-execute object
     res_ch_no_exec = introspect_clickhouse_native(object())
     assert res_ch_no_exec["tables"] == {}
+
+
+def test_neo4j_sql_to_cypher_translation_and_execution():
+    mock_session = MagicMock()
+    mock_rec = MagicMock()
+    mock_rec.values.return_value = [1, "Alice"]
+    mock_res = MagicMock()
+    mock_res.keys.return_value = ["id", "name"]
+    mock_res.__iter__.return_value = [mock_rec]
+    mock_session.run.return_value = mock_res
+
+    # Test SELECT with WHERE, ORDER BY, LIMIT, OFFSET
+    adapter = _Neo4jCursorAdapter(mock_session)
+    sql = "SELECT id, name FROM users WHERE id = %s ORDER BY name ASC LIMIT 10 OFFSET 5"
+    adapter.execute(sql, [42])
+    args, _ = mock_session.run.call_args
+    cypher_query = args[0]
+    assert "MATCH (`users`:`users`)" in cypher_query
+    assert "WHERE id = $p0" in cypher_query
+    assert "RETURN id, name" in cypher_query
+    assert "ORDER BY name ASC" in cypher_query
+    assert "SKIP 5" in cypher_query
+    assert "LIMIT 10" in cypher_query
+    assert args[1] == {"p0": 42}
+    assert adapter.fetchall() == [[1, "Alice"]]
+
+    # Test connector.execute with visual query spec
+    conn = Neo4jConnector(cursor=mock_session)
+    spec = {
+        "table": "users",
+        "columns": [{"column": "id"}, {"column": "name"}],
+        "filters": [{"column": "id", "op": "eq", "value": 42}],
+        "limit": 10,
+    }
+    res = conn.execute(spec)
+    assert res["columns"] == ["id", "name"]
+    assert len(res["rows"]) == 1
+    assert res["rows"][0] == {"id": 1, "name": "Alice"}
+    assert res["latency_ms"] >= 0
+
+
+def test_async_yugabyte_unusual_connection_branches():
+    async def _test():
+        # Connection with execute method returning coroutine / result
+        mock_conn_exec = MagicMock(spec=["execute", "description", "fetchall"])
+        mock_conn_exec.description = [("val",)]
+        mock_conn_exec.fetchall.return_value = [(999,)]
+        aconn = AsyncYugabyteDBConnector(connection=mock_conn_exec)
+        cols, rows, _ = await aconn.execute_raw("SELECT 999", [1])
+        assert cols == ["val"]
+        assert rows == [{"val": 999}]
+
+        # Connection with unsupported connection type (no cursor, fetch, execute)
+        aconn_bad = AsyncYugabyteDBConnector(connection=object())
+        assert await aconn_bad.execute_raw("SELECT 1") is None
+
+        # Async introspection with cursor that has close
+        mock_cur = MagicMock()
+        mock_cur.fetchall.return_value = []
+        mock_conn_cur = MagicMock(spec=["cursor"])
+        mock_conn_cur.cursor.return_value = mock_cur
+        aconn_cur = AsyncYugabyteDBConnector(connection=mock_conn_cur)
+        with patch(
+            "query_builder.connectors.yugabyte.introspect_yugabyte",
+            return_value={"tables": {}},
+        ):
+            res = await aconn_cur.introspect_schema()
+            assert res == {"tables": {}}
+            mock_cur.close.assert_called()
+
+    asyncio.run(_test())
+
+
+def test_introspect_neo4j_session_close():
+    mock_driver = MagicMock()
+    mock_session = MagicMock()
+    mock_driver.session.return_value = mock_session
+    mock_session.run.return_value = []
+    introspect_neo4j(mock_driver)
+    mock_session.close.assert_called_once()
+
+
+def test_introspect_kdb_with_adapter():
+    mock_client = MagicMock()
+    mock_client.q.return_value = ["trades"]
+    adapter = _KdbCursorAdapter(mock_client)
+    res = introspect_kdb(adapter)
+    assert "trades" in res["tables"]
+
+
+def test_introspect_neo4j_with_adapter():
+    mock_session = MagicMock()
+    mock_session.run.return_value = []
+    adapter = _Neo4jCursorAdapter(mock_session)
+    res = introspect_neo4j(adapter)
+    assert "Node" in res["tables"]
+
+
+def test_async_yugabyte_coroutine_execute():
+    async def _test():
+        mock_coro_conn = MagicMock(spec=["execute"])
+        mock_coro_res = MagicMock()
+        mock_coro_res.description = [("col_a",)]
+
+        async def _mock_coro_fetchall():
+            return [(123,)]
+
+        mock_coro_res.fetchall = _mock_coro_fetchall
+
+        async def _mock_coro_exec(sql, *args):
+            return mock_coro_res
+
+        mock_coro_conn.execute = _mock_coro_exec
+        aconn_coro = AsyncYugabyteDBConnector(connection=mock_coro_conn)
+        cols_c, rows_c, _ = await aconn_coro.execute_raw("SELECT 123")
+        assert cols_c == ["col_a"]
+        assert rows_c == [{"col_a": 123}]
+
+    asyncio.run(_test())
+
+
+def test_neo4j_cypher_translation_select_variants():
+    mock_session = MagicMock()
+    mock_rec = MagicMock()
+    mock_rec.values.return_value = [10]
+    mock_res = MagicMock()
+    mock_res.keys.return_value = ["cnt"]
+    mock_res.__iter__.return_value = [mock_rec]
+    mock_session.run.return_value = mock_res
+
+    adapter = _Neo4jCursorAdapter(mock_session)
+
+    # COUNT(*)
+    adapter.execute("SELECT COUNT(*) FROM users")
+    args, _ = mock_session.run.call_args
+    assert "RETURN count(*)" in args[0]
+
+    # Star select
+    adapter.execute("SELECT * FROM users")
+    args, _ = mock_session.run.call_args
+    assert "RETURN `users`" in args[0]
+
+    # Qualified star select
+    adapter.execute("SELECT `users`.* FROM users")
+    args, _ = mock_session.run.call_args
+    assert "RETURN `users`" in args[0]
+
+    # SKIP without LIMIT
+    adapter.execute("SELECT id FROM users SKIP 5")
+    args, _ = mock_session.run.call_args
+    assert "SKIP 5" in args[0]
+
+    # $param token splitting
+    adapter.execute("MATCH (n) WHERE n.id = $param RETURN n", [42])
+    args, _ = mock_session.run.call_args
+    assert "$p0" in args[0]
+    assert args[1] == {"p0": 42}
+
+
+def test_neo4j_test_connection_multivalue_version():
+    mock_session = MagicMock()
+    mock_session.run.return_value = [("Neo4j Kernel", ["5.15.0"])]
+    conn = Neo4jConnector(cursor=mock_session)
+    info = conn.test_connection()
+    assert info["engine_version"] == "Neo4j 5.15.0"
+
+    mock_session_str = MagicMock()
+    mock_session_str.run.return_value = [("Neo4j Kernel", "5.15.1")]
+    conn_str = Neo4jConnector(cursor=mock_session_str)
+    info_str = conn_str.test_connection()
+    assert info_str["engine_version"] == "Neo4j 5.15.1"
+
+
+def test_kdb_cursor_adapter_q_fallback():
+    mock_client = MagicMock()
+    mock_res = MagicMock()
+    mock_res.columns = ["val"]
+    mock_df = MagicMock()
+    mock_df.iterrows.return_value = [(0, [99])]
+    mock_res.pd.return_value = mock_df
+    mock_client.q.sql.side_effect = RuntimeError("SQL unsupported")
+    mock_client.q.return_value = mock_res
+    adapter = _KdbCursorAdapter(mock_client)
+    adapter.execute("meta `trade")
+    assert adapter.description == [("val",)]
+    assert adapter.fetchall() == [[99]]
+
+    # Target where q has no sql attribute at all
+    mock_no_sql_target = MagicMock()
+    mock_no_sql_target.q = MagicMock(spec=["__call__"])
+    mock_no_sql_target.q.return_value = mock_res
+    adapter_no_sql = _KdbCursorAdapter(mock_no_sql_target)
+    adapter_no_sql.execute("1 + 1")
+    assert adapter_no_sql.fetchall() == [[99]]
+
+
+def test_neo4j_test_connection_empty_version_row():
+    mock_session = MagicMock()
+    mock_session.run.return_value = [("",)]
+    conn = Neo4jConnector(cursor=mock_session)
+    info = conn.test_connection()
+    assert "engine_version" not in info

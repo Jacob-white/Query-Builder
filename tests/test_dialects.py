@@ -172,7 +172,7 @@ def test_new_dialects_behavior():
     es = get_dialect("elasticsearch")
     assert es.name == "elasticsearch"
     assert es.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
-    assert get_dialect("opensearch").name == "elasticsearch"
+    assert get_dialect("opensearch").name == "opensearch"
 
     # DynamoDB
     ddb = get_dialect("dynamodb")
@@ -686,11 +686,17 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert yugabyte.format_ilike('"c"') == '"c" ILIKE %s'
     t_sql, t_params = yugabyte.inspect_tables_query("public")
     assert "information_schema.tables" in t_sql and t_params == ["public"]
+    c_sql, c_params = yugabyte.inspect_columns_query("public", "tbl")
+    assert "information_schema.columns" in c_sql and t_params == ["public"]
+    pk_sql, pk_params = yugabyte.inspect_primary_keys_query("public", "tbl")
+    assert "table_constraints" in pk_sql and "PRIMARY KEY" in pk_sql
+    fk_sql, fk_params = yugabyte.inspect_foreign_keys_query("public", "tbl")
+    assert "FOREIGN KEY" in fk_sql
 
     # 7. OpenSearch
     opensearch = get_dialect("opensearch")
-    assert opensearch.name == "elasticsearch"
-    assert get_dialect("opensearch_sql").name == "elasticsearch"
+    assert opensearch.name == "opensearch"
+    assert get_dialect("opensearch_sql").name == "opensearch"
     assert opensearch.quote_identifier("idx.field") == "`idx`.`field`"
     assert opensearch.quote_alias("col`alias") == "`col``alias`"
     assert opensearch.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
@@ -713,6 +719,7 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert neo4j.quote_identifier("Person.name") == "`Person`.`name`"
     assert neo4j.quote_alias("col`alias") == "`col``alias`"
     assert neo4j.format_ilike("`c`") == "toLower(`c`) CONTAINS toLower($param)"
+    assert neo4j.format_like("`c`") == "`c` CONTAINS $param"
     clause, params = neo4j.format_limit_offset(10, 5)
     assert clause == "SKIP $param LIMIT $param" and params == [5, 10]
     t_sql, t_params = neo4j.inspect_tables_query("neo4j")
@@ -756,3 +763,35 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert chn.quote_identifier("default.hits") == "`default`.`hits`"
     assert chn.quote_alias("col`alias") == "`col``alias`"
     assert chn.format_ilike("`c`") == "`c` ILIKE %s"
+    t_chn_sql, t_chn_params = chn.inspect_tables_query("default")
+    assert "system.tables" in t_chn_sql and t_chn_params == ["default"]
+    c_chn_sql, c_chn_params = chn.inspect_columns_query("default", "hits")
+    assert "system.columns" in c_chn_sql and c_chn_params == ["default", "hits"]
+    pk_chn_sql, pk_chn_params = chn.inspect_primary_keys_query("default", "hits")
+    assert "system.columns" in pk_chn_sql and pk_chn_params == ["default", "hits"]
+    fk_chn_sql, fk_chn_params = chn.inspect_foreign_keys_query("default", "hits")
+    assert fk_chn_sql == "" and fk_chn_params == []
+
+    # Verify BaseDialect.inspect_*() convenience methods
+    drill = get_dialect("drill")
+    t_drill, p_drill = drill.inspect_tables("dfs.default")
+    assert "INFORMATION_SCHEMA.TABLES" in t_drill and p_drill == ["dfs.default"]
+    c_drill, p_c_drill = drill.inspect_columns("dfs.default", "tbl")
+    assert "INFORMATION_SCHEMA.COLUMNS" in c_drill and p_c_drill == [
+        "dfs.default",
+        "tbl",
+    ]
+    pk_drill, _ = drill.inspect_primary_keys("dfs.default", "tbl")
+    assert pk_drill == ""
+    fk_drill, _ = drill.inspect_foreign_keys("dfs.default", "tbl")
+    assert fk_drill == ""
+    t_neo, _ = neo4j.inspect_tables("neo4j")
+    assert "SHOW NODE LABELS;" in t_neo
+    c_neo, _ = neo4j.inspect_columns("neo4j", "Person")
+    assert "MATCH (n:`Person`)" in c_neo
+    pk_neo, _ = neo4j.inspect_primary_keys("neo4j", "Person")
+    assert "SHOW CONSTRAINTS;" in pk_neo
+    fk_neo, _ = neo4j.inspect_foreign_keys("neo4j", "Person")
+    assert "SHOW RELATIONSHIP TYPES;" in fk_neo
+    c_neo_single, _ = neo4j.inspect_columns_query("Person")
+    assert "MATCH (n:`Person`)" in c_neo_single

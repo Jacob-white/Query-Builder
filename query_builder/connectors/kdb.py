@@ -42,7 +42,12 @@ class _KdbCursorAdapter:
         clean = sql.strip().rstrip(";").strip()
         if _has_attr(self.target, "sendSync"):
             # qpython
-            res = self.target.sendSync(clean)
+            clean_q = (
+                "1"
+                if clean.upper() in ("SELECT 1", "SELECT 1;", "SELECT 1 FROM DUAL")
+                else clean
+            )
+            res = self.target.sendSync(clean_q)
             if hasattr(res, "meta"):
                 self.description = [(str(c),) for c in res.meta.columns]
                 self._rows = [list(r) for r in res]
@@ -52,19 +57,30 @@ class _KdbCursorAdapter:
             else:
                 self.description = [("val",)]
                 self._rows = [[res]]
-        elif _has_attr(self.target, "cursor"):
+        elif _has_attr(self.target, "cursor") and not _has_attr(
+            self.target, "fetchall"
+        ):
             cur = self.target.cursor()
-            if params:
-                cur.execute(clean, params)
-            else:
-                cur.execute(clean)
-            self.description = getattr(cur, "description", None)
-            self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            try:
+                if params:
+                    cur.execute(clean, params)
+                else:
+                    cur.execute(clean)
+                self.description = getattr(cur, "description", None)
+                self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
         elif (
             _has_attr(self.target, "q") and getattr(self.target, "q", None) is not None
         ):
-            # pykx.q.sql
-            res = self.target.q.sql(clean)
+            # pykx.q.sql or pykx.q
+            res = None
+            if _has_attr(self.target.q, "sql"):
+                with contextlib.suppress(Exception):
+                    res = self.target.q.sql(clean)
+            if res is None and callable(self.target.q):
+                res = self.target.q(clean)
             if hasattr(res, "columns"):
                 self.description = [(str(c),) for c in res.columns]
             elif hasattr(res, "keys"):
@@ -79,7 +95,7 @@ class _KdbCursorAdapter:
                 self._rows = [list(val)] if isinstance(val, (list, tuple)) else [[val]]
             else:
                 self._rows = []
-        elif _has_attr(self.target, "execute"):
+        elif _has_attr(self.target, "execute") or _has_attr(self.target, "fetchall"):
             if params:
                 self.target.execute(clean, params)
             else:
