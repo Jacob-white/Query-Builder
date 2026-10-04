@@ -134,4 +134,3 @@ def test_validate_sql_ast_allows_literals_with_mutation_words():
     assert res["valid"] is True
     assert res["ast_validated"] is True
     assert len(res["violations"]) == 0
-

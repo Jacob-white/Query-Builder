@@ -2,13 +2,15 @@
 Multi-Tenant Security & Fail-Closed RLS Policy Engine.
 ======================================================
 Enforces role-based access control (RBAC), attribute-based access control (ABAC),
-table allow/denylists, column masking, and automatic fail-closed row-level tenant
-filter injection into query specifications.
+table allow/denylists, column masking, regex-based sensitive column detection,
+dynamic masking strategies ('redact', 'hash', 'partial'), and automatic fail-closed
+row-level tenant filter injection into query specifications.
 """
 
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -36,13 +38,15 @@ class SecurityPolicy:
     enforce_tenant_isolation: bool = True
     row_level_filters: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     column_masking: dict[str, list[str]] = field(default_factory=dict)
+    sensitive_column_patterns: list[str] = field(default_factory=list)
+    masking_strategy: str = "redact"
 
 
 def apply_security_policy(
     spec: dict[str, Any] | QuerySpec,
     schema: dict[str, Any] | SchemaSnapshot | None = None,
     context: TenantContext | None = None,
-    policy: SecurityPolicy | None = None,
+    policy: SecurityPolicy | dict[str, Any] | Any | None = None,
 ) -> dict[str, Any]:
     """Validates and transforms query spec according to tenant context and security policy.
 
@@ -50,10 +54,11 @@ def apply_security_policy(
     - If tenant isolation is enforced and context/tenant_id is missing or empty.
     - If referenced tables are in restricted_tables or not in allowed_tables.
     - Automatically injects tenant_column filters and row_level_filters.
-    - Redacts masked columns for non-privileged roles.
+    - Redacts or masks columns matching column_masking or sensitive_column_patterns
+      for non-privileged roles using configured masking_strategy.
     """
-    if isinstance(spec, QuerySpec) or hasattr(spec, "__dict__"):
-        spec_dict: dict[str, Any] = asdict(spec)
+    if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
+        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore
     elif isinstance(spec, dict):
         spec_dict = copy.deepcopy(spec)
     else:
@@ -70,6 +75,30 @@ def apply_security_policy(
         active_policy = SecurityPolicy()
     elif isinstance(policy, dict):
         active_policy = SecurityPolicy(**policy)
+    elif hasattr(policy, "privacy") and hasattr(
+        policy.privacy, "sensitive_column_patterns"
+    ):
+        # SecurityConfig instance
+        active_policy = SecurityPolicy(
+            tenant_column=policy.privacy.tenant_column,
+            enforce_tenant_isolation=policy.privacy.enforce_tenant_isolation,
+            sensitive_column_patterns=policy.privacy.sensitive_column_patterns,
+            masking_strategy=policy.privacy.masking_strategy,
+        )
+    elif hasattr(policy, "sensitive_column_patterns") and hasattr(
+        policy, "tenant_column"
+    ):
+        # PrivacySecurityConfig instance or SecurityPolicy
+        active_policy = SecurityPolicy(
+            allowed_tables=getattr(policy, "allowed_tables", None),
+            restricted_tables=getattr(policy, "restricted_tables", []),
+            tenant_column=policy.tenant_column,
+            enforce_tenant_isolation=policy.enforce_tenant_isolation,
+            row_level_filters=getattr(policy, "row_level_filters", {}),
+            column_masking=getattr(policy, "column_masking", {}),
+            sensitive_column_patterns=policy.sensitive_column_patterns,
+            masking_strategy=getattr(policy, "masking_strategy", "redact"),
+        )
     else:
         active_policy = policy
 
@@ -276,7 +305,7 @@ def apply_security_policy(
                 filters.append(rule_copy)
 
     # 5. Column Masking
-    if active_policy.column_masking:
+    if active_policy.column_masking or active_policy.sensitive_column_patterns:
         is_admin = bool(
             context
             and any(r.lower() == "admin" for r in context.roles if isinstance(r, str))
@@ -284,6 +313,9 @@ def apply_security_policy(
         if not is_admin:
             cols = spec_dict.get("columns", [])
             new_cols: list[Any] = []
+            compiled_patterns = [
+                re.compile(p) for p in active_policy.sensitive_column_patterns
+            ]
             for c in cols:
                 if isinstance(c, str):
                     parts = c.split(".")
@@ -297,14 +329,20 @@ def apply_security_policy(
                         )
                         or active_policy.column_masking.get("*", [])
                     )
-                    if c_name in masked_list or c in masked_list:
-                        new_cols.append(
-                            {
-                                "column": c_name,
-                                "alias": f"{c_name}_masked",
-                                "masked": True,
-                            }
-                        )
+                    is_masked = c_name in masked_list or c in masked_list
+                    if not is_masked and compiled_patterns:
+                        is_masked = any(p.search(c_name) for p in compiled_patterns)
+                    if is_masked:
+                        col_entry: dict[str, Any] = {
+                            "column": c_name,
+                            "alias": f"{c_name}_masked",
+                            "masked": True,
+                        }
+                        if active_policy.masking_strategy != "redact":
+                            col_entry["masking_strategy"] = (
+                                active_policy.masking_strategy
+                            )
+                        new_cols.append(col_entry)
                     else:
                         new_cols.append(c)
                 elif isinstance(c, dict):
@@ -323,10 +361,17 @@ def apply_security_policy(
                         )
                         or active_policy.column_masking.get("*", [])
                     )
-                    if c_name in masked_list:
+                    is_masked = c_name in masked_list
+                    if not is_masked and compiled_patterns:
+                        is_masked = any(
+                            p.search(str(c_name)) for p in compiled_patterns
+                        )
+                    if is_masked:
                         c_copy = dict(c)
-                        c_copy["alias"] = f"{c_name}_masked"
+                        c_copy["alias"] = c.get("alias") or f"{c_name}_masked"
                         c_copy["masked"] = True
+                        if active_policy.masking_strategy != "redact":
+                            c_copy["masking_strategy"] = active_policy.masking_strategy
                         new_cols.append(c_copy)
                     else:
                         new_cols.append(c)
