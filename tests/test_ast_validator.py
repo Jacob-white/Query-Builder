@@ -126,3 +126,12 @@ def test_validate_sql_ast_unknown_statement_risk_high():
     res = validate_sql_ast(sql)
     assert res["valid"] is False
     assert res["injection_risk"] == "HIGH"
+
+
+def test_validate_sql_ast_allows_literals_with_mutation_words():
+    sql = "SELECT is_deleted, 'cannot delete record' AS note FROM production.firm_master WHERE name = 'drop';"
+    res = validate_sql_ast(sql)
+    assert res["valid"] is True
+    assert res["ast_validated"] is True
+    assert len(res["violations"]) == 0
+
