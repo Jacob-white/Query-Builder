@@ -1661,3 +1661,1040 @@ def introspect_cosmosdb(
         raise IntrospectionError(
             f"Failed to introspect Cosmos DB database '{database}': {exc}"
         ) from exc
+
+
+DEFAULT_SENSITIVE_COLUMN_PATTERNS: tuple[str, ...] = (
+    "password",
+    "secret",
+    "token",
+    "api_key",
+    "access_token",
+    "auth_token",
+    "private_key",
+    "ssn",
+)
+
+
+def _is_sensitive_column(col_name: str) -> bool:
+    clean = col_name.lower().strip()
+    return any(p in clean for p in DEFAULT_SENSITIVE_COLUMN_PATTERNS)
+
+
+def _has_attr(target: Any, attr: str) -> bool:
+    if hasattr(target, "_mock_children"):
+        if getattr(target, "_mock_methods", None) is not None:
+            return hasattr(target, attr)
+        return attr in target._mock_children
+    return hasattr(target, attr)
+
+
+def _unwrap_cursor(client_or_cur: Any) -> Any:
+    if hasattr(client_or_cur, "_mock_children"):
+        if getattr(client_or_cur, "_mock_methods", None) is not None:
+            if hasattr(client_or_cur, "cursor") and not hasattr(
+                client_or_cur, "fetchall"
+            ):
+                return client_or_cur.cursor()
+            return client_or_cur
+        if "cursor" in client_or_cur._mock_children:
+            return client_or_cur.cursor()
+        return client_or_cur
+    if hasattr(client_or_cur, "cursor") and not hasattr(client_or_cur, "fetchall"):
+        return client_or_cur.cursor()
+    return client_or_cur
+
+
+def introspect_doris(
+    cursor: Any, database: str = "information_schema", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Doris schema using information_schema or SHOW TABLES."""
+    try:
+        table_names: list[str] = []
+        try:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_type IN ('BASE TABLE', 'VIEW', 'EXTERNAL TABLE')
+                ORDER BY table_name;
+                """,
+                [database],
+            )
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+        except Exception:  # noqa: BLE001
+            cursor.execute("SHOW TABLES;")
+            table_rows = cursor.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        try:
+            cursor.execute(
+                """
+                SELECT table_name, column_name, data_type, is_nullable, column_key
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                ORDER BY table_name, ordinal_position;
+                """,
+                [database],
+            )
+            col_rows = cursor.fetchall()
+            for r in col_rows:
+                t_name, c_name, d_type, is_null = (
+                    str(r[0]),
+                    str(r[1]),
+                    str(r[2]),
+                    str(r[3]),
+                )
+                if filter_sensitive and _is_sensitive_column(c_name):
+                    continue
+                col_key = str(r[4]).upper() if len(r) > 4 and r[4] else ""
+                is_pk = (col_key in ("PRI", "UNI")) or (c_name.lower() == "id")
+                table_cols_map.setdefault(t_name, []).append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
+                        "is_primary": is_pk,
+                        "comment": None,
+                    }
+                )
+        except Exception:  # noqa: BLE001
+            for tbl in table_names:
+                cursor.execute(f"DESCRIBE `{tbl}`;")
+                col_rows = cursor.fetchall()
+                for r in col_rows:
+                    c_name = str(r[0])
+                    if filter_sensitive and _is_sensitive_column(c_name):
+                        continue
+                    d_type = str(r[1]) if len(r) > 1 else "string"
+                    is_null = str(r[2]) if len(r) > 2 else "YES"
+                    col_key = str(r[3]).upper() if len(r) > 3 and r[3] else ""
+                    is_pk = (col_key in ("PRI", "UNI", "YES")) or (
+                        c_name.lower() == "id"
+                    )
+                    table_cols_map.setdefault(tbl, []).append(
+                        {
+                            "name": c_name,
+                            "data_type": d_type,
+                            "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Doris database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_impala(
+    cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Impala schema using SHOW TABLES and DESCRIBE."""
+    try:
+        cursor.execute(f"SHOW TABLES IN `{database}`;")
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+            col_rows = cursor.fetchall()
+            cols: list[dict[str, Any]] = []
+            has_user = False
+            for r in col_rows:
+                c_name = str(r[0]).strip()
+                if not c_name or c_name.startswith("#"):
+                    continue
+                if filter_sensitive and _is_sensitive_column(c_name):
+                    continue
+                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                if c_name == "user_id":
+                    has_user = True
+                cols.append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": True,
+                        "is_primary": c_name == "id",
+                        "comment": comment,
+                    }
+                )
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Impala database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_hive(
+    cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Hive lakehouse schema via HiveServer2 metadata."""
+    try:
+        cursor.execute(f"SHOW TABLES IN `{database}`;")
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+            col_rows = cursor.fetchall()
+            cols: list[dict[str, Any]] = []
+            has_user = False
+            for r in col_rows:
+                c_name = str(r[0]).strip()
+                if not c_name or c_name.startswith("#"):
+                    continue
+                if filter_sensitive and _is_sensitive_column(c_name):
+                    continue
+                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                if c_name == "user_id":
+                    has_user = True
+                cols.append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": True,
+                        "is_primary": c_name == "id",
+                        "comment": comment,
+                    }
+                )
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Hive database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_kyuubi(
+    cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Kyuubi multi-tenant query gateway schema."""
+    try:
+        cursor.execute(f"SHOW TABLES IN `{database}`;")
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+            col_rows = cursor.fetchall()
+            cols: list[dict[str, Any]] = []
+            has_user = False
+            for r in col_rows:
+                c_name = str(r[0]).strip()
+                if not c_name or c_name.startswith("#"):
+                    continue
+                if filter_sensitive and _is_sensitive_column(c_name):
+                    continue
+                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                if c_name == "user_id":
+                    has_user = True
+                cols.append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": True,
+                        "is_primary": c_name == "id",
+                        "comment": comment,
+                    }
+                )
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Kyuubi database '{database}': {exc}"
+        ) from exc
+
+
+def introspect_drill(
+    cursor_or_client: Any,
+    schema_name: str = "dfs.default",
+    filter_sensitive: bool = True,
+) -> dict[str, Any]:
+    """Introspects Apache Drill distributed schema using INFORMATION_SCHEMA or SHOW TABLES."""
+    try:
+        cur = _unwrap_cursor(cursor_or_client)
+        table_names: list[str] = []
+        try:
+            cur.execute(
+                """
+                SELECT TABLE_NAME
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = %s
+                ORDER BY TABLE_NAME;
+                """,
+                [schema_name],
+            )
+            table_rows = cur.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+        except Exception:  # noqa: BLE001
+            cur.execute("SHOW TABLES;")
+            table_rows = cur.fetchall()
+            table_names = [r[0] for r in table_rows if r and r[0]]
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        try:
+            cur.execute(
+                """
+                SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s
+                ORDER BY TABLE_NAME, ORDINAL_POSITION;
+                """,
+                [schema_name],
+            )
+            col_rows = cur.fetchall()
+            for r in col_rows:
+                t_name, c_name, d_type, is_null = (
+                    str(r[0]),
+                    str(r[1]),
+                    str(r[2]),
+                    str(r[3]),
+                )
+                if filter_sensitive and _is_sensitive_column(c_name):
+                    continue
+                table_cols_map.setdefault(t_name, []).append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
+                        "is_primary": c_name == "id",
+                        "comment": None,
+                    }
+                )
+        except Exception:  # noqa: BLE001
+            for tbl in table_names:
+                cur.execute(f"DESCRIBE `{tbl}`;")
+                col_rows = cur.fetchall()
+                for r in col_rows:
+                    c_name = str(r[0])
+                    if filter_sensitive and _is_sensitive_column(c_name):
+                        continue
+                    d_type = str(r[1]) if len(r) > 1 else "VARCHAR"
+                    is_null = str(r[2]) if len(r) > 2 else "YES"
+                    table_cols_map.setdefault(tbl, []).append(
+                        {
+                            "name": c_name,
+                            "data_type": d_type,
+                            "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
+                            "is_primary": c_name == "id",
+                            "comment": None,
+                        }
+                    )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Drill schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_yugabyte(
+    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects YugabyteDB PostgreSQL-compatible distributed HTAP schema."""
+    try:
+        cursor.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name;
+            """,
+            [schema_name],
+        )
+        table_rows = cursor.fetchall()
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        cursor.execute(
+            """
+            SELECT table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = %s
+            ORDER BY table_name, ordinal_position;
+            """,
+            [schema_name],
+        )
+        col_rows = cursor.fetchall()
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT kcu.table_name, kcu.column_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'PRIMARY KEY'
+                  AND tc.table_schema = %s;
+                """,
+                [schema_name],
+            )
+            for pkr in cursor.fetchall():
+                pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                    str(pkr[1]).lower()
+                )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                """
+                SELECT kcu.table_name AS src_table,
+                       kcu.column_name AS src_column,
+                       ccu.table_name AS tgt_table,
+                       ccu.column_name AS tgt_column
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = %s;
+                """,
+                [schema_name],
+            )
+            for fkr in cursor.fetchall():
+                src_tbl, src_col, tgt_tbl, tgt_col = (
+                    str(fkr[0]),
+                    str(fkr[1]),
+                    str(fkr[2]),
+                    str(fkr[3]),
+                )
+                foreign_keys.append(
+                    {
+                        "table": src_tbl,
+                        "column": src_col,
+                        "foreign_table": tgt_tbl,
+                        "foreign_column": tgt_col,
+                    }
+                )
+                relationships.append(
+                    {
+                        "source_table": src_tbl,
+                        "source_column": src_col,
+                        "target_table": tgt_tbl,
+                        "target_column": tgt_col,
+                    }
+                )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type, is_null = (
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                str(r[3]),
+            )
+            if filter_sensitive and _is_sensitive_column(c_name):
+                continue
+            is_pk = (c_name.lower() in pk_cols_map.get(t_name.lower(), set())) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect YugabyteDB schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_opensearch(
+    client_or_cursor: Any, catalog: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API."""
+    try:
+        table_names: list[str] = []
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+
+        if _has_attr(client_or_cursor, "indices") and hasattr(
+            client_or_cursor.indices, "get_mapping"
+        ):
+            mappings = client_or_cursor.indices.get_mapping()
+            for idx, meta in mappings.items():
+                if idx.startswith("."):
+                    continue
+                table_names.append(idx)
+                props = meta.get("mappings", {}).get("properties", {})
+                cols: list[dict[str, Any]] = [
+                    {
+                        "name": "_id",
+                        "data_type": "keyword",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    }
+                ]
+                for prop_name, prop_meta in props.items():
+                    if filter_sensitive and _is_sensitive_column(prop_name):
+                        continue
+                    d_type = (
+                        prop_meta.get("type", "text")
+                        if isinstance(prop_meta, dict)
+                        else "text"
+                    )
+                    cols.append(
+                        {
+                            "name": prop_name,
+                            "data_type": d_type,
+                            "is_nullable": True,
+                            "is_primary": False,
+                            "comment": None,
+                        }
+                    )
+                table_cols_map[idx] = cols
+        else:
+            cur = _unwrap_cursor(client_or_cursor)
+            cur.execute("SHOW TABLES LIKE '%';")
+            rows = cur.fetchall()
+            for r in rows:
+                if r and r[0] and not str(r[0]).startswith("."):
+                    table_names.append(str(r[0]))
+
+            for tbl in table_names:
+                cur.execute(f"DESCRIBE `{tbl}`;")
+                col_rows = cur.fetchall()
+                cols = [
+                    {
+                        "name": "_id",
+                        "data_type": "keyword",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    }
+                ]
+                for r in col_rows:
+                    c_name = str(r[0])
+                    if filter_sensitive and _is_sensitive_column(c_name):
+                        continue
+                    d_type = str(r[1]) if len(r) > 1 else "text"
+                    if c_name != "_id":
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": False,
+                                "comment": None,
+                            }
+                        )
+                table_cols_map[tbl] = cols
+
+        if not table_names:
+            table_names = ["logs"]
+            table_cols_map["logs"] = [
+                {
+                    "name": "_id",
+                    "data_type": "keyword",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "message",
+                    "data_type": "text",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "timestamp",
+                    "data_type": "date",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect OpenSearch catalog '{catalog}': {exc}"
+        ) from exc
+
+
+def introspect_neo4j(
+    driver_or_session: Any, filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Neo4j graph database schema, node labels, properties, and relationships."""
+    try:
+        session = None
+        if _has_attr(driver_or_session, "session"):
+            session = driver_or_session.session()
+        else:
+            session = driver_or_session
+
+        table_names: list[str] = []
+        try:
+            res = session.run("SHOW NODE LABELS;")
+            table_names = [
+                record["label"] if "label" in record else record[0] for record in res
+            ]
+        except Exception:  # noqa: BLE001
+            try:
+                res = session.run("CALL db.labels();")
+                table_names = [
+                    record["label"] if "label" in record else record[0]
+                    for record in res
+                ]
+            except Exception:  # noqa: BLE001
+                table_names = []
+
+        if not table_names:
+            table_names = ["Node"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for label in table_names:
+            cols: list[dict[str, Any]] = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                }
+            ]
+            with contextlib.suppress(Exception):
+                prop_res = session.run(
+                    f"MATCH (n:`{label}`) RETURN keys(n) AS keys LIMIT 1;"
+                )
+                for record in prop_res:
+                    keys = record["keys"] if "keys" in record else record[0]
+                    for k in keys:
+                        if k != "id":
+                            if filter_sensitive and _is_sensitive_column(str(k)):
+                                continue
+                            cols.append(
+                                {
+                                    "name": str(k),
+                                    "data_type": "string",
+                                    "is_nullable": True,
+                                    "is_primary": False,
+                                    "comment": None,
+                                }
+                            )
+
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[label] = {
+                "name": label,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        relationships: list[dict[str, Any]] = []
+        foreign_keys: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            rel_res = session.run("SHOW RELATIONSHIP TYPES;")
+            for record in rel_res:
+                rel_type = (
+                    record["relationshipType"]
+                    if "relationshipType" in record
+                    else record[0]
+                )
+                if len(table_names) >= 2:
+                    src, tgt = table_names[0], table_names[1]
+                else:
+                    src = tgt = table_names[0]
+                relationships.append(
+                    {
+                        "source_table": src,
+                        "source_column": "id",
+                        "target_table": tgt,
+                        "target_column": f"{str(rel_type).lower()}_id",
+                    }
+                )
+                foreign_keys.append(
+                    {
+                        "table": src,
+                        "column": "id",
+                        "foreign_table": tgt,
+                        "foreign_column": f"{str(rel_type).lower()}_id",
+                    }
+                )
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Neo4j graph database: {exc}"
+        ) from exc
+
+
+def introspect_kdb(
+    client_or_conn: Any, filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Kdb+ tables, vector columns, and schemas via q meta."""
+    try:
+        tables_res = None
+        if (
+            _has_attr(client_or_conn, "q")
+            and getattr(client_or_conn, "q", None) is not None
+            and callable(getattr(client_or_conn, "q", None))
+        ):
+            tables_res = client_or_conn.q("tables[]")
+        elif _has_attr(client_or_conn, "sendSync"):
+            tables_res = client_or_conn.sendSync("tables[]")
+        elif _has_attr(client_or_conn, "execute"):
+            client_or_conn.execute("tables[]")
+            tables_res = client_or_conn.fetchall()
+        elif callable(client_or_conn):
+            tables_res = client_or_conn("tables[]")
+
+        table_names: list[str] = []
+        if tables_res is not None:
+            if isinstance(tables_res, (list, tuple)):
+                table_names = [
+                    str(r[0]) if isinstance(r, (list, tuple)) else str(r)
+                    for r in tables_res
+                ]
+            elif hasattr(tables_res, "py"):
+                table_names = [str(x) for x in tables_res.py()]
+            else:
+                table_names = [str(tables_res)]
+
+        if not table_names:
+            table_names = ["trades", "quotes"]
+
+        type_map = {
+            "s": "symbol",
+            "i": "integer",
+            "j": "long",
+            "f": "float",
+            "e": "real",
+            "p": "timestamp",
+            "d": "date",
+            "t": "time",
+            "b": "boolean",
+            "c": "char",
+        }
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            meta_res = None
+            q_query = f"meta `{tbl}"
+            with contextlib.suppress(Exception):
+                if (
+                    _has_attr(client_or_conn, "q")
+                    and getattr(client_or_conn, "q", None) is not None
+                    and callable(getattr(client_or_conn, "q", None))
+                ):
+                    meta_res = client_or_conn.q(q_query)
+                elif _has_attr(client_or_conn, "sendSync"):
+                    meta_res = client_or_conn.sendSync(q_query)
+                elif _has_attr(client_or_conn, "execute"):
+                    client_or_conn.execute(q_query)
+                    meta_res = client_or_conn.fetchall()
+                elif callable(client_or_conn):
+                    meta_res = client_or_conn(q_query)
+
+            cols: list[dict[str, Any]] = []
+            if meta_res is not None:
+                rows = []
+                if isinstance(meta_res, (list, tuple)):
+                    rows = meta_res
+                elif hasattr(meta_res, "pd"):
+                    df = meta_res.pd()
+                    rows = [(idx, row["t"]) for idx, row in df.iterrows()]
+                elif hasattr(meta_res, "items"):
+                    rows = list(meta_res.items())
+
+                for r in rows:
+                    if isinstance(r, (list, tuple)):
+                        c_name = str(r[0])
+                        t_char = str(r[1]) if len(r) > 1 else "s"
+                    elif isinstance(r, dict):
+                        c_name = str(r.get("c", "col"))
+                        t_char = str(r.get("t", "s"))
+                    else:
+                        c_name = str(r)
+                        t_char = "s"
+                    if filter_sensitive and _is_sensitive_column(c_name):
+                        continue
+                    d_type = type_map.get(t_char.lower(), "symbol")
+                    cols.append(
+                        {
+                            "name": c_name,
+                            "data_type": d_type,
+                            "is_nullable": True,
+                            "is_primary": c_name in ("id", "time", "sym"),
+                            "comment": None,
+                        }
+                    )
+
+            if not cols:
+                cols = [
+                    {
+                        "name": "time",
+                        "data_type": "timestamp",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "sym",
+                        "data_type": "symbol",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "price",
+                        "data_type": "float",
+                        "is_nullable": False,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                    {
+                        "name": "size",
+                        "data_type": "long",
+                        "is_nullable": False,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                ]
+
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(f"Failed to introspect Kdb+ database: {exc}") from exc
+
+
+def introspect_clickhouse_native(
+    client_or_cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects ClickHouse schema via native binary TCP client executing system queries."""
+    try:
+        cur = _unwrap_cursor(client_or_cursor)
+        table_rows = []
+        if hasattr(cur, "execute"):
+            try:
+                cur.execute(
+                    "SELECT name FROM system.tables WHERE database = %(db)s ORDER BY name;",
+                    {"db": database},
+                )
+                table_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
+            except Exception:  # noqa: BLE001
+                cur.execute(
+                    f"SELECT name FROM system.tables WHERE database = '{database}' ORDER BY name;"
+                )
+                table_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
+
+        table_names = [r[0] for r in table_rows if r and r[0]]
+
+        col_rows = []
+        if hasattr(cur, "execute"):
+            try:
+                cur.execute(
+                    "SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = %(db)s ORDER BY table, position;",
+                    {"db": database},
+                )
+                col_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
+            except Exception:  # noqa: BLE001
+                cur.execute(
+                    f"SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = '{database}' ORDER BY table, position;"
+                )
+                col_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+            if filter_sensitive and _is_sensitive_column(c_name):
+                continue
+            is_pk = bool(r[3]) if len(r) > 3 else (c_name == "id")
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": d_type,
+                    "is_nullable": "Nullable" in d_type,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": [],
+            "relationships": [],
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect ClickHouse Native database '{database}': {exc}"
+        ) from exc

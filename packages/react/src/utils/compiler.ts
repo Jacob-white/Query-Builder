@@ -81,7 +81,29 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
     dialect === "surreal" ||
     dialect === "arangodb" ||
     dialect === "arango" ||
-    dialect === "aql"
+    dialect === "aql" ||
+    dialect === "doris" ||
+    dialect === "apache_doris" ||
+    dialect === "pydoris" ||
+    dialect === "impala" ||
+    dialect === "apache_impala" ||
+    dialect === "impyla" ||
+    dialect === "hive" ||
+    dialect === "apache_hive" ||
+    dialect === "pyhive" ||
+    dialect === "kyuubi" ||
+    dialect === "apache_kyuubi" ||
+    dialect === "drill" ||
+    dialect === "apache_drill" ||
+    dialect === "pydrill" ||
+    dialect === "opensearch" ||
+    dialect === "opensearch_sql" ||
+    dialect === "neo4j" ||
+    dialect === "cypher" ||
+    dialect === "neo4j_sql" ||
+    dialect === "clickhouse_native" ||
+    dialect === "ch_native" ||
+    dialect === "clickhouse_tcp"
   ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
@@ -102,6 +124,9 @@ export function formatIlike(
 ): string {
   if (dialect === "sqlite" || dialect === "d1" || dialect === "cloudflare_d1") {
     return `${colRef} LIKE ${valEscaped}`;
+  }
+  if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
+    return `toLower(${colRef}) CONTAINS toLower(${valEscaped})`;
   }
   if (
     dialect === "postgres" ||
@@ -133,7 +158,23 @@ export function formatIlike(
     dialect === "spark" ||
     dialect === "chdb" ||
     dialect === "greptimedb" ||
-    dialect === "greptime"
+    dialect === "greptime" ||
+    dialect === "doris" ||
+    dialect === "apache_doris" ||
+    dialect === "pydoris" ||
+    dialect === "impala" ||
+    dialect === "apache_impala" ||
+    dialect === "impyla" ||
+    dialect === "kyuubi" ||
+    dialect === "apache_kyuubi" ||
+    dialect === "drill" ||
+    dialect === "apache_drill" ||
+    dialect === "pydrill" ||
+    dialect === "yugabyte" ||
+    dialect === "yugabytedb" ||
+    dialect === "clickhouse_native" ||
+    dialect === "ch_native" ||
+    dialect === "clickhouse_tcp"
   ) {
     return `${colRef} ILIKE ${valEscaped}`;
   }
@@ -164,6 +205,9 @@ export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): st
   }
   if (dialect === "arangodb" || dialect === "arango" || dialect === "aql") {
     return `LIMIT 0, ${limit};`;
+  }
+  if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
+    return `SKIP 0 LIMIT ${limit};`;
   }
   return `LIMIT ${limit};`;
 }
