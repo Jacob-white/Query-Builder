@@ -452,9 +452,10 @@ def validate_sql_ast(
                 f"Access Denied: Table '{t_part}' is restricted. Authentication, credentials, and session data cannot be queried."
             )
 
-    # Regex safety fallback against obfuscated mutations
+    # Regex safety fallback against obfuscated mutations (strip string literals to avoid false positives)
+    clean_no_literals = re.sub(r"'(?:''|[^'])*'", "''", clean)
     for pattern in FORBIDDEN_SQL_PATTERNS:
-        match = re.search(pattern, clean, re.IGNORECASE)
+        match = re.search(pattern, clean_no_literals, re.IGNORECASE)
         if match:
             matched_kw = match.group(0).upper()
             if f"Forbidden mutation keyword: '{matched_kw}'" not in violations:
