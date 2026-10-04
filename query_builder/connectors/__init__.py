@@ -63,6 +63,10 @@ from query_builder.connectors.db2 import (
     DB2Connector,
     IBMDB2Connector,
 )
+from query_builder.connectors.derby import (
+    AsyncDerbyConnector,
+    DerbyConnector,
+)
 from query_builder.connectors.doris import (
     ApacheDorisConnector,
     AsyncApacheDorisConnector,
@@ -84,11 +88,19 @@ from query_builder.connectors.exasol import (
     AsyncExasolConnector,
     ExasolConnector,
 )
+from query_builder.connectors.firebird import (
+    AsyncFirebirdConnector,
+    FirebirdConnector,
+)
 from query_builder.connectors.firebolt import FireboltConnector
 from query_builder.connectors.generic import GenericDBAPIConnector
 from query_builder.connectors.greptimedb import (
     AsyncGreptimeDBConnector,
     GreptimeDBConnector,
+)
+from query_builder.connectors.h2 import (
+    AsyncH2Connector,
+    H2Connector,
 )
 from query_builder.connectors.hive import (
     ApacheHiveConnector,
@@ -106,6 +118,12 @@ from query_builder.connectors.influxdb import (
     InfluxDBConnector,
     IOxConnector,
 )
+from query_builder.connectors.informix import (
+    AsyncIBMInformixConnector,
+    AsyncInformixConnector,
+    IBMInformixConnector,
+    InformixConnector,
+)
 from query_builder.connectors.introspection import (
     introspect_arangodb,
     introspect_cassandra,
@@ -115,17 +133,22 @@ from query_builder.connectors.introspection import (
     introspect_cosmosdb,
     introspect_cratedb,
     introspect_db2,
+    introspect_derby,
     introspect_doris,
     introspect_drill,
     introspect_druid,
     introspect_duckdb,
     introspect_exasol,
+    introspect_firebird,
     introspect_greptimedb,
+    introspect_h2,
     introspect_hive,
     introspect_impala,
     introspect_information_schema,
+    introspect_informix,
     introspect_kdb,
     introspect_kyuubi,
+    introspect_monetdb,
     introspect_neo4j,
     introspect_opensearch,
     introspect_oracle,
@@ -134,6 +157,7 @@ from query_builder.connectors.introspection import (
     introspect_sparksql,
     introspect_sqlite,
     introspect_surrealdb,
+    introspect_sybase,
     introspect_tdengine,
     introspect_via_sqlalchemy,
     introspect_yugabyte,
@@ -153,6 +177,10 @@ from query_builder.connectors.kyuubi import (
 from query_builder.connectors.materialize import (
     AsyncMaterializeConnector,
     MaterializeConnector,
+)
+from query_builder.connectors.monetdb import (
+    AsyncMonetDBConnector,
+    MonetDBConnector,
 )
 from query_builder.connectors.mongodb import (
     MongoDBAtlasSQLConnector,
@@ -221,6 +249,12 @@ from query_builder.connectors.supabase import SupabaseConnector
 from query_builder.connectors.surrealdb import (
     AsyncSurrealDBConnector,
     SurrealDBConnector,
+)
+from query_builder.connectors.sybase import (
+    AsyncSAPASEConnector,
+    AsyncSybaseConnector,
+    SAPASEConnector,
+    SybaseConnector,
 )
 from query_builder.connectors.tdengine import (
     AsyncTDengineConnector,
@@ -400,6 +434,30 @@ ConnectorRegistry.register(
     aliases=["async_ch_native"],
 )
 
+# Phase 1 Enterprise Relational & Modern Embedded SQL Connectors
+ConnectorRegistry.register("firebird", FirebirdConnector, aliases=["firebirdsql"])
+ConnectorRegistry.register(
+    "async_firebird", AsyncFirebirdConnector, aliases=["async_firebirdsql"]
+)
+ConnectorRegistry.register("monetdb", MonetDBConnector, aliases=["monet"])
+ConnectorRegistry.register(
+    "async_monetdb", AsyncMonetDBConnector, aliases=["async_monet"]
+)
+ConnectorRegistry.register("h2", H2Connector, aliases=["h2db"])
+ConnectorRegistry.register("async_h2", AsyncH2Connector, aliases=["async_h2db"])
+ConnectorRegistry.register("derby", DerbyConnector, aliases=["apache_derby"])
+ConnectorRegistry.register(
+    "async_derby", AsyncDerbyConnector, aliases=["async_apache_derby"]
+)
+ConnectorRegistry.register("sybase", SybaseConnector, aliases=["sap_ase", "ase"])
+ConnectorRegistry.register(
+    "async_sybase", AsyncSybaseConnector, aliases=["async_sap_ase", "async_ase"]
+)
+ConnectorRegistry.register("informix", InformixConnector, aliases=["ibm_informix"])
+ConnectorRegistry.register(
+    "async_informix", AsyncInformixConnector, aliases=["async_ibm_informix"]
+)
+
 __all__ = [
     "AlloyDBConnector",
     "ApacheCassandraConnector",
@@ -425,26 +483,34 @@ __all__ = [
     "AsyncCrateConnector",
     "AsyncCrateDBConnector",
     "AsyncDB2Connector",
+    "AsyncDerbyConnector",
     "AsyncDorisConnector",
     "AsyncDrillConnector",
     "AsyncExasolConnector",
+    "AsyncFirebirdConnector",
     "AsyncGreptimeDBConnector",
+    "AsyncH2Connector",
     "AsyncHiveConnector",
     "AsyncIBMDB2Connector",
+    "AsyncIBMInformixConnector",
     "AsyncImpalaConnector",
+    "AsyncInformixConnector",
     "AsyncKdbConnector",
     "AsyncKyuubiConnector",
     "AsyncMaterializeConnector",
+    "AsyncMonetDBConnector",
     "AsyncNeo4jConnector",
     "AsyncOpenSearchConnector",
     "AsyncPrestoConnector",
     "AsyncPrestoDBConnector",
     "AsyncPyKXConnector",
     "AsyncRisingWaveConnector",
+    "AsyncSAPASEConnector",
     "AsyncSparkConnector",
     "AsyncSparkSQLConnector",
     "AsyncStarRocksConnector",
     "AsyncSurrealDBConnector",
+    "AsyncSybaseConnector",
     "AsyncTDengineConnector",
     "AsyncYugabyteConnector",
     "AsyncYugabyteDBConnector",
@@ -469,6 +535,7 @@ __all__ = [
     "DB2Connector",
     "DataFusionConnector",
     "DatabricksConnector",
+    "DerbyConnector",
     "DorisConnector",
     "DremioConnector",
     "DrillConnector",
@@ -478,21 +545,26 @@ __all__ = [
     "DynamoDBConnector",
     "ElasticsearchConnector",
     "ExasolConnector",
+    "FirebirdConnector",
     "FireboltConnector",
     "GenericDBAPIConnector",
     "GreptimeDBConnector",
+    "H2Connector",
     "HANAConnector",
     "HiveConnector",
     "IBMDB2Connector",
+    "IBMInformixConnector",
     "IOxConnector",
     "ImpalaConnector",
     "InfluxDBConnector",
+    "InformixConnector",
     "IntrospectionError",
     "KdbConnector",
     "KyuubiConnector",
     "MSSQLConnector",
     "MaterializeConnector",
     "MemSQLConnector",
+    "MonetDBConnector",
     "MongoDBAtlasSQLConnector",
     "MongoDBConnector",
     "MySQLConnector",
@@ -511,6 +583,7 @@ __all__ = [
     "QuestDBConnector",
     "RedshiftConnector",
     "RisingWaveConnector",
+    "SAPASEConnector",
     "SAPHANAConnector",
     "SQLiteConnector",
     "ScyllaDBConnector",
@@ -522,6 +595,7 @@ __all__ = [
     "StarRocksConnector",
     "SupabaseConnector",
     "SurrealDBConnector",
+    "SybaseConnector",
     "TDengineConnector",
     "TeradataConnector",
     "TiDBConnector",
@@ -539,17 +613,22 @@ __all__ = [
     "introspect_cosmosdb",
     "introspect_cratedb",
     "introspect_db2",
+    "introspect_derby",
     "introspect_doris",
     "introspect_drill",
     "introspect_druid",
     "introspect_duckdb",
     "introspect_exasol",
+    "introspect_firebird",
     "introspect_greptimedb",
+    "introspect_h2",
     "introspect_hive",
     "introspect_impala",
     "introspect_information_schema",
+    "introspect_informix",
     "introspect_kdb",
     "introspect_kyuubi",
+    "introspect_monetdb",
     "introspect_neo4j",
     "introspect_opensearch",
     "introspect_oracle",
@@ -558,6 +637,7 @@ __all__ = [
     "introspect_sparksql",
     "introspect_sqlite",
     "introspect_surrealdb",
+    "introspect_sybase",
     "introspect_tdengine",
     "introspect_via_sqlalchemy",
     "introspect_yugabyte",

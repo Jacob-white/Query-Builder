@@ -2719,3 +2719,850 @@ def introspect_clickhouse_native(
         raise IntrospectionError(
             f"Failed to introspect ClickHouse Native database '{database}': {exc}"
         ) from exc
+
+
+def introspect_firebird(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Firebird database schema using RDB$ system tables."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        cur.execute(
+            """
+            SELECT TRIM(RDB$RELATION_NAME)
+            FROM RDB$RELATIONS
+            WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL
+            ORDER BY RDB$RELATION_NAME;
+            """
+        )
+        table_rows = cur.fetchall() or []
+        table_names = [str(r[0]).strip() for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT TRIM(rf.RDB$RELATION_NAME), TRIM(rf.RDB$FIELD_NAME), TRIM(f.RDB$FIELD_TYPE), rf.RDB$NULL_FLAG
+            FROM RDB$RELATION_FIELDS rf
+            JOIN RDB$FIELDS f ON rf.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME
+            WHERE rf.RDB$SYSTEM_FLAG = 0
+            ORDER BY rf.RDB$RELATION_NAME, rf.RDB$FIELD_POSITION;
+            """
+        )
+        col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT TRIM(rc.RDB$RELATION_NAME), TRIM(iseg.RDB$FIELD_NAME)
+                FROM RDB$RELATION_CONSTRAINTS rc
+                JOIN RDB$INDEX_SEGMENTS iseg ON rc.RDB$INDEX_NAME = iseg.RDB$INDEX_NAME
+                WHERE rc.RDB$CONSTRAINT_TYPE = 'PRIMARY KEY';
+                """
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).strip().lower(), set()).add(
+                        str(pkr[1]).strip().lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT TRIM(rc.RDB$RELATION_NAME), TRIM(iseg.RDB$FIELD_NAME), TRIM(ref_rc.RDB$RELATION_NAME), TRIM(ref_iseg.RDB$FIELD_NAME)
+                FROM RDB$RELATION_CONSTRAINTS rc
+                JOIN RDB$REF_CONSTRAINTS refc ON rc.RDB$CONSTRAINT_NAME = refc.RDB$CONSTRAINT_NAME
+                JOIN RDB$RELATION_CONSTRAINTS ref_rc ON refc.RDB$CONST_NAME_UQ = ref_rc.RDB$CONSTRAINT_NAME
+                JOIN RDB$INDEX_SEGMENTS iseg ON rc.RDB$INDEX_NAME = iseg.RDB$INDEX_NAME
+                JOIN RDB$INDEX_SEGMENTS ref_iseg ON ref_rc.RDB$INDEX_NAME = ref_iseg.RDB$INDEX_NAME
+                WHERE rc.RDB$CONSTRAINT_TYPE = 'FOREIGN KEY';
+                """
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).strip().lower(),
+                        str(fkr[1]).strip().lower(),
+                        str(fkr[2]).strip().lower(),
+                        str(fkr[3]).strip().lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 3:
+                continue
+            t_name = str(r[0]).strip()
+            c_name = str(r[1]).strip()
+            d_type = str(r[2]).strip()
+            null_flag = r[3] if len(r) > 3 else None
+            # In Firebird, RDB$NULL_FLAG = 1 means NOT NULL, NULL/0 means nullable
+            is_null = not (bool(null_flag) and null_flag == 1)
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Firebird database: {exc}"
+        ) from exc
+
+
+def introspect_monetdb(
+    cursor: Any, schema_name: str = "sys", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects MonetDB schema using sys catalog views or information_schema."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        try:
+            cur.execute(
+                """
+                SELECT t.name
+                FROM sys.tables t
+                JOIN sys.schemas s ON t.schema_id = s.id
+                WHERE s.name = ? AND t.system = FALSE
+                ORDER BY t.name;
+                """,
+                [schema_name],
+            )
+            table_rows = cur.fetchall() or []
+            table_names = [str(r[0]).strip() for r in table_rows if r and r[0]]
+
+            cur.execute(
+                """
+                SELECT t.name, c.name, c.type, c.null
+                FROM sys.columns c
+                JOIN sys.tables t ON c.table_id = t.id
+                JOIN sys.schemas s ON t.schema_id = s.id
+                WHERE s.name = ? AND t.system = FALSE
+                ORDER BY t.name, c.number;
+                """,
+                [schema_name],
+            )
+            col_rows = cur.fetchall() or []
+        except Exception:  # noqa: BLE001
+            cur.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                ORDER BY table_name;
+                """,
+                [schema_name],
+            )
+            table_rows = cur.fetchall() or []
+            table_names = [str(r[0]).strip() for r in table_rows if r and r[0]]
+
+            cur.execute(
+                """
+                SELECT table_name, column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = ?
+                ORDER BY table_name, ordinal_position;
+                """,
+                [schema_name],
+            )
+            col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.name, kc.name
+                FROM sys.keys k
+                JOIN sys.keycolumns kc ON k.id = kc.id
+                JOIN sys.tables t ON k.table_id = t.id
+                JOIN sys.schemas s ON t.schema_id = s.id
+                WHERE k.type = 0 AND s.name = ?;
+                """,
+                [schema_name],
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                        str(pkr[1]).lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column
+                FROM sys.fkeys fk
+                JOIN sys.keys k ON fk.id = k.id
+                JOIN sys.tables t ON k.table_id = t.id
+                JOIN sys.schemas s ON t.schema_id = s.id
+                JOIN sys.keycolumns kc ON k.id = kc.id
+                JOIN sys.keys rk ON fk.rkey = rk.id
+                JOIN sys.tables rt ON rk.table_id = rt.id
+                JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
+                WHERE s.name = ?;
+                """,
+                [schema_name],
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).lower(),
+                        str(fkr[1]).lower(),
+                        str(fkr[2]).lower(),
+                        str(fkr[3]).lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 4:
+                continue
+            t_name = str(r[0])
+            c_name = str(r[1])
+            d_type = str(r[2])
+            is_null = str(r[3]).upper() in ("TRUE", "YES", "Y", "1")
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect MonetDB schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_h2(
+    cursor: Any, schema_name: str = "PUBLIC", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects H2 database schema using INFORMATION_SCHEMA."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = ? AND table_type = 'BASE TABLE'
+            ORDER BY table_name;
+            """,
+            [schema_name.upper()],
+        )
+        table_rows = cur.fetchall() or []
+        table_names = [str(r[0]) for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = ?
+            ORDER BY table_name, ordinal_position;
+            """,
+            [schema_name.upper()],
+        )
+        col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT kcu.table_name, kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                        str(pkr[1]).lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT kcu.table_name AS src_table, kcu.column_name AS src_column,
+                       ccu.table_name AS tgt_table, ccu.column_name AS tgt_column
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).lower(),
+                        str(fkr[1]).lower(),
+                        str(fkr[2]).lower(),
+                        str(fkr[3]).lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 4:
+                continue
+            t_name = str(r[0])
+            c_name = str(r[1])
+            d_type = str(r[2])
+            is_null = str(r[3]).upper() in ("TRUE", "YES", "Y")
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect H2 schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_derby(
+    cursor: Any, schema_name: str = "APP", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Apache Derby schema using SYS system tables."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        cur.execute(
+            """
+            SELECT t.TABLENAME
+            FROM SYS.SYSTABLES t
+            JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
+            WHERE s.SCHEMANAME = ? AND t.TABLETYPE = 'T'
+            ORDER BY t.TABLENAME;
+            """,
+            [schema_name.upper()],
+        )
+        table_rows = cur.fetchall() or []
+        table_names = [str(r[0]) for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT t.TABLENAME, c.COLUMNNAME, c.COLUMNDATATYPE, c.AUTOINCREMENTVALUE
+            FROM SYS.SYSCOLUMNS c
+            JOIN SYS.SYSTABLES t ON c.REFERENCEID = t.TABLEID
+            JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
+            WHERE s.SCHEMANAME = ?
+            ORDER BY t.TABLENAME, c.COLUMNNUMBER;
+            """,
+            [schema_name.upper()],
+        )
+        col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.TABLENAME, c.CONSTRAINTNAME
+                FROM SYS.SYSCONSTRAINTS c
+                JOIN SYS.SYSTABLES t ON c.TABLEID = t.TABLEID
+                JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
+                WHERE c.TYPE = 'P' AND s.SCHEMANAME = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                        str(pkr[1]).lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.TABLENAME AS src_table, c.CONSTRAINTNAME AS src_column,
+                       rt.TABLENAME AS tgt_table, rc.CONSTRAINTNAME AS tgt_column
+                FROM SYS.SYSCONSTRAINTS c
+                JOIN SYS.SYSTABLES t ON c.TABLEID = t.TABLEID
+                JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
+                JOIN SYS.SYSKEYS k ON c.CONSTRAINTID = k.CONSTRAINTID
+                JOIN SYS.SYSCONSTRAINTS rc ON k.CONGLOMERATEID = rc.CONSTRAINTID
+                JOIN SYS.SYSTABLES rt ON rc.TABLEID = rt.TABLEID
+                WHERE c.TYPE = 'F' AND s.SCHEMANAME = ?;
+                """,
+                [schema_name.upper()],
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).lower(),
+                        str(fkr[1]).lower(),
+                        str(fkr[2]).lower(),
+                        str(fkr[3]).lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 3:
+                continue
+            t_name = str(r[0])
+            c_name = str(r[1])
+            d_type = str(r[2])
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": "NOT NULL" not in d_type.upper(),
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Apache Derby schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_sybase(
+    cursor: Any, schema_name: str = "dbo", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Sybase / SAP ASE database schema using sysobjects and syscolumns."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        cur.execute(
+            """
+            SELECT name
+            FROM sysobjects
+            WHERE type = 'U'
+            ORDER BY name;
+            """
+        )
+        table_rows = cur.fetchall() or []
+        table_names = [str(r[0]) for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT o.name, c.name, t.name, c.status
+            FROM syscolumns c
+            JOIN sysobjects o ON c.id = o.id
+            JOIN systypes t ON c.usertype = t.usertype
+            WHERE o.type = 'U'
+            ORDER BY o.name, c.colid;
+            """
+        )
+        col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT o.name, c.name
+                FROM sysconstraints con
+                JOIN sysobjects o ON con.tableid = o.id
+                JOIN syscolumns c ON con.tableid = c.id
+                WHERE con.status = 1 AND o.type = 'U';
+                """
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                        str(pkr[1]).lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT so.name AS src_table, sc.name AS src_column,
+                       ro.name AS tgt_table, rc.name AS tgt_column
+                FROM sysreferences r
+                JOIN sysobjects so ON r.tableid = so.id
+                JOIN sysobjects ro ON r.reftabid = ro.id
+                JOIN syscolumns sc ON r.tableid = sc.id
+                JOIN syscolumns rc ON r.reftabid = rc.id;
+                """
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).lower(),
+                        str(fkr[1]).lower(),
+                        str(fkr[2]).lower(),
+                        str(fkr[3]).lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 3:
+                continue
+            t_name = str(r[0])
+            c_name = str(r[1])
+            d_type = str(r[2])
+            status = r[3] if len(r) > 3 else 0
+            # In Sybase syscolumns, status bit 8 (0x08 = allows null)
+            is_null = bool(status & 8) if isinstance(status, int) else True
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": d_type.lower(),
+                    "is_nullable": is_null,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Sybase schema '{schema_name}': {exc}"
+        ) from exc
+
+
+def introspect_informix(
+    cursor: Any, schema_name: str = "informix", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects IBM Informix database schema using systables and syscolumns."""
+    try:
+        cur = _unwrap_cursor(cursor)
+        cur.execute(
+            """
+            SELECT tabname
+            FROM systables
+            WHERE tabtype = 'T' AND owner = %s
+            ORDER BY tabname;
+            """,
+            [schema_name],
+        )
+        table_rows = cur.fetchall() or []
+        table_names = [str(r[0]) for r in table_rows if r and r[0]]
+
+        cur.execute(
+            """
+            SELECT t.tabname, c.colname, c.coltype, c.collength
+            FROM syscolumns c
+            JOIN systables t ON c.tabid = t.tabid
+            WHERE t.tabtype = 'T' AND t.owner = %s
+            ORDER BY t.tabname, c.colno;
+            """,
+            [schema_name],
+        )
+        col_rows = cur.fetchall() or []
+
+        pk_cols_map: dict[str, set[str]] = {}
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.tabname, c.constrname
+                FROM sysconstraints c
+                JOIN systables t ON c.tabid = t.tabid
+                WHERE c.constrtype = 'P' AND t.owner = %s;
+                """,
+                [schema_name],
+            )
+            for pkr in cur.fetchall() or []:
+                if pkr and len(pkr) >= 2:
+                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
+                        str(pkr[1]).lower()
+                    )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):
+            cur.execute(
+                """
+                SELECT t.tabname AS src_table, c.constrname AS src_column,
+                       pt.tabname AS tgt_table, pc.constrname AS tgt_column
+                FROM sysreferences r
+                JOIN sysconstraints c ON r.constrid = c.constrid
+                JOIN systables t ON c.tabid = t.tabid
+                JOIN sysconstraints pc ON r.primaryid = pc.constrid
+                JOIN systables pt ON pc.tabid = pt.tabid
+                WHERE t.owner = %s;
+                """,
+                [schema_name],
+            )
+            for fkr in cur.fetchall() or []:
+                if fkr and len(fkr) >= 4:
+                    src_tbl, src_col, tgt_tbl, tgt_col = (
+                        str(fkr[0]).lower(),
+                        str(fkr[1]).lower(),
+                        str(fkr[2]).lower(),
+                        str(fkr[3]).lower(),
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
+
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in col_rows:
+            if not r or len(r) < 3:
+                continue
+            t_name = str(r[0])
+            c_name = str(r[1])
+            col_type = r[2]
+            # Informix coltype: bit 8 (256) indicates NOT NULL
+            is_null = not (isinstance(col_type, int) and (col_type & 256))
+            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
+                c_name.lower() == "id"
+            )
+            table_cols_map.setdefault(t_name.lower(), []).append(
+                {
+                    "name": c_name.lower(),
+                    "data_type": str(col_type).lower(),
+                    "is_nullable": is_null,
+                    "is_primary": is_pk,
+                    "comment": None,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            clean_tbl = tbl.lower()
+            cols = table_cols_map.get(clean_tbl, [])
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[clean_tbl] = {
+                "name": clean_tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id",
+                "comment": None,
+            }
+
+        raw_snapshot = {
+            "tables": tables,
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
+        }
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Informix schema '{schema_name}': {exc}"
+        ) from exc
