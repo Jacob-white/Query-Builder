@@ -214,7 +214,11 @@ export interface QuerySpec<Schema = any> {
     tablePrefix?: SchemaTableNames<Schema>;
   }[];
   filter_join: "AND" | "OR";
-  order_by: { column: string; direction: "ASC" | "DESC" }[];
+  order_by: {
+    column: string;
+    direction: "ASC" | "DESC";
+    tablePrefix?: SchemaTableNames<Schema>;
+  }[];
   distinct: boolean;
   limit: number;
 }
@@ -352,7 +356,28 @@ export type SqlDialect =
   | "q"
   | "clickhouse_native"
   | "ch_native"
-  | "clickhouse_tcp";
+  | "clickhouse_tcp"
+  | "postgresql"
+  | "sqlserver"
+  | "timescale"
+  | "cockroach"
+  | "partiql"
+  | "apache_cassandra"
+  | "spark_sql"
+  | "pyspark"
+  | "firebird"
+  | "firebirdsql"
+  | "monetdb"
+  | "monet"
+  | "h2"
+  | "h2db"
+  | "derby"
+  | "apache_derby"
+  | "sybase"
+  | "sap_ase"
+  | "ase"
+  | "informix"
+  | "ibm_informix";
 
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
   schema?: SchemaSnapshot | Schema | null;

@@ -72,3 +72,33 @@ def test_resolve_ownership_fails_closed_when_unresolvable():
             dialect, tables_meta, "t1", "orphaned_table", 42, params
         )
     assert "refusing to query it without tenant isolation" in str(exc.value)
+
+
+def test_security_cross_join_variations():
+    from query_builder.security import (
+        calculate_ast_complexity,
+        check_cartesian_products,
+    )
+
+    spec_cross = {
+        "table": "orders",
+        "joins": [{"table": "users", "type": "CROSS JOIN"}],
+    }
+    score = calculate_ast_complexity(spec_cross)
+    assert score >= 10
+    with pytest.raises(SecurityError, match="Cartesian product detected"):
+        check_cartesian_products(spec_cross)
+
+    spec_full = {
+        "table": "orders",
+        "joins": [
+            {
+                "table": "users",
+                "type": "FULL OUTER JOIN",
+                "left_col": "user_id",
+                "right_col": "id",
+            }
+        ],
+    }
+    score_full = calculate_ast_complexity(spec_full)
+    assert score_full >= 10

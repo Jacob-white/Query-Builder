@@ -87,6 +87,29 @@ def test_sqlite_execution_harness():
     )
     assert res_all["count"] == 2
 
+    # Test execute_compiled_spec with tenant_id
+    cur.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, tenant_id TEXT);")
+    cur.execute("INSERT INTO accounts (id, tenant_id) VALUES (1, 'tenant-123');")
+    conn.commit()
+    res_tenant = execute_compiled_spec(
+        cur,
+        {"table": "accounts", "columns": ["accounts.id"], "tenant_id": "tenant-456"},
+        dialect="sqlite",
+        tenant_id="tenant-123",
+    )
+    assert res_tenant["count"] == 1
+
+    # Test execute_compiled_spec with QuerySpec dataclass instance
+    from query_builder.models import QuerySpec
+
+    res_dataclass = execute_compiled_spec(
+        cur,
+        QuerySpec(table="accounts", columns=["accounts.id"], tenant_id="tenant-123"),
+        dialect="sqlite",
+    )
+    assert res_dataclass["count"] == 1
+    assert res_dataclass["rows"] == [{"accounts.id": 1}]
+
     # Test AST validation failure in execute_compiled_spec
     with pytest.raises(Exception) as exc:
         bad_spec = {"table": "auth_user", "columns": ["*"]}

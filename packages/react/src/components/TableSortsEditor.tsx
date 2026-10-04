@@ -148,8 +148,13 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                 value={`${s.tablePrefix}.${s.column}`}
                 data-qb="sort-column"
                 onChange={(e) => {
-                  const [t, c] = e.target.value.split(".");
-                  handleUpdate(s.id, { tablePrefix: t, column: c });
+                  const val = e.target.value;
+                  const lastDot = val.lastIndexOf(".");
+                  if (lastDot !== -1) {
+                    const t = val.substring(0, lastDot);
+                    const c = val.substring(lastDot + 1);
+                    handleUpdate(s.id, { tablePrefix: t, column: c });
+                  }
                 }}
                 style={
                   unstyled

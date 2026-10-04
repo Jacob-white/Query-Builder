@@ -53,6 +53,14 @@ def main(argv: list[str] | None = None) -> int:
         help="SQL dialect (postgres, snowflake, mssql, sqlite, mysql).",
     )
     compile_p.add_argument(
+        "--user-id",
+        help="Optional user ID for ownership isolation.",
+    )
+    compile_p.add_argument(
+        "--tenant-id",
+        help="Optional tenant ID for multi-tenant isolation.",
+    )
+    compile_p.add_argument(
         "--output",
         "-o",
         help="Optional output file to write compiled SQL or JSON payload.",
@@ -229,7 +237,12 @@ def main(argv: list[str] | None = None) -> int:
                     schema_data = json.load(f)
 
             compiler = QueryCompiler(
-                spec_data, schema=schema_data, dialect=args.dialect
+                spec_data,
+                schema=schema_data,
+                dialect=args.dialect,
+                user_id=getattr(args, "user_id", None),
+                force_user_filter=bool(getattr(args, "user_id", None)),
+                tenant_id=getattr(args, "tenant_id", None),
             )
             main_sql, params, count_sql, count_params = compiler.compile()
 

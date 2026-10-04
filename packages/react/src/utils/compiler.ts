@@ -27,7 +27,7 @@ export interface CompiledVisualQuery {
       tablePrefix?: string;
     }[];
     filter_join: "AND" | "OR";
-    order_by: { column: string; direction: "ASC" | "DESC" }[];
+    order_by: { column: string; direction: "ASC" | "DESC"; tablePrefix?: string }[];
     distinct: boolean;
     limit: number;
   };
@@ -54,8 +54,13 @@ const ALLOWED_OPERATORS = new Set([
 
 const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
 
-const sanitizeIdent = (s: string) =>
-  s.replace(/[\x00-\x1f\x7f]/g, "").replace(/"/g, '""');
+const sanitizeIdent = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, "");
+
+const cleanTableName = (tbl: string) => {
+  const clean = sanitizeIdent(tbl);
+  const lastDot = clean.lastIndexOf(".");
+  return lastDot !== -1 ? clean.substring(lastDot + 1) : clean;
+};
 
 export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): string {
   const clean = ident.replace(/[\x00-\x1f\x7f]/g, "");
@@ -74,6 +79,8 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
     dialect === "oceanbase" ||
     dialect === "sparksql" ||
     dialect === "spark" ||
+    dialect === "spark_sql" ||
+    dialect === "pyspark" ||
     dialect === "chdb" ||
     dialect === "tdengine" ||
     dialect === "taos" ||
@@ -107,7 +114,13 @@ export function quoteIdent(ident: string, dialect: SqlDialect = "postgres"): str
   ) {
     return `\`${clean.replace(/`/g, "``")}\``;
   }
-  if (dialect === "mssql") {
+  if (
+    dialect === "mssql" ||
+    dialect === "sqlserver" ||
+    dialect === "sybase" ||
+    dialect === "sap_ase" ||
+    dialect === "ase"
+  ) {
     return `[${clean.replace(/\]/g, "]]")}]`;
   }
   return `"${clean.replace(/"/g, '""')}"`;
@@ -128,8 +141,21 @@ export function formatIlike(
   if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
     return `toLower(${colRef}) CONTAINS toLower(${valEscaped})`;
   }
+  if (dialect === "surrealdb" || dialect === "surreal") {
+    return `string::lowercase(${colRef}) CONTAINS string::lowercase(${valEscaped})`;
+  }
+  if (
+    dialect === "arangodb" ||
+    dialect === "arango" ||
+    dialect === "aql" ||
+    dialect === "cosmosdb" ||
+    dialect === "azure_cosmos"
+  ) {
+    return `CONTAINS(LOWER(${colRef}), LOWER(${valEscaped}))`;
+  }
   if (
     dialect === "postgres" ||
+    dialect === "postgresql" ||
     dialect === "snowflake" ||
     dialect === "duckdb" ||
     dialect === "clickhouse" ||
@@ -137,7 +163,9 @@ export function formatIlike(
     dialect === "polars" ||
     dialect === "questdb" ||
     dialect === "timescaledb" ||
+    dialect === "timescale" ||
     dialect === "cockroachdb" ||
+    dialect === "cockroach" ||
     dialect === "dremio" ||
     dialect === "firebolt" ||
     dialect === "neon" ||
@@ -156,6 +184,8 @@ export function formatIlike(
     dialect === "vertica" ||
     dialect === "sparksql" ||
     dialect === "spark" ||
+    dialect === "spark_sql" ||
+    dialect === "pyspark" ||
     dialect === "chdb" ||
     dialect === "greptimedb" ||
     dialect === "greptime" ||
@@ -184,10 +214,16 @@ export function formatIlike(
 export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): string {
   if (
     dialect === "mssql" ||
+    dialect === "sqlserver" ||
     dialect === "oracle" ||
     dialect === "teradata" ||
     dialect === "db2" ||
-    dialect === "ibm_db2"
+    dialect === "ibm_db2" ||
+    dialect === "derby" ||
+    dialect === "apache_derby" ||
+    dialect === "sybase" ||
+    dialect === "sap_ase" ||
+    dialect === "ase"
   ) {
     return `OFFSET 0 ROWS FETCH NEXT ${limit} ROWS ONLY;`;
   }
@@ -208,6 +244,12 @@ export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): st
   }
   if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
     return `SKIP 0 LIMIT ${limit};`;
+  }
+  if (dialect === "informix" || dialect === "ibm_informix") {
+    return `SKIP 0 FIRST ${limit};`;
+  }
+  if (dialect === "firebird" || dialect === "firebirdsql") {
+    return `ROWS ${limit};`;
   }
   return `LIMIT ${limit};`;
 }
@@ -240,7 +282,7 @@ export function compileVisualState(
     };
   }
 
-  const cleanPrimary = sanitizeIdent(primaryTable.replace(/^(\w+\.)/, ""));
+  const cleanPrimary = cleanTableName(primaryTable);
   const safeProjectionKeys = (orderedProjectionKeys || []).slice(0, 100);
   const hasAggregates = safeProjectionKeys.some(
     (k) =>
@@ -262,7 +304,7 @@ export function compileVisualState(
       .map((compositeKey) => {
         const item = selectedColumns[compositeKey];
         if (!item) return "";
-        const tableAlias = sanitizeIdent(item.table || cleanPrimary);
+        const tableAlias = cleanTableName(item.table || cleanPrimary);
         const colName = sanitizeIdent(item.name);
         const colRef = `${quoteIdent(tableAlias, dialect)}.${quoteIdent(colName, dialect)}`;
 
@@ -313,10 +355,8 @@ export function compileVisualState(
   const specJoins: CompiledVisualQuery["spec"]["joins"] = [];
   const safeJoins = (joins || []).slice(0, 20);
   const joinClauses = safeJoins.map((j) => {
-    const leftTbl = sanitizeIdent(
-      (j.left_table || cleanPrimary).replace(/^(\w+\.)/, ""),
-    );
-    const rightTbl = sanitizeIdent(j.table.replace(/^(\w+\.)/, ""));
+    const leftTbl = cleanTableName(j.left_table || cleanPrimary);
+    const rightTbl = cleanTableName(j.table);
     const leftCol = sanitizeIdent(j.left_col);
     const rightCol = sanitizeIdent(j.right_col);
     const joinType = validJoinTypes.has(j.type) ? j.type : "LEFT JOIN";
@@ -348,9 +388,7 @@ export function compileVisualState(
   if (activeFilters.length > 0) {
     const parts: string[] = [];
     activeFilters.forEach((f) => {
-      const tbl = sanitizeIdent(
-        (f.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, ""),
-      );
+      const tbl = cleanTableName(f.tablePrefix || cleanPrimary);
       const colName = sanitizeIdent(f.column);
       const colRef = `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
       const valStr = String(f.value ?? "");
@@ -379,7 +417,11 @@ export function compileVisualState(
         expr = formatIlike(colRef, `'${clean}'`, dialect);
       } else if (f.operator === "LIKE") {
         const clean = valStr.replace(/'/g, "''");
-        expr = `${colRef} LIKE '${clean}'`;
+        if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
+          expr = `${colRef} CONTAINS '${clean}'`;
+        } else {
+          expr = `${colRef} LIKE '${clean}'`;
+        }
       } else if (f.operator === "IN" || f.operator === "NOT IN") {
         const items = valStr
           .split(",")
@@ -410,15 +452,21 @@ export function compileVisualState(
           expr = `${colRef} BETWEEN ${v0} AND ${v1}`;
         }
       } else {
+        const isBool = typeof f.value === "boolean";
         const isNum =
           typeof f.value === "number"
             ? isFinite(f.value)
             : !isNaN(Number(f.value)) &&
               isFinite(Number(f.value)) &&
               valStr.trim() !== "";
-        const valEscaped = isNum
-          ? String(f.value)
-          : `'${valStr.replace(/'/g, "''")}'`;
+        let valEscaped: string;
+        if (isBool) {
+          valEscaped = f.value ? "TRUE" : "FALSE";
+        } else if (isNum) {
+          valEscaped = String(f.value);
+        } else {
+          valEscaped = `'${valStr.replace(/'/g, "''")}'`;
+        }
         expr = `${colRef} ${f.operator} ${valEscaped}`;
       }
 
@@ -439,12 +487,10 @@ export function compileVisualState(
 
   if (activeSorts.length > 0) {
     const sortParts = activeSorts.map((s) => {
-      const tbl = sanitizeIdent(
-        (s.tablePrefix || cleanPrimary).replace(/^(\w+\.)/, ""),
-      );
+      const tbl = cleanTableName(s.tablePrefix || cleanPrimary);
       const colName = sanitizeIdent(s.column);
       const direction = s.direction === "DESC" ? "DESC" : "ASC";
-      specSorts.push({ column: `${tbl}.${colName}`, direction });
+      specSorts.push({ column: `${tbl}.${colName}`, direction, tablePrefix: tbl });
       return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)} ${direction}`;
     });
     orderClause = `ORDER BY ${sortParts.join(", ")}`;
@@ -459,7 +505,7 @@ export function compileVisualState(
         Boolean(item && !item.aggregate),
       )
       .map((item) => {
-        const tbl = sanitizeIdent(item.table || cleanPrimary);
+        const tbl = cleanTableName(item.table || cleanPrimary);
         const colName = sanitizeIdent(item.name);
         return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
       });

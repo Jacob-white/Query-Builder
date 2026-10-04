@@ -119,9 +119,7 @@ Vector databases store high-dimensional embeddings and execute approximate neare
 - **Primary Use Case**: Multimodal vector search, embedded on-disk disk-ann indexing, zero-copy Arrow data pipelines.
 - **Query Language / API Model**: PyArrow-backed SQL expressions and vector search:
   ```python
-  tbl.search(vector).where("price < 50.0 AND in_stock = true").limit(
-      20
-  ).to_arrow()
+  tbl.search(vector).where("price < 50.0 AND in_stock = true").limit(20).to_arrow()
   ```
 - **Driver Transport & Python Client**: `lancedb` (In-process native Lance/Arrow engine or LanceDB Cloud REST).
 - **Schema Introspection Feasibility**: Outstanding. Built directly on Apache Arrow! `db.table_names()` lists tables; `table.schema` returns the exact `pyarrow.Schema` with typed fields, nullability, and metadata.

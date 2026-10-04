@@ -219,13 +219,136 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const handleLoadTemplate = (template: QueryTemplate) => {
     if (template.spec && Object.keys(template.spec).length > 0) {
       const s = template.spec as any;
-      if (s.primaryTable) setPrimaryTable(s.primaryTable);
-      if (Array.isArray(s.activeTables)) setActiveTableNames(s.activeTables);
-      if (s.selectedColumns) setSelectedColumns(s.selectedColumns);
-      if (Array.isArray(s.orderedProjectionKeys)) setOrderedProjectionKeys(s.orderedProjectionKeys);
-      if (Array.isArray(s.joins)) setJoins(s.joins);
-      if (Array.isArray(s.filters)) setFilters(s.filters);
-      if (Array.isArray(s.sorts)) setSorts(s.sorts);
+      const pTable = s.table || s.primaryTable || "";
+      if (pTable) {
+        setPrimaryTable(pTable);
+      }
+      if (Array.isArray(s.activeTables)) {
+        setActiveTableNames(s.activeTables);
+      } else if (pTable) {
+        setActiveTableNames([pTable]);
+      }
+
+      if (s.selectedColumns && typeof s.selectedColumns === "object") {
+        setSelectedColumns(s.selectedColumns);
+        if (Array.isArray(s.orderedProjectionKeys)) {
+          setOrderedProjectionKeys(s.orderedProjectionKeys);
+        }
+      } else if (Array.isArray(s.columns)) {
+        const newSelected: Record<string, VisualColumnSelect> = {};
+        const newKeys: string[] = [];
+        s.columns.forEach((colItem: any) => {
+          if (!colItem || colItem === "*") return;
+          if (typeof colItem === "string") {
+            let tbl = pTable;
+            let col = colItem;
+            if (colItem.includes(".")) {
+              const lastDot = colItem.lastIndexOf(".");
+              tbl = colItem.substring(0, lastDot);
+              col = colItem.substring(lastDot + 1);
+            }
+            const key = `${tbl}.${col}`;
+            newSelected[key] = { table: tbl, name: col };
+            newKeys.push(key);
+          } else if (typeof colItem === "object" && colItem.column) {
+            let tbl = pTable;
+            let col = colItem.column;
+            if (col.includes(".")) {
+              const lastDot = col.lastIndexOf(".");
+              tbl = col.substring(0, lastDot);
+              col = col.substring(lastDot + 1);
+            }
+            const key = `${tbl}.${col}`;
+            newSelected[key] = {
+              table: tbl,
+              name: col,
+              aggregate: colItem.agg ? colItem.agg.toUpperCase() : undefined,
+              alias: colItem.alias,
+            };
+            newKeys.push(key);
+          }
+        });
+        setSelectedColumns(newSelected);
+        setOrderedProjectionKeys(newKeys);
+      }
+
+      if (Array.isArray(s.joins)) {
+        const mappedJoins: VisualJoin[] = s.joins.map((j: any, idx: number) => {
+          const jType = (j.type || "LEFT").toUpperCase();
+          const fullType = jType.endsWith(" JOIN") ? jType : `${jType} JOIN`;
+          let leftTbl = j.left_table;
+          let leftC = j.left_col;
+          if (!leftC && j.on?.[0]?.left) {
+            const lStr = j.on[0].left;
+            if (lStr.includes(".")) {
+              const lastDot = lStr.lastIndexOf(".");
+              if (!leftTbl) leftTbl = lStr.substring(0, lastDot);
+              leftC = lStr.substring(lastDot + 1);
+            } else {
+              leftC = lStr;
+            }
+          }
+          let rightC = j.right_col;
+          if (!rightC && j.on?.[0]?.right) {
+            const rStr = j.on[0].right;
+            rightC = rStr.includes(".") ? rStr.substring(rStr.lastIndexOf(".") + 1) : rStr;
+          }
+          return {
+            id: j.id || `join_${idx + 1}`,
+            table: j.table,
+            type: fullType as any,
+            left_table: leftTbl,
+            left_col: leftC || "id",
+            right_col: rightC || "id",
+          };
+        });
+        setJoins(mappedJoins);
+        setActiveTableNames((prev) => {
+          const joinTables = mappedJoins.map((j) => j.table);
+          return Array.from(new Set([...prev, ...joinTables]));
+        });
+      }
+
+      if (Array.isArray(s.filters)) {
+        const mappedFilters: VisualFilter[] = s.filters.map((f: any, idx: number) => {
+          let op = f.operator || f.op || "=";
+          op = op.toUpperCase().replace(/_/g, " ");
+          return {
+            id: f.id || `filter_${idx + 1}`,
+            tablePrefix: f.tablePrefix || f.table || pTable,
+            column: f.column || "",
+            operator: op as any,
+            value: f.value ?? "",
+            combiner: f.combiner || "AND",
+          };
+        });
+        setFilters(mappedFilters);
+      }
+
+      if (Array.isArray(s.sorts)) {
+        setSorts(s.sorts);
+      } else if (Array.isArray(s.order_by)) {
+        const mappedSorts: VisualSort[] = s.order_by.map((ord: any, idx: number) => {
+          let col = ord.column || "";
+          let prefix = ord.tablePrefix;
+          if (!prefix && col.includes(".")) {
+            const lastDot = col.lastIndexOf(".");
+            prefix = col.substring(0, lastDot);
+            col = col.substring(lastDot + 1);
+          }
+          return {
+            id: `sort_${idx + 1}`,
+            tablePrefix: prefix || pTable,
+            column: col,
+            direction: ord.direction || "ASC",
+          };
+        });
+        setSorts(mappedSorts);
+      }
+
+      if (typeof s.distinct === "boolean") setIsDistinct(s.distinct);
+      else if (typeof s.isDistinct === "boolean") setIsDistinct(s.isDistinct);
+
       if (typeof s.limit === "number") setLimit(s.limit);
       setIsRawMode(false);
     } else if (template.sql) {

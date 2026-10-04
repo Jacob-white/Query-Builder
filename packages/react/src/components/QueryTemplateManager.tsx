@@ -147,8 +147,10 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
         onClose();
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
   }, [isOpen, onClose]);
 
   // Unique categories for pills

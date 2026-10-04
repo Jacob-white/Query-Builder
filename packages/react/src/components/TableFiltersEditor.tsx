@@ -172,8 +172,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                 value={`${f.tablePrefix}.${f.column}`}
                 data-qb="filter-column"
                 onChange={(e) => {
-                  const [t, c] = e.target.value.split(".");
-                  handleUpdate(f.id, { tablePrefix: t, column: c });
+                  const val = e.target.value;
+                  const lastDot = val.lastIndexOf(".");
+                  if (lastDot !== -1) {
+                    const t = val.substring(0, lastDot);
+                    const c = val.substring(lastDot + 1);
+                    handleUpdate(f.id, { tablePrefix: t, column: c });
+                  }
                 }}
                 style={
                   unstyled

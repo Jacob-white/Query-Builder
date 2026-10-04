@@ -73,7 +73,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   const handleExportCsv = () => {
     if (typeof document === "undefined") return;
     if (rows.length === 0) return;
-    const header = columns.join(",");
+    const header = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",");
     const body = rows
       .map((r) =>
         columns
