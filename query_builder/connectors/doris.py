@@ -42,12 +42,16 @@ class _DorisCursorAdapter:
         clean_sql = sql.strip()
         if _has_attr(self.target, "cursor") and not _has_attr(self.target, "fetchall"):
             cur = self.target.cursor()
-            if params:
-                cur.execute(clean_sql, params)
-            else:
-                cur.execute(clean_sql)
-            self.description = getattr(cur, "description", None)
-            self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            try:
+                if params:
+                    cur.execute(clean_sql, params)
+                else:
+                    cur.execute(clean_sql)
+                self.description = getattr(cur, "description", None)
+                self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
         elif hasattr(self.target, "execute"):
             if params:
                 self.target.execute(clean_sql, params)

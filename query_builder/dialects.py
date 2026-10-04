@@ -1440,7 +1440,7 @@ class YugabyteDBDialect(PostgresDialect):
 class OpenSearchDialect(ElasticsearchDialect):
     """OpenSearch distributed search & analytics SQL plugin dialect."""
 
-    name: str = "elasticsearch"
+    name: str = "opensearch"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -1497,6 +1497,9 @@ class Neo4jDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
 
+    def format_like(self, col_ref: str) -> str:
+        return f"{col_ref} CONTAINS {self.placeholder}"
+
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
 
@@ -1508,6 +1511,8 @@ class Neo4jDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (f"MATCH (n:`{table_name}`) RETURN keys(n) AS keys LIMIT 1;", [])
+        if schema_name and schema_name != "neo4j":
+            return (f"MATCH (n:`{schema_name}`) RETURN keys(n) AS keys LIMIT 1;", [])
         return ("CALL db.schema.nodeTypeProperties();", [])
 
     def inspect_primary_keys_query(

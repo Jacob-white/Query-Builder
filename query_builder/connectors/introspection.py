@@ -1689,6 +1689,12 @@ def _has_attr(target: Any, attr: str) -> bool:
 
 
 def _unwrap_cursor(client_or_cur: Any) -> Any:
+    if (
+        not hasattr(client_or_cur, "_mock_children")
+        and hasattr(client_or_cur, "target")
+        and getattr(client_or_cur, "target", None) is not None
+    ):
+        client_or_cur = client_or_cur.target
     if hasattr(client_or_cur, "_mock_children"):
         if getattr(client_or_cur, "_mock_methods", None) is not None:
             if hasattr(client_or_cur, "cursor") and not hasattr(
@@ -2357,111 +2363,125 @@ def introspect_neo4j(
     driver_or_session: Any, filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Neo4j graph database schema, node labels, properties, and relationships."""
+    session_created = False
+    session = None
     try:
-        session = None
+        if (
+            not hasattr(driver_or_session, "_mock_children")
+            and hasattr(driver_or_session, "target")
+            and getattr(driver_or_session, "target", None) is not None
+        ):
+            driver_or_session = driver_or_session.target
         if _has_attr(driver_or_session, "session"):
             session = driver_or_session.session()
+            session_created = True
         else:
             session = driver_or_session
 
-        table_names: list[str] = []
         try:
-            res = session.run("SHOW NODE LABELS;")
-            table_names = [
-                record["label"] if "label" in record else record[0] for record in res
-            ]
-        except Exception:  # noqa: BLE001
+            table_names: list[str] = []
             try:
-                res = session.run("CALL db.labels();")
+                res = session.run("SHOW NODE LABELS;")
                 table_names = [
                     record["label"] if "label" in record else record[0]
                     for record in res
                 ]
             except Exception:  # noqa: BLE001
-                table_names = []
+                try:
+                    res = session.run("CALL db.labels();")
+                    table_names = [
+                        record["label"] if "label" in record else record[0]
+                        for record in res
+                    ]
+                except Exception:  # noqa: BLE001
+                    table_names = []
 
-        if not table_names:
-            table_names = ["Node"]
+            if not table_names:
+                table_names = ["Node"]
 
-        tables: dict[str, dict[str, Any]] = {}
-        for label in table_names:
-            cols: list[dict[str, Any]] = [
-                {
-                    "name": "id",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": True,
+            tables: dict[str, dict[str, Any]] = {}
+            for label in table_names:
+                cols: list[dict[str, Any]] = [
+                    {
+                        "name": "id",
+                        "data_type": "string",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    }
+                ]
+                with contextlib.suppress(Exception):
+                    prop_res = session.run(
+                        f"MATCH (n:`{label}`) RETURN keys(n) AS keys LIMIT 1;"
+                    )
+                    for record in prop_res:
+                        keys = record["keys"] if "keys" in record else record[0]
+                        for k in keys:
+                            if k != "id":
+                                if filter_sensitive and _is_sensitive_column(str(k)):
+                                    continue
+                                cols.append(
+                                    {
+                                        "name": str(k),
+                                        "data_type": "string",
+                                        "is_nullable": True,
+                                        "is_primary": False,
+                                        "comment": None,
+                                    }
+                                )
+
+                has_user = any(c["name"] == "user_id" for c in cols)
+                tables[label] = {
+                    "name": label,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
                     "comment": None,
                 }
-            ]
+
+            relationships: list[dict[str, Any]] = []
+            foreign_keys: list[dict[str, Any]] = []
             with contextlib.suppress(Exception):
-                prop_res = session.run(
-                    f"MATCH (n:`{label}`) RETURN keys(n) AS keys LIMIT 1;"
-                )
-                for record in prop_res:
-                    keys = record["keys"] if "keys" in record else record[0]
-                    for k in keys:
-                        if k != "id":
-                            if filter_sensitive and _is_sensitive_column(str(k)):
-                                continue
-                            cols.append(
-                                {
-                                    "name": str(k),
-                                    "data_type": "string",
-                                    "is_nullable": True,
-                                    "is_primary": False,
-                                    "comment": None,
-                                }
-                            )
+                rel_res = session.run("SHOW RELATIONSHIP TYPES;")
+                for record in rel_res:
+                    rel_type = (
+                        record["relationshipType"]
+                        if "relationshipType" in record
+                        else record[0]
+                    )
+                    if len(table_names) >= 2:
+                        src, tgt = table_names[0], table_names[1]
+                    else:
+                        src = tgt = table_names[0]
+                    relationships.append(
+                        {
+                            "source_table": src,
+                            "source_column": "id",
+                            "target_table": tgt,
+                            "target_column": f"{str(rel_type).lower()}_id",
+                        }
+                    )
+                    foreign_keys.append(
+                        {
+                            "table": src,
+                            "column": "id",
+                            "foreign_table": tgt,
+                            "foreign_column": f"{str(rel_type).lower()}_id",
+                        }
+                    )
 
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[label] = {
-                "name": label,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
+            raw_snapshot = {
+                "tables": tables,
+                "foreign_keys": foreign_keys,
+                "relationships": relationships,
             }
-
-        relationships: list[dict[str, Any]] = []
-        foreign_keys: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):
-            rel_res = session.run("SHOW RELATIONSHIP TYPES;")
-            for record in rel_res:
-                rel_type = (
-                    record["relationshipType"]
-                    if "relationshipType" in record
-                    else record[0]
-                )
-                if len(table_names) >= 2:
-                    src, tgt = table_names[0], table_names[1]
-                else:
-                    src = tgt = table_names[0]
-                relationships.append(
-                    {
-                        "source_table": src,
-                        "source_column": "id",
-                        "target_table": tgt,
-                        "target_column": f"{str(rel_type).lower()}_id",
-                    }
-                )
-                foreign_keys.append(
-                    {
-                        "table": src,
-                        "column": "id",
-                        "foreign_table": tgt,
-                        "foreign_column": f"{str(rel_type).lower()}_id",
-                    }
-                )
-
-        raw_snapshot = {
-            "tables": tables,
-            "foreign_keys": foreign_keys,
-            "relationships": relationships,
-        }
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+            return normalize_schema_snapshot(
+                raw_snapshot, filter_sensitive=filter_sensitive
+            )
+        finally:
+            if session_created and hasattr(session, "close"):
+                with contextlib.suppress(Exception):
+                    session.close()
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Neo4j graph database: {exc}"
@@ -2473,6 +2493,7 @@ def introspect_kdb(
 ) -> dict[str, Any]:
     """Introspects Kdb+ tables, vector columns, and schemas via q meta."""
     try:
+        client_or_conn = _unwrap_cursor(client_or_conn)
         tables_res = None
         if (
             _has_attr(client_or_conn, "q")

@@ -8,6 +8,7 @@ execution protocols, Cypher-SQL translation, cursor adapters, and graph schema i
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 from typing import Any
 
@@ -40,20 +41,75 @@ class _Neo4jCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean = sql.strip().rstrip(";").strip()
-        # Translate trivial SQL test queries to Cypher if needed
+        # Translate trivial SQL test queries or standard SELECT to Cypher if needed
         cypher_query = clean
         if clean.upper() in ("SELECT 1", "SELECT 1;", "SELECT 1 FROM DUAL"):
             cypher_query = "RETURN 1 AS val"
+        elif clean.upper().startswith("SELECT") and not clean.upper().startswith(
+            (
+                "MATCH",
+                "RETURN",
+                "CALL",
+                "SHOW",
+                "CREATE",
+                "MERGE",
+                "DELETE",
+                "SET",
+                "UNWIND",
+            )
+        ):
+            m = re.match(
+                r"^SELECT\s+(?P<select>.+?)\s+FROM\s+(?P<from>[^\s]+(?:\s+[^\s]+)?)"
+                r"(?:\s+WHERE\s+(?P<where>.+?))?"
+                r"(?:\s+ORDER\s+BY\s+(?P<order>.+?))?"
+                r"(?:\s+SKIP\s+(?P<skip>[^\s]+))?"
+                r"(?:\s+LIMIT\s+(?P<limit>[^\s]+))?"
+                r"(?:\s+OFFSET\s+(?P<offset>[^\s]+))?$",
+                clean,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if m:
+                select_p = m.group("select").strip()
+                from_p = m.group("from").strip()
+                where_p = m.group("where")
+                order_p = m.group("order")
+                skip_p = m.group("skip") or m.group("offset")
+                limit_p = m.group("limit")
 
-        if _has_attr(self.target, "cursor"):
+                from_tokens = from_p.replace("`", "").replace('"', "").split()
+                tbl = from_tokens[0]
+                alias = from_tokens[1] if len(from_tokens) > 1 else tbl
+
+                cypher = f"MATCH (`{alias}`:`{tbl}`)"
+                if where_p:
+                    cypher += f" WHERE {where_p.strip()}"
+                if select_p.upper() in ("COUNT(*)", "COUNT(1)"):
+                    cypher += " RETURN count(*)"
+                elif select_p == f"`{alias}`.*" or select_p == "*":
+                    cypher += f" RETURN `{alias}`"
+                else:
+                    cypher += f" RETURN {select_p}"
+                if order_p:
+                    cypher += f" ORDER BY {order_p.strip()}"
+                if skip_p:
+                    cypher += f" SKIP {skip_p.strip()}"
+                if limit_p:
+                    cypher += f" LIMIT {limit_p.strip()}"
+                cypher_query = cypher
+
+        if _has_attr(self.target, "cursor") and not _has_attr(self.target, "fetchall"):
             cur = self.target.cursor()
-            if params:
-                cur.execute(clean, params)
-            else:
-                cur.execute(clean)
-            self.description = getattr(cur, "description", None)
-            self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
-        elif _has_attr(self.target, "execute"):
+            try:
+                if params:
+                    cur.execute(clean, params)
+                else:
+                    cur.execute(clean)
+                self.description = getattr(cur, "description", None)
+                self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            finally:
+                with contextlib.suppress(Exception):
+                    cur.close()
+        elif _has_attr(self.target, "execute") or _has_attr(self.target, "fetchall"):
             if params:
                 self.target.execute(clean, params)
             else:
@@ -63,37 +119,64 @@ class _Neo4jCursorAdapter:
                 list(self.target.fetchall()) if hasattr(self.target, "fetchall") else []
             )
         elif _has_attr(self.target, "session") or _has_attr(self.target, "run"):
-            session = (
-                self.target.session()
-                if _has_attr(self.target, "session")
-                else self.target
-            )
-            parameters: dict[str, Any] = {}
-            if params:
-                if isinstance(params, dict):
-                    parameters = params
-                else:
-                    parameters = {f"p{i}": p for i, p in enumerate(params)}
-            result = session.run(cypher_query, parameters)
-            keys = getattr(result, "keys", None)
-            if callable(keys):
-                keys = keys()
-            records = list(result)
-            if keys:
-                self.description = [(str(k),) for k in keys]
-            elif records and hasattr(records[0], "keys"):
-                self.description = [(str(k),) for k in records[0]]
+            created_session = False
+            if _has_attr(self.target, "session"):
+                session = self.target.session()
+                created_session = True
             else:
-                self.description = [("val",)]
+                session = self.target
+            try:
+                parameters: dict[str, Any] = {}
+                if params:
+                    if isinstance(params, dict):
+                        parameters = params
+                    elif "$param" in cypher_query:
+                        tokens = cypher_query.split("$param")
+                        new_parts = [tokens[0]]
+                        for i, token in enumerate(tokens[1:]):
+                            p_name = f"p{i}"
+                            parameters[p_name] = params[i] if i < len(params) else None
+                            new_parts.append(f"${p_name}{token}")
+                        cypher_query = "".join(new_parts)
+                    elif "%s" in cypher_query or "?" in cypher_query:
+                        p_idx = 0
 
-            self._rows = []
-            for rec in records:
-                if hasattr(rec, "values") or isinstance(rec, dict):
-                    self._rows.append(list(rec.values()))
-                elif isinstance(rec, (list, tuple)):
-                    self._rows.append(list(rec))
+                        def _replace_param(match: Any) -> str:
+                            nonlocal p_idx
+                            name = f"p{p_idx}"
+                            parameters[name] = (
+                                params[p_idx] if p_idx < len(params) else None
+                            )
+                            p_idx += 1
+                            return f"${name}"
+
+                        cypher_query = re.sub(r"%s|\?", _replace_param, cypher_query)
+                    else:
+                        parameters = {f"p{i}": p for i, p in enumerate(params)}
+                result = session.run(cypher_query, parameters)
+                keys = getattr(result, "keys", None)
+                if callable(keys):
+                    keys = keys()
+                records = list(result)
+                if keys:
+                    self.description = [(str(k),) for k in keys]
+                elif records and hasattr(records[0], "keys"):
+                    self.description = [(str(k),) for k in records[0]]
                 else:
-                    self._rows.append([rec])
+                    self.description = [("val",)]
+
+                self._rows = []
+                for rec in records:
+                    if hasattr(rec, "values") or isinstance(rec, dict):
+                        self._rows.append(list(rec.values()))
+                    elif isinstance(rec, (list, tuple)):
+                        self._rows.append(list(rec))
+                    else:
+                        self._rows.append([rec])
+            finally:
+                if created_session and hasattr(session, "close"):
+                    with contextlib.suppress(Exception):
+                        session.close()
         else:
             self.description = None
             self._rows = []
@@ -181,8 +264,16 @@ class Neo4jConnector(BaseConnector):
         with self.get_cursor() as cur, contextlib.suppress(Exception):
             cur.execute("CALL dbms.components() YIELD name, versions;")
             rows = cur.fetchall() if hasattr(cur, "fetchall") else []
-            if rows and len(rows) > 0 and len(rows[0]) > 0 and rows[0][0]:
-                info["engine_version"] = f"Neo4j {rows[0][0]}".strip()
+            if rows and len(rows) > 0 and len(rows[0]) > 0:
+                if len(rows[0]) > 1 and rows[0][1]:
+                    ver = (
+                        rows[0][1][0]
+                        if isinstance(rows[0][1], (list, tuple)) and len(rows[0][1]) > 0
+                        else str(rows[0][1])
+                    )
+                    info["engine_version"] = f"Neo4j {ver}".strip()
+                elif rows[0][0]:
+                    info["engine_version"] = f"Neo4j {rows[0][0]}".strip()
         info["database"] = self.database
         return info
 
