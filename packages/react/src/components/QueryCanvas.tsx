@@ -267,6 +267,9 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   <option value={50}>50</option>
                   <option value={100}>100</option>
                   <option value={500}>500</option>
+                  {![10, 25, 50, 100, 500].includes(limit) && (
+                    <option value={limit}>{limit}</option>
+                  )}
                 </select>
               </div>
             </div>

@@ -475,6 +475,43 @@ describe("VisualQueryBuilder", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open template library" }));
     fireEvent.click(screen.getByText("▶ Load Template"));
     expect(screen.getAllByText("users.id").length).toBeGreaterThan(0);
+
+    // Also load a template with standard QuerySpec (columns array, joins, filters, order_by, distinct)
+    const tplWithQuerySpec = {
+      id: "spec_standard_tpl",
+      title: "Standard QuerySpec Template",
+      category: "Test",
+      sql: 'SELECT "orders"."id" FROM "orders";',
+      spec: {
+        table: "orders",
+        columns: [
+          "*",
+          "orders.id",
+          "total",
+          { column: "users.email", agg: "count", alias: "cnt" },
+          { column: "notes" },
+        ],
+        joins: [
+          { table: "users", type: "LEFT", on: [{ left: "orders.user_id", right: "users.id" }] },
+          { table: "products", type: "LEFT", on: [{ left: "product_id", right: "id" }] },
+        ],
+        filters: [
+          { column: "total", op: "gt", value: "100" },
+        ],
+        order_by: [
+          { column: "orders.total", direction: "DESC" },
+          { column: "id", tablePrefix: "orders", direction: "ASC" },
+        ],
+        distinct: true,
+        limit: 35,
+      },
+      createdAt: new Date().toISOString(),
+      isDefault: false,
+    };
+    saveTemplates([tplWithQuerySpec]);
+    fireEvent.click(screen.getByRole("button", { name: "Open template library" }));
+    fireEvent.click(screen.getByText("▶ Load Template"));
+    expect(screen.getAllByText("orders.id").length).toBeGreaterThan(0);
   });
 
   it("loads template with raw SQL only and switches to SQL tab", () => {

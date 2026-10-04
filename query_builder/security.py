@@ -566,7 +566,7 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
         else:
             j_type = str(getattr(join, "type", "LEFT")).upper()
 
-        if j_type in ("CROSS", "FULL", "FULL OUTER"):
+        if j_type.startswith(("CROSS", "FULL")):
             score += 10
         else:
             score += 5
@@ -642,7 +642,7 @@ def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
             right_col = getattr(join, "right_col", None)
             has_fk = False
 
-        if j_type == "CROSS":
+        if j_type.strip().startswith("CROSS"):
             raise SecurityError(
                 f"Cartesian product detected: explicit CROSS JOIN on table '{j_tbl}' is forbidden."
             )

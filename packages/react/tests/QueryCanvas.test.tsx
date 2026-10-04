@@ -192,4 +192,32 @@ describe("QueryCanvas", () => {
     expect(screen.getByText("✨ Selected Columns & Projections (1)")).toBeTruthy();
     expect(screen.queryByTitle("Remove column")).toBeNull();
   });
+
+  it("renders custom limit option when limit is not in standard list", () => {
+    const { container } = render(
+      <QueryCanvas
+        schema={mockSchema}
+        activeTables={[usersTable]}
+        primaryTable="users"
+        selectedColumns={{ "users.id": { table: "users", name: "id" } }}
+        orderedProjectionKeys={["users.id"]}
+        joins={[]}
+        filters={[]}
+        sorts={[]}
+        isDistinct={false}
+        limit={42}
+        onToggleColumn={vi.fn()}
+        onRemoveTable={vi.fn()}
+        onAddTableToCanvas={vi.fn()}
+        onUpdateColumnSelect={vi.fn()}
+        onRemoveColumnProjection={vi.fn()}
+        onJoinsChange={vi.fn()}
+        onFiltersChange={vi.fn()}
+        onSortsChange={vi.fn()}
+        onDistinctChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />
+    );
+    expect(container.querySelector('option[value="42"]')).not.toBeNull();
+  });
 });

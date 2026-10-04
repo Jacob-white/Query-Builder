@@ -122,3 +122,36 @@ def test_cli_serve_keyboard_interrupt(capsys):
         mock_server.server_close.assert_called_once()
         captured = capsys.readouterr()
         assert "Shutting down server..." in captured.out
+
+
+def test_cli_compile_with_user_and_tenant_id(capsys, tmp_path):
+    schema = {
+        "tables": {
+            "users": {
+                "columns": [{"name": "id"}, {"name": "tenant_id"}],
+                "has_user_id": True,
+                "user_col": "user_id",
+            }
+        }
+    }
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(schema))
+
+    inline_spec = '{"table": "users", "columns": ["users.id"]}'
+    ret = main(
+        [
+            "compile",
+            "--spec",
+            inline_spec,
+            "--schema",
+            str(schema_file),
+            "--user-id",
+            "user_123",
+            "--tenant-id",
+            "tenant_xyz",
+        ]
+    )
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "--- Main SQL ---" in captured.out
+    assert 'WHERE "t1"."user_id" = %s' in captured.out

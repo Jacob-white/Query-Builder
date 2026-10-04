@@ -173,6 +173,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                   type="checkbox"
                   data-qb="table-card-column-checkbox"
                   checked={isColChecked}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={() => onToggleColumn(col.name)}
                   aria-label={`Select column ${table.name}.${col.name}`}
                   style={unstyled ? undefined : { cursor: "pointer" }}

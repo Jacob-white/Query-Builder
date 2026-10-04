@@ -201,6 +201,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                 <option value="LEFT JOIN">LEFT JOIN</option>
                 <option value="INNER JOIN">INNER JOIN</option>
                 <option value="RIGHT JOIN">RIGHT JOIN</option>
+                <option value="FULL JOIN">FULL JOIN</option>
               </select>
 
               <span
@@ -223,9 +224,13 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                 data-qb="join-left-col"
                 value={`${j.left_table || activeTables[0]?.name}.${j.left_col}`}
                 onChange={(e) => {
-                  const parts = e.target.value.split(".");
-                  if (parts.length === 2) {
-                    handleUpdate(j.id, { left_table: parts[0], left_col: parts[1] });
+                  const val = e.target.value;
+                  const lastDot = val.lastIndexOf(".");
+                  if (lastDot !== -1) {
+                    handleUpdate(j.id, {
+                      left_table: val.substring(0, lastDot),
+                      left_col: val.substring(lastDot + 1),
+                    });
                   }
                 }}
                 style={
@@ -253,9 +258,10 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                 data-qb="join-right-col"
                 value={`${j.table}.${j.right_col}`}
                 onChange={(e) => {
-                  const parts = e.target.value.split(".");
-                  if (parts.length === 2) {
-                    handleUpdate(j.id, { right_col: parts[1] });
+                  const val = e.target.value;
+                  const lastDot = val.lastIndexOf(".");
+                  if (lastDot !== -1) {
+                    handleUpdate(j.id, { right_col: val.substring(lastDot + 1) });
                   }
                 }}
                 style={

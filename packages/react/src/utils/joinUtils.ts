@@ -23,8 +23,11 @@ const CANONICAL_IDS = [
   "contact_id",
   "address_master_id",
   "address_id",
+  "product_id",
+  "custodian_id",
   "crd_number",
   "sec_number",
+  "cik",
 ];
 
 export const MAX_JOIN_DEPTH = 10;

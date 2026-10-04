@@ -297,3 +297,149 @@ def test_compiler_filter_operators_and_validation():
     }
     with pytest.raises(CompilationError):
         QueryCompiler(bad_op).compile()
+
+
+def test_order_by_joined_table_prefix(mock_schema):
+    spec = {
+        "table": "habbits",
+        "columns": ["habbits.title", "habbit_logs.score"],
+        "joins": [
+            {
+                "table": "habbit_logs",
+                "type": "LEFT JOIN",
+                "on": [{"left": "habbits.id", "right": "habbit_logs.habbit_id"}],
+            }
+        ],
+        "order_by": [
+            {"column": "score", "tablePrefix": "habbit_logs", "direction": "DESC"},
+            {
+                "column": "completed_at",
+                "table_prefix": "habbit_logs",
+                "direction": "ASC",
+            },
+            {"column": "title", "table": "habbits", "direction": "ASC"},
+        ],
+    }
+    compiler = QueryCompiler(spec, schema=mock_schema)
+    sql, _, _, _ = compiler.compile()
+    assert '"t2"."score" DESC' in sql
+    assert '"t2"."completed_at" ASC' in sql
+    assert '"t1"."title" ASC' in sql
+
+    # Test OrderBySpec dataclass with table_prefix
+    from query_builder.models import OrderBySpec, QuerySpec
+
+    spec_model = QuerySpec(
+        table="habbits",
+        columns=["habbits.title", "habbit_logs.score"],
+        joins=[
+            {
+                "table": "habbit_logs",
+                "type": "LEFT JOIN",
+                "on": [{"left": "habbits.id", "right": "habbit_logs.habbit_id"}],
+            }
+        ],
+        order_by=[
+            OrderBySpec(column="score", direction="desc", table_prefix="habbit_logs"),
+        ],
+    )
+    compiler_model = QueryCompiler(spec_model, schema=mock_schema)
+    sql_model, _, _, _ = compiler_model.compile()
+    assert '"t2"."score" DESC' in sql_model
+
+
+def test_filter_with_table_prefix(mock_schema):
+    spec = {
+        "table": "habbits",
+        "columns": ["habbits.title", "habbit_logs.score"],
+        "joins": [
+            {
+                "table": "habbit_logs",
+                "type": "LEFT JOIN",
+                "on": [{"left": "habbits.id", "right": "habbit_logs.habbit_id"}],
+            }
+        ],
+        "filters": [
+            {
+                "column": "score",
+                "op": "gte",
+                "value": 10,
+                "table_prefix": "habbit_logs",
+            },
+        ],
+    }
+    compiler = QueryCompiler(spec, schema=mock_schema)
+    sql, params, _, _ = compiler.compile()
+    assert '"t2"."score" >= %s' in sql
+    assert 10 in params
+
+
+def test_schema_qualified_projections_and_joins():
+    spec = {
+        "table": "public.orders",
+        "columns": ["public.orders.id", "public.users.name"],
+        "joins": [
+            {
+                "table": "public.users",
+                "on": [
+                    {
+                        "left": "public.orders.user_id",
+                        "right": "public.users.id",
+                    }
+                ],
+            }
+        ],
+    }
+    compiler = QueryCompiler(spec)
+    sql, _, _, _ = compiler.compile()
+    assert (
+        'SELECT "t1"."id" AS "public.orders.id", "t2"."name" AS "public.users.name"'
+        in sql
+    )
+    assert 'FROM "orders" "t1"' in sql
+    assert 'LEFT JOIN "users" "t2" ON "t1"."user_id" = "t2"."id"' in sql
+
+
+def test_spec_tenant_id_in_dict_and_model():
+    # Direct dict spec with tenant_id
+    compiler_dict = QueryCompiler({"table": "accounts", "tenant_id": "tenant-abc"})
+    sql_dict, params_dict, _, _ = compiler_dict.compile()
+    assert 'WHERE "t1"."tenant_id" = %s' in sql_dict
+    assert "tenant-abc" in params_dict
+
+    # QuerySpec dataclass model with tenant_id
+    from query_builder.models import QuerySpec
+
+    spec_model = QuerySpec(table="accounts", tenant_id="tenant-xyz")
+    compiler_model = QueryCompiler(spec_model)
+    sql_model, params_model, _, _ = compiler_model.compile()
+    assert 'WHERE "t1"."tenant_id" = %s' in sql_model
+    assert "tenant-xyz" in params_model
+
+
+def test_schema_qualified_tables_meta():
+    schema = {
+        "tables": {
+            "public.orders": {
+                "columns": [{"name": "id"}, {"name": "tenant_id"}],
+            },
+            "public.users": {
+                "columns": [{"name": "id"}, {"name": "name"}],
+            },
+        }
+    }
+    spec = {
+        "table": "public.orders",
+        "tenant_id": "t-100",
+        "joins": [
+            {
+                "table": "public.users",
+                "on": [{"left": "orders.id", "right": "users.id"}],
+            }
+        ],
+    }
+    compiler = QueryCompiler(spec, schema=schema)
+    sql, params, _, _ = compiler.compile()
+    assert 'WHERE "t1"."tenant_id" = %s' in sql
+    assert "t-100" in params
+    assert 'LEFT JOIN "users" "t2"' in sql

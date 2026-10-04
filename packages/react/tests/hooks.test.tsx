@@ -484,6 +484,42 @@ describe("useQueryBuilder Hook", () => {
     });
     expect(result.current.state.primaryTable).toBe("users");
 
+    // Load standard QuerySpec (columns array, joins array, filters array, order_by array)
+    act(() => {
+      result.current.actions.loadSpec({
+        table: "orders",
+        columns: [
+          "*",
+          "orders.id",
+          "total",
+          { column: "users.email", agg: "count", alias: "cnt" },
+          { column: "notes" },
+        ],
+        joins: [
+          { table: "users", type: "LEFT", on: [{ left: "orders.user_id", right: "users.id" }] },
+          { table: "products", type: "LEFT", on: [{ left: "product_id", right: "id" }] },
+        ],
+        filters: [
+          { column: "total", op: "gt", value: "100" },
+        ],
+        order_by: [
+          { column: "orders.total", direction: "DESC" },
+          { column: "id", tablePrefix: "orders", direction: "ASC" },
+        ],
+        distinct: true,
+        limit: 35,
+      });
+    });
+    expect(result.current.state.primaryTable).toBe("orders");
+    expect(result.current.state.orderedProjectionKeys).toContain("orders.id");
+    expect(result.current.state.orderedProjectionKeys).toContain("orders.total");
+    expect(result.current.state.selectedColumns["users.email"]?.aggregate).toBe("COUNT");
+    expect(result.current.state.joins[0]?.type).toBe("LEFT JOIN");
+    expect(result.current.state.joins[0]?.left_table).toBe("orders");
+    expect(result.current.state.joins[0]?.left_col).toBe("user_id");
+    expect(result.current.state.joins[0]?.right_col).toBe("id");
+    expect(result.current.state.filters[0]?.operator).toBe("GT");
+
     // Load template with visual spec
     act(() => {
       result.current.actions.loadTemplate({

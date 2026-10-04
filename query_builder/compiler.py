@@ -44,6 +44,7 @@ ALLOWED_SPEC_KEYS = {
     "limit",
     "offset",
     "distinct",
+    "tenant_id",
 }
 
 ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
@@ -465,7 +466,9 @@ class QueryCompiler:
 
         self.user_id = user_id
         self.force_user_filter = force_user_filter
-        self.tenant_id = tenant_id
+        self.tenant_id = (
+            tenant_id if tenant_id is not None else self.spec.get("tenant_id")
+        )
         self.dialect = (
             dialect if isinstance(dialect, BaseDialect) else get_dialect(dialect)
         )
@@ -494,9 +497,9 @@ class QueryCompiler:
         """Returns or creates a stable short alias (e.g. t1, t2) for a given table."""
         if not isinstance(table_name, str) or not table_name.strip():
             raise CompilationError(f"Invalid table name: '{table_name}'")
+        if not IDENTIFIER_REGEX.match(table_name):
+            raise CompilationError(f"Invalid table identifier name: '{table_name}'")
         clean = table_name.split(".")[-1]
-        if not IDENTIFIER_REGEX.match(clean):
-            raise CompilationError(f"Invalid table identifier name: '{clean}'")
         if clean not in self.table_aliases:
             alias = f"t{len(self.table_aliases) + 1}"
             self.table_aliases[clean] = alias
@@ -509,7 +512,7 @@ class QueryCompiler:
         if not isinstance(col_ref, str) or not col_ref.strip():
             raise CompilationError(f"Invalid column reference: '{col_ref}'")
         if "." in col_ref:
-            parts = col_ref.split(".", 1)
+            parts = col_ref.rsplit(".", 1)
             tbl = parts[0]
             col = parts[1]
         else:
@@ -520,13 +523,13 @@ class QueryCompiler:
         if clean_col != "*" and not IDENTIFIER_REGEX.match(clean_col):
             raise CompilationError(f"Invalid column identifier name: '{col}'")
 
-        clean_tbl = tbl.split(".")[-1]
-        if not IDENTIFIER_REGEX.match(clean_tbl):
+        if not IDENTIFIER_REGEX.match(tbl):
             raise CompilationError(f"Invalid table identifier name: '{tbl}'")
 
-        alias = self._get_alias(tbl)
-        quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(col)}"
-        return alias, col, quoted_ref
+        clean_tbl = tbl.split(".")[-1]
+        alias = self._get_alias(clean_tbl)
+        quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(clean_col)}"
+        return alias, clean_col, quoted_ref
 
     def compile(
         self, context: dict[str, Any] | None = None
@@ -547,7 +550,11 @@ class QueryCompiler:
             )
 
         clean_base_table = base_table.split(".")[-1]
-        if self.tables_meta and clean_base_table not in self.tables_meta:
+        if (
+            self.tables_meta
+            and clean_base_table not in self.tables_meta
+            and base_table not in self.tables_meta
+        ):
             raise CompilationError(
                 f"Invalid or missing base table in schema: '{base_table}'"
             )
@@ -572,7 +579,9 @@ class QueryCompiler:
                 raise CompilationError(str(e)) from e
 
         if self.tenant_id:
-            tbl_info = self.tables_meta.get(clean_base_table, {})
+            tbl_info = self.tables_meta.get(base_table) or self.tables_meta.get(
+                clean_base_table, {}
+            )
             cols = [
                 c["name"] if isinstance(c, dict) else str(c)
                 for c in tbl_info.get("columns", [])
@@ -605,7 +614,11 @@ class QueryCompiler:
                 raise CompilationError("Missing join target 'table'.")
 
             clean_target_table = target_table.split(".")[-1]
-            if self.tables_meta and clean_target_table not in self.tables_meta:
+            if (
+                self.tables_meta
+                and clean_target_table not in self.tables_meta
+                and target_table not in self.tables_meta
+            ):
                 raise CompilationError(
                     f"Invalid join table in schema: '{target_table}'"
                 )
@@ -700,8 +713,10 @@ class QueryCompiler:
         # 3. Process Columns (Projections)
         columns_spec = self.spec.get("columns", [])
         if not columns_spec:
-            if clean_base_table in self.tables_meta:
-                base_meta = self.tables_meta[clean_base_table]
+            base_meta = self.tables_meta.get(base_table) or self.tables_meta.get(
+                clean_base_table
+            )
+            if base_meta:
                 columns_spec = [
                     f"{clean_base_table}.{c['name'] if isinstance(c, dict) else str(c)}"
                     for c in base_meta.get("columns", [])
@@ -767,8 +782,12 @@ class QueryCompiler:
 
             op = flt.get("op", flt.get("operator", "eq")).lower()
             val = flt.get("value")
-            prefix = flt.get("tablePrefix", flt.get("table", clean_base_table))
-
+            prefix = (
+                flt.get("tablePrefix")
+                or flt.get("table_prefix")
+                or flt.get("table")
+                or clean_base_table
+            )
             _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
 
             if op in ("is_null", "is null"):
@@ -870,7 +889,13 @@ class QueryCompiler:
             if direction not in ("ASC", "DESC"):
                 direction = "ASC"
 
-            _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
+            prefix = (
+                ord_item.get("tablePrefix")
+                or ord_item.get("table_prefix")
+                or ord_item.get("table")
+                or clean_base_table
+            )
+            _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
             self.order_by_items.append(f"{quoted_ref} {direction}")
 
         # 7. Assemble SQL Query Parts

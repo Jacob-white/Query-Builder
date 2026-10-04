@@ -54,6 +54,7 @@ def execute_compiled_spec(
     dialect: str = "postgres",
     statement_timeout_ms: int = DEFAULT_TIMEOUT_MS,
     validate_ast: bool = True,
+    tenant_id: Any = None,
 ) -> dict[str, Any]:
     """
     Compiles a QueryBuilderSpec, validates the resulting AST for mutation-free execution,
@@ -73,12 +74,21 @@ def execute_compiled_spec(
     except (ValueError, TypeError) as exc:
         raise ValueError("statement_timeout_ms must be positive.") from exc
 
+    spec_dict = (
+        {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
+        if hasattr(spec, "__dict__") and not isinstance(spec, dict)
+        else dict(spec)
+    )
+
+    resolved_tenant = tenant_id if tenant_id is not None else spec_dict.get("tenant_id")
+
     compiler = QueryCompiler(
         spec=spec,
         schema=schema,
         user_id=user_id,
         force_user_filter=bool(user_id),
         dialect=dialect,
+        tenant_id=resolved_tenant,
     )
     main_sql, main_params, count_sql, count_params = compiler.compile()
 
@@ -107,8 +117,8 @@ def execute_compiled_spec(
         cursor, main_sql, main_params
     )
 
-    limit = int(spec.get("limit", 50))
-    offset = int(spec.get("offset", 0))
+    limit = int(spec_dict.get("limit", 50))
+    offset = int(spec_dict.get("offset", 0))
 
     return {
         "sql": main_sql,

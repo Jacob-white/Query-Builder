@@ -1232,5 +1232,95 @@ describe("compileVisualState", () => {
     expect(resCHNative.sql).toContain("SELECT `ticks`.`price`");
     expect(resCHNative.sql).toContain("`ticks`.`price` ILIKE '%100%'");
     expect(resCHNative.sql).toContain("LIMIT 20;");
+
+    // Phase 1 Enterprise Connectors: Firebird, MonetDB, H2, Derby, Sybase, Informix
+    // Sybase / SAP ASE
+    expect(quoteIdent("col", "sybase")).toBe("[col]");
+    expect(quoteIdent("col", "sap_ase")).toBe("[col]");
+    expect(quoteIdent("col", "ase")).toBe("[col]");
+    expect(quoteIdent("col", "sqlserver")).toBe("[col]");
+    expect(quoteIdent("col", "spark_sql")).toBe("`col`");
+    expect(quoteIdent("col", "pyspark")).toBe("`col`");
+    expect(formatLimit(15, "sybase")).toBe("OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY;");
+    expect(formatLimit(15, "sap_ase")).toBe("OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY;");
+    expect(formatLimit(15, "derby")).toBe("OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY;");
+    expect(formatLimit(15, "apache_derby")).toBe("OFFSET 0 ROWS FETCH NEXT 15 ROWS ONLY;");
+
+    // Informix
+    expect(formatLimit(25, "informix")).toBe("SKIP 0 FIRST 25;");
+    expect(formatLimit(25, "ibm_informix")).toBe("SKIP 0 FIRST 25;");
+
+    // Firebird
+    expect(formatLimit(30, "firebird")).toBe("ROWS 30;");
+    expect(formatLimit(30, "firebirdsql")).toBe("ROWS 30;");
+
+    // SurrealDB, ArangoDB, CosmosDB in formatIlike
+    expect(formatIlike("`col`", "'%val%'", "surrealdb")).toBe("string::lowercase(`col`) CONTAINS string::lowercase('%val%')");
+    expect(formatIlike("`col`", "'%val%'", "surreal")).toBe("string::lowercase(`col`) CONTAINS string::lowercase('%val%')");
+    expect(formatIlike("`col`", "'%val%'", "arangodb")).toBe("CONTAINS(LOWER(`col`), LOWER('%val%'))");
+    expect(formatIlike("`col`", "'%val%'", "cosmosdb")).toBe("CONTAINS(LOWER(`col`), LOWER('%val%'))");
+
+    // Aliases in formatIlike
+    expect(formatIlike('"col"', "'%val%'", "postgresql")).toBe('"col" ILIKE \'%val%\'');
+    expect(formatIlike('"col"', "'%val%'", "timescale")).toBe('"col" ILIKE \'%val%\'');
+    expect(formatIlike('"col"', "'%val%'", "cockroach")).toBe('"col" ILIKE \'%val%\'');
+    expect(formatIlike("`col`", "'%val%'", "spark_sql")).toBe("`col` ILIKE '%val%'");
+    expect(formatIlike("`col`", "'%val%'", "pyspark")).toBe("`col` ILIKE '%val%'");
+
+    // Boolean filters in compileVisualState
+    const resBoolTrue = compileVisualState("users", {}, [], [], [{ id: "f1", column: "is_active", operator: "=", value: true }], []);
+    expect(resBoolTrue.sql).toContain('"users"."is_active" = TRUE');
+    const resBoolFalse = compileVisualState("users", {}, [], [], [{ id: "f2", column: "is_active", operator: "=", value: false }], []);
+    expect(resBoolFalse.sql).toContain('"users"."is_active" = FALSE');
+
+    // Neo4j LIKE mapped to CONTAINS vs Postgres standard LIKE
+    const resNeo4jLike = compileVisualState("nodes", {}, [], [], [{ id: "f1", column: "name", operator: "LIKE", value: "alice" }], [], false, 10, null, "neo4j");
+    expect(resNeo4jLike.sql).toContain("`nodes`.`name` CONTAINS 'alice'");
+    const resPgLike = compileVisualState("users", {}, [], [], [{ id: "f1", column: "name", operator: "LIKE", value: "alice" }], [], false, 10, null, "postgres");
+    expect(resPgLike.sql).toContain('"users"."name" LIKE \'alice\'');
+  });
+
+  it("compiles schema-qualified tables and joins consistently", () => {
+    const res = compileVisualState(
+      "public.orders",
+      {
+        "orders.id": { table: "public.orders", name: "id" },
+      },
+      ["orders.id"],
+      [
+        {
+          id: "j1",
+          table: "public.users",
+          type: "LEFT JOIN",
+          left_table: "public.orders",
+          left_col: "user_id",
+          right_col: "id",
+        },
+      ],
+      [
+        {
+          id: "f1",
+          tablePrefix: "public.orders",
+          column: "status",
+          operator: "=",
+          value: "completed",
+        },
+      ],
+      [
+        {
+          id: "s1",
+          tablePrefix: "public.orders",
+          column: "id",
+          direction: "DESC",
+        },
+      ],
+    );
+    expect(res.sql).toContain('SELECT "orders"."id"');
+    expect(res.sql).toContain('FROM "orders"');
+    expect(res.sql).toContain('LEFT JOIN "users" ON "orders"."user_id" = "users"."id"');
+    expect(res.sql).toContain('WHERE "orders"."status" = \'completed\'');
+    expect(res.sql).toContain('ORDER BY "orders"."id" DESC');
+    expect(res.spec.table).toBe("orders");
+    expect(res.spec.order_by[0].tablePrefix).toBe("orders");
   });
 });

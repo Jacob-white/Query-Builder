@@ -417,12 +417,19 @@ class AsyncBaseConnector(ABC):
                 compiled_spec = pipeline.run_pre_compile(spec_dict, ctx)
                 spec_table = compiled_spec.get("table", spec_table)
 
+                resolved_tenant_id = kwargs.get(
+                    "tenant_id",
+                    compiled_spec.get("tenant_id")
+                    if isinstance(compiled_spec, dict)
+                    else getattr(compiled_spec, "tenant_id", None),
+                )
                 compiler = QueryCompiler(
                     spec=compiled_spec,
                     schema=schema,
                     user_id=user_id,
                     force_user_filter=bool(user_id),
                     dialect=self.dialect,
+                    tenant_id=resolved_tenant_id,
                 )
                 main_sql, main_params, count_sql, count_params = compiler.compile()
 

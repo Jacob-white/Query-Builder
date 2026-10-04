@@ -100,6 +100,7 @@ class OrderBySpec:
 
     column: str
     direction: str = "asc"  # asc, desc
+    table_prefix: str | None = None
 
 
 @dataclass
@@ -116,6 +117,7 @@ class QuerySpec:
     limit: int = 50
     offset: int = 0
     distinct: bool = False
+    tenant_id: Any = None
 
 
 @dataclass
