@@ -575,3 +575,184 @@ def test_new_dialects_behavior():
     assert get_dialect("postgresql").name == "postgres"
     assert get_dialect("sqlserver").name == "mssql"
     assert get_dialect("unknown_engine").name == "postgres"
+
+
+def test_expanded_lakehouse_and_graph_dialects():
+    # 1. Doris
+    doris = get_dialect("doris")
+    assert doris.name == "doris"
+    assert get_dialect("apache_doris").name == "doris"
+    assert get_dialect("pydoris").name == "doris"
+    assert doris.quote_identifier("db.tbl") == "`db`.`tbl`"
+    assert doris.quote_alias("col`alias") == "`col``alias`"
+    assert doris.format_ilike("`c`") == "`c` ILIKE %s"
+    t_sql, t_params = doris.inspect_tables_query("test_db")
+    assert "information_schema.tables" in t_sql and t_params == ["test_db"]
+    c_sql, c_params = doris.inspect_columns_query("test_db", "test_tbl")
+    assert "information_schema.columns" in c_sql and c_params == ["test_db", "test_tbl"]
+    c_all_sql, c_all_params = doris.inspect_columns_query("test_db")
+    assert "information_schema.columns" in c_all_sql and c_all_params == ["test_db"]
+    pk_sql, pk_params = doris.inspect_primary_keys_query("test_db", "test_tbl")
+    assert "column_key = 'PRI'" in pk_sql and pk_params == ["test_db", "test_tbl"]
+    pk_all_sql, pk_all_params = doris.inspect_primary_keys_query("test_db")
+    assert "column_key = 'PRI'" in pk_all_sql and pk_all_params == ["test_db"]
+    fk_sql, fk_params = doris.inspect_foreign_keys_query("test_db", "test_tbl")
+    assert fk_sql == "" and fk_params == []
+
+    # 2. Impala
+    impala = get_dialect("impala")
+    assert impala.name == "impala"
+    assert get_dialect("apache_impala").name == "impala"
+    assert get_dialect("impyla").name == "impala"
+    assert impala.quote_identifier("db.tbl") == "`db`.`tbl`"
+    assert impala.quote_alias("col`alias") == "`col``alias`"
+    assert impala.format_ilike("`c`") == "`c` ILIKE %s"
+    t_sql, t_params = impala.inspect_tables_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in t_sql and t_params == []
+    c_sql, c_params = impala.inspect_columns_query("test_db", "test_tbl")
+    assert "DESCRIBE `test_db`.`test_tbl`" in c_sql and c_params == []
+    c_all_sql, c_all_params = impala.inspect_columns_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = impala.inspect_primary_keys_query("test_db", "test_tbl")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = impala.inspect_foreign_keys_query("test_db", "test_tbl")
+    assert fk_sql == "" and fk_params == []
+
+    # 3. Hive
+    hive = get_dialect("hive")
+    assert hive.name == "hive"
+    assert get_dialect("apache_hive").name == "hive"
+    assert get_dialect("pyhive").name == "hive"
+    assert hive.quote_identifier("db.tbl") == "`db`.`tbl`"
+    assert hive.quote_alias("col`alias") == "`col``alias`"
+    assert hive.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    t_sql, t_params = hive.inspect_tables_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in t_sql and t_params == []
+    c_sql, c_params = hive.inspect_columns_query("test_db", "test_tbl")
+    assert "DESCRIBE `test_db`.`test_tbl`" in c_sql and c_params == []
+    c_all_sql, c_all_params = hive.inspect_columns_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = hive.inspect_primary_keys_query("test_db", "test_tbl")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = hive.inspect_foreign_keys_query("test_db", "test_tbl")
+    assert fk_sql == "" and fk_params == []
+
+    # 4. Kyuubi
+    kyuubi = get_dialect("kyuubi")
+    assert kyuubi.name == "kyuubi"
+    assert get_dialect("apache_kyuubi").name == "kyuubi"
+    assert kyuubi.quote_identifier("db.tbl") == "`db`.`tbl`"
+    assert kyuubi.quote_alias("col`alias") == "`col``alias`"
+    assert kyuubi.format_ilike("`c`") == "`c` ILIKE %s"
+    t_sql, t_params = kyuubi.inspect_tables_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in t_sql and t_params == []
+    c_sql, c_params = kyuubi.inspect_columns_query("test_db", "test_tbl")
+    assert "DESCRIBE `test_db`.`test_tbl`" in c_sql and c_params == []
+    c_all_sql, c_all_params = kyuubi.inspect_columns_query("test_db")
+    assert "SHOW TABLES IN `test_db`" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = kyuubi.inspect_primary_keys_query("test_db", "test_tbl")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = kyuubi.inspect_foreign_keys_query("test_db", "test_tbl")
+    assert fk_sql == "" and fk_params == []
+
+    # 5. Drill
+    drill = get_dialect("drill")
+    assert drill.name == "drill"
+    assert get_dialect("apache_drill").name == "drill"
+    assert get_dialect("pydrill").name == "drill"
+    assert drill.quote_identifier("dfs.default.tbl") == "`dfs`.`default`.`tbl`"
+    assert drill.quote_alias("col`alias") == "`col``alias`"
+    assert drill.format_ilike("`c`") == "`c` ILIKE %s"
+    t_sql, t_params = drill.inspect_tables_query("dfs.default")
+    assert "INFORMATION_SCHEMA.TABLES" in t_sql and t_params == ["dfs.default"]
+    c_sql, c_params = drill.inspect_columns_query("dfs.default", "test_tbl")
+    assert "INFORMATION_SCHEMA.COLUMNS" in c_sql and c_params == [
+        "dfs.default",
+        "test_tbl",
+    ]
+    c_all_sql, c_all_params = drill.inspect_columns_query("dfs.default")
+    assert "INFORMATION_SCHEMA.COLUMNS" in c_all_sql and c_all_params == ["dfs.default"]
+    pk_sql, pk_params = drill.inspect_primary_keys_query("dfs.default", "test_tbl")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = drill.inspect_foreign_keys_query("dfs.default", "test_tbl")
+    assert fk_sql == "" and fk_params == []
+
+    # 6. YugabyteDB
+    yugabyte = get_dialect("yugabyte")
+    assert yugabyte.name == "yugabyte"
+    assert get_dialect("yugabytedb").name == "yugabyte"
+    assert yugabyte.quote_identifier("public.tbl") == '"public"."tbl"'
+    assert yugabyte.quote_alias('col"alias') == '"col""alias"'
+    assert yugabyte.format_ilike('"c"') == '"c" ILIKE %s'
+    t_sql, t_params = yugabyte.inspect_tables_query("public")
+    assert "information_schema.tables" in t_sql and t_params == ["public"]
+
+    # 7. OpenSearch
+    opensearch = get_dialect("opensearch")
+    assert opensearch.name == "elasticsearch"
+    assert get_dialect("opensearch_sql").name == "elasticsearch"
+    assert opensearch.quote_identifier("idx.field") == "`idx`.`field`"
+    assert opensearch.quote_alias("col`alias") == "`col``alias`"
+    assert opensearch.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    t_sql, t_params = opensearch.inspect_tables_query("default")
+    assert "SHOW TABLES LIKE '%';" in t_sql and t_params == []
+    c_sql, c_params = opensearch.inspect_columns_query("default", "my_index")
+    assert "DESCRIBE `my_index`;" in c_sql and c_params == []
+    c_all_sql, c_all_params = opensearch.inspect_columns_query("default")
+    assert "SHOW TABLES LIKE '%';" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = opensearch.inspect_primary_keys_query("default", "my_index")
+    assert pk_sql == "" and pk_params == []
+    fk_sql, fk_params = opensearch.inspect_foreign_keys_query("default", "my_index")
+    assert fk_sql == "" and fk_params == []
+
+    # 8. Neo4j
+    neo4j = get_dialect("neo4j")
+    assert neo4j.name == "neo4j"
+    assert get_dialect("cypher").name == "neo4j"
+    assert get_dialect("neo4j_sql").name == "neo4j"
+    assert neo4j.quote_identifier("Person.name") == "`Person`.`name`"
+    assert neo4j.quote_alias("col`alias") == "`col``alias`"
+    assert neo4j.format_ilike("`c`") == "toLower(`c`) CONTAINS toLower($param)"
+    clause, params = neo4j.format_limit_offset(10, 5)
+    assert clause == "SKIP $param LIMIT $param" and params == [5, 10]
+    t_sql, t_params = neo4j.inspect_tables_query("neo4j")
+    assert "SHOW NODE LABELS;" in t_sql and t_params == []
+    c_sql, c_params = neo4j.inspect_columns_query("neo4j", "Person")
+    assert "MATCH (n:`Person`) RETURN keys(n)" in c_sql and c_params == []
+    c_all_sql, c_all_params = neo4j.inspect_columns_query("neo4j")
+    assert "CALL db.schema.nodeTypeProperties();" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = neo4j.inspect_primary_keys_query("neo4j", "Person")
+    assert "SHOW CONSTRAINTS;" in pk_sql and pk_params == []
+    fk_sql, fk_params = neo4j.inspect_foreign_keys_query("neo4j", "Person")
+    assert "SHOW RELATIONSHIP TYPES;" in fk_sql and fk_params == []
+
+    # 9. Kdb+
+    kdb = get_dialect("kdb")
+    assert kdb.name == "kdb"
+    assert get_dialect("kdb+").name == "kdb"
+    assert get_dialect("pykx").name == "kdb"
+    assert get_dialect("q").name == "kdb"
+    assert kdb.quote_identifier("trade.price") == '"trade"."price"'
+    assert kdb.quote_alias('col"alias') == '"col""alias"'
+    assert kdb.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
+    t_sql, t_params = kdb.inspect_tables_query("default")
+    assert "tables[]" in t_sql and t_params == []
+    c_sql, c_params = kdb.inspect_columns_query("default", "trade")
+    assert "meta `trade" in c_sql and c_params == []
+    c_all_sql, c_all_params = kdb.inspect_columns_query("default")
+    assert "tables[]" in c_all_sql and c_all_params == []
+    pk_sql, pk_params = kdb.inspect_primary_keys_query("default", "trade")
+    assert "keys `trade" in pk_sql and pk_params == []
+    pk_none_sql, pk_none_params = kdb.inspect_primary_keys_query("default")
+    assert pk_none_sql == "" and pk_none_params == []
+    fk_sql, fk_params = kdb.inspect_foreign_keys_query("default", "trade")
+    assert fk_sql == "" and fk_params == []
+
+    # 10. ClickHouse Native
+    chn = get_dialect("clickhouse_native")
+    assert chn.name == "clickhouse_native"
+    assert get_dialect("ch_native").name == "clickhouse_native"
+    assert get_dialect("clickhouse_tcp").name == "clickhouse_native"
+    assert chn.quote_identifier("default.hits") == "`default`.`hits`"
+    assert chn.quote_alias("col`alias") == "`col``alias`"
+    assert chn.format_ilike("`c`") == "`c` ILIKE %s"

@@ -1148,4 +1148,89 @@ describe("compileVisualState", () => {
     expect(resCosmos.sql).toContain('"docs"."pk"');
     expect(resCosmos.sql).toContain("OFFSET 0 LIMIT 10;");
   });
+
+  it("handles the 10 expanded lakehouse, graph, search, and time-series dialects", () => {
+    // Doris
+    expect(quoteIdent("col", "doris")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "doris")).toBe("`col` ILIKE '%val%'");
+    expect(formatLimit(20, "doris")).toBe("LIMIT 20;");
+    const resDoris = compileVisualState("events", { "events.id": { table: "events", name: "id" } }, ["events.id"], [], [{ id: "f1", column: "id", operator: "CONTAINS", value: "evt" }], [], false, 20, null, "doris");
+    expect(resDoris.sql).toContain("SELECT `events`.`id`");
+    expect(resDoris.sql).toContain("`events`.`id` ILIKE '%evt%'");
+    expect(resDoris.sql).toContain("LIMIT 20;");
+
+    // Impala
+    expect(quoteIdent("col", "impala")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "impala")).toBe("`col` ILIKE '%val%'");
+    expect(formatLimit(25, "apache_impala")).toBe("LIMIT 25;");
+    const resImpala = compileVisualState("logs", { "logs.msg": { table: "logs", name: "msg" } }, ["logs.msg"], [], [{ id: "f1", column: "msg", operator: "CONTAINS", value: "err" }], [], false, 25, null, "impala");
+    expect(resImpala.sql).toContain("SELECT `logs`.`msg`");
+    expect(resImpala.sql).toContain("`logs`.`msg` ILIKE '%err%'");
+
+    // Hive
+    expect(quoteIdent("col", "hive")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "hive")).toBe("LOWER(`col`) LIKE LOWER('%val%')");
+    expect(formatLimit(15, "apache_hive")).toBe("LIMIT 15;");
+    const resHive = compileVisualState("hdfs_data", { "hdfs_data.val": { table: "hdfs_data", name: "val" } }, ["hdfs_data.val"], [], [{ id: "f1", column: "val", operator: "CONTAINS", value: "hi" }], [], false, 15, null, "hive");
+    expect(resHive.sql).toContain("SELECT `hdfs_data`.`val`");
+    expect(resHive.sql).toContain("LOWER(`hdfs_data`.`val`) LIKE LOWER('%hi%')");
+
+    // Kyuubi
+    expect(quoteIdent("col", "kyuubi")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "kyuubi")).toBe("`col` ILIKE '%val%'");
+    expect(formatLimit(30, "apache_kyuubi")).toBe("LIMIT 30;");
+    const resKyuubi = compileVisualState("gateway", { "gateway.req": { table: "gateway", name: "req" } }, ["gateway.req"], [], [{ id: "f1", column: "req", operator: "CONTAINS", value: "get" }], [], false, 30, null, "kyuubi");
+    expect(resKyuubi.sql).toContain("SELECT `gateway`.`req`");
+    expect(resKyuubi.sql).toContain("`gateway`.`req` ILIKE '%get%'");
+
+    // Drill
+    expect(quoteIdent("col", "drill")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "drill")).toBe("`col` ILIKE '%val%'");
+    expect(formatLimit(40, "pydrill")).toBe("LIMIT 40;");
+    const resDrill = compileVisualState("dfs_tbl", { "dfs_tbl.f": { table: "dfs_tbl", name: "f" } }, ["dfs_tbl.f"], [], [{ id: "f1", column: "f", operator: "CONTAINS", value: "test" }], [], false, 40, null, "drill");
+    expect(resDrill.sql).toContain("SELECT `dfs_tbl`.`f`");
+    expect(resDrill.sql).toContain("`dfs_tbl`.`f` ILIKE '%test%'");
+
+    // YugabyteDB
+    expect(quoteIdent("col", "yugabyte")).toBe('"col"');
+    expect(formatIlike('"col"', "'%val%'", "yugabytedb")).toBe('"col" ILIKE \'%val%\'');
+    expect(formatLimit(50, "yugabyte")).toBe("LIMIT 50;");
+    const resYugabyte = compileVisualState("accounts", { "accounts.id": { table: "accounts", name: "id" } }, ["accounts.id"], [], [{ id: "f1", column: "id", operator: "CONTAINS", value: "acc" }], [], false, 50, null, "yugabyte");
+    expect(resYugabyte.sql).toContain('SELECT "accounts"."id"');
+    expect(resYugabyte.sql).toContain('"accounts"."id" ILIKE \'%acc%\'');
+
+    // OpenSearch
+    expect(quoteIdent("col", "opensearch")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "opensearch_sql")).toBe("LOWER(`col`) LIKE LOWER('%val%')");
+    expect(formatLimit(10, "opensearch")).toBe("LIMIT 10;");
+    const resOpenSearch = compileVisualState("indices", { "indices.tag": { table: "indices", name: "tag" } }, ["indices.tag"], [], [{ id: "f1", column: "tag", operator: "CONTAINS", value: "sec" }], [], false, 10, null, "opensearch");
+    expect(resOpenSearch.sql).toContain("SELECT `indices`.`tag`");
+    expect(resOpenSearch.sql).toContain("LOWER(`indices`.`tag`) LIKE LOWER('%sec%')");
+
+    // Neo4j
+    expect(quoteIdent("col", "neo4j")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "cypher")).toBe("toLower(`col`) CONTAINS toLower('%val%')");
+    expect(formatLimit(100, "neo4j_sql")).toBe("SKIP 0 LIMIT 100;");
+    const resNeo4j = compileVisualState("nodes", { "nodes.name": { table: "nodes", name: "name" } }, ["nodes.name"], [], [{ id: "f1", column: "name", operator: "CONTAINS", value: "graph" }], [], false, 100, null, "neo4j");
+    expect(resNeo4j.sql).toContain("SELECT `nodes`.`name`");
+    expect(resNeo4j.sql).toContain("toLower(`nodes`.`name`) CONTAINS toLower('%graph%')");
+    expect(resNeo4j.sql).toContain("SKIP 0 LIMIT 100;");
+
+    // Kdb+
+    expect(quoteIdent("col", "kdb")).toBe('"col"');
+    expect(formatIlike('"col"', "'%val%'", "pykx")).toBe('LOWER("col") LIKE LOWER(\'%val%\')');
+    expect(formatLimit(10, "kdb+")).toBe("LIMIT 10;");
+    const resKdb = compileVisualState("quotes", { "quotes.sym": { table: "quotes", name: "sym" } }, ["quotes.sym"], [], [{ id: "f1", column: "sym", operator: "CONTAINS", value: "AAPL" }], [], false, 10, null, "kdb");
+    expect(resKdb.sql).toContain('SELECT "quotes"."sym"');
+    expect(resKdb.sql).toContain('LOWER("quotes"."sym") LIKE LOWER(\'%AAPL%\')');
+
+    // ClickHouse Native
+    expect(quoteIdent("col", "clickhouse_native")).toBe("`col`");
+    expect(formatIlike("`col`", "'%val%'", "ch_native")).toBe("`col` ILIKE '%val%'");
+    expect(formatLimit(20, "clickhouse_tcp")).toBe("LIMIT 20;");
+    const resCHNative = compileVisualState("ticks", { "ticks.price": { table: "ticks", name: "price" } }, ["ticks.price"], [], [{ id: "f1", column: "price", operator: "CONTAINS", value: "100" }], [], false, 20, null, "clickhouse_native");
+    expect(resCHNative.sql).toContain("SELECT `ticks`.`price`");
+    expect(resCHNative.sql).toContain("`ticks`.`price` ILIKE '%100%'");
+    expect(resCHNative.sql).toContain("LIMIT 20;");
+  });
 });

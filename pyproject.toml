@@ -88,6 +88,16 @@ cassandra = ["cassandra-driver>=3.28.0"]
 exasol = ["pyexasol>=0.25.0"]
 db2 = ["ibm-db>=3.2.0"]
 cosmosdb = ["azure-cosmos>=4.5.0"]
+doris = ["pydoris>=0.2.0"]
+impala = ["impyla>=0.18.0"]
+hive = ["pyhive>=0.7.0"]
+kyuubi = ["pyhive>=0.7.0"]
+drill = ["pydrill>=0.3.0"]
+yugabyte = ["psycopg[binary]>=3.1.0"]
+opensearch = ["opensearch-py>=2.4.0"]
+neo4j = ["neo4j>=5.15.0"]
+kdb = ["pykx>=2.0.0"]
+clickhouse-native = ["clickhouse-driver>=0.2.6"]
 all = [
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",

@@ -30,6 +30,10 @@ from query_builder.connectors.chdb import (
     ChDBConnector,
 )
 from query_builder.connectors.clickhouse import ClickHouseConnector
+from query_builder.connectors.clickhouse_native import (
+    AsyncClickHouseNativeConnector,
+    ClickHouseNativeConnector,
+)
 from query_builder.connectors.cockroachdb import CockroachConnector
 from query_builder.connectors.cosmosdb import (
     AsyncAzureCosmosDBConnector,
@@ -59,7 +63,19 @@ from query_builder.connectors.db2 import (
     DB2Connector,
     IBMDB2Connector,
 )
+from query_builder.connectors.doris import (
+    ApacheDorisConnector,
+    AsyncApacheDorisConnector,
+    AsyncDorisConnector,
+    DorisConnector,
+)
 from query_builder.connectors.dremio import DremioConnector
+from query_builder.connectors.drill import (
+    ApacheDrillConnector,
+    AsyncApacheDrillConnector,
+    AsyncDrillConnector,
+    DrillConnector,
+)
 from query_builder.connectors.druid import DruidConnector
 from query_builder.connectors.duckdb import DuckDBConnector
 from query_builder.connectors.dynamodb import DynamoDBConnector
@@ -74,6 +90,18 @@ from query_builder.connectors.greptimedb import (
     AsyncGreptimeDBConnector,
     GreptimeDBConnector,
 )
+from query_builder.connectors.hive import (
+    ApacheHiveConnector,
+    AsyncApacheHiveConnector,
+    AsyncHiveConnector,
+    HiveConnector,
+)
+from query_builder.connectors.impala import (
+    ApacheImpalaConnector,
+    AsyncApacheImpalaConnector,
+    AsyncImpalaConnector,
+    ImpalaConnector,
+)
 from query_builder.connectors.influxdb import (
     InfluxDBConnector,
     IOxConnector,
@@ -83,14 +111,23 @@ from query_builder.connectors.introspection import (
     introspect_cassandra,
     introspect_chdb,
     introspect_clickhouse,
+    introspect_clickhouse_native,
     introspect_cosmosdb,
     introspect_cratedb,
     introspect_db2,
+    introspect_doris,
+    introspect_drill,
     introspect_druid,
     introspect_duckdb,
     introspect_exasol,
     introspect_greptimedb,
+    introspect_hive,
+    introspect_impala,
     introspect_information_schema,
+    introspect_kdb,
+    introspect_kyuubi,
+    introspect_neo4j,
+    introspect_opensearch,
     introspect_oracle,
     introspect_saphana,
     introspect_scylladb,
@@ -99,6 +136,19 @@ from query_builder.connectors.introspection import (
     introspect_surrealdb,
     introspect_tdengine,
     introspect_via_sqlalchemy,
+    introspect_yugabyte,
+)
+from query_builder.connectors.kdb import (
+    AsyncKdbConnector,
+    AsyncPyKXConnector,
+    KdbConnector,
+    PyKXConnector,
+)
+from query_builder.connectors.kyuubi import (
+    ApacheKyuubiConnector,
+    AsyncApacheKyuubiConnector,
+    AsyncKyuubiConnector,
+    KyuubiConnector,
 )
 from query_builder.connectors.materialize import (
     AsyncMaterializeConnector,
@@ -110,8 +160,16 @@ from query_builder.connectors.mongodb import (
 )
 from query_builder.connectors.mssql import MSSQLConnector
 from query_builder.connectors.mysql import MySQLConnector
+from query_builder.connectors.neo4j import (
+    AsyncNeo4jConnector,
+    Neo4jConnector,
+)
 from query_builder.connectors.neon import NeonConnector
 from query_builder.connectors.oceanbase import OceanBaseConnector
+from query_builder.connectors.opensearch import (
+    AsyncOpenSearchConnector,
+    OpenSearchConnector,
+)
 from query_builder.connectors.oracle import OracleConnector
 from query_builder.connectors.pinot import PinotConnector
 from query_builder.connectors.polars import PolarsConnector
@@ -173,6 +231,12 @@ from query_builder.connectors.tidb import TiDBConnector
 from query_builder.connectors.timescaledb import TimescaleConnector
 from query_builder.connectors.trino import TrinoConnector
 from query_builder.connectors.vertica import VerticaConnector
+from query_builder.connectors.yugabyte import (
+    AsyncYugabyteConnector,
+    AsyncYugabyteDBConnector,
+    YugabyteConnector,
+    YugabyteDBConnector,
+)
 
 # Auto-register all built-in connectors into the central registry
 ConnectorRegistry.register("sqlite", SQLiteConnector)
@@ -194,9 +258,7 @@ ConnectorRegistry.register("timescaledb", TimescaleConnector, aliases=["timescal
 ConnectorRegistry.register("cockroachdb", CockroachConnector, aliases=["cockroach"])
 ConnectorRegistry.register("spanner", SpannerConnector)
 ConnectorRegistry.register("questdb", QuestDBConnector)
-ConnectorRegistry.register(
-    "elasticsearch", ElasticsearchConnector, aliases=["opensearch"]
-)
+ConnectorRegistry.register("elasticsearch", ElasticsearchConnector)
 ConnectorRegistry.register("dynamodb", DynamoDBConnector, aliases=["partiql"])
 ConnectorRegistry.register("generic", GenericDBAPIConnector, aliases=["dbapi"])
 ConnectorRegistry.register("dremio", DremioConnector)
@@ -286,32 +348,106 @@ ConnectorRegistry.register(
     "async_cosmosdb", AsyncCosmosDBConnector, aliases=["async_azure_cosmos"]
 )
 
+# Next-tier lakehouse, distributed HTAP, search, graph, and ultra-high-frequency time-series connectors
+ConnectorRegistry.register("doris", DorisConnector, aliases=["apache_doris", "pydoris"])
+ConnectorRegistry.register(
+    "async_doris", AsyncDorisConnector, aliases=["async_apache_doris"]
+)
+ConnectorRegistry.register(
+    "impala", ImpalaConnector, aliases=["apache_impala", "impyla"]
+)
+ConnectorRegistry.register(
+    "async_impala", AsyncImpalaConnector, aliases=["async_apache_impala"]
+)
+ConnectorRegistry.register("hive", HiveConnector, aliases=["apache_hive", "pyhive"])
+ConnectorRegistry.register(
+    "async_hive", AsyncHiveConnector, aliases=["async_apache_hive"]
+)
+ConnectorRegistry.register("kyuubi", KyuubiConnector, aliases=["apache_kyuubi"])
+ConnectorRegistry.register(
+    "async_kyuubi", AsyncKyuubiConnector, aliases=["async_apache_kyuubi"]
+)
+ConnectorRegistry.register("drill", DrillConnector, aliases=["apache_drill", "pydrill"])
+ConnectorRegistry.register(
+    "async_drill", AsyncDrillConnector, aliases=["async_apache_drill"]
+)
+ConnectorRegistry.register("yugabyte", YugabyteDBConnector, aliases=["yugabytedb"])
+ConnectorRegistry.register(
+    "async_yugabyte", AsyncYugabyteDBConnector, aliases=["async_yugabytedb"]
+)
+ConnectorRegistry.register(
+    "opensearch",
+    OpenSearchConnector,
+    aliases=["opensearch_sql", "opensearch_connector"],
+)
+ConnectorRegistry.register(
+    "async_opensearch", AsyncOpenSearchConnector, aliases=["async_opensearch_sql"]
+)
+ConnectorRegistry.register("neo4j", Neo4jConnector, aliases=["cypher", "neo4j_sql"])
+ConnectorRegistry.register("async_neo4j", AsyncNeo4jConnector, aliases=["async_cypher"])
+ConnectorRegistry.register("kdb", KdbConnector, aliases=["kdb+", "pykx", "q"])
+ConnectorRegistry.register(
+    "async_kdb", AsyncKdbConnector, aliases=["async_kdb+", "async_pykx"]
+)
+ConnectorRegistry.register(
+    "clickhouse_native",
+    ClickHouseNativeConnector,
+    aliases=["ch_native", "clickhouse_tcp"],
+)
+ConnectorRegistry.register(
+    "async_clickhouse_native",
+    AsyncClickHouseNativeConnector,
+    aliases=["async_ch_native"],
+)
+
 __all__ = [
     "AlloyDBConnector",
     "ApacheCassandraConnector",
+    "ApacheDorisConnector",
+    "ApacheDrillConnector",
+    "ApacheHiveConnector",
+    "ApacheImpalaConnector",
+    "ApacheKyuubiConnector",
     "ArangoDBConnector",
     "AsyncApacheCassandraConnector",
+    "AsyncApacheDorisConnector",
+    "AsyncApacheDrillConnector",
+    "AsyncApacheHiveConnector",
+    "AsyncApacheImpalaConnector",
+    "AsyncApacheKyuubiConnector",
     "AsyncArangoDBConnector",
     "AsyncAzureCosmosDBConnector",
     "AsyncBaseConnector",
     "AsyncCassandraConnector",
     "AsyncChDBConnector",
+    "AsyncClickHouseNativeConnector",
     "AsyncCosmosDBConnector",
     "AsyncCrateConnector",
     "AsyncCrateDBConnector",
     "AsyncDB2Connector",
+    "AsyncDorisConnector",
+    "AsyncDrillConnector",
     "AsyncExasolConnector",
     "AsyncGreptimeDBConnector",
+    "AsyncHiveConnector",
     "AsyncIBMDB2Connector",
+    "AsyncImpalaConnector",
+    "AsyncKdbConnector",
+    "AsyncKyuubiConnector",
     "AsyncMaterializeConnector",
+    "AsyncNeo4jConnector",
+    "AsyncOpenSearchConnector",
     "AsyncPrestoConnector",
     "AsyncPrestoDBConnector",
+    "AsyncPyKXConnector",
     "AsyncRisingWaveConnector",
     "AsyncSparkConnector",
     "AsyncSparkSQLConnector",
     "AsyncStarRocksConnector",
     "AsyncSurrealDBConnector",
     "AsyncTDengineConnector",
+    "AsyncYugabyteConnector",
+    "AsyncYugabyteDBConnector",
     "AthenaConnector",
     "AzureCosmosDBConnector",
     "BaseConnector",
@@ -319,6 +455,7 @@ __all__ = [
     "CassandraConnector",
     "ChDBConnector",
     "ClickHouseConnector",
+    "ClickHouseNativeConnector",
     "CloudflareD1Connector",
     "CockroachConnector",
     "ConnectionFailedError",
@@ -332,7 +469,9 @@ __all__ = [
     "DB2Connector",
     "DataFusionConnector",
     "DatabricksConnector",
+    "DorisConnector",
     "DremioConnector",
+    "DrillConnector",
     "DriverNotInstalledError",
     "DruidConnector",
     "DuckDBConnector",
@@ -343,10 +482,14 @@ __all__ = [
     "GenericDBAPIConnector",
     "GreptimeDBConnector",
     "HANAConnector",
+    "HiveConnector",
     "IBMDB2Connector",
     "IOxConnector",
+    "ImpalaConnector",
     "InfluxDBConnector",
     "IntrospectionError",
+    "KdbConnector",
+    "KyuubiConnector",
     "MSSQLConnector",
     "MaterializeConnector",
     "MemSQLConnector",
@@ -354,14 +497,17 @@ __all__ = [
     "MongoDBConnector",
     "MySQLConnector",
     "N1QLConnector",
+    "Neo4jConnector",
     "NeonConnector",
     "OceanBaseConnector",
+    "OpenSearchConnector",
     "OracleConnector",
     "PinotConnector",
     "PolarsConnector",
     "PostgresConnector",
     "PrestoConnector",
     "PrestoDBConnector",
+    "PyKXConnector",
     "QuestDBConnector",
     "RedshiftConnector",
     "RisingWaveConnector",
@@ -382,19 +528,30 @@ __all__ = [
     "TimescaleConnector",
     "TrinoConnector",
     "VerticaConnector",
+    "YugabyteConnector",
+    "YugabyteDBConnector",
     "get_connector",
     "introspect_arangodb",
     "introspect_cassandra",
     "introspect_chdb",
     "introspect_clickhouse",
+    "introspect_clickhouse_native",
     "introspect_cosmosdb",
     "introspect_cratedb",
     "introspect_db2",
+    "introspect_doris",
+    "introspect_drill",
     "introspect_druid",
     "introspect_duckdb",
     "introspect_exasol",
     "introspect_greptimedb",
+    "introspect_hive",
+    "introspect_impala",
     "introspect_information_schema",
+    "introspect_kdb",
+    "introspect_kyuubi",
+    "introspect_neo4j",
+    "introspect_opensearch",
     "introspect_oracle",
     "introspect_saphana",
     "introspect_scylladb",
@@ -403,6 +560,7 @@ __all__ = [
     "introspect_surrealdb",
     "introspect_tdengine",
     "introspect_via_sqlalchemy",
+    "introspect_yugabyte",
     "list_connectors",
     "register_connector",
 ]

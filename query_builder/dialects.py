@@ -1195,6 +1195,372 @@ class CosmosDBDialect(BaseDialect):
         return ("", [])
 
 
+class DorisDialect(BaseDialect):
+    """Apache Doris real-time MPP analytical data warehouse dialect."""
+
+    name: str = "doris"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "information_schema"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} AND table_type IN ('BASE TABLE', 'VIEW', 'EXTERNAL TABLE') ORDER BY table_name;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "information_schema", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "information_schema", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} AND (column_key = 'PRI' OR column_key = 'UNI') ORDER BY ordinal_position;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = {self.placeholder} AND (column_key = 'PRI' OR column_key = 'UNI') ORDER BY table_name, ordinal_position;",
+            [schema_name],
+        )
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "information_schema", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class ImpalaDialect(BaseDialect):
+    """Apache Impala low-latency MPP Hadoop/object-store SQL dialect."""
+
+    name: str = "impala"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class HiveDialect(BaseDialect):
+    """Apache Hive enterprise data lakehouse SQL dialect."""
+
+    name: str = "hive"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class KyuubiDialect(BaseDialect):
+    """Apache Kyuubi multi-tenant enterprise query gateway dialect."""
+
+    name: str = "kyuubi"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
+        return (f"SHOW TABLES IN `{schema_name}`;", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class DrillDialect(BaseDialect):
+    """Apache Drill distributed schema-free SQL dialect."""
+
+    name: str = "drill"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} ILIKE {self.placeholder}"
+
+    def inspect_tables_query(
+        self, schema_name: str = "dfs.default"
+    ) -> tuple[str, list[Any]]:
+        return (
+            f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME;",
+            [schema_name],
+        )
+
+    def inspect_columns_query(
+        self, schema_name: str = "dfs.default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (
+                f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = {self.placeholder} AND TABLE_NAME = {self.placeholder} ORDER BY ORDINAL_POSITION;",
+                [schema_name, table_name],
+            )
+        return (
+            f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME, ORDINAL_POSITION;",
+            [schema_name],
+        )
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "dfs.default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "dfs.default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class YugabyteDBDialect(PostgresDialect):
+    """YugabyteDB distributed cloud-native HTAP database dialect."""
+
+    name: str = "yugabyte"
+
+
+class OpenSearchDialect(ElasticsearchDialect):
+    """OpenSearch distributed search & analytics SQL plugin dialect."""
+
+    name: str = "elasticsearch"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return ("SHOW TABLES LIKE '%';", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"DESCRIBE `{table_name}`;", [])
+        return ("SHOW TABLES LIKE '%';", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class Neo4jDialect(BaseDialect):
+    """Neo4j graph database Cypher and SQL mapping dialect."""
+
+    name: str = "neo4j"
+    placeholder: str = "$param"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def quote_alias(self, alias_name: str) -> str:
+        _validate_alias(alias_name)
+        cleaned = alias_name.replace("`", "``")
+        return f"`{cleaned}`"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(self, schema_name: str = "neo4j") -> tuple[str, list[Any]]:
+        return ("SHOW NODE LABELS;", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "neo4j", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"MATCH (n:`{table_name}`) RETURN keys(n) AS keys LIMIT 1;", [])
+        return ("CALL db.schema.nodeTypeProperties();", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "neo4j", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("SHOW CONSTRAINTS;", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "neo4j", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("SHOW RELATIONSHIP TYPES;", [])
+
+
+class KdbDialect(BaseDialect):
+    """Kdb+ ultra-high performance financial vector and time-series database dialect."""
+
+    name: str = "kdb"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return ("tables[]", [])
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"meta `{table_name}", [])
+        return ("tables[]", [])
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return (f"keys `{table_name}", [])
+        return ("", [])
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return ("", [])
+
+
+class ClickHouseNativeDialect(ClickHouseDialect):
+    """ClickHouse native binary TCP protocol dialect."""
+
+    name: str = "clickhouse_native"
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -1223,7 +1589,8 @@ DIALECTS: dict[str, BaseDialect] = {
     "spanner": SpannerDialect(),
     "questdb": QuestDBDialect(),
     "elasticsearch": ElasticsearchDialect(),
-    "opensearch": ElasticsearchDialect(),
+    "opensearch": OpenSearchDialect(),
+    "opensearch_sql": OpenSearchDialect(),
     "dynamodb": DynamoDBPartiQLDialect(),
     "partiql": DynamoDBPartiQLDialect(),
     "dremio": DremioDialect(),
@@ -1284,6 +1651,32 @@ DIALECTS: dict[str, BaseDialect] = {
     "ibm_db2": DB2Dialect(),
     "cosmosdb": CosmosDBDialect(),
     "azure_cosmos": CosmosDBDialect(),
+    "doris": DorisDialect(),
+    "apache_doris": DorisDialect(),
+    "pydoris": DorisDialect(),
+    "impala": ImpalaDialect(),
+    "apache_impala": ImpalaDialect(),
+    "impyla": ImpalaDialect(),
+    "hive": HiveDialect(),
+    "apache_hive": HiveDialect(),
+    "pyhive": HiveDialect(),
+    "kyuubi": KyuubiDialect(),
+    "apache_kyuubi": KyuubiDialect(),
+    "drill": DrillDialect(),
+    "apache_drill": DrillDialect(),
+    "pydrill": DrillDialect(),
+    "yugabyte": YugabyteDBDialect(),
+    "yugabytedb": YugabyteDBDialect(),
+    "neo4j": Neo4jDialect(),
+    "cypher": Neo4jDialect(),
+    "neo4j_sql": Neo4jDialect(),
+    "kdb": KdbDialect(),
+    "kdb+": KdbDialect(),
+    "pykx": KdbDialect(),
+    "q": KdbDialect(),
+    "clickhouse_native": ClickHouseNativeDialect(),
+    "ch_native": ClickHouseNativeDialect(),
+    "clickhouse_tcp": ClickHouseNativeDialect(),
 }
 
 
