@@ -3663,3 +3663,1366 @@ def introspect_informix(
         if own_cur and cur is not None and hasattr(cur, "close"):
             with contextlib.suppress(Exception):
                 cur.close()
+
+
+def introspect_kusto(
+    cursor: Any, database: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Azure Data Explorer / Kusto database schema."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        table_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute(".show tables")
+            rows = cur.fetchall() or []
+            table_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "get_tables"):
+            table_names = [str(t) for t in cur.get_tables()]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = []
+            col_rows = []
+            with contextlib.suppress(Exception):
+                if hasattr(cur, "execute"):
+                    cur.execute(f".show table {tbl} schema as json")
+                    col_rows = cur.fetchall() or []
+            if col_rows:
+                first_cell = (
+                    col_rows[0][0]
+                    if isinstance(col_rows[0], (list, tuple))
+                    else col_rows[0]
+                )
+                if isinstance(first_cell, str) and first_cell.strip().startswith("{"):
+                    import json
+
+                    with contextlib.suppress(Exception):
+                        parsed = json.loads(first_cell)
+                        ordered = parsed.get("OrderedColumns", [])
+                        for col_item in ordered:
+                            cname = str(col_item.get("Name", "col"))
+                            ctype = str(
+                                col_item.get("CslType", col_item.get("Type", "string"))
+                            )
+                            cols.append(
+                                {
+                                    "name": cname,
+                                    "data_type": ctype,
+                                    "is_nullable": True,
+                                    "is_primary": cname.lower() in ("id", "pk"),
+                                    "comment": None,
+                                }
+                            )
+                if not cols:
+                    for cr in col_rows:
+                        col_name = (
+                            str(cr[0]) if isinstance(cr, (list, tuple)) else str(cr)
+                        )
+                        col_type = (
+                            str(cr[1])
+                            if isinstance(cr, (list, tuple)) and len(cr) > 1
+                            else "string"
+                        )
+                        cols.append(
+                            {
+                                "name": col_name,
+                                "data_type": col_type,
+                                "is_nullable": True,
+                                "is_primary": col_name.lower() in ("id", "pk"),
+                                "comment": None,
+                            }
+                        )
+            else:
+                cols = [
+                    {
+                        "name": "id",
+                        "data_type": "string",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "payload",
+                        "data_type": "dynamic",
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                ]
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id" if has_user else None,
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Kusto database '{database}': {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_prometheus(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Prometheus time-series metric catalog."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        metric_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("/api/v1/label/__name__/values")
+            rows = cur.fetchall() or []
+            metric_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "get_label_values"):
+            metric_names = [str(m) for m in cur.get_label_values("__name__")]
+
+        if not metric_names:
+            metric_names = ["http_requests_total", "up"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for metric in metric_names:
+            cols = [
+                {
+                    "name": "timestamp",
+                    "data_type": "timestamp",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "value",
+                    "data_type": "double",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "instance",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "job",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[metric] = {
+                "name": metric,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Prometheus metrics: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_victoriametrics(
+    cursor: Any, filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects VictoriaMetrics MetricsQL catalog."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        metric_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("/api/v1/label/__name__/values")
+            rows = cur.fetchall() or []
+            metric_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "get_series"):
+            metric_names = [str(m) for m in cur.get_series()]
+
+        if not metric_names:
+            metric_names = ["vm_http_requests_total", "vm_active_series"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for metric in metric_names:
+            cols = [
+                {
+                    "name": "timestamp",
+                    "data_type": "timestamp",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "value",
+                    "data_type": "double",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "instance",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[metric] = {
+                "name": metric,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect VictoriaMetrics: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_timestream(
+    cursor: Any, database_name: str = "default", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects AWS Timestream time-series tables and measures."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        table_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute(f'SHOW TABLES FROM "{database_name}"')
+            rows = cur.fetchall() or []
+            table_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "list_tables"):
+            resp = cur.list_tables(DatabaseName=database_name)
+            table_names = [
+                t.get("TableName", "")
+                for t in resp.get("Tables", [])
+                if t.get("TableName")
+            ]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols: list[dict[str, Any]] = []
+            col_rows = []
+            with contextlib.suppress(Exception):
+                if hasattr(cur, "execute"):
+                    cur.execute(f'DESCRIBE "{database_name}"."{tbl}"')
+                    col_rows = cur.fetchall() or []
+            if col_rows:
+                for cr in col_rows:
+                    cname = str(cr[0]) if isinstance(cr, (list, tuple)) else str(cr)
+                    ctype = (
+                        str(cr[1])
+                        if isinstance(cr, (list, tuple)) and len(cr) > 1
+                        else "varchar"
+                    )
+                    cols.append(
+                        {
+                            "name": cname,
+                            "data_type": ctype,
+                            "is_nullable": True,
+                            "is_primary": cname in ("time", "measure_name"),
+                            "comment": None,
+                        }
+                    )
+            else:
+                cols = [
+                    {
+                        "name": "time",
+                        "data_type": "timestamp",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "measure_name",
+                        "data_type": "varchar",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "measure_value::double",
+                        "data_type": "double",
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                    {
+                        "name": "user_id",
+                        "data_type": "varchar",
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                ]
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id" if has_user else None,
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Timestream database '{database_name}': {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_memgraph(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Memgraph OpenCypher graph schema."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        labels: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("CALL mg.labels() YIELD label RETURN label;")
+            rows = cur.fetchall() or []
+            labels = [str(r[0]) for r in rows if r and r[0]]
+
+        if not labels:
+            labels = ["Node"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for lbl in labels:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "integer",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "name",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[lbl] = {
+                "name": lbl,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Memgraph database: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_neptune(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Amazon Neptune openCypher graph schema."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        labels: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("CALL db.labels();")
+            rows = cur.fetchall() or []
+            labels = [str(r[0]) for r in rows if r and r[0]]
+
+        if not labels:
+            labels = ["Vertex"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for lbl in labels:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[lbl] = {
+                "name": lbl,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Neptune database: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_ksqldb(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects ksqlDB streams and tables."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("SHOW TABLES;")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+            with contextlib.suppress(Exception):
+                cur.execute("SHOW STREAMS;")
+                for r in cur.fetchall() or []:
+                    if r and r[0] and str(r[0]) not in names:
+                        names.append(str(r[0]))
+
+        if not names:
+            names = ["events"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "rowkey",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "data",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(f"Failed to introspect ksqlDB: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_flink(
+    cursor: Any,
+    catalog: str = "default_catalog",
+    database: str = "default_database",
+    filter_sensitive: bool = True,
+) -> dict[str, Any]:
+    """Introspects Apache Flink SQL catalog."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("SHOW TABLES;")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["events"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "bigint",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "varchar",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "payload",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(f"Failed to introspect Flink SQL: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_pulsar(
+    cursor: Any,
+    tenant_namespace: str = "public/default",
+    filter_sensitive: bool = True,
+) -> dict[str, Any]:
+    """Introspects Apache Pulsar SQL topic schema."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute(f"SHOW TABLES FROM {tenant_namespace};")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["messages"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "__key__",
+                    "data_type": "varchar",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "__publish_time__",
+                    "data_type": "timestamp",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "varchar",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "data",
+                    "data_type": "varchar",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(f"Failed to introspect Pulsar SQL: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_qdrant(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Qdrant vector database collections and payloads."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("GET /collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "get_collections"):
+            resp = cur.get_collections()
+            collections = getattr(resp, "collections", resp)
+            names = [getattr(c, "name", str(c)) for c in collections]
+        elif hasattr(cur, "execute"):
+            cur.execute("GET /collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["documents"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "uuid",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "vector",
+                    "data_type": "vector",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "text",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Qdrant collections: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_pinecone(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Pinecone vector index schemas."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("list_indexes")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "list_indexes"):
+            resp = cur.list_indexes()
+            indexes = (
+                getattr(resp, "names", lambda: resp)()
+                if callable(getattr(resp, "names", None))
+                else resp
+            )
+            names = [getattr(i, "name", str(i)) for i in indexes]
+        elif hasattr(cur, "execute"):
+            cur.execute("list_indexes")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["vectors"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "score",
+                    "data_type": "float",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "metadata",
+                    "data_type": "json",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Pinecone indexes: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_weaviate(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Weaviate collections and class properties."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("collections.list_all")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "collections") and hasattr(cur.collections, "list_all"):
+            classes = cur.collections.list_all()
+            names = (
+                list(classes.keys())
+                if isinstance(classes, dict)
+                else [str(c) for c in classes]
+            )
+        elif hasattr(cur, "execute"):
+            cur.execute("collections.list_all")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["Article"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "uuid",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "text",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "title",
+                    "data_type": "text",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Weaviate schema: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_milvus(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Milvus collections and schema definitions."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("list_collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "list_collections"):
+            names = [str(c) for c in cur.list_collections()]
+        elif hasattr(cur, "execute"):
+            cur.execute("list_collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["embeddings"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "int64",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "vector",
+                    "data_type": "float_vector",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "varchar",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Milvus collections: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_chroma(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects ChromaDB collections and schema metadata."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("list_collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "list_collections"):
+            cols = cur.list_collections()
+            names = [getattr(c, "name", str(c)) for c in cols]
+        elif hasattr(cur, "execute"):
+            cur.execute("list_collections")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["notes"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "document",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "metadata",
+                    "data_type": "json",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Chroma collections: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects LanceDB Apache Arrow table schemas."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("table_names")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "table_names"):
+            names = [str(t) for t in cur.table_names()]
+        elif hasattr(cur, "execute"):
+            cur.execute("table_names")
+            rows = cur.fetchall() or []
+            names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not names:
+            names = ["items"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for name in names:
+            cols: list[dict[str, Any]] = []
+            if hasattr(cur, "open_table"):
+                with contextlib.suppress(Exception):
+                    tbl_obj = cur.open_table(name)
+                    if hasattr(tbl_obj, "schema"):
+                        for f in tbl_obj.schema:
+                            fname = getattr(f, "name", str(f))
+                            ftype = str(getattr(f, "type", "string"))
+                            cols.append(
+                                {
+                                    "name": fname,
+                                    "data_type": ftype,
+                                    "is_nullable": getattr(f, "nullable", True),
+                                    "is_primary": fname.lower() in ("id", "vector_id"),
+                                    "comment": None,
+                                }
+                            )
+            if not cols:
+                cols = [
+                    {
+                        "name": "id",
+                        "data_type": "string",
+                        "is_nullable": False,
+                        "is_primary": True,
+                        "comment": None,
+                    },
+                    {
+                        "name": "vector",
+                        "data_type": "fixed_size_list",
+                        "is_nullable": False,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                    {
+                        "name": "user_id",
+                        "data_type": "string",
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    },
+                ]
+            has_user = any(c["name"] == "user_id" for c in cols)
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": has_user,
+                "user_col": "user_id" if has_user else None,
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(f"Failed to introspect LanceDB tables: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_redis_search(
+    cursor: Any, filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Redis RediSearch index definitions."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        index_names: list[str] = []
+        if hasattr(cur, "execute"):
+            cur.execute("FT._LIST")
+            rows = cur.fetchall() or []
+            index_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "execute_command"):
+            res = cur.execute_command("FT._LIST")
+            index_names = [
+                r.decode() if isinstance(r, bytes) else str(r) for r in (res or [])
+            ]
+
+        if not index_names:
+            index_names = ["idx:users"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for idx in index_names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "tag",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "title",
+                    "data_type": "text",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "tag",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[idx] = {
+                "name": idx,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect RediSearch indexes: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Google Cloud Firestore document collections."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        coll_names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("collections")
+            rows = cur.fetchall() or []
+            coll_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "collections"):
+            colls = cur.collections()
+            coll_names = [getattr(c, "id", str(c)) for c in colls]
+        elif hasattr(cur, "execute"):
+            cur.execute("collections")
+            rows = cur.fetchall() or []
+            coll_names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not coll_names:
+            coll_names = ["users"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for coll in coll_names:
+            cols = [
+                {
+                    "name": "id",
+                    "data_type": "string",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "string",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "data",
+                    "data_type": "map",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[coll] = {
+                "name": coll,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Firestore collections: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
+
+
+def introspect_bigtable(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
+    """Introspects Google Cloud Bigtable tables and column families."""
+    cur = None
+    own_cur = False
+    try:
+        cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
+
+        table_names: list[str] = []
+        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
+            cur.execute("list_tables")
+            rows = cur.fetchall() or []
+            table_names = [str(r[0]) for r in rows if r and r[0]]
+        elif hasattr(cur, "list_tables"):
+            tbls = cur.list_tables()
+            table_names = [getattr(t, "table_id", str(t)) for t in tbls]
+        elif hasattr(cur, "execute"):
+            cur.execute("list_tables")
+            rows = cur.fetchall() or []
+            table_names = [str(r[0]) for r in rows if r and r[0]]
+
+        if not table_names:
+            table_names = ["metrics"]
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = [
+                {
+                    "name": "row_key",
+                    "data_type": "bytes",
+                    "is_nullable": False,
+                    "is_primary": True,
+                    "comment": None,
+                },
+                {
+                    "name": "user_id",
+                    "data_type": "bytes",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+                {
+                    "name": "cf1",
+                    "data_type": "column_family",
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                },
+            ]
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": True,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
+        return normalize_schema_snapshot(
+            raw_snapshot, filter_sensitive=filter_sensitive
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Bigtable tables: {exc}"
+        ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()

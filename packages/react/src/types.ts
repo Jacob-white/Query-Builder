@@ -25,6 +25,42 @@ export interface ForeignKeyMeta {
   foreign_column: string;
 }
 
+export interface ForeignKey {
+  table: string;
+  column: string;
+  foreignTable: string;
+  foreign_table?: string;
+  foreignColumn: string;
+  foreign_column?: string;
+}
+
+export interface ColumnSchema {
+  name: string;
+  dataType: string;
+  data_type?: string;
+  isNullable?: boolean;
+  is_nullable?: boolean;
+  isPrimary?: boolean;
+  is_primary?: boolean;
+  default?: unknown;
+  comment?: string;
+  enums?: string[];
+  foreignKey?: ForeignKey;
+  foreign_key?: ForeignKey;
+}
+
+export interface TableSchema {
+  name: string;
+  schema?: string;
+  comment?: string;
+  columns: ColumnSchema[];
+  foreignKeys?: ForeignKey[];
+  foreign_keys?: ForeignKey[];
+  primaryKeys?: string[];
+  primary_keys?: string[];
+  enums?: Record<string, string[]>;
+}
+
 export interface SchemaSnapshot {
   tables: Record<string, TableMeta>;
   categories?: Record<string, string[]>;
@@ -144,7 +180,7 @@ export type SchemaColumnType<Schema, Table extends string, Col extends string> =
 // Filter and Visual AST Types
 // ==========================================
 
-export type FilterOperator =
+export type BuiltInFilterOperator =
   | "="
   | "!="
   | ">"
@@ -161,6 +197,26 @@ export type FilterOperator =
   | "BETWEEN"
   | "IS NULL"
   | "IS NOT NULL";
+
+export type FilterOperator = BuiltInFilterOperator | (string & {});
+
+export interface CustomFilterOperator {
+  label: string;
+  value: string;
+  hasValue?: boolean;
+  placeholder?: string;
+  formatSql?: (colRef: string, val: string | number | boolean, dialect: string) => string;
+}
+
+export interface FieldRendererProps {
+  column: ColumnMeta;
+  table: TableMeta;
+  isSelected: boolean;
+  onToggle: () => void;
+  unstyled?: boolean;
+}
+
+export type CustomFieldRenderer = (props: FieldRendererProps) => React.ReactNode;
 
 export interface VisualJoin<Schema = any> {
   id: string;
@@ -380,7 +436,7 @@ export type SqlDialect =
   | "ibm_informix";
 
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
-  schema?: SchemaSnapshot | Schema | null;
+  schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   presets?: SqlPreset[];
   initialTable?: SchemaTableNames<Schema>;
   dialect?: SqlDialect;
@@ -389,6 +445,10 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   theme?: "dark" | "light" | "auto";
   readOnly?: boolean;
   unstyled?: boolean;
+  mode?: "styled" | "unstyled";
+  customOperators?: Record<string, CustomFilterOperator>;
+  fieldRenderers?: Record<string, CustomFieldRenderer>;
+  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
 }
 
 // ==========================================
@@ -451,7 +511,7 @@ export interface QueryTemplateManagerProps {
 // ==========================================
 
 export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = any> {
-  schema?: SchemaSnapshot | Schema | null;
+  schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   initialSpec?: QuerySpec<Schema> | Record<string, unknown>;
   initialTable?: string;
   dialect?: SqlDialect;

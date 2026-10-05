@@ -220,6 +220,45 @@ def main(argv: list[str] | None = None) -> int:
         default=8000,
         help="Port to listen on (default: 8000).",
     )
+    serve_p.add_argument(
+        "--profile",
+        choices=["development", "production", "strict"],
+        default=None,
+        help="Active security profile preset (development, production, strict).",
+    )
+
+    # 8. Schema subcommand
+    schema_p = subparsers.add_parser(
+        "schema",
+        help="Explore and inspect database schema structure, relationships, and stats.",
+    )
+    schema_p.add_argument(
+        "--schema",
+        "-s",
+        required=True,
+        help="Path to JSON schema snapshot file or JSON string.",
+    )
+    schema_p.add_argument(
+        "--table",
+        "-t",
+        help="Optional specific table name to inspect in detail.",
+    )
+    schema_p.add_argument(
+        "--tree",
+        action="store_true",
+        help="Render ASCII hierarchy tree of tables, columns, and foreign keys.",
+    )
+    schema_p.add_argument(
+        "--filter-sensitive",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Filter sensitive system and auth tables (default: enabled).",
+    )
+    schema_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output schema exploration metrics as structured JSON.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -600,8 +639,97 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(f"Join path error: {e}\n")
             return 1
 
+    elif args.command == "schema":
+        try:
+            if args.schema.startswith("{"):
+                schema_data = json.loads(args.schema)
+            else:
+                with open(args.schema, "r", encoding="utf-8") as f:
+                    schema_data = json.load(f)
+
+            from query_builder.schema import explore_schema, format_schema_tree
+
+            filter_sensitive = bool(getattr(args, "filter_sensitive", True))
+
+            if getattr(args, "tree", False):
+                tree_str = format_schema_tree(
+                    schema_data, filter_sensitive=filter_sensitive
+                )
+                print(tree_str)
+                return 0
+
+            exploration = explore_schema(schema_data, filter_sensitive=filter_sensitive)
+
+            if getattr(args, "table", None):
+                target_table = args.table.lower().strip()
+                tbl_info = exploration["tables"].get(target_table)
+                if not tbl_info:
+                    msg = f"Table '{args.table}' not found in schema snapshot."
+                    if getattr(args, "json", False):
+                        print(json.dumps({"success": False, "error": msg}, indent=2))
+                    else:
+                        sys.stderr.write(f"Schema Explorer error: {msg}\n")
+                    return 1
+
+                if getattr(args, "json", False):
+                    print(json.dumps(tbl_info, indent=2))
+                else:
+                    user_tag = " [user-isolated]" if tbl_info.get("has_user_id") else ""
+                    print(f"Table: {tbl_info['name']}{user_tag}")
+                    if tbl_info.get("comment"):
+                        print(f"Comment: {tbl_info['comment']}")
+                    print(f"Columns ({tbl_info['column_count']}):")
+                    for c in tbl_info.get("columns", []):
+                        pk = " [PK]" if c.get("is_primary") else ""
+                        null_str = "NULL" if c.get("is_nullable", True) else "NOT NULL"
+                        print(
+                            f"  • {c['name']} ({c.get('data_type', 'text')}, {null_str}){pk}"
+                        )
+                    if tbl_info.get("outgoing_fks"):
+                        print("Outgoing Foreign Keys:")
+                        for fk in tbl_info["outgoing_fks"]:
+                            print(
+                                f"  ➔ {fk['column']} -> {fk['foreign_table']}.{fk['foreign_column']}"
+                            )
+                    if tbl_info.get("incoming_fks"):
+                        print("Incoming References:")
+                        for fk in tbl_info["incoming_fks"]:
+                            print(
+                                f"  ⬅ {fk['table']}.{fk['column']} -> {fk['foreign_column']}"
+                            )
+                return 0
+
+            if getattr(args, "json", False):
+                print(json.dumps(exploration, indent=2))
+            else:
+                print(
+                    f"Schema Overview: {exploration['table_count']} tables, "
+                    f"{exploration['column_count']} columns, "
+                    f"{exploration['foreign_key_count']} foreign keys"
+                )
+                if exploration.get("hubs"):
+                    print(f"  Hub Tables: {', '.join(exploration['hubs'])}")
+                if exploration.get("user_isolated_count"):
+                    print(
+                        f"  User-Isolated Tables: {exploration['user_isolated_count']}"
+                    )
+                sorted_tables = sorted(exploration["tables"].keys())
+                print(f"  Tables: {', '.join(sorted_tables)}")
+            return 0
+
+        except Exception as e:  # noqa: BLE001
+            if getattr(args, "json", False):
+                print(json.dumps({"success": False, "error": str(e)}, indent=2))
+            else:
+                sys.stderr.write(f"Schema Explorer error: {e}\n")
+            return 1
+
     else:
+        from query_builder.config import configure_query_builder
         from query_builder.server import create_server
+
+        if getattr(args, "profile", None):
+            configure_query_builder(profile=args.profile)
 
         server = create_server(host=args.host, port=args.port)
         actual_port = server.server_address[1]

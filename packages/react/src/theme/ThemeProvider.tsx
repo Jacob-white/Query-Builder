@@ -5,10 +5,11 @@ import {
   darkTheme,
   lightTheme,
   mergeTheme,
+  themeToCssVariables,
 } from "./tokens";
 
 export interface ThemeProviderProps {
-  theme?: QueryBuilderTheme;
+  theme?: QueryBuilderTheme | DeepPartial<QueryBuilderTheme>;
   mode?: "dark" | "light";
   customTokens?: DeepPartial<QueryBuilderTheme>;
   children: React.ReactNode;
@@ -17,6 +18,7 @@ export interface ThemeProviderProps {
 export interface ThemeContextValue {
   theme: QueryBuilderTheme;
   mode: "dark" | "light";
+  cssVariables: Record<string, string>;
   setTheme: (theme: QueryBuilderTheme) => void;
   setMode: (mode: "dark" | "light") => void;
   toggleMode: () => void;
@@ -31,14 +33,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   children,
 }) => {
   const computeTheme = useCallback(
-    (explicitTheme?: QueryBuilderTheme, explicitMode?: "dark" | "light"): QueryBuilderTheme => {
-      let base: QueryBuilderTheme;
-      if (explicitTheme) {
-        base = explicitTheme;
-      } else {
-        const activeMode = explicitMode || "dark";
-        base = activeMode === "light" ? lightTheme : darkTheme;
-      }
+    (explicitTheme?: QueryBuilderTheme | DeepPartial<QueryBuilderTheme>, explicitMode?: "dark" | "light"): QueryBuilderTheme => {
+      const activeMode = explicitMode || "dark";
+      const fallback = activeMode === "light" ? lightTheme : darkTheme;
+      const base: QueryBuilderTheme = explicitTheme
+        ? mergeTheme(fallback, explicitTheme as DeepPartial<QueryBuilderTheme>)
+        : fallback;
       return customTokens ? mergeTheme(base, customTokens) : base;
     },
     [customTokens],
@@ -74,15 +74,18 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
     setActiveTheme(newTheme);
   }, []);
 
+  const cssVariables = useMemo(() => themeToCssVariables(activeTheme), [activeTheme]);
+
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme: activeTheme,
       mode: activeTheme.mode,
+      cssVariables,
       setTheme,
       setMode,
       toggleMode,
     }),
-    [activeTheme, setTheme, setMode, toggleMode],
+    [activeTheme, cssVariables, setTheme, setMode, toggleMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
@@ -94,6 +97,7 @@ export const useTheme = (): ThemeContextValue => {
     return {
       theme: darkTheme,
       mode: "dark",
+      cssVariables: themeToCssVariables(darkTheme),
       setTheme: () => {},
       setMode: () => {},
       toggleMode: () => {},

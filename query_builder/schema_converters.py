@@ -13,7 +13,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from query_builder.models import ColumnMeta, ForeignKeyMeta, SchemaSnapshot, TableMeta
+from query_builder.models import (
+    ColumnMeta,
+    ColumnSchema,
+    ForeignKey,
+    ForeignKeyMeta,
+    SchemaSnapshot,
+    TableMeta,
+    TableSchema,
+)
 
 SUPPORTED_PRISMA_PROVIDERS: set[str] = {
     "postgresql",
@@ -89,10 +97,19 @@ def _extract_snapshot(
         raw_tables = snapshot.tables
         raw_fks = snapshot.foreign_keys
         raw_rels = snapshot.relationships
+    elif isinstance(snapshot, TableSchema):
+        raw_tables = {snapshot.name: snapshot}
+        raw_fks = list(snapshot.foreign_keys)
+        raw_rels = []
     elif isinstance(snapshot, dict):
-        raw_tables = snapshot.get("tables", {})
-        raw_fks = snapshot.get("foreign_keys", [])
-        raw_rels = snapshot.get("relationships", [])
+        if "tables" in snapshot:
+            raw_tables = snapshot.get("tables", {})
+            raw_fks = list(snapshot.get("foreign_keys") or [])
+            raw_rels = list(snapshot.get("relationships") or [])
+        else:
+            raw_tables = snapshot
+            raw_fks = []
+            raw_rels = []
     else:
         raise TypeError(
             f"Expected SchemaSnapshot or dict, got {type(snapshot).__name__}"
@@ -101,10 +118,13 @@ def _extract_snapshot(
     tables: dict[str, dict[str, Any]] = {}
     if isinstance(raw_tables, dict):
         for tbl_name, tbl_info in raw_tables.items():
-            if isinstance(tbl_info, TableMeta):
+            if isinstance(tbl_info, (TableMeta, TableSchema)):
                 t_name = tbl_info.name
                 t_comment = tbl_info.comment
                 cols_source = tbl_info.columns
+                if isinstance(tbl_info, TableSchema) and tbl_info.foreign_keys:
+                    for fk in tbl_info.foreign_keys:
+                        raw_fks.append(fk)
             elif isinstance(tbl_info, dict):
                 t_name = tbl_info.get("name", tbl_name)
                 t_comment = tbl_info.get("comment")
@@ -116,7 +136,7 @@ def _extract_snapshot(
 
             cols: list[dict[str, Any]] = []
             for col in cols_source:
-                if isinstance(col, ColumnMeta):
+                if isinstance(col, (ColumnMeta, ColumnSchema)):
                     cols.append(
                         {
                             "name": col.name,
@@ -157,7 +177,7 @@ def _extract_snapshot(
     foreign_keys: list[dict[str, str]] = []
 
     for fk in raw_fks or []:
-        if isinstance(fk, ForeignKeyMeta):
+        if isinstance(fk, (ForeignKeyMeta, ForeignKey)):
             entry = (fk.table, fk.column, fk.foreign_table, fk.foreign_column)
         elif isinstance(fk, dict):
             entry = (

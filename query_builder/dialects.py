@@ -1937,6 +1937,661 @@ class InformixDialect(BaseDialect):
         )
 
 
+class KustoDialect(BaseDialect):
+    """Azure Data Explorer / Kusto / KQL dialect."""
+
+    name: str = "kusto"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref} =~ {self.placeholder}"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return ".show tables", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f".show table {table_name} schema as json", []
+        return ".show database schema as json", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class PrometheusDialect(BaseDialect):
+    """Prometheus PromQL time-series metrics dialect."""
+
+    name: str = "prometheus"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f'{col_ref}=~"(?i){self.placeholder}"'
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "/api/v1/label/__name__/values", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "/api/v1/labels", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class VictoriaMetricsDialect(BaseDialect):
+    """VictoriaMetrics MetricsQL time-series observability dialect."""
+
+    name: str = "victoriametrics"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f'{col_ref}=~"(?i){self.placeholder}"'
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "/api/v1/label/__name__/values", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "/api/v1/labels", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class TimestreamDialect(BaseDialect):
+    """Amazon Web Services (AWS) Timestream SQL time-series dialect."""
+
+    name: str = "timestream"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return f'SHOW TABLES FROM "{schema_name}"', []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f'DESCRIBE "{schema_name}"."{table_name}"', []
+        return f'SHOW TABLES FROM "{schema_name}"', []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class MemgraphDialect(BaseDialect):
+    """Memgraph in-memory OpenCypher graph database dialect."""
+
+    name: str = "memgraph"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "public"
+    ) -> tuple[str, list[Any]]:
+        return "CALL mg.labels() YIELD label RETURN label;", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "SHOW CONSTRAINT INFO;", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return (
+            "CALL mg.relationship_types() YIELD relationship_type RETURN relationship_type;",
+            [],
+        )
+
+
+class NeptuneDialect(BaseDialect):
+    """Amazon Neptune managed graph database openCypher dialect."""
+
+    name: str = "neptune"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "public"
+    ) -> tuple[str, list[Any]]:
+        return "CALL db.labels();", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "CALL db.propertyKeys();", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "CALL db.relationshipTypes();", []
+
+
+class KsqlDBDialect(BaseDialect):
+    """ksqlDB event streaming database pull query SQL dialect."""
+
+    name: str = "ksqldb"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LCASE({col_ref}) LIKE LCASE({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "public"
+    ) -> tuple[str, list[Any]]:
+        return "SHOW TABLES;", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"DESCRIBE {table_name};", []
+        return "SHOW STREAMS;", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "public", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class FlinkDialect(BaseDialect):
+    """Apache Flink SQL streaming table dialect."""
+
+    name: str = "flink"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default_database"
+    ) -> tuple[str, list[Any]]:
+        return "SHOW TABLES;", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default_database", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"DESCRIBE `{table_name}`;", []
+        return "SHOW TABLES;", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default_database", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default_database", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class PulsarDialect(BaseDialect):
+    """Apache Pulsar SQL interactive topic query dialect."""
+
+    name: str = "pulsar"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "pulsar.public/default"
+    ) -> tuple[str, list[Any]]:
+        return f"SHOW TABLES FROM {schema_name};", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "pulsar.public/default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f'DESCRIBE {schema_name}."{table_name}";', []
+        return f"SHOW TABLES FROM {schema_name};", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "pulsar.public/default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "pulsar.public/default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class QdrantDialect(BaseDialect):
+    """Qdrant vector search engine filter dialect."""
+
+    name: str = "qdrant"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "GET /collections", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"GET /collections/{table_name}", []
+        return "GET /collections", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class PineconeDialect(BaseDialect):
+    """Pinecone managed vector database dialect."""
+
+    name: str = "pinecone"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "list_indexes", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"describe_index:{table_name}", []
+        return "list_indexes", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class WeaviateDialect(BaseDialect):
+    """Weaviate modular vector database and knowledge graph dialect."""
+
+    name: str = "weaviate"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "collections.list_all", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"collections.get:{table_name}", []
+        return "collections.list_all", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class MilvusDialect(BaseDialect):
+    """Milvus distributed cloud-native vector database dialect."""
+
+    name: str = "milvus"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"`{part}`" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "list_collections", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"describe_collection:{table_name}", []
+        return "list_collections", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class ChromaDialect(BaseDialect):
+    """ChromaDB embedded and server AI vector database dialect."""
+
+    name: str = "chroma"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "list_collections", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"get_collection:{table_name}", []
+        return "list_collections", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class LanceDBDialect(BaseDialect):
+    """LanceDB Apache Arrow-backed columnar vector database dialect."""
+
+    name: str = "lancedb"
+    placeholder: str = "?"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER(?)"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return "LIMIT ? OFFSET ?", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "table_names", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"schema:{table_name}", []
+        return "table_names", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class RedisSearchDialect(BaseDialect):
+    """Redis RediSearch secondary index query dialect."""
+
+    name: str = "redis"
+    placeholder: str = "%s"
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        parts = ident.split(".")
+        return ".".join(f"@{part}" for part in parts)
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"{col_ref}:{self.placeholder}%"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} {self.placeholder}", [offset, limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "FT._LIST", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"FT.INFO {table_name}", []
+        return "FT._LIST", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class FirestoreDialect(BaseDialect):
+    """Google Cloud Firestore document database dialect."""
+
+    name: str = "firestore"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "collections", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"collection:{table_name}", []
+        return "collections", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
+class BigtableDialect(BaseDialect):
+    """Google Cloud Bigtable wide-column database dialect."""
+
+    name: str = "bigtable"
+    placeholder: str = "%s"
+
+    def format_ilike(self, col_ref: str) -> str:
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        return f"LIMIT {self.placeholder}", [limit]
+
+    def inspect_tables_query(
+        self, schema_name: str = "default"
+    ) -> tuple[str, list[Any]]:
+        return "list_tables", []
+
+    def inspect_columns_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        if table_name:
+            return f"list_column_families:{table_name}", []
+        return "list_tables", []
+
+    def inspect_primary_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+    def inspect_foreign_keys_query(
+        self, schema_name: str = "default", table_name: str | None = None
+    ) -> tuple[str, list[Any]]:
+        return "", []
+
+
 DIALECTS: dict[str, BaseDialect] = {
     "postgres": PostgresDialect(),
     "postgresql": PostgresDialect(),
@@ -2066,11 +2721,70 @@ DIALECTS: dict[str, BaseDialect] = {
     "ase": SybaseDialect(),
     "informix": InformixDialect(),
     "ibm_informix": InformixDialect(),
+    "kusto": KustoDialect(),
+    "adx": KustoDialect(),
+    "azure_data_explorer": KustoDialect(),
+    "kql": KustoDialect(),
+    "prometheus": PrometheusDialect(),
+    "prom": PrometheusDialect(),
+    "promql": PrometheusDialect(),
+    "victoriametrics": VictoriaMetricsDialect(),
+    "vm": VictoriaMetricsDialect(),
+    "metricsql": VictoriaMetricsDialect(),
+    "timestream": TimestreamDialect(),
+    "aws_timestream": TimestreamDialect(),
+    "memgraph": MemgraphDialect(),
+    "memgraph_db": MemgraphDialect(),
+    "neptune": NeptuneDialect(),
+    "amazon_neptune": NeptuneDialect(),
+    "aws_neptune": NeptuneDialect(),
+    "ksqldb": KsqlDBDialect(),
+    "ksql": KsqlDBDialect(),
+    "flink": FlinkDialect(),
+    "flink_sql": FlinkDialect(),
+    "apache_flink": FlinkDialect(),
+    "pulsar": PulsarDialect(),
+    "pulsar_sql": PulsarDialect(),
+    "apache_pulsar": PulsarDialect(),
+    "qdrant": QdrantDialect(),
+    "qdrant_db": QdrantDialect(),
+    "qdrant_vector": QdrantDialect(),
+    "pinecone": PineconeDialect(),
+    "pinecone_db": PineconeDialect(),
+    "pinecone_vector": PineconeDialect(),
+    "weaviate": WeaviateDialect(),
+    "weaviate_db": WeaviateDialect(),
+    "weaviate_vector": WeaviateDialect(),
+    "milvus": MilvusDialect(),
+    "pymilvus": MilvusDialect(),
+    "zilliz": MilvusDialect(),
+    "milvus_vector": MilvusDialect(),
+    "chroma": ChromaDialect(),
+    "chromadb": ChromaDialect(),
+    "lancedb": LanceDBDialect(),
+    "lance": LanceDBDialect(),
+    "redis": RedisSearchDialect(),
+    "redisearch": RedisSearchDialect(),
+    "redis_search": RedisSearchDialect(),
+    "firestore": FirestoreDialect(),
+    "google_firestore": FirestoreDialect(),
+    "gcp_firestore": FirestoreDialect(),
+    "bigtable": BigtableDialect(),
+    "google_bigtable": BigtableDialect(),
+    "gcp_bigtable": BigtableDialect(),
 }
 
 
-def get_dialect(name: str = "postgres") -> BaseDialect:
-    """Returns the dialect instance for the specified name (defaults to postgres)."""
+def get_dialect(name: str | None = None) -> BaseDialect:
+    """Returns the dialect instance for the specified name (defaults to configured default dialect or postgres)."""
+    if name is None:
+        try:
+            from query_builder.config import get_query_builder_config
+
+            default_name = get_query_builder_config().default_dialect
+            return DIALECTS.get(default_name.lower().strip(), DIALECTS["postgres"])
+        except (ImportError, AttributeError, KeyError):
+            return DIALECTS["postgres"]
     return DIALECTS.get(name.lower().strip(), DIALECTS["postgres"])
 
 

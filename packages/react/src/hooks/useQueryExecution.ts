@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { QueryResultData } from "../types";
+import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 
 export interface UseQueryExecutionOptions {
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
@@ -24,14 +25,17 @@ export interface UseQueryExecutionReturn {
 export function useQueryExecution(
   options: UseQueryExecutionOptions = {},
 ): UseQueryExecutionReturn {
+  const qbContext = useQueryBuilderContext();
   const {
-    onExecuteQuery,
+    onExecuteQuery: propExecuteQuery,
     apiEndpoint,
     defaultTimeoutMs,
     initialResults = null,
     onError,
     onSuccess,
   } = options;
+
+  const onExecuteQuery = propExecuteQuery ?? qbContext?.onExecuteQuery;
 
   const [results, setResults] = useState<QueryResultData | null>(initialResults);
   const [isLoading, setIsLoading] = useState<boolean>(false);

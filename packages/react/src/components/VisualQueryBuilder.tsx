@@ -13,6 +13,7 @@ import type {
 import { QueryCanvas } from "./QueryCanvas";
 import { QueryResultsTable } from "./QueryResultsTable";
 import { SchemaErdModal } from "./SchemaErdModal";
+import { SchemaExplorerModal } from "./SchemaExplorerModal";
 import { QueryChartPreview } from "./QueryChartPreview";
 import { QueryTemplateManager } from "./QueryTemplateManager";
 import { compileVisualState } from "../utils/compiler";
@@ -22,7 +23,8 @@ import { parseSqlToSpec } from "../utils/sqlParser";
 import { specToState } from "../hooks/useQueryState";
 import { findBestJoinCondition } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
-import { darkTheme, lightTheme, type QueryBuilderTheme } from "../theme/tokens";
+import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
+import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 
 export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
   VisualQueryBuilderProps<Schema>,
@@ -37,13 +39,26 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   presets = [],
   initialTable,
   dialect = "postgres",
-  onExecuteQuery,
+  onExecuteQuery: propExecuteQuery,
   onSaveQuery,
   theme: propTheme,
   readOnly = false,
-  unstyled = false,
+  unstyled: propUnstyled = false,
+  mode: propMode,
+  customOperators: propCustomOperators,
+  fieldRenderers: propFieldRenderers,
+  cellRenderers: propCellRenderers,
 }) => {
   const { theme: contextTheme } = useTheme();
+  const qbContext = useQueryBuilderContext();
+
+  const effectiveMode = propMode ?? qbContext?.mode ?? (propUnstyled ? "unstyled" : "styled");
+  const unstyled = propUnstyled || effectiveMode === "unstyled";
+
+  const customOperators = propCustomOperators ?? qbContext?.customOperators;
+  const fieldRenderers = propFieldRenderers ?? qbContext?.fieldRenderers;
+  const cellRenderers = propCellRenderers ?? qbContext?.cellRenderers;
+  const onExecuteQuery = propExecuteQuery ?? qbContext?.onExecuteQuery;
 
   const activeTheme: QueryBuilderTheme = useMemo(() => {
     if (propTheme && typeof propTheme === "object" && "colors" in propTheme) {
@@ -57,6 +72,11 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     }
     return contextTheme;
   }, [propTheme, contextTheme]);
+
+  const cssVars = useMemo(
+    () => (unstyled ? {} : themeToCssVariables(activeTheme)),
+    [activeTheme, unstyled],
+  );
 
   const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
   const allTables = useMemo(() => Object.values(normalizedSchema?.tables || {}), [normalizedSchema]);
@@ -81,6 +101,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const [rawSql, setRawSql] = useState<string>("");
   const [isRawMode, setIsRawMode] = useState<boolean>(false);
   const [isErdOpen, setIsErdOpen] = useState<boolean>(false);
+  const [isSchemaExplorerOpen, setIsSchemaExplorerOpen] = useState<boolean>(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState<boolean>(false);
   const [templateManagerMode, setTemplateManagerMode] = useState<"library" | "save">("library");
 
@@ -99,6 +120,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (isErdOpen) setIsErdOpen(false);
+        if (isSchemaExplorerOpen) setIsSchemaExplorerOpen(false);
         if (isTemplateManagerOpen) setIsTemplateManagerOpen(false);
       }
     };
@@ -106,7 +128,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
     }
-  }, [isErdOpen, isTemplateManagerOpen]);
+  }, [isErdOpen, isSchemaExplorerOpen, isTemplateManagerOpen]);
 
   // Active table metadata
   const activeTables: TableMeta[] = useMemo(() => {
@@ -128,6 +150,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       limit,
       normalizedSchema,
       dialect,
+      "AND",
+      customOperators,
     );
   }, [
     primaryTable,
@@ -140,6 +164,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     limit,
     normalizedSchema,
     dialect,
+    customOperators,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -480,6 +505,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         unstyled
           ? undefined
           : {
+              ...(cssVars as unknown as React.CSSProperties),
               display: "flex",
               flexDirection: "column",
               gap: "14px",
@@ -647,6 +673,30 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               📈 Visual Chart
             </button>
           </div>
+
+          {/* Schema Explorer Button */}
+          <button
+            type="button"
+            onClick={() => setIsSchemaExplorerOpen(true)}
+            aria-label="Open schema explorer"
+            data-qb="btn-schema-explorer"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(30, 41, 59, 0.5)",
+                    color: "#38bdf8",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 12px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    fontWeight: activeTheme.typography.fontWeightSemibold,
+                    cursor: "pointer",
+                  }
+            }
+          >
+            🗄️ Schema Explorer
+          </button>
 
           {/* ERD Button */}
           <button
@@ -924,6 +974,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             onDistinctChange={setIsDistinct}
             onLimitChange={setLimit}
             unstyled={unstyled}
+            customOperators={customOperators}
+            fieldRenderers={fieldRenderers}
           />
         </div>
       )}
@@ -1040,7 +1092,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           data-qb="tab-panel"
           data-qb-panel="results"
         >
-          <QueryResultsTable results={queryResults} isLoading={isRunning} unstyled={unstyled} />
+          <QueryResultsTable results={queryResults} isLoading={isRunning} unstyled={unstyled} cellRenderers={cellRenderers} />
         </div>
       )}
 
@@ -1063,6 +1115,29 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         onClose={() => setIsErdOpen(false)}
         schema={normalizedSchema}
         onSelectTable={(tbl) => handleAddTableToCanvas(tbl)}
+      />
+
+      {/* Schema Explorer Modal */}
+      <SchemaExplorerModal
+        isOpen={isSchemaExplorerOpen}
+        onClose={() => setIsSchemaExplorerOpen(false)}
+        schema={normalizedSchema}
+        selectedTable={primaryTable}
+        onSelectTable={(tbl) => setPrimaryTable(tbl)}
+        onAddToCanvas={(tbl) => {
+          handleAddTableToCanvas(tbl);
+          setIsSchemaExplorerOpen(false);
+        }}
+        onOpenErd={() => {
+          setIsSchemaExplorerOpen(false);
+          setIsErdOpen(true);
+        }}
+        onQuickQuery={(tbl) => {
+          handleAddTableToCanvas(tbl);
+          setIsSchemaExplorerOpen(false);
+        }}
+        theme={activeTheme}
+        unstyled={unstyled}
       />
 
       {/* Query Template Manager Modal */}

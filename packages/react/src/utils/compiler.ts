@@ -5,6 +5,7 @@ import type {
   VisualSort,
   SchemaSnapshot,
   SqlDialect,
+  CustomFilterOperator,
 } from "../types";
 
 export interface CompiledVisualQuery {
@@ -266,6 +267,7 @@ export function compileVisualState(
   schemaData?: SchemaSnapshot | null,
   dialect: SqlDialect = "postgres",
   filterJoin: "AND" | "OR" = "AND",
+  customOperators?: Record<string, CustomFilterOperator>,
 ): CompiledVisualQuery {
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
@@ -411,7 +413,12 @@ export function compileVisualState(
   // Filters
   const activeFilters = (filters || [])
     .slice(0, 50)
-    .filter((f) => f.column && f.operator && ALLOWED_OPERATORS.has(f.operator));
+    .filter(
+      (f) =>
+        f.column &&
+        f.operator &&
+        (ALLOWED_OPERATORS.has(f.operator) || Boolean(customOperators?.[f.operator])),
+    );
   const specFilters: CompiledVisualQuery["spec"]["filters"] = [];
   let whereClause = "";
 
@@ -431,7 +438,13 @@ export function compileVisualState(
         tablePrefix: tbl,
       });
 
-      if (f.operator === "IS NULL" || f.operator === "IS NOT NULL") {
+      const customOp = customOperators?.[f.operator];
+
+      if (customOp?.formatSql) {
+        expr = customOp.formatSql(colRef, f.value, dialect);
+      } else if (customOp && customOp.hasValue === false) {
+        expr = `${colRef} ${customOp.value}`;
+      } else if (f.operator === "IS NULL" || f.operator === "IS NOT NULL") {
         expr = `${colRef} ${f.operator}`;
       } else if (f.operator === "STARTS_WITH") {
         const clean = valStr.replace(/'/g, "''");

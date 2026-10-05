@@ -45,6 +45,155 @@ class TableMeta:
 
 
 @dataclass
+class ForeignKey:
+    """Specification of a foreign key relationship between columns."""
+
+    table: str
+    column: str
+    foreign_table: str
+    foreign_column: str
+    constraint_name: str | None = None
+
+    def to_foreign_key_meta(self) -> ForeignKeyMeta:
+        return ForeignKeyMeta(
+            table=self.table,
+            column=self.column,
+            foreign_table=self.foreign_table,
+            foreign_column=self.foreign_column,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "table": self.table,
+            "column": self.column,
+            "foreign_table": self.foreign_table,
+            "foreign_column": self.foreign_column,
+        }
+        if self.constraint_name is not None:
+            result["constraint_name"] = self.constraint_name
+        return result
+
+
+@dataclass
+class ColumnSchema:
+    """Schema specification for a table column."""
+
+    name: str
+    data_type: str = "text"
+    is_nullable: bool = True
+    is_primary: bool = False
+    default: Any = None
+    comment: str | None = None
+    enums: list[str] | None = None
+    foreign_key: ForeignKey | None = None
+
+    def to_column_meta(self) -> ColumnMeta:
+        return ColumnMeta(
+            name=self.name,
+            data_type=self.data_type,
+            is_nullable=self.is_nullable,
+            is_primary=self.is_primary,
+            comment=self.comment,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "name": self.name,
+            "data_type": self.data_type,
+            "is_nullable": self.is_nullable,
+            "is_primary": self.is_primary,
+            "default": self.default,
+            "comment": self.comment,
+            "enums": self.enums,
+        }
+        if self.foreign_key is not None:
+            result["foreign_key"] = self.foreign_key.to_dict()
+        return result
+
+
+@dataclass
+class TableSchema:
+    """Schema specification for a database table."""
+
+    name: str
+    columns: list[ColumnSchema] = field(default_factory=list)
+    schema: str = "public"
+    comment: str | None = None
+    primary_keys: list[str] = field(default_factory=list)
+    foreign_keys: list[ForeignKey] = field(default_factory=list)
+    enums: dict[str, list[str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.primary_keys:
+            self.primary_keys = [c.name for c in self.columns if c.is_primary]
+        else:
+            for c in self.columns:
+                if c.name in self.primary_keys:
+                    c.is_primary = True
+        if not self.foreign_keys:
+            self.foreign_keys = [
+                c.foreign_key for c in self.columns if c.foreign_key is not None
+            ]
+        else:
+            col_map = {c.name: c for c in self.columns}
+            for fk in self.foreign_keys:
+                if fk.column in col_map and col_map[fk.column].foreign_key is None:
+                    col_map[fk.column].foreign_key = fk
+        for c in self.columns:
+            if c.enums and c.name not in self.enums:
+                self.enums[c.name] = list(c.enums)
+
+    def to_table_meta(self) -> TableMeta:
+        return TableMeta(
+            name=self.name,
+            schema=self.schema,
+            columns=[c.to_column_meta() for c in self.columns],
+            comment=self.comment,
+            has_user_id=any(c.name == "user_id" for c in self.columns),
+            user_col="user_id",
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "schema": self.schema,
+            "columns": [c.to_dict() for c in self.columns],
+            "primary_keys": list(self.primary_keys),
+            "foreign_keys": [fk.to_dict() for fk in self.foreign_keys],
+            "enums": dict(self.enums),
+            "comment": self.comment,
+        }
+
+    def get_column(self, name: str) -> ColumnSchema | None:
+        """Find a column by case-insensitive name."""
+        target = name.lower()
+        for col in self.columns:
+            if col.name.lower() == target:
+                return col
+        return None
+
+    def to_schema_snapshot(self) -> SchemaSnapshot:
+        from query_builder.adapters.utils import to_schema_snapshot
+
+        return to_schema_snapshot({self.name: self})
+
+
+class SchemaDict(dict[str, TableSchema]):
+    """Dictionary mapping table names to TableSchema with conversion helper methods."""
+
+    def to_schema_snapshot(self) -> SchemaSnapshot:
+        from query_builder.adapters.utils import to_schema_snapshot
+
+        return to_schema_snapshot(self)
+
+    def to_snapshot(self) -> SchemaSnapshot:
+        return self.to_schema_snapshot()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {name: table.to_dict() for name, table in self.items()}
+
+
+@dataclass
 class SchemaSnapshot:
     """Complete snapshot of database schema available to Query Builder."""
 

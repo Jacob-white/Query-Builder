@@ -155,3 +155,25 @@ def test_cli_compile_with_user_and_tenant_id(capsys, tmp_path):
     captured = capsys.readouterr()
     assert "--- Main SQL ---" in captured.out
     assert 'WHERE "t1"."user_id" = %s' in captured.out
+
+
+def test_cli_serve_with_profile(capsys):
+    from unittest.mock import MagicMock, patch
+
+    mock_server = MagicMock()
+    mock_server.server_address = ("127.0.0.1", 8000)
+    mock_server.serve_forever.side_effect = None
+
+    with (
+        patch(
+            "query_builder.server.create_server", return_value=mock_server
+        ) as mock_create,
+        patch("query_builder.config.configure_query_builder") as mock_configure,
+    ):
+        ret = main(["serve", "--profile", "development"])
+        assert ret == 0
+        mock_configure.assert_called_once_with(profile="development")
+        mock_create.assert_called_once_with(host="127.0.0.1", port=8000)
+        mock_server.serve_forever.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Query Builder server listening" in captured.out

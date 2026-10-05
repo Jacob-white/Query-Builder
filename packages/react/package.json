@@ -2,15 +2,31 @@
   "name": "@jacob-white/query-builder-react",
   "version": "1.0.0",
   "description": "Portable, embeddable React Visual SQL Query Builder & Schema Explorer component library.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "keywords": [
@@ -35,6 +51,7 @@
     "@vitest/coverage-v8": "^1.6.1",
     "jsdom": "^30.1.1",
     "typescript": "^5.4.0",
-    "vitest": "^4.1.11"
+    "vite": "^5.4.21",
+    "vitest": "^1.6.1"
   }
 }
