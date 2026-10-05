@@ -30,6 +30,7 @@ from query_builder.dialects import (
     register_dialect,
     unregister_dialect,
 )
+from query_builder.exceptions import SecurityError
 
 
 def teardown_function() -> None:
@@ -389,7 +390,7 @@ def test_base_connector_execute_validation():
             return compilation
 
     with pytest.raises(
-        CompilationError, match="Generated query failed AST safety validation"
+        SecurityError, match="Generated query failed AST safety validation"
     ):
         conn.execute({"table": "users"}, middleware=[MainAstCorruptor()])
 
@@ -402,6 +403,6 @@ def test_base_connector_execute_validation():
             return compilation
 
     with pytest.raises(
-        CompilationError, match="Generated count query failed AST safety validation"
+        SecurityError, match="Generated count query failed AST safety validation"
     ):
         conn.execute({"table": "users"}, middleware=[CountAstCorruptor()])

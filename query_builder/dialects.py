@@ -10,13 +10,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from query_builder.exceptions import DialectError
+
 IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 MAX_IDENTIFIER_LENGTH = 128
 MAX_ALIAS_LENGTH = 256
-
-
-class DialectError(Exception):
-    """Raised when identifier or alias formatting encounters an invalid pattern."""
 
 
 def _validate_identifier(ident: str) -> None:
@@ -49,6 +47,8 @@ class BaseDialect:
 
     name: str = "base"
     placeholder: str = "%s"
+    pagination_placement: str = "suffix"
+    requires_order_by_for_pagination: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         """Quotes a schema, table, or column identifier."""
@@ -165,6 +165,7 @@ class MSSQLDialect(BaseDialect):
 
     name: str = "mssql"
     placeholder: str = "%s"
+    requires_order_by_for_pagination: bool = True
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -1880,6 +1881,7 @@ class InformixDialect(BaseDialect):
 
     name: str = "informix"
     placeholder: str = "%s"
+    pagination_placement: str = "prefix"
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"

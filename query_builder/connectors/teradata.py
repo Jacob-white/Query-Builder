@@ -37,6 +37,10 @@ class TeradataConnector(BaseConnector):
         self.user = user
         self.password = password
         self.database = database
+        self.config.setdefault("host", host)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
+        self.config.setdefault("database", database)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -51,12 +55,17 @@ class TeradataConnector(BaseConnector):
             ) from err
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "user", "password", "database")
+            }
             self._connection = teradatasql.connect(
                 host=self.host,
                 user=self.user,
                 password=self.password,
                 database=self.database,
-                **self.config,
+                **cfg,
             )
             return self._connection
         except Exception as exc:

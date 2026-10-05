@@ -93,6 +93,9 @@ class ScyllaDBConnector(BaseConnector):
         self.port = port
         self.keyspace = keyspace
         self.schema_name = keyspace
+        self.config.setdefault("contact_points", self.contact_points)
+        self.config.setdefault("port", port)
+        self.config.setdefault("keyspace", keyspace)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -116,8 +119,13 @@ class ScyllaDBConnector(BaseConnector):
             cluster_cls = getattr(driver, "Cluster", None) or getattr(
                 getattr(driver, "cluster", None), "Cluster", None
             )
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("contact_points", "port", "keyspace")
+            }
             cluster = cluster_cls(
-                contact_points=self.contact_points, port=self.port, **self.config
+                contact_points=self.contact_points, port=self.port, **cfg
             )
             session = cluster.connect(self.keyspace)
             self._connection = session

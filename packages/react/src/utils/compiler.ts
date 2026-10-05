@@ -265,6 +265,7 @@ export function compileVisualState(
   limit: number = 50,
   schemaData?: SchemaSnapshot | null,
   dialect: SqlDialect = "postgres",
+  filterJoin: "AND" | "OR" = "AND",
 ): CompiledVisualQuery {
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
@@ -274,7 +275,7 @@ export function compileVisualState(
         columns: [],
         joins: [],
         filters: [],
-        filter_join: "AND",
+        filter_join: filterJoin || "AND",
         order_by: [],
         distinct: false,
         limit,
@@ -298,6 +299,7 @@ export function compileVisualState(
     | string
     | { column: string; agg?: string; alias?: string }
   )[] = [];
+  const usedAliases = new Set<string>();
 
   if (safeProjectionKeys.length > 0) {
     selectClause = safeProjectionKeys
@@ -310,9 +312,24 @@ export function compileVisualState(
 
         const aggUpper = (item.aggregate || "").toUpperCase();
         if (aggUpper && ALLOWED_AGGREGATES.has(aggUpper)) {
-          const alias = sanitizeIdent(
+          let alias = sanitizeIdent(
             item.alias || `${aggUpper.toLowerCase()}_${item.name}`,
           );
+          if (usedAliases.has(alias)) {
+            let disambiguated = !item.alias
+              ? sanitizeIdent(`${aggUpper.toLowerCase()}_${tableAlias}_${colName}`)
+              : `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
           specColumns.push({
             column: `${tableAlias}.${colName}`,
             agg: aggUpper.toLowerCase(),
@@ -322,7 +339,20 @@ export function compileVisualState(
         }
 
         if (item.alias) {
-          const alias = sanitizeIdent(item.alias);
+          let alias = sanitizeIdent(item.alias);
+          if (usedAliases.has(alias)) {
+            let disambiguated = `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
           specColumns.push({
             column: `${tableAlias}.${colName}`,
             alias,
@@ -386,7 +416,7 @@ export function compileVisualState(
   let whereClause = "";
 
   if (activeFilters.length > 0) {
-    const parts: string[] = [];
+    const parts: { expr: string; combiner: "AND" | "OR" }[] = [];
     activeFilters.forEach((f) => {
       const tbl = cleanTableName(f.tablePrefix || cleanPrimary);
       const colName = sanitizeIdent(f.column);
@@ -471,12 +501,18 @@ export function compileVisualState(
       }
 
       if (expr) {
-        parts.push(expr);
+        if (f.parenOpen) expr = `${f.parenOpen}${expr}`;
+        if (f.parenClose) expr = `${expr}${f.parenClose}`;
+        parts.push({ expr, combiner: f.combiner || filterJoin || "AND" });
       }
     });
 
     if (parts.length > 0) {
-      whereClause = `WHERE ${parts.join(" AND ")}`;
+      let combined = parts[0].expr;
+      for (let i = 1; i < parts.length; i++) {
+        combined += ` ${parts[i].combiner} ${parts[i].expr}`;
+      }
+      whereClause = `WHERE ${combined}`;
     }
   }
 
@@ -528,7 +564,10 @@ export function compileVisualState(
       columns: specColumns,
       joins: specJoins,
       filters: specFilters,
-      filter_join: "AND",
+      filter_join:
+        (filters || []).some((f) => f.combiner === "OR") || filterJoin === "OR"
+          ? "OR"
+          : "AND",
       order_by: specSorts,
       distinct: isDistinct,
       limit,

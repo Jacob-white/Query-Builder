@@ -108,12 +108,14 @@ def introspect_duckdb(
     """
     Introspects DuckDB schema using information_schema and duckdb_constraints.
     """
+    cur = None
+    own_cur = False
     try:
-        cur = (
-            connection_or_cursor.cursor()
-            if hasattr(connection_or_cursor, "cursor")
-            else connection_or_cursor
-        )
+        if hasattr(connection_or_cursor, "cursor"):
+            cur = connection_or_cursor.cursor()
+            own_cur = True
+        else:
+            cur = connection_or_cursor
 
         cur.execute(
             """
@@ -215,6 +217,10 @@ def introspect_duckdb(
         )
     except Exception as exc:
         raise IntrospectionError(f"Failed to introspect DuckDB schema: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_information_schema(
@@ -791,12 +797,14 @@ def introspect_scylladb(
     cursor_or_session: Any, keyspace: str = "system", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects ScyllaDB and Apache Cassandra schema using system_schema."""
+    cur = None
+    own_cur = False
     try:
-        cur = (
-            cursor_or_session.cursor()
-            if hasattr(cursor_or_session, "cursor")
-            else cursor_or_session
-        )
+        if hasattr(cursor_or_session, "cursor"):
+            cur = cursor_or_session.cursor()
+            own_cur = True
+        else:
+            cur = cursor_or_session
 
         cur.execute(
             f"SELECT table_name FROM system_schema.tables WHERE keyspace_name = '{keyspace}';"
@@ -847,22 +855,24 @@ def introspect_scylladb(
         raise IntrospectionError(
             f"Failed to introspect ScyllaDB keyspace '{keyspace}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_sparksql(
     cursor_or_session: Any, schema_name: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Spark SQL schema using SHOW TABLES or INFORMATION_SCHEMA."""
+    cur = None
+    own_cur = False
     try:
-        cur = (
-            cursor_or_session
-            if hasattr(cursor_or_session, "execute")
-            else (
-                cursor_or_session.cursor()
-                if hasattr(cursor_or_session, "cursor")
-                else cursor_or_session
-            )
-        )
+        if hasattr(cursor_or_session, "execute"):
+            cur = cursor_or_session
+        else:
+            cur = cursor_or_session.cursor()
+            own_cur = True
         try:
             cur.execute(f"SHOW TABLES IN `{schema_name}`;")
             table_rows = cur.fetchall()
@@ -925,22 +935,24 @@ def introspect_sparksql(
         raise IntrospectionError(
             f"Failed to introspect Spark SQL schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_chdb(
     cursor_or_conn: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects chDB in-process ClickHouse schema using system.tables and system.columns."""
+    cur = None
+    own_cur = False
     try:
-        cur = (
-            cursor_or_conn
-            if hasattr(cursor_or_conn, "execute")
-            else (
-                cursor_or_conn.cursor()
-                if hasattr(cursor_or_conn, "cursor")
-                else cursor_or_conn
-            )
-        )
+        if hasattr(cursor_or_conn, "execute"):
+            cur = cursor_or_conn
+        else:
+            cur = cursor_or_conn.cursor()
+            own_cur = True
         cur.execute(
             """
             SELECT name
@@ -1002,6 +1014,10 @@ def introspect_chdb(
         raise IntrospectionError(
             f"Failed to introspect chDB database '{database}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_greptimedb(
@@ -1137,17 +1153,16 @@ def introspect_surrealdb(
     client_or_cursor: Any, database: str = "test", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects SurrealDB schema using INFO FOR DB and table metadata."""
+    cur = None
+    own_cur = False
     try:
-        cur = (
-            client_or_cursor
-            if hasattr(client_or_cursor, "execute")
-            or hasattr(client_or_cursor, "query")
-            else (
-                client_or_cursor.cursor()
-                if hasattr(client_or_cursor, "cursor")
-                else client_or_cursor
-            )
-        )
+        if hasattr(client_or_cursor, "execute") or hasattr(client_or_cursor, "query"):
+            cur = client_or_cursor
+        elif hasattr(client_or_cursor, "cursor"):
+            cur = client_or_cursor.cursor()
+            own_cur = True
+        else:
+            cur = client_or_cursor
         table_names: list[str] = []
         if hasattr(cur, "execute"):
             cur.execute("INFO FOR DB;")
@@ -1198,6 +1213,10 @@ def introspect_surrealdb(
         raise IntrospectionError(
             f"Failed to introspect SurrealDB database '{database}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_arangodb(
@@ -1988,9 +2007,13 @@ def introspect_drill(
     schema_name: str = "dfs.default",
     filter_sensitive: bool = True,
 ) -> dict[str, Any]:
-    """Introspects Apache Drill distributed schema using INFORMATION_SCHEMA or SHOW TABLES."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor_or_client)
+        own_cur = cur is not cursor_or_client and cur is not getattr(
+            cursor_or_client, "target", None
+        )
         table_names: list[str] = []
         try:
             cur.execute(
@@ -2083,6 +2106,10 @@ def introspect_drill(
         raise IntrospectionError(
             f"Failed to introspect Apache Drill schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_yugabyte(
@@ -2230,6 +2257,8 @@ def introspect_opensearch(
     client_or_cursor: Any, catalog: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API."""
+    cur = None
+    own_cur = False
     try:
         table_names: list[str] = []
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
@@ -2272,6 +2301,9 @@ def introspect_opensearch(
                 table_cols_map[idx] = cols
         else:
             cur = _unwrap_cursor(client_or_cursor)
+            own_cur = cur is not client_or_cursor and cur is not getattr(
+                client_or_cursor, "target", None
+            )
             cur.execute("SHOW TABLES LIKE '%';")
             rows = cur.fetchall()
             for r in rows:
@@ -2357,6 +2389,10 @@ def introspect_opensearch(
         raise IntrospectionError(
             f"Failed to introspect OpenSearch catalog '{catalog}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_neo4j(
@@ -2492,8 +2528,14 @@ def introspect_kdb(
     client_or_conn: Any, filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Kdb+ tables, vector columns, and schemas via q meta."""
+    cur = None
+    own_cur = False
     try:
-        client_or_conn = _unwrap_cursor(client_or_conn)
+        cur = _unwrap_cursor(client_or_conn)
+        own_cur = cur is not client_or_conn and cur is not getattr(
+            client_or_conn, "target", None
+        )
+        client_or_conn = cur
         tables_res = None
         if (
             _has_attr(client_or_conn, "q")
@@ -2641,14 +2683,23 @@ def introspect_kdb(
         )
     except Exception as exc:
         raise IntrospectionError(f"Failed to introspect Kdb+ database: {exc}") from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_clickhouse_native(
     client_or_cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects ClickHouse schema via native binary TCP client executing system queries."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(client_or_cursor)
+        own_cur = cur is not client_or_cursor and cur is not getattr(
+            client_or_cursor, "target", None
+        )
         table_rows = []
         if hasattr(cur, "execute"):
             try:
@@ -2719,12 +2770,19 @@ def introspect_clickhouse_native(
         raise IntrospectionError(
             f"Failed to introspect ClickHouse Native database '{database}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_firebird(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """Introspects Firebird database schema using RDB$ system tables."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         cur.execute(
             """
             SELECT TRIM(RDB$RELATION_NAME)
@@ -2850,14 +2908,21 @@ def introspect_firebird(cursor: Any, filter_sensitive: bool = True) -> dict[str,
         raise IntrospectionError(
             f"Failed to introspect Firebird database: {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_monetdb(
     cursor: Any, schema_name: str = "sys", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects MonetDB schema using sys catalog views or information_schema."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         try:
             cur.execute(
                 """
@@ -3016,14 +3081,21 @@ def introspect_monetdb(
         raise IntrospectionError(
             f"Failed to introspect MonetDB schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_h2(
     cursor: Any, schema_name: str = "PUBLIC", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects H2 database schema using INFORMATION_SCHEMA."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         cur.execute(
             """
             SELECT table_name
@@ -3155,14 +3227,21 @@ def introspect_h2(
         raise IntrospectionError(
             f"Failed to introspect H2 schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_derby(
     cursor: Any, schema_name: str = "APP", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Derby schema using SYS system tables."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         cur.execute(
             """
             SELECT t.TABLENAME
@@ -3294,14 +3373,21 @@ def introspect_derby(
         raise IntrospectionError(
             f"Failed to introspect Apache Derby schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_sybase(
     cursor: Any, schema_name: str = "dbo", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Sybase / SAP ASE database schema using sysobjects and syscolumns."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         cur.execute(
             """
             SELECT name
@@ -3429,14 +3515,21 @@ def introspect_sybase(
         raise IntrospectionError(
             f"Failed to introspect Sybase schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def introspect_informix(
     cursor: Any, schema_name: str = "informix", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects IBM Informix database schema using systables and syscolumns."""
+    cur = None
+    own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
+        own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
         cur.execute(
             """
             SELECT tabname
@@ -3566,3 +3659,7 @@ def introspect_informix(
         raise IntrospectionError(
             f"Failed to introspect Informix schema '{schema_name}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()

@@ -120,6 +120,8 @@ function compileInput(
       limit = typeof parsed.limit === "number" ? parsed.limit : 50;
     }
 
+    const filterJoin = (specOrState as any)?.filter_join || "AND";
+
     const compiled = compileVisualState(
       primaryTable,
       selectedColumns,
@@ -131,12 +133,16 @@ function compileInput(
       limit,
       normalizedSchema,
       dialect,
+      filterJoin,
     );
 
     const sql = compiled.sql;
     let countSql = "";
     if (sql) {
-      const cleanSql = sql.replace(/;+\s*$/, "");
+      let cleanSql = sql.replace(/;+\s*$/, "");
+      if (dialect === "mssql") {
+        cleanSql = cleanSql.replace(/\s+ORDER\s+BY\s+[^)]+$/i, "");
+      }
       countSql = `SELECT COUNT(*) FROM (${cleanSql}) AS count_wrapper;`;
     }
 

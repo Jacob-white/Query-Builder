@@ -31,6 +31,8 @@ class ElasticsearchConnector(BaseConnector):
     ) -> None:
         super().__init__(connection=connection, cursor=cursor, **config)
         self.endpoint = endpoint
+        self.config.setdefault("endpoint", endpoint)
+        self.config.setdefault("url", endpoint)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -44,7 +46,8 @@ class ElasticsearchConnector(BaseConnector):
             ) from err
 
         try:
-            self._connection = Elasticsearch(self.endpoint, **self.config)
+            cfg = {k: v for k, v in self.config.items() if k not in ("endpoint", "url")}
+            self._connection = Elasticsearch(self.endpoint, **cfg)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(

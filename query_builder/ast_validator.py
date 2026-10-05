@@ -156,29 +156,126 @@ MAX_SQL_LENGTH = 100_000
 MAX_AST_TOKENS = 10_000
 
 
+_IDENTIFIER_QUOTES: dict[str, str] = {'"': '"', "`": "`", "[": "]"}
+
+
+def _extract_from_body(sql: str, start_idx: int) -> str:
+    """Extracts the body of a FROM clause starting at start_idx with balanced parentheses."""
+    depth = 0
+    i = start_idx
+    length = len(sql)
+    while i < length:
+        ch = sql[i]
+        if ch in _IDENTIFIER_QUOTES:
+            quote_close = _IDENTIFIER_QUOTES[ch]
+            j = i + 1
+            while j < length and sql[j] != quote_close:
+                j += 1
+            i = j + 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+            else:
+                break
+        elif ch == ";" or (
+            depth == 0
+            and re.match(
+                r"^(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
+                sql[i:],
+                re.IGNORECASE,
+            )
+        ):
+            break
+        i += 1
+    return sql[start_idx:i].strip()
+
+
+def _split_from_items(from_body: str) -> list[str]:
+    """Splits a FROM clause body on commas at parenthesis nesting level 0."""
+    items: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    length = len(from_body)
+    while i < length:
+        ch = from_body[i]
+        if ch in _IDENTIFIER_QUOTES:
+            quote_close = _IDENTIFIER_QUOTES[ch]
+            j = i + 1
+            while j < length and from_body[j] != quote_close:
+                j += 1
+            i = j + 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            items.append(from_body[start:i].strip())
+            start = i + 1
+        i += 1
+    items.append(from_body[start:].strip())
+    return items
+
+
+def strip_sql_comments_and_literals(sql: str) -> str:
+    """
+    Strips single-line comments (-- ...), multiline comments (/* ... */),
+    and single-quoted string literals (handling '' and \\' escapes).
+    Replaces string literals with '' to preserve syntactical structure.
+    """
+    # 1. Strip single-line comments
+    sql = re.sub(r"--[^\r\n]*", " ", sql)
+    # 2. Strip multiline comments
+    sql = re.sub(r"/\*[\s\S]*?\*/", " ", sql)
+    # 3. Strip single-quoted string literals including escaped quotes
+    sql = re.sub(r"'(?:''|\\[\s\S]|[^'\\])*'", "''", sql)
+    return sql
+
+
 def _extract_cte_root_statement(stmt: sqlparse.sql.Statement) -> str:
     """Finds the root statement keyword (e.g. SELECT, DO, MERGE, DELETE) for a CTE."""
     found_with = False
-    for tok in stmt.tokens:
-        if tok.is_whitespace or tok.ttype in (
+    in_cte_def = False
+    tokens = [
+        t
+        for t in stmt.tokens
+        if not t.is_whitespace
+        and t.ttype
+        not in (
             sqlparse.tokens.Comment,
             sqlparse.tokens.Comment.Single,
             sqlparse.tokens.Comment.Multiline,
-        ):
-            continue
+        )
+    ]
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
         v = tok.value.upper().strip('"[]`')
         if v == "WITH":
             found_with = True
+            idx += 1
             continue
         if found_with:
             if v == "RECURSIVE":
+                idx += 1
                 continue
             if isinstance(tok, (sqlparse.sql.Identifier, sqlparse.sql.IdentifierList)):
+                idx += 1
                 continue
             if tok.ttype in (
                 sqlparse.tokens.Punctuation,
                 sqlparse.tokens.Keyword.CTE,
             ) and v in (",", "AS"):
+                in_cte_def = True
+                idx += 1
+                continue
+            if in_cte_def and isinstance(tok, sqlparse.sql.Parenthesis):
+                in_cte_def = False
+                idx += 1
                 continue
             if isinstance(tok, sqlparse.sql.Parenthesis):
                 inner = [
@@ -195,6 +292,7 @@ def _extract_cte_root_statement(stmt: sqlparse.sql.Statement) -> str:
                 ]
                 return inner[0] if inner else "UNKNOWN"
             return v
+        idx += 1
     return "UNKNOWN"
 
 
@@ -370,6 +468,9 @@ def validate_sql_ast(
             f"Restricted statement type: {detected_name}. Only SELECT queries are permitted."
         )
 
+    # Cleaned SQL stripped of comments and literals for robust pattern matching
+    clean_stripped = strip_sql_comments_and_literals(clean)
+
     # Check for restricted system/security schema access
     schema_patterns = (
         restricted_schema_patterns
@@ -377,7 +478,7 @@ def validate_sql_ast(
         else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
     )
     for pattern in schema_patterns:
-        for m in re.finditer(pattern, clean, re.IGNORECASE):
+        for m in re.finditer(pattern, clean_stripped, re.IGNORECASE):
             if m.lastindex and m.lastindex >= 1:
                 matched_schema = m.group(1).upper()
             else:
@@ -402,7 +503,7 @@ def validate_sql_ast(
         if any("analytical" in v.lower() for v in violations):
             break
 
-    # Deep token inspection for mutation keywords and restricted auth/system tables
+    # Deep token inspection for mutation keywords
     effective_keywords = (
         restricted_keywords
         if restricted_keywords is not None
@@ -421,25 +522,116 @@ def validate_sql_ast(
         )
 
     for tok in tokens_list:
-        val = tok.value.upper().strip('"[]`')
-        if tok.ttype in (Keyword, DML, DDL) or val in effective_keywords:
+        if tok.is_whitespace or tok.ttype in (
+            sqlparse.tokens.Comment,
+            sqlparse.tokens.Comment.Single,
+            sqlparse.tokens.Comment.Multiline,
+        ):
+            continue
+        if tok.ttype in (
+            sqlparse.tokens.Literal.String,
+            sqlparse.tokens.Literal.String.Single,
+            sqlparse.tokens.String.Single,
+        ):
+            continue
+
+        raw_val = tok.value.strip()
+        is_quoted = (
+            (raw_val.startswith('"') and raw_val.endswith('"'))
+            or (raw_val.startswith("`") and raw_val.endswith("`"))
+            or (raw_val.startswith("[") and raw_val.endswith("]"))
+        )
+        val = raw_val.upper().strip('"[]`')
+
+        if not is_quoted and (
+            tok.ttype in (Keyword, DML, DDL) or val in effective_keywords
+        ):
             if val in effective_keywords:
                 violations.append(f"Forbidden mutation keyword: '{val}'")
             elif val == "SET" and not re.search(
-                r"\bSET\s+(?:TRANSACTION|LOCAL)\b", clean, re.IGNORECASE
+                r"\bSET\s+(?:TRANSACTION|LOCAL)\b", clean_stripped, re.IGNORECASE
             ):
                 violations.append("Forbidden session modification keyword: 'SET'")
 
-        # Restrict unauthorized tables
-        if val in effective_tables:
-            violations.append(
-                f"Access Denied: Table '{val}' is restricted. Authentication, credentials, and session data cannot be queried."
+    # Check tables referenced in FROM and JOIN clauses
+    table_pattern = re.compile(
+        r"\b(?:FROM|JOIN)\s+(?:\(\s*)*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)(?:\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?))?",
+        re.IGNORECASE,
+    )
+    for m in table_pattern.finditer(clean_stripped):
+        p1 = m.group(1).upper()
+        p2 = m.group(2).upper() if m.group(2) else None
+        if p2:
+            tbl_qualified = f"{p1}.{p2}"
+            if tbl_qualified in effective_tables:
+                violations.append(
+                    f"Access Denied: Table '{tbl_qualified}' is restricted. Authentication, credentials, and session data cannot be queried."
+                )
+            elif p2 in effective_tables:
+                violations.append(
+                    f"Access Denied: Table '{p2}' is restricted. Authentication, credentials, and session data cannot be queried."
+                )
+        else:
+            if p1 in effective_tables:
+                violations.append(
+                    f"Access Denied: Table '{p1}' is restricted. Authentication, credentials, and session data cannot be queried."
+                )
+
+    # Check comma-separated FROM tables
+    from_clause_pattern = re.compile(
+        r"\bFROM\s+([^;]+?)(?:\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\bOFFSET\b|\bUNION\b|;|$)",
+        re.IGNORECASE,
+    )
+    target_bodies: list[str] = []
+    for fm in from_clause_pattern.finditer(clean_stripped):
+        raw_body = fm.group(1)
+        if raw_body.count("(") > raw_body.count(")"):
+            body = _extract_from_body(
+                clean_stripped,
+                fm.start()
+                + len(
+                    re.match(
+                        r"\bFROM\s+", clean_stripped[fm.start() :], re.IGNORECASE
+                    ).group(0)
+                ),
             )
+        else:
+            body = raw_body
+        target_bodies.append(body)
+        if re.search(r"\bFROM\s+", body, re.IGNORECASE):
+            for sub_fm in from_clause_pattern.finditer(body):
+                target_bodies.append(sub_fm.group(1))
+
+    for from_body in target_bodies:
+        if "," in from_body:
+            for item in _split_from_items(from_body):
+                tbl_m = re.match(
+                    r"\s*(?:\(\s*)*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)(?:\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?))?",
+                    item,
+                )
+                if tbl_m:
+                    cp1 = tbl_m.group(1).upper()
+                    cp2 = tbl_m.group(2).upper() if tbl_m.group(2) else None
+                    if cp2:
+                        c_qual = f"{cp1}.{cp2}"
+                        if c_qual in effective_tables:
+                            violations.append(
+                                f"Access Denied: Table '{c_qual}' is restricted. Authentication, credentials, and session data cannot be queried."
+                            )
+                        elif cp2 in effective_tables:
+                            violations.append(
+                                f"Access Denied: Table '{cp2}' is restricted. Authentication, credentials, and session data cannot be queried."
+                            )
+                    else:
+                        if cp1 in effective_tables:
+                            violations.append(
+                                f"Access Denied: Table '{cp1}' is restricted. Authentication, credentials, and session data cannot be queried."
+                            )
 
     # Check qualified table names like mysql.user, sys.objects, etc.
     for m in re.finditer(
         r"(?:^|[^\w$])(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
-        clean,
+        clean_stripped,
     ):
         s_part, t_part = m.group(1).upper(), m.group(2).upper()
         qualified_tbl = f"{s_part}.{t_part}"
@@ -447,15 +639,13 @@ def validate_sql_ast(
             violations.append(
                 f"Access Denied: Table '{qualified_tbl}' is restricted. Authentication, credentials, and session data cannot be queried."
             )
-        elif t_part in effective_tables:
-            violations.append(
-                f"Access Denied: Table '{t_part}' is restricted. Authentication, credentials, and session data cannot be queried."
-            )
 
-    # Regex safety fallback against obfuscated mutations (strip string literals to avoid false positives)
-    clean_no_literals = re.sub(r"'(?:''|[^'])*'", "''", clean)
+    # Regex safety fallback against obfuscated mutations
+    clean_no_quoted_idents = re.sub(
+        r'("[^"\\]*"|`[^`\\]*`|\[[^\]]*\])', ' "ident" ', clean_stripped
+    )
     for pattern in FORBIDDEN_SQL_PATTERNS:
-        match = re.search(pattern, clean_no_literals, re.IGNORECASE)
+        match = re.search(pattern, clean_no_quoted_idents, re.IGNORECASE)
         if match:
             matched_kw = match.group(0).upper()
             if f"Forbidden mutation keyword: '{matched_kw}'" not in violations:

@@ -172,9 +172,37 @@ class BaseConnector(ABC):
                 )
             elif "QB_SECURITY_PROFILE" not in os.environ:
                 net_cfg.allow_private_networks = True
+            if "QB_ENFORCE_TLS" in os.environ:
+                from query_builder.config import _parse_bool
+
+                net_cfg.enforce_tls = _parse_bool(
+                    os.environ["QB_ENFORCE_TLS"],
+                    "QB_ENFORCE_TLS",
+                )
+            elif "QB_SECURITY_PROFILE" not in os.environ:
+                net_cfg.enforce_tls = False
+
+        target_config = dict(self.config) if self.config else {}
+        for attr in (
+            "host",
+            "hostname",
+            "port",
+            "endpoint",
+            "url",
+            "uri",
+            "address",
+            "server",
+            "contact_points",
+            "connection_string",
+            "dsn",
+            "flight_endpoint",
+        ):
+            val = getattr(self, attr, None)
+            if val is not None and attr not in target_config:
+                target_config[attr] = val
 
         validate_network_target(
-            config=self.config,
+            config=target_config,
             network_config=net_cfg,
         )
 
@@ -365,7 +393,7 @@ class BaseConnector(ABC):
                 if validate_ast and sec.validation.validate_ast:
                     v_res = validate_sql_ast(main_sql)
                     if not v_res["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
                         )
 
@@ -458,12 +486,12 @@ class BaseConnector(ABC):
                 if validate_ast:
                     v_main = validate_sql_ast(main_sql)
                     if not v_main["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
                     v_count = validate_sql_ast(count_sql)
                     if not v_count["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"
                         )
 

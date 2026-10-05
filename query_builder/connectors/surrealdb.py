@@ -120,6 +120,9 @@ class SurrealDBConnector(BaseConnector):
         self.database = database
         self.namespace = namespace
         self.schema_name = database
+        self.config.setdefault("url", url)
+        self.config.setdefault("database", database)
+        self.config.setdefault("namespace", namespace)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -140,11 +143,12 @@ class SurrealDBConnector(BaseConnector):
             )
 
         try:
+            cfg = {k: v for k, v in self.config.items() if k != "url"}
             surreal_cls = getattr(driver, "Surreal", None)
             if surreal_cls:
-                client = surreal_cls(self.url, **self.config)
+                client = surreal_cls(self.url, **cfg)
             else:
-                client = driver.connect(self.url, **self.config)
+                client = driver.connect(self.url, **cfg)
             self._connection = client
             return self._connection
         except Exception as exc:
@@ -210,6 +214,9 @@ class AsyncSurrealDBConnector(AsyncBaseConnector):
         self.database = database
         self.namespace = namespace
         self.schema_name = database
+        self.config.setdefault("url", url)
+        self.config.setdefault("database", database)
+        self.config.setdefault("namespace", namespace)
 
     async def connect(self) -> Any:
         if self._connection is not None:
@@ -230,11 +237,12 @@ class AsyncSurrealDBConnector(AsyncBaseConnector):
             )
 
         try:
+            cfg = {k: v for k, v in self.config.items() if k != "url"}
             surreal_cls = getattr(driver, "Surreal", None)
             if surreal_cls:
-                client = surreal_cls(self.url, **self.config)
+                client = surreal_cls(self.url, **cfg)
             else:
-                client = driver.connect(self.url, **self.config)
+                client = driver.connect(self.url, **cfg)
             self._connection = client
             return self._connection
         except Exception as exc:
@@ -248,10 +256,13 @@ class AsyncSurrealDBConnector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         adapter = _SurrealCursorAdapter(conn)
-        adapter.execute(sql, params)
-        desc = adapter.description or []
-        col_names = [col[0] for col in desc]
-        rows = adapter.fetchall() or []
-        dict_rows = [dict(zip(col_names, r)) for r in rows]
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        return col_names, dict_rows, latency_ms
+        try:
+            adapter.execute(sql, params)
+            desc = adapter.description or []
+            col_names = [col[0] for col in desc]
+            rows = adapter.fetchall() or []
+            dict_rows = [dict(zip(col_names, r)) for r in rows]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return col_names, dict_rows, latency_ms
+        finally:
+            adapter.close()

@@ -18,6 +18,9 @@ import { QueryTemplateManager } from "./QueryTemplateManager";
 import { compileVisualState } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema } from "../utils/schemaUtils";
+import { parseSqlToSpec } from "../utils/sqlParser";
+import { specToState } from "../hooks/useQueryState";
+import { findBestJoinCondition } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, type QueryBuilderTheme } from "../theme/tokens";
 
@@ -189,13 +192,88 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     setOrderedProjectionKeys((prev) => prev.filter((k) => !k.startsWith(`${tableName}.`)));
   };
 
+  // Synchronize Joins and active table names
+  const handleJoinsChange = (newJoins: VisualJoin[]) => {
+    setJoins(newJoins);
+    setActiveTableNames((prev) => {
+      const set = new Set(prev);
+      for (const j of newJoins) {
+        if (j.table) set.add(j.table);
+        if (j.left_table) set.add(j.left_table);
+      }
+      return Array.from(set);
+    });
+  };
+
+  const handleAddJoinToTable = (tableName: string) => {
+    const allTableNames = normalizedSchema?.tables ? Object.keys(normalizedSchema.tables) : [];
+    const candidate = allTableNames.find((t) => t !== tableName && !activeTableNames.includes(t));
+    if (candidate) {
+      const cond = findBestJoinCondition(tableName, candidate, normalizedSchema);
+      const newJoin: VisualJoin = {
+        id: `join-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: "LEFT JOIN",
+        left_table: cond.leftTable,
+        left_col: cond.leftCol,
+        table: cond.rightTable,
+        right_col: cond.rightCol,
+      };
+      handleJoinsChange([...joins, newJoin]);
+    }
+  };
+
+  // Raw SQL input change with bidirectional sync
+  const handleRawSqlChange = (newSql: string) => {
+    setIsRawMode(true);
+    setRawSql(newSql);
+
+    const parsed = parseSqlToSpec(newSql, normalizedSchema);
+    if (parsed && parsed.table) {
+      const converted = specToState(parsed);
+      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
+      if (converted.activeTables && converted.activeTables.length > 0) {
+        setActiveTableNames(converted.activeTables);
+      }
+      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
+      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
+      if (converted.joins) setJoins(converted.joins);
+      if (converted.filters) setFilters(converted.filters);
+      if (converted.sorts) setSorts(converted.sorts);
+      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
+      if (converted.limit !== undefined) setLimit(converted.limit);
+    }
+  };
+
+  const handleSyncWithVisualCanvas = () => {
+    const parsed = parseSqlToSpec(rawSql, normalizedSchema);
+    if (parsed && parsed.table) {
+      const converted = specToState(parsed);
+      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
+      if (converted.activeTables && converted.activeTables.length > 0) {
+        setActiveTableNames(converted.activeTables);
+      }
+      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
+      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
+      if (converted.joins) setJoins(converted.joins);
+      if (converted.filters) setFilters(converted.filters);
+      if (converted.sorts) setSorts(converted.sorts);
+      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
+      if (converted.limit !== undefined) setLimit(converted.limit);
+    }
+    setRawSql(compiled.sql);
+    setIsRawMode(false);
+  };
+
   // Execute current query
   const handleRunQuery = async () => {
     if (!onExecuteQuery) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
-      const result = await onExecuteQuery(currentSql, compiled.spec);
+      const parsedSpec = isRawMode
+        ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
+        : compiled.spec;
+      const result = await onExecuteQuery(currentSql, parsedSpec);
       if (result) {
         setQueryResults(result);
         setActiveTab("results");
@@ -210,7 +288,10 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   // Save template handler
   const handleSaveTemplate = (template: QueryTemplate) => {
     if (onSaveQuery) {
-      onSaveQuery(template.title, template.sql, template.spec || compiled.spec);
+      const parsedSpec = isRawMode
+        ? (parseSqlToSpec(template.sql, normalizedSchema) as any) || template.spec || compiled.spec
+        : template.spec || compiled.spec;
+      onSaveQuery(template.title, template.sql, parsedSpec);
     }
     setIsTemplateManagerOpen(false);
   };
@@ -835,7 +916,9 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               });
               setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
             }}
-            onJoinsChange={setJoins}
+            onJoinsChange={handleJoinsChange}
+            onAddJoin={handleAddJoinToTable}
+            onReorderProjections={setOrderedProjectionKeys}
             onFiltersChange={setFilters}
             onSortsChange={setSorts}
             onDistinctChange={setIsDistinct}
@@ -879,36 +962,52 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             >
               Live SQL Code Editor
             </span>
-            <button
-              type="button"
-              aria-label="Sync with visual canvas"
-              onClick={() => {
-                setRawSql(compiled.sql);
-                setIsRawMode(false);
-              }}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "transparent",
-                      border: "none",
-                      color: activeTheme.colors.primary,
-                      cursor: "pointer",
-                      fontSize: activeTheme.typography.fontSizeXs,
-                    }
-              }
-            >
-              🔄 Sync with Visual Canvas
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {isRawMode && !parseSqlToSpec(rawSql, normalizedSchema) && (
+                <span
+                  data-qb="sql-sync-badge"
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          fontSize: "0.75rem",
+                          color: "#f87171",
+                          background: "rgba(239, 68, 68, 0.15)",
+                          border: "1px solid rgba(239, 68, 68, 0.3)",
+                          padding: "2px 8px",
+                          borderRadius: "4px",
+                          fontWeight: 600,
+                        }
+                  }
+                >
+                  Custom Raw SQL (Visual Canvas Unsynced)
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label="Sync with visual canvas"
+                onClick={handleSyncWithVisualCanvas}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "transparent",
+                        border: "none",
+                        color: activeTheme.colors.primary,
+                        cursor: "pointer",
+                        fontSize: activeTheme.typography.fontSizeXs,
+                      }
+                }
+              >
+                🔄 Sync with Visual Canvas
+              </button>
+            </div>
           </div>
           <textarea
             aria-label="Raw SQL code"
             data-qb="sql-editor"
             value={currentSql}
-            onChange={(e) => {
-              setIsRawMode(true);
-              setRawSql(e.target.value);
-            }}
+            onChange={(e) => handleRawSqlChange(e.target.value)}
             rows={12}
             style={
               unstyled

@@ -68,12 +68,16 @@ class _CassandraCursorAdapter:
             ]
         elif hasattr(self.session, "cursor"):
             cur = self.session.cursor()
-            if params:
-                cur.execute(clean_sql, params)
-            else:
-                cur.execute(clean_sql)
-            self.description = getattr(cur, "description", None)
-            self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            try:
+                if params:
+                    cur.execute(clean_sql, params)
+                else:
+                    cur.execute(clean_sql)
+                self.description = getattr(cur, "description", None)
+                self._rows = list(cur.fetchall()) if hasattr(cur, "fetchall") else []
+            finally:
+                with contextlib.suppress(Exception):
+                    getattr(cur, "close", lambda: None)()
         else:
             self.description = None
             self._rows = []
@@ -110,6 +114,9 @@ class ApacheCassandraConnector(BaseConnector):
         self.port = port
         self.keyspace = keyspace
         self.schema_name = keyspace
+        self.config.setdefault("contact_points", self.contact_points)
+        self.config.setdefault("port", port)
+        self.config.setdefault("keyspace", keyspace)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -133,8 +140,13 @@ class ApacheCassandraConnector(BaseConnector):
             cluster_cls = getattr(driver, "Cluster", None) or getattr(
                 getattr(driver, "cluster", None), "Cluster", None
             )
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("contact_points", "port", "keyspace")
+            }
             cluster = cluster_cls(
-                contact_points=self.contact_points, port=self.port, **self.config
+                contact_points=self.contact_points, port=self.port, **cfg
             )
             session = cluster.connect(self.keyspace)
             self._connection = session
@@ -204,6 +216,9 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
         self.port = port
         self.keyspace = keyspace
         self.schema_name = keyspace
+        self.config.setdefault("contact_points", self.contact_points)
+        self.config.setdefault("port", port)
+        self.config.setdefault("keyspace", keyspace)
 
     async def connect(self) -> Any:
         if self._connection is not None:
@@ -227,8 +242,13 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
             cluster_cls = getattr(driver, "Cluster", None) or getattr(
                 getattr(driver, "cluster", None), "Cluster", None
             )
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("contact_points", "port", "keyspace")
+            }
             cluster = cluster_cls(
-                contact_points=self.contact_points, port=self.port, **self.config
+                contact_points=self.contact_points, port=self.port, **cfg
             )
             session = cluster.connect(self.keyspace)
             self._connection = session
@@ -244,13 +264,16 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         adapter = _CassandraCursorAdapter(conn)
-        adapter.execute(sql, params)
-        desc = adapter.description or []
-        col_names = [col[0] for col in desc]
-        rows = adapter.fetchall() or []
-        dict_rows = [dict(zip(col_names, r)) for r in rows]
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        return col_names, dict_rows, latency_ms
+        try:
+            adapter.execute(sql, params)
+            desc = adapter.description or []
+            col_names = [col[0] for col in desc]
+            rows = adapter.fetchall() or []
+            dict_rows = [dict(zip(col_names, r)) for r in rows]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return col_names, dict_rows, latency_ms
+        finally:
+            adapter.close()
 
 
 AsyncCassandraConnector = AsyncApacheCassandraConnector

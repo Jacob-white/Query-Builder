@@ -8,9 +8,12 @@ and schema introspection for Dremio lakehouse datasets.
 from __future__ import annotations
 
 import contextlib
+import copy
+import os
 from collections.abc import Iterator
 from typing import Any
 
+from query_builder.config import SecurityConfig, get_security_config
 from query_builder.connectors.base import (
     BaseConnector,
     ConnectionFailedError,
@@ -18,6 +21,7 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_information_schema
+from query_builder.security import validate_network_target
 
 
 class _DremioFlightCursor:
@@ -30,7 +34,12 @@ class _DremioFlightCursor:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         if hasattr(self.flight_client, "get_flight_info"):
-            from pyarrow import flight
+            try:
+                from pyarrow import flight
+            except ImportError as err:
+                raise DriverNotInstalledError(
+                    "pyarrow is not installed. Install with: pip install 'query-builder-engine[dremio]'"
+                ) from err
 
             descriptor = flight.FlightDescriptor.for_command(
                 sql.encode("utf-8") if isinstance(sql, str) else sql
@@ -105,6 +114,65 @@ class DremioConnector(BaseConnector):
         self.password = password
         self.flight_endpoint = flight_endpoint
         self.schema_name = schema_name
+        self.config.setdefault("username", username)
+        self.config.setdefault("password", password)
+        self.config.setdefault("schema_name", schema_name)
+        if flight_endpoint is not None:
+            self.config.setdefault("flight_endpoint", flight_endpoint)
+            self.config.setdefault("endpoint", flight_endpoint)
+            if host != "localhost":
+                self.config.setdefault("host", host)
+            if port != 32010:
+                self.config.setdefault("port", port)
+        else:
+            self.config.setdefault("host", host)
+            self.config.setdefault("port", port)
+
+    def _validate_network_target(
+        self, security_config: SecurityConfig | None = None
+    ) -> None:
+        sec = (
+            security_config or getattr(self, "security", None) or get_security_config()
+        )
+        if not sec or not sec.network:
+            return
+
+        net_cfg = sec.network
+        if not self._explicit_security:
+            net_cfg = copy.copy(net_cfg)
+            if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
+                from query_builder.config import _parse_bool
+
+                net_cfg.allow_private_networks = _parse_bool(
+                    os.environ["QB_ALLOW_PRIVATE_NETWORKS"],
+                    "QB_ALLOW_PRIVATE_NETWORKS",
+                )
+            elif "QB_SECURITY_PROFILE" not in os.environ:
+                net_cfg.allow_private_networks = True
+            if "QB_ENFORCE_TLS" in os.environ:
+                from query_builder.config import _parse_bool
+
+                net_cfg.enforce_tls = _parse_bool(
+                    os.environ["QB_ENFORCE_TLS"],
+                    "QB_ENFORCE_TLS",
+                )
+            elif "QB_SECURITY_PROFILE" not in os.environ:
+                net_cfg.enforce_tls = False
+
+        if self.flight_endpoint:
+            validate_network_target(
+                url=self.flight_endpoint,
+                network_config=net_cfg,
+                config=dict(self.config),
+            )
+
+        if not self.flight_endpoint or self.host != "localhost":
+            validate_network_target(
+                host=self.host,
+                port=self.port,
+                network_config=net_cfg,
+                config=dict(self.config),
+            )
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -124,7 +192,21 @@ class DremioConnector(BaseConnector):
                 if self.flight_endpoint
                 else f"grpc://{self.host}:{self.port}"
             )
-            client = flight.FlightClient(location, **self.config)
+            flight_kwargs = {
+                k: v
+                for k, v in self.config.items()
+                if k
+                not in (
+                    "host",
+                    "port",
+                    "username",
+                    "password",
+                    "schema_name",
+                    "flight_endpoint",
+                    "endpoint",
+                )
+            }
+            client = flight.FlightClient(location, **flight_kwargs)
             if self.username and self.password:
                 client.authenticate_basic_token(self.username, self.password)
             self._connection = _DremioFlightClient(client)

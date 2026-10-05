@@ -40,6 +40,10 @@ class PinotConnector(BaseConnector):
         self.port = port
         self.path = path
         self.scheme = scheme
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("path", path)
+        self.config.setdefault("scheme", scheme)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -54,12 +58,17 @@ class PinotConnector(BaseConnector):
             ) from err
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "port", "path", "scheme")
+            }
             self._connection = pinotdb.connect(
                 host=self.host,
                 port=self.port,
                 path=self.path,
                 scheme=self.scheme,
-                **self.config,
+                **cfg,
             )
             return self._connection
         except Exception as exc:

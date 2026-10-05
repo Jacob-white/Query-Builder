@@ -8,6 +8,7 @@ export * from "./utils/joinUtils";
 export * from "./utils/safety";
 export * from "./utils/compiler";
 export * from "./utils/schemaUtils";
+export * from "./utils/sqlParser";
 
 export { VisualQueryBuilder } from "./components/VisualQueryBuilder";
 export { QueryCanvas } from "./components/QueryCanvas";
@@ -19,6 +20,7 @@ export { SchemaErdModal } from "./components/SchemaErdModal";
 export { QueryResultsTable } from "./components/QueryResultsTable";
 export { QueryChartPreview } from "./components/QueryChartPreview";
 export { QueryPlayground } from "./components/QueryPlayground";
+export { ExportWorkbench, type ExportWorkbenchProps } from "./components/ExportWorkbench";
 export {
   QueryTemplateManager,
   SEED_TEMPLATES,

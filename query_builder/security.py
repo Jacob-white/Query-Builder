@@ -18,11 +18,8 @@ from dataclasses import asdict
 from typing import Any
 
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect
+from query_builder.exceptions import SecurityError
 from query_builder.models import QuerySpec
-
-
-class SecurityError(Exception):
-    """Raised when tenant isolation cannot be resolved or security checks fail."""
 
 
 class AliasCounter:
@@ -240,6 +237,119 @@ def _is_private_or_restricted(
     )
 
 
+def _validate_host_target(
+    host: str,
+    port: int | None,
+    network_config: Any,
+) -> None:
+    """Validates an individual host/IP network egress target against SSRF rules."""
+    clean_host = str(host).strip().lower()
+    if not clean_host:
+        return
+
+    unbracketed_host = clean_host.strip("[]")
+
+    # Hostname Whitelisting and Blacklisting
+    if network_config.blocked_hostnames:
+        for b in network_config.blocked_hostnames:
+            pat = b.strip().lower()
+            if pat.startswith("*.") and (
+                clean_host.endswith(pat[1:])
+                or clean_host == pat[2:]
+                or unbracketed_host.endswith(pat[1:])
+                or unbracketed_host == pat[2:]
+            ):
+                raise SecurityError(
+                    f"Target host '{host}' is in blocked hostnames list."
+                )
+            if clean_host == pat or unbracketed_host == pat:
+                raise SecurityError(
+                    f"Target host '{host}' is in blocked hostnames list."
+                )
+
+    if network_config.allowed_hostnames:
+        allowed = False
+        for a in network_config.allowed_hostnames:
+            pat = a.strip().lower()
+            if pat.startswith("*.") and (
+                clean_host.endswith(pat[1:])
+                or clean_host == pat[2:]
+                or unbracketed_host.endswith(pat[1:])
+                or unbracketed_host == pat[2:]
+            ):
+                allowed = True
+                break
+            if clean_host == pat or unbracketed_host == pat:
+                allowed = True
+                break
+        if not allowed:
+            raise SecurityError(
+                f"Target host '{host}' is not in allowed hostnames list."
+            )
+
+    # Cloud metadata hostname rejection
+    if (
+        clean_host in CLOUD_METADATA_HOSTNAMES
+        or unbracketed_host in CLOUD_METADATA_HOSTNAMES
+        or clean_host.endswith(".google.internal")
+        or unbracketed_host.endswith(".google.internal")
+    ):
+        raise SecurityError(f"Access to cloud metadata target '{host}' is forbidden.")
+
+    # IP Literal Check (supporting bracketed IPv4/IPv6 notation)
+    try:
+        ip_obj = ipaddress.ip_address(unbracketed_host)
+        is_ip_literal = True
+    except ValueError:
+        is_ip_literal = False
+
+    if is_ip_literal:
+        if _is_cloud_metadata(ip_obj):
+            raise SecurityError(
+                f"Access to cloud metadata IP target '{host}' is strictly forbidden."
+            )
+        if not network_config.allow_private_networks and _is_private_or_restricted(
+            ip_obj
+        ):
+            raise SecurityError(
+                f"Access to private/internal network target '{host}' is forbidden."
+            )
+        return
+
+    # Localhost check for hostnames
+    if clean_host in ("localhost", "localhost.localdomain") or unbracketed_host in (
+        "localhost",
+        "localhost.localdomain",
+    ):
+        if not network_config.allow_private_networks:
+            raise SecurityError(
+                f"Access to loopback target '{host}' is forbidden when allow_private_networks is False."
+            )
+        return
+
+    # DNS Resolution with graceful offline fallback
+    try:
+        addr_info = socket.getaddrinfo(
+            unbracketed_host, port or 0, proto=socket.IPPROTO_TCP
+        )
+        for _, _, _, _, sockaddr in addr_info:
+            resolved_ip_str = sockaddr[0]
+            resolved_ip = ipaddress.ip_address(resolved_ip_str)
+            if _is_cloud_metadata(resolved_ip):
+                raise SecurityError(
+                    f"Host '{host}' resolves to forbidden cloud metadata IP '{resolved_ip_str}'."
+                )
+            if not network_config.allow_private_networks and _is_private_or_restricted(
+                resolved_ip
+            ):
+                raise SecurityError(
+                    f"Host '{host}' resolves to forbidden private/internal IP '{resolved_ip_str}'."
+                )
+    except (socket.gaierror, socket.herror, OSError):
+        # Graceful offline fallback for unresolvable test or mock hostnames
+        pass
+
+
 def validate_network_target(
     host: str | None = None,
     port: int | None = None,
@@ -297,16 +407,86 @@ def validate_network_target(
     # 3. Extract connection properties from config if not provided
     if config is not None and isinstance(config, dict):
         if host is None:
-            host = config.get("host") or config.get("hostname")
+            host = (
+                config.get("host")
+                or config.get("hostname")
+                or config.get("address")
+                or config.get("server")
+            )
         if port is None:
             port = config.get("port")
-        if url is None:
-            url = (
-                config.get("url")
-                or config.get("uri")
-                or config.get("connection_string")
-                or config.get("dsn")
-            )
+
+        candidate_urls: list[str] = []
+        for key in (
+            "url",
+            "uri",
+            "connection_string",
+            "dsn",
+            "endpoint",
+            "flight_endpoint",
+        ):
+            val = config.get(key)
+            if val is not None:
+                val_str = str(val).strip()
+                if val_str and val_str not in candidate_urls:
+                    candidate_urls.append(val_str)
+
+        for raw_str in candidate_urls:
+            if "://" in raw_str:
+                if url is None:
+                    url = raw_str
+                elif raw_str != url:
+                    validate_network_target(
+                        url=raw_str,
+                        network_config=network_config,
+                    )
+            else:
+                if ":" in raw_str and not raw_str.startswith("["):
+                    parts = raw_str.rsplit(":", 1)
+                    raw_host = parts[0]
+                    raw_port = None
+                    try:
+                        raw_port = int(parts[1])
+                    except ValueError:
+                        pass
+                else:
+                    raw_host = raw_str
+                    raw_port = None
+
+                if host is None:
+                    host = raw_host
+                elif raw_host != host:
+                    validate_network_target(
+                        host=raw_host,
+                        port=raw_port or port,
+                        network_config=network_config,
+                    )
+                if port is None and raw_port is not None:
+                    port = raw_port
+
+        contact_points = config.get("contact_points")
+        if contact_points:
+            if isinstance(contact_points, str):
+                pts = [p.strip() for p in contact_points.split(",") if p.strip()]
+            elif isinstance(contact_points, (list, tuple, set)):
+                pts = list(contact_points)
+            else:
+                pts = [contact_points]
+            for pt in pts:
+                pt_host = str(pt).strip()
+                pt_port = port
+                if ":" in pt_host and not pt_host.startswith("["):
+                    p_parts = pt_host.rsplit(":", 1)
+                    pt_host = p_parts[0]
+                    try:
+                        pt_port = int(p_parts[1])
+                    except ValueError:
+                        pass
+                validate_network_target(
+                    host=pt_host,
+                    port=pt_port,
+                    network_config=network_config,
+                )
 
     parsed_url = None
     if url:
@@ -337,13 +517,24 @@ def validate_network_target(
                 )
 
     # 5. Extract host/port from URL if needed
+    url_host: str | None = None
+    url_port: int | None = None
     if parsed_url:
-        if not host and parsed_url.hostname:
-            host = parsed_url.hostname
-        if port is None and parsed_url.port:
-            port = parsed_url.port
+        if parsed_url.hostname:
+            url_host = parsed_url.hostname
+        try:
+            if parsed_url.port is not None:
+                url_port = parsed_url.port
+        except ValueError as exc:
+            raise SecurityError(f"Invalid network target URL port: {exc}")
 
-    # 6. Validate port
+    # 6. Default host and port from URL if not specified
+    if host is None:
+        host = url_host
+    if port is None:
+        port = url_port
+
+    # Validate primary port
     if port is not None:
         try:
             port_num = int(port)
@@ -352,115 +543,23 @@ def validate_network_target(
         except (ValueError, TypeError):
             raise SecurityError(f"Invalid network port: {port}")
 
+    # Validate distinct URL port if both were provided
+    if url_port is not None and url_port != port and not (1 <= url_port <= 65535):
+        raise SecurityError(f"Invalid network port: {url_port}")
+
     # If no host is targeted, validation succeeds
     if host is None:
         return
 
-    clean_host = str(host).strip().lower()
-    if not clean_host:
-        return
+    # 7. Validate primary host target
+    _validate_host_target(host, port, network_config)
 
-    unbracketed_host = clean_host.strip("[]")
-
-    # 7. Hostname Whitelisting and Blacklisting
-    if network_config.blocked_hostnames:
-        for b in network_config.blocked_hostnames:
-            pat = b.strip().lower()
-            if pat.startswith("*.") and (
-                clean_host.endswith(pat[1:])
-                or clean_host == pat[2:]
-                or unbracketed_host.endswith(pat[1:])
-                or unbracketed_host == pat[2:]
-            ):
-                raise SecurityError(
-                    f"Target host '{host}' is in blocked hostnames list."
-                )
-            if clean_host == pat or unbracketed_host == pat:
-                raise SecurityError(
-                    f"Target host '{host}' is in blocked hostnames list."
-                )
-
-    if network_config.allowed_hostnames:
-        allowed = False
-        for a in network_config.allowed_hostnames:
-            pat = a.strip().lower()
-            if pat.startswith("*.") and (
-                clean_host.endswith(pat[1:])
-                or clean_host == pat[2:]
-                or unbracketed_host.endswith(pat[1:])
-                or unbracketed_host == pat[2:]
-            ):
-                allowed = True
-                break
-            if clean_host == pat or unbracketed_host == pat:
-                allowed = True
-                break
-        if not allowed:
-            raise SecurityError(
-                f"Target host '{host}' is not in allowed hostnames list."
-            )
-
-    # 8. Cloud metadata hostname rejection
-    if (
-        clean_host in CLOUD_METADATA_HOSTNAMES
-        or unbracketed_host in CLOUD_METADATA_HOSTNAMES
-        or clean_host.endswith(".google.internal")
-        or unbracketed_host.endswith(".google.internal")
+    # 8. If URL provided a distinct hostname, validate it as well
+    if url_host is not None and (
+        str(url_host).strip().lower() != str(host).strip().lower()
+        or (url_port is not None and url_port != port)
     ):
-        raise SecurityError(f"Access to cloud metadata target '{host}' is forbidden.")
-
-    # 9. IP Literal Check (supporting bracketed IPv4/IPv6 notation)
-    try:
-        ip_obj = ipaddress.ip_address(unbracketed_host)
-        is_ip_literal = True
-    except ValueError:
-        is_ip_literal = False
-
-    if is_ip_literal:
-        if _is_cloud_metadata(ip_obj):
-            raise SecurityError(
-                f"Access to cloud metadata IP target '{host}' is strictly forbidden."
-            )
-        if not network_config.allow_private_networks and _is_private_or_restricted(
-            ip_obj
-        ):
-            raise SecurityError(
-                f"Access to private/internal network target '{host}' is forbidden."
-            )
-        return
-
-    # 10. Localhost check for hostnames
-    if clean_host in ("localhost", "localhost.localdomain") or unbracketed_host in (
-        "localhost",
-        "localhost.localdomain",
-    ):
-        if not network_config.allow_private_networks:
-            raise SecurityError(
-                f"Access to loopback target '{host}' is forbidden when allow_private_networks is False."
-            )
-        return
-
-    # 11. DNS Resolution with graceful offline fallback
-    try:
-        addr_info = socket.getaddrinfo(
-            unbracketed_host, port or 0, proto=socket.IPPROTO_TCP
-        )
-        for _, _, _, _, sockaddr in addr_info:
-            resolved_ip_str = sockaddr[0]
-            resolved_ip = ipaddress.ip_address(resolved_ip_str)
-            if _is_cloud_metadata(resolved_ip):
-                raise SecurityError(
-                    f"Host '{host}' resolves to forbidden cloud metadata IP '{resolved_ip_str}'."
-                )
-            if not network_config.allow_private_networks and _is_private_or_restricted(
-                resolved_ip
-            ):
-                raise SecurityError(
-                    f"Host '{host}' resolves to forbidden private/internal IP '{resolved_ip_str}'."
-                )
-    except (socket.gaierror, socket.herror, OSError):
-        # Graceful offline fallback for unresolvable test or mock hostnames
-        pass
+        _validate_host_target(url_host, url_port or port, network_config)
 
 
 # ---------------------------------------------------------------------------

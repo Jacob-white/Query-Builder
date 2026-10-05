@@ -9,7 +9,9 @@ import type {
   VisualSort,
   SqlDialect,
   QuerySpec,
+  SchemaSnapshot,
 } from "../types";
+import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
 
 export interface QueryState<Schema = any> {
   primaryTable: SchemaTableNames<Schema>;
@@ -45,6 +47,10 @@ export interface QueryStateActions<Schema = any> {
   updateColumnSelect: (key: string, updates: Partial<VisualColumnSelect<Schema>>) => void;
   removeColumnProjection: (key: string) => void;
   addJoin: (join: VisualJoin<Schema>) => void;
+  autoJoinTable: (
+    targetTable: SchemaTableNames<Schema> | string,
+    schema?: SchemaSnapshot | null,
+  ) => void;
   updateJoin: (id: string, updates: Partial<VisualJoin<Schema>>) => void;
   removeJoin: (id: string) => void;
   addFilter: (filter: VisualFilter<Schema>) => void;
@@ -479,6 +485,59 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     [applyUpdate],
   );
 
+  const autoJoinTable = useCallback(
+    (
+      targetTable: SchemaTableNames<Schema> | string,
+      schema?: SchemaSnapshot | null,
+    ) => {
+      if (!targetTable) return;
+      applyUpdate((prev) => {
+        const active =
+          prev.activeTables.length > 0
+            ? prev.activeTables
+            : prev.primaryTable
+              ? [prev.primaryTable]
+              : [];
+        const pathJoins = findJoinPath(active as string[], targetTable as string, schema);
+
+        if (pathJoins.length > 0) {
+          const newActive = new Set(prev.activeTables as string[]);
+          for (const pj of pathJoins) {
+            if (pj.table) newActive.add(pj.table);
+            if (pj.left_table) newActive.add(pj.left_table);
+          }
+          newActive.add(targetTable as string);
+
+          return {
+            ...prev,
+            joins: [...prev.joins, ...(pathJoins as VisualJoin<Schema>[])],
+            activeTables: Array.from(newActive) as SchemaTableNames<Schema>[],
+          };
+        } else {
+          const base = (prev.primaryTable || active[0] || "table") as string;
+          const cond = findBestJoinCondition(base, targetTable as string, schema);
+          const fallbackJoin: VisualJoin<Schema> = {
+            id: `join-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            type: "LEFT JOIN",
+            left_table: cond.leftTable as SchemaTableNames<Schema>,
+            left_col: cond.leftCol,
+            table: cond.rightTable as SchemaTableNames<Schema>,
+            right_col: cond.rightCol,
+          };
+          const newActive = new Set(prev.activeTables as string[]);
+          newActive.add(cond.rightTable);
+
+          return {
+            ...prev,
+            joins: [...prev.joins, fallbackJoin],
+            activeTables: Array.from(newActive) as SchemaTableNames<Schema>[],
+          };
+        }
+      });
+    },
+    [applyUpdate],
+  );
+
   const updateJoin = useCallback(
     (id: string, updates: Partial<VisualJoin<Schema>>) => {
       applyUpdate((prev) => ({
@@ -669,6 +728,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       updateColumnSelect,
       removeColumnProjection,
       addJoin,
+      autoJoinTable,
       updateJoin,
       removeJoin,
       addFilter,
@@ -697,6 +757,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       updateColumnSelect,
       removeColumnProjection,
       addJoin,
+      autoJoinTable,
       updateJoin,
       removeJoin,
       addFilter,

@@ -127,6 +127,7 @@ def test_registry_registration_and_lookup():
     assert "dum-dum" not in list_connectors()
 
     # Clear and re-populate
+    orig_registry = dict(ConnectorRegistry._registry)
     ConnectorRegistry.clear()
     assert len(list_connectors()) == 0
 
@@ -163,6 +164,7 @@ def test_registry_registration_and_lookup():
     assert "atlas_sql" in list_connectors()
     assert "neon" in list_connectors()
     assert "supabase" in list_connectors()
+    ConnectorRegistry._registry.update(orig_registry)
 
 
 def test_base_connector_lifecycle_and_errors():
