@@ -11,8 +11,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import sqlparse
-from sqlparse.tokens import DDL, DML, Keyword
+try:
+    import sqlparse
+    from sqlparse.tokens import DDL, DML, Keyword
+except ImportError:
+    sqlparse = None  # type: ignore[assignment]
+    DDL = DML = Keyword = None  # type: ignore[assignment]
 
 FORBIDDEN_SQL_PATTERNS = [
     r"\bDROP\b",
@@ -366,6 +370,19 @@ def validate_sql_ast(
 
     if "/*!" in clean:
         violations.append("Forbidden executable comment syntax ('/*!... */') detected.")
+
+    if sqlparse is None:
+        return {
+            "valid": False,
+            "ast_validated": False,
+            "statement_type": "UNKNOWN",
+            "is_read_only": False,
+            "violations": [
+                "sqlparse is not installed. Install with 'pip install sqlparse' to enable AST validation."
+            ],
+            "injection_risk": "HIGH",
+            "message": "AST validation unavailable: sqlparse package not found.",
+        }
 
     try:
         parsed = sqlparse.parse(clean)

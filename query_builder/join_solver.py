@@ -9,7 +9,10 @@ FOREIGN KEY configuration from the user.
 from __future__ import annotations
 
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from query_builder.models import SchemaSnapshot
 
 CANONICAL_ENTITY_COLUMNS: list[str] = [
     "user_id",
@@ -50,7 +53,7 @@ def _clean_table_name(tbl: Any) -> str:
 def find_best_join_condition(
     left_table: str,
     right_table: str,
-    schema_data: dict[str, Any] | None = None,
+    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
 ) -> dict[str, Any]:
     """
     Determines the best join condition between two tables.
@@ -72,40 +75,65 @@ def find_best_join_condition(
             "reason": "Fallback condition for empty/invalid table name",
         }
 
-    tables_meta = schema_data.get("tables", {}) if isinstance(schema_data, dict) else {}
+    if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
+        tables_meta = getattr(schema_data, "tables", {})
+        foreign_keys = getattr(schema_data, "foreign_keys", [])
+    elif isinstance(schema_data, dict):
+        tables_meta = schema_data.get("tables", {})
+        foreign_keys = schema_data.get("foreign_keys", [])
+    else:
+        tables_meta = {}
+        foreign_keys = []
+
     if not isinstance(tables_meta, dict):
         tables_meta = {}
-    foreign_keys = (
-        schema_data.get("foreign_keys", []) if isinstance(schema_data, dict) else []
-    )
     if not isinstance(foreign_keys, list):
         foreign_keys = []
 
-    left_tbl_meta = (
-        tables_meta.get(clean_left, {})
-        if isinstance(tables_meta.get(clean_left), dict)
-        else {}
+    raw_left = tables_meta.get(clean_left, {}) if isinstance(tables_meta, dict) else {}
+    if hasattr(raw_left, "to_dict"):
+        left_tbl_meta = raw_left.to_dict()
+    elif isinstance(raw_left, dict):
+        left_tbl_meta = raw_left
+    else:
+        left_tbl_meta = {}
+
+    raw_right = (
+        tables_meta.get(clean_right, {}) if isinstance(tables_meta, dict) else {}
     )
-    right_tbl_meta = (
-        tables_meta.get(clean_right, {})
-        if isinstance(tables_meta.get(clean_right), dict)
-        else {}
-    )
+    if hasattr(raw_right, "to_dict"):
+        right_tbl_meta = raw_right.to_dict()
+    elif isinstance(raw_right, dict):
+        right_tbl_meta = raw_right
+    else:
+        right_tbl_meta = {}
 
     left_cols = left_tbl_meta.get("columns", [])
     right_cols = right_tbl_meta.get("columns", [])
 
-    left_col_names = {c["name"] if isinstance(c, dict) else str(c) for c in left_cols}
-    right_col_names = {c["name"] if isinstance(c, dict) else str(c) for c in right_cols}
+    left_col_names = {
+        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
+        for c in left_cols
+    }
+    right_col_names = {
+        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
+        for c in right_cols
+    }
 
     # 1. Explicit FK match
     for fk in foreign_keys:
-        if not isinstance(fk, dict):
+        if isinstance(fk, dict):
+            fk_tbl = _clean_table_name(fk.get("table", ""))
+            fk_foreign_tbl = _clean_table_name(fk.get("foreign_table", ""))
+            col = fk.get("column", "")
+            f_col = fk.get("foreign_column", "")
+        elif hasattr(fk, "table"):
+            fk_tbl = _clean_table_name(getattr(fk, "table", ""))
+            fk_foreign_tbl = _clean_table_name(getattr(fk, "foreign_table", ""))
+            col = getattr(fk, "column", "")
+            f_col = getattr(fk, "foreign_column", "")
+        else:
             continue
-        fk_tbl = _clean_table_name(fk.get("table", ""))
-        fk_foreign_tbl = _clean_table_name(fk.get("foreign_table", ""))
-        col = fk.get("column", "")
-        f_col = fk.get("foreign_column", "")
 
         # Direct: right -> left
         if fk_tbl == clean_right and fk_foreign_tbl == clean_left:
@@ -189,7 +217,7 @@ def find_best_join_condition(
 def find_join_path(
     active_tables: list[str],
     target_table: str,
-    schema_data: dict[str, Any] | None = None,
+    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
     default_join_type: str = "LEFT JOIN",
 ) -> list[dict[str, Any]]:
     """
@@ -232,12 +260,18 @@ def find_join_path(
     if len(clean_active) > MAX_ACTIVE_TABLES:
         clean_active = clean_active[:MAX_ACTIVE_TABLES]
 
-    tables_meta = schema_data.get("tables", {}) if isinstance(schema_data, dict) else {}
+    if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
+        tables_meta = getattr(schema_data, "tables", {})
+        foreign_keys = getattr(schema_data, "foreign_keys", [])
+    elif isinstance(schema_data, dict):
+        tables_meta = schema_data.get("tables", {})
+        foreign_keys = schema_data.get("foreign_keys", [])
+    else:
+        tables_meta = {}
+        foreign_keys = []
+
     if not isinstance(tables_meta, dict):
         tables_meta = {}
-    foreign_keys = (
-        schema_data.get("foreign_keys", []) if isinstance(schema_data, dict) else []
-    )
     if not isinstance(foreign_keys, list):
         foreign_keys = []
     if len(foreign_keys) > MAX_FOREIGN_KEYS:
@@ -251,20 +285,28 @@ def find_join_path(
         adj.setdefault(v, set()).add(u)
 
     for fk in foreign_keys:
-        if not isinstance(fk, dict):
+        if isinstance(fk, dict):
+            t1 = _clean_table_name(fk.get("table", ""))
+            t2 = _clean_table_name(fk.get("foreign_table", ""))
+        elif hasattr(fk, "table"):
+            t1 = _clean_table_name(getattr(fk, "table", ""))
+            t2 = _clean_table_name(getattr(fk, "foreign_table", ""))
+        else:
             continue
-        t1 = _clean_table_name(fk.get("table", ""))
-        t2 = _clean_table_name(fk.get("foreign_table", ""))
         if t1 and t2:
             add_edge(t1, t2)
 
     # Inferred entity bridges
-    for tbl_name, meta in tables_meta.items():
-        if not isinstance(meta, dict):
+    for tbl_name, raw_meta in tables_meta.items():
+        if hasattr(raw_meta, "to_dict"):
+            meta = raw_meta.to_dict()
+        elif isinstance(raw_meta, dict):
+            meta = raw_meta
+        else:
             continue
         clean_tbl = _clean_table_name(tbl_name)
         col_names = {
-            c["name"] if isinstance(c, dict) else str(c)
+            c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
             for c in meta.get("columns", [])
         }
         for entity_col in CANONICAL_ENTITY_COLUMNS:

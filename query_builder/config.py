@@ -679,6 +679,169 @@ def reset_security_config() -> None:
         _GLOBAL_CONFIG = None
 
 
+# ---------------------------------------------------------------------------
+# Unified Query Builder Configuration
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QueryBuilderConfig:
+    """
+    Unified configuration dataclass for the Query-Builder engine.
+
+    Covers default SQL dialects, security profiles/configs, custom dialect overrides,
+    custom database connectors, and custom filter operators.
+    """
+
+    default_dialect: str = "postgres"
+    security: SecurityConfig = field(default_factory=get_security_config)
+    dialects: dict[str, Any] = field(default_factory=dict)
+    connectors: dict[str, Any] = field(default_factory=dict)
+    custom_operators: dict[str, Any] = field(default_factory=dict)
+    default_limit: int = 100
+
+    def copy(self) -> QueryBuilderConfig:
+        """Create a deep copy of the configuration."""
+        return QueryBuilderConfig(
+            default_dialect=self.default_dialect,
+            security=self.security.copy(),
+            dialects=dict(self.dialects),
+            connectors=dict(self.connectors),
+            custom_operators=dict(self.custom_operators),
+            default_limit=self.default_limit,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the configuration to a dictionary."""
+        return {
+            "default_dialect": self.default_dialect,
+            "security": self.security.to_dict(),
+            "dialects": {k: str(v) for k, v in self.dialects.items()},
+            "connectors": {k: str(v) for k, v in self.connectors.items()},
+            "custom_operators": {k: str(v) for k, v in self.custom_operators.items()},
+            "default_limit": self.default_limit,
+        }
+
+
+_GLOBAL_QB_CONFIG: QueryBuilderConfig | None = None
+
+
+def get_query_builder_config() -> QueryBuilderConfig:
+    """
+    Retrieve the active global QueryBuilderConfig instance.
+
+    Thread-safe. Lazily initializes with defaults if not already configured.
+    """
+    global _GLOBAL_QB_CONFIG
+    with _CONFIG_LOCK:
+        if _GLOBAL_QB_CONFIG is None:
+            _GLOBAL_QB_CONFIG = QueryBuilderConfig()
+        return _GLOBAL_QB_CONFIG
+
+
+def configure_query_builder(
+    config: QueryBuilderConfig | None = None,
+    default_dialect: str | None = None,
+    security: SecurityConfig | None = None,
+    profile: str | None = None,
+    dialects: dict[str, Any] | None = None,
+    connectors: dict[str, Any] | None = None,
+    custom_operators: dict[str, Any] | None = None,
+    default_limit: int | None = None,
+    **security_kwargs: Any,
+) -> QueryBuilderConfig:
+    """
+    Configure global settings for the Query-Builder engine.
+
+    Thread-safe. Supports setting default dialects, applying security profiles,
+    registering custom dialects, connectors, and filter operators.
+    """
+    global _GLOBAL_QB_CONFIG
+    with _CONFIG_LOCK:
+        if config is not None:
+            base = config.copy()
+        elif _GLOBAL_QB_CONFIG is not None:
+            base = _GLOBAL_QB_CONFIG.copy()
+        else:
+            base = QueryBuilderConfig()
+
+        if default_dialect is not None:
+            base.default_dialect = default_dialect.lower().strip()
+
+        if profile is not None:
+            if isinstance(profile, str):
+                base.security = SecurityProfile.from_name(profile)
+                configure_security(base.security)
+            else:
+                raise ValueError(
+                    f"profile override must be a string, got {type(profile).__name__}"
+                )
+
+        if security is not None:
+            base.security = security.copy()
+            configure_security(base.security)
+
+        if security_kwargs:
+            base.security = configure_security(base.security, **security_kwargs)
+
+        if default_limit is not None:
+            if default_limit <= 0:
+                raise ValueError(f"default_limit must be positive, got {default_limit}")
+            base.default_limit = default_limit
+
+        if dialects:
+            from query_builder.dialects import register_dialect
+
+            for d_name, d_val in dialects.items():
+                register_dialect(d_name, d_val)
+                base.dialects[d_name] = d_val
+
+        if connectors:
+            from query_builder.connectors.registry import register_connector
+
+            for c_name, c_val in connectors.items():
+                register_connector(c_name, c_val)
+                base.connectors[c_name] = c_val
+
+        if custom_operators:
+            from query_builder.compiler import register_filter_operator
+
+            for op_name, op_val in custom_operators.items():
+                register_filter_operator(op_name, op_val)
+                base.custom_operators[op_name] = op_val
+
+        _GLOBAL_QB_CONFIG = base
+        return _GLOBAL_QB_CONFIG
+
+
+def reset_query_builder_config() -> None:
+    """
+    Reset the global query builder configuration state to None.
+
+    Thread-safe. Unregisters any custom dialects, connectors, or operators
+    that were registered via configure_query_builder.
+    """
+    global _GLOBAL_QB_CONFIG
+    with _CONFIG_LOCK:
+        if _GLOBAL_QB_CONFIG is not None:
+            if _GLOBAL_QB_CONFIG.custom_operators:
+                from query_builder.compiler import unregister_filter_operator
+
+                for op_name in list(_GLOBAL_QB_CONFIG.custom_operators.keys()):
+                    unregister_filter_operator(op_name)
+            if _GLOBAL_QB_CONFIG.dialects:
+                from query_builder.dialects import unregister_dialect
+
+                for d_name in list(_GLOBAL_QB_CONFIG.dialects.keys()):
+                    unregister_dialect(d_name)
+            if _GLOBAL_QB_CONFIG.connectors:
+                from query_builder.connectors.registry import unregister_connector
+
+                for c_name in list(_GLOBAL_QB_CONFIG.connectors.keys()):
+                    unregister_connector(c_name)
+        _GLOBAL_QB_CONFIG = None
+
+
 __all__ = [
     "DEFAULT_SENSITIVE_COLUMN_PATTERNS",
     "DEFAULT_SENSITIVE_KEY_PATTERNS",
@@ -687,11 +850,15 @@ __all__ = [
     "LoggingSecurityConfig",
     "NetworkSecurityConfig",
     "PrivacySecurityConfig",
+    "QueryBuilderConfig",
     "SecurityConfig",
     "SecurityProfile",
     "ValidationSecurityConfig",
+    "configure_query_builder",
     "configure_security",
+    "get_query_builder_config",
     "get_security_config",
     "load_security_config_from_env",
+    "reset_query_builder_config",
     "reset_security_config",
 ]

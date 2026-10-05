@@ -13,7 +13,10 @@ import re
 from collections.abc import Sequence
 from typing import Any, Self
 
-import sqlparse
+try:
+    import sqlparse
+except ImportError:
+    sqlparse = None  # type: ignore[assignment]
 
 from query_builder.config import SecurityConfig, get_security_config
 from query_builder.policy import (
@@ -52,6 +55,15 @@ def _is_mutating_sql(sql: str) -> bool:
     Checks if a SQL query contains mutating DDL/DML statements,
     ignoring string literals, comments, and column aliases.
     """
+    if sqlparse is None:
+        stripped = re.sub(r"'(?:''|\\[\s\S]|[^'\\])*'", "", sql)
+        stripped = re.sub(r"--[^\n]*", "", stripped)
+        stripped = re.sub(r"/\*[\s\S]*?\*/", "", stripped)
+        for kw in MUTATION_KEYWORDS:
+            if re.search(rf"\b{kw}\b", stripped, re.IGNORECASE):
+                return True
+        return False
+
     statements = sqlparse.parse(sql)
     for stmt in statements:
         if stmt.get_type() in (

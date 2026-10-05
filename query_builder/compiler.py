@@ -9,7 +9,7 @@ derived GROUP BY, HAVING, ordering, and pagination.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect, get_dialect
 from query_builder.exceptions import (
@@ -18,6 +18,7 @@ from query_builder.exceptions import (
     ValidationError,
 )
 from query_builder.join_solver import find_best_join_condition
+from query_builder.models import SchemaSnapshot
 from query_builder.security import (
     AliasCounter,
     resolve_ownership_predicate,
@@ -149,6 +150,42 @@ ALLOWED_FILTER_OPS = {
     "not_exists",
     "not exists",
 }
+
+_BUILTIN_FILTER_OPS = set(ALLOWED_FILTER_OPS)
+_CUSTOM_FILTER_OPERATORS: dict[str, Callable[..., Any]] = {}
+
+
+def register_filter_operator(
+    name: str,
+    handler: Callable[..., Any],
+) -> None:
+    """
+    Register a custom filter operator handler.
+
+    The handler should accept (quoted_ref: str, val: Any, dialect: BaseDialect)
+    and return either a SQL clause string, or a tuple of (clause_str, params).
+    """
+    clean_name = name.lower().strip()
+    _CUSTOM_FILTER_OPERATORS[clean_name] = handler
+    ALLOWED_FILTER_OPS.add(clean_name)
+
+
+def unregister_filter_operator(name: str) -> None:
+    """
+    Unregister a custom filter operator.
+    """
+    clean_name = name.lower().strip()
+    _CUSTOM_FILTER_OPERATORS.pop(clean_name, None)
+    if clean_name not in _BUILTIN_FILTER_OPS:
+        ALLOWED_FILTER_OPS.discard(clean_name)
+
+
+def list_filter_operators() -> list[str]:
+    """
+    Return a sorted list of all allowed filter operator names (built-in and custom).
+    """
+    return sorted(ALLOWED_FILTER_OPS)
+
 
 ALLOWED_JOIN_TYPES = {
     "left",
@@ -493,7 +530,7 @@ class QueryCompiler:
         user_id: Any = None,
         force_user_filter: bool = False,
         tenant_id: Any = None,
-        dialect: str | BaseDialect = "postgres",
+        dialect: str | BaseDialect | None = None,
         ownership_paths: dict[str, list[list[tuple[str, str, str]]]] | None = None,
         max_limit: int = 100,
         validate_spec: bool = True,
@@ -531,9 +568,22 @@ class QueryCompiler:
         self.max_limit = max_limit
 
         self.schema = schema or {}
-        self.tables_meta: dict[str, Any] = self.schema.get("tables", {})
-        self.rel_meta: list[dict[str, Any]] = self.schema.get("relationships", [])
-        self.foreign_keys: list[dict[str, Any]] = self.schema.get("foreign_keys", [])
+        if isinstance(self.schema, SchemaSnapshot) or hasattr(self.schema, "tables"):
+            self.tables_meta: dict[str, Any] = getattr(self.schema, "tables", {})
+            self.rel_meta: list[dict[str, Any]] = getattr(
+                self.schema, "relationships", []
+            )
+            self.foreign_keys: list[dict[str, Any]] = getattr(
+                self.schema, "foreign_keys", []
+            )
+        elif isinstance(self.schema, dict):
+            self.tables_meta = self.schema.get("tables", {})
+            self.rel_meta = self.schema.get("relationships", [])
+            self.foreign_keys = self.schema.get("foreign_keys", [])
+        else:
+            self.tables_meta = {}
+            self.rel_meta = []
+            self.foreign_keys = []
 
         self.table_aliases: dict[str, str] = {}
         self._alias_counter = 0
@@ -1167,6 +1217,22 @@ class QueryCompiler:
                 not_pfx = "NOT " if "not" in op else ""
                 clause_str = f"{quoted_ref} {not_pfx}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
                 self.params.extend([p0, p1])
+
+            elif op in _CUSTOM_FILTER_OPERATORS:
+                handler = _CUSTOM_FILTER_OPERATORS[op]
+                res = handler(quoted_ref, val, self.dialect)
+                if isinstance(res, tuple):
+                    clause_str, new_params = res
+                    if isinstance(new_params, (list, tuple)):
+                        self.params.extend(new_params)
+                    else:
+                        self.params.append(new_params)
+                elif isinstance(res, str):
+                    clause_str = res
+                else:
+                    raise CompilationError(
+                        f"Custom filter operator '{op}' returned invalid result: {type(res).__name__}"
+                    )
             else:
                 raise CompilationError(f"Unsupported filter operator: '{op}'")
 

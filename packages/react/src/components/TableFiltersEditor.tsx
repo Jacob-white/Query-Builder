@@ -1,11 +1,12 @@
 import React from "react";
-import type { VisualFilter, TableMeta } from "../types";
+import type { VisualFilter, TableMeta, CustomFilterOperator } from "../types";
 
 export interface TableFiltersEditorProps {
   filters: VisualFilter[];
   activeTables: TableMeta[];
   onChange: (filters: VisualFilter[]) => void;
   unstyled?: boolean;
+  customOperators?: Record<string, CustomFilterOperator>;
 }
 
 export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
@@ -13,6 +14,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
   activeTables,
   onChange,
   unstyled = false,
+  customOperators,
 }) => {
   const allColumns = activeTables.flatMap((tbl) =>
     tbl.columns.map((c) => ({
@@ -249,32 +251,52 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                 <option value="BETWEEN">BETWEEN</option>
                 <option value="IS NULL">IS NULL</option>
                 <option value="IS NOT NULL">IS NOT NULL</option>
+                {customOperators &&
+                  Object.values(customOperators).map((cop) => (
+                    <option key={cop.value} value={cop.value}>
+                      {cop.label || cop.value}
+                    </option>
+                  ))}
               </select>
 
               {/* Value Input */}
-              {f.operator !== "IS NULL" && f.operator !== "IS NOT NULL" && (
-                <input
-                  type="text"
-                  placeholder={f.operator === "BETWEEN" ? "10 AND 50" : "Value..."}
-                  value={String(f.value ?? "")}
-                  data-qb="filter-value"
-                  onChange={(e) => handleUpdate(f.id, { value: e.target.value })}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "#1e293b",
-                          color: "#f8fafc",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
-                          padding: "4px 8px",
-                          fontSize: "0.78rem",
-                          flex: 1,
-                          minWidth: "120px",
-                        }
-                  }
-                />
-              )}
+              {(() => {
+                const customOp = customOperators?.[f.operator];
+                const isUnary =
+                  f.operator === "IS NULL" ||
+                  f.operator === "IS NOT NULL" ||
+                  customOp?.hasValue === false;
+
+                if (isUnary) return null;
+
+                const placeholder =
+                  customOp?.placeholder ??
+                  (f.operator === "BETWEEN" ? "10 AND 50" : "Value...");
+
+                return (
+                  <input
+                    type="text"
+                    placeholder={placeholder}
+                    value={String(f.value ?? "")}
+                    data-qb="filter-value"
+                    onChange={(e) => handleUpdate(f.id, { value: e.target.value })}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "#1e293b",
+                            color: "#f8fafc",
+                            border: "1px solid #475569",
+                            borderRadius: "4px",
+                            padding: "4px 8px",
+                            fontSize: "0.78rem",
+                            flex: 1,
+                            minWidth: "120px",
+                          }
+                    }
+                  />
+                );
+              })()}
 
               <button
                 type="button"

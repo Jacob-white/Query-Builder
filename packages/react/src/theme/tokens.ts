@@ -200,3 +200,51 @@ export function mergeTheme(
     },
   };
 }
+
+function camelToKebab(str: string): string {
+  return str.replace(/([A-Z])/g, "-$1").toLowerCase();
+}
+
+/**
+ * Converts a QueryBuilderTheme into scoped CSS custom properties (--qb-*).
+ */
+export function themeToCssVariables(theme: QueryBuilderTheme): Record<string, string> {
+  const vars: Record<string, string> = {
+    "--qb-mode": theme.mode,
+  };
+
+  if (theme.colors) {
+    for (const [key, value] of Object.entries(theme.colors)) {
+      if (value !== undefined && value !== null) {
+        vars[`--qb-color-${camelToKebab(key)}`] = String(value);
+      }
+    }
+  }
+
+  if (theme.typography) {
+    for (const [key, value] of Object.entries(theme.typography)) {
+      if (value !== undefined && value !== null) {
+        vars[`--qb-${camelToKebab(key)}`] = String(value);
+      }
+    }
+  }
+
+  if (theme.radii) {
+    for (const [key, value] of Object.entries(theme.radii)) {
+      if (value !== undefined && value !== null) {
+        vars[`--qb-radius-${camelToKebab(key)}`] = String(value);
+      }
+    }
+  }
+
+  if (theme.shadows) {
+    for (const [key, value] of Object.entries(theme.shadows)) {
+      if (value !== undefined && value !== null) {
+        vars[`--qb-shadow-${camelToKebab(key)}`] = String(value);
+      }
+    }
+  }
+
+  return vars;
+}
+

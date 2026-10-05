@@ -6,6 +6,8 @@ import type {
   VisualJoin,
   VisualSort,
   SchemaSnapshot,
+  CustomFilterOperator,
+  CustomFieldRenderer,
 } from "../types";
 import { TableCard } from "./TableCard";
 import { TableFiltersEditor } from "./TableFiltersEditor";
@@ -36,6 +38,8 @@ export interface QueryCanvasProps {
   onDistinctChange: (distinct: boolean) => void;
   onLimitChange: (limit: number) => void;
   unstyled?: boolean;
+  customOperators?: Record<string, CustomFilterOperator>;
+  fieldRenderers?: Record<string, CustomFieldRenderer>;
 }
 
 export const QueryCanvas: React.FC<QueryCanvasProps> = ({
@@ -62,6 +66,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onDistinctChange,
   onLimitChange,
   unstyled = false,
+  customOperators,
+  fieldRenderers,
 }) => {
   const allTables = Object.values(schema?.tables || {});
   const availableToAdd = allTables.filter(
@@ -198,6 +204,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 onRemoveTable={() => onRemoveTable(t.name)}
                 onAddJoin={() => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))}
                 unstyled={unstyled}
+                fieldRenderers={fieldRenderers}
               />
             ))}
           </div>
@@ -494,6 +501,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         activeTables={activeTables}
         onChange={onFiltersChange}
         unstyled={unstyled}
+        customOperators={customOperators}
       />
 
       {/* Sorting */}

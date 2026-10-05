@@ -5,12 +5,14 @@ export interface QueryResultsTableProps {
   results: QueryResultData | null;
   isLoading?: boolean;
   unstyled?: boolean;
+  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
 }
 
 export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   results,
   isLoading,
   unstyled = false,
+  cellRenderers,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -339,7 +341,9 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                           }
                     }
                   >
-                    {r[c] !== null && r[c] !== undefined ? (
+                    {cellRenderers && cellRenderers[c] ? (
+                      cellRenderers[c](r[c], r, c)
+                    ) : r[c] !== null && r[c] !== undefined ? (
                       String(r[c])
                     ) : (
                       <span style={unstyled ? undefined : { color: "#64748b" }}>null</span>

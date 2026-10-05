@@ -6,6 +6,7 @@ import type {
   TableDefinition,
   ColumnDefinition,
   ForeignKeyMeta,
+  TableSchema,
 } from "../types";
 
 export function isSchemaSnapshot(schema: unknown): schema is SchemaSnapshot {
@@ -22,9 +23,79 @@ export function isSchemaSnapshot(schema: unknown): schema is SchemaSnapshot {
 }
 
 export function normalizeSchema(
-  schema?: DatabaseSchemaDefinition | SchemaSnapshot | null,
+  schema?: DatabaseSchemaDefinition | SchemaSnapshot | TableSchema[] | null,
 ): SchemaSnapshot | null {
-  if (!schema || typeof schema !== "object" || !schema.tables) {
+  if (!schema) {
+    return null;
+  }
+
+  // Handle TableSchema[] directly
+  if (Array.isArray(schema)) {
+    const normalizedTables: Record<string, TableMeta> = {};
+    const foreignKeys: ForeignKeyMeta[] = [];
+    const relationships: {
+      source_table: string;
+      source_column: string;
+      target_table: string;
+      target_column: string;
+    }[] = [];
+
+    for (const table of schema) {
+      if (!table || !table.name) continue;
+      const columns: ColumnMeta[] = (table.columns || []).map((col) => {
+        const isNullable =
+          col.isNullable !== undefined
+            ? col.isNullable
+            : col.is_nullable !== undefined
+              ? col.is_nullable
+              : true;
+        const isPrimary = Boolean(col.isPrimary ?? col.is_primary ?? false);
+        return {
+          name: col.name,
+          data_type: col.dataType || col.data_type || "text",
+          is_nullable: isNullable,
+          is_primary: isPrimary,
+          comment: col.comment,
+        };
+      });
+
+      normalizedTables[table.name] = {
+        name: table.name,
+        schema: table.schema || "public",
+        columns,
+        comment: table.comment,
+        has_user_id: columns.some((c) => c.name === "user_id"),
+      };
+
+      const fks = table.foreignKeys || table.foreign_keys || [];
+      for (const fk of fks) {
+        const foreignTable = fk.foreignTable || fk.foreign_table || "";
+        const foreignColumn = fk.foreignColumn || fk.foreign_column || "id";
+        if (foreignTable) {
+          foreignKeys.push({
+            table: table.name,
+            column: fk.column,
+            foreign_table: foreignTable,
+            foreign_column: foreignColumn,
+          });
+          relationships.push({
+            source_table: table.name,
+            source_column: fk.column,
+            target_table: foreignTable,
+            target_column: foreignColumn,
+          });
+        }
+      }
+    }
+
+    return {
+      tables: normalizedTables,
+      foreign_keys: foreignKeys,
+      relationships,
+    };
+  }
+
+  if (typeof schema !== "object" || !schema.tables) {
     return null;
   }
 

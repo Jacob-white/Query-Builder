@@ -562,4 +562,23 @@ describe("VisualQueryBuilder", () => {
       expect.any(Object)
     );
   });
+
+  it("opens Schema Explorer modal from header and adds a table to canvas", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" />);
+
+    const schemaExplorerBtn = screen.getByLabelText("Open schema explorer");
+    fireEvent.click(schemaExplorerBtn);
+
+    expect(screen.getByRole("dialog", { name: "Database Schema Explorer" })).toBeTruthy();
+    expect(screen.getByText("Tables (2)")).toBeTruthy();
+
+    const ordersItem = screen.getByLabelText("Select table orders");
+    fireEvent.click(ordersItem);
+
+    const addBtn = screen.getByLabelText("Add table orders to canvas");
+    fireEvent.click(addBtn);
+
+    expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });

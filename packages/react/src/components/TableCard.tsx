@@ -1,5 +1,5 @@
 import React from "react";
-import type { TableMeta, VisualColumnSelect } from "../types";
+import type { TableMeta, VisualColumnSelect, CustomFieldRenderer } from "../types";
 
 export interface TableCardProps {
   table: TableMeta;
@@ -9,6 +9,7 @@ export interface TableCardProps {
   onRemoveTable?: () => void;
   onAddJoin?: () => void;
   unstyled?: boolean;
+  fieldRenderers?: Record<string, CustomFieldRenderer>;
 }
 
 export const TableCard: React.FC<TableCardProps> = ({
@@ -19,6 +20,7 @@ export const TableCard: React.FC<TableCardProps> = ({
   onRemoveTable,
   onAddJoin,
   unstyled = false,
+  fieldRenderers,
 }) => {
   return (
     <div
@@ -139,6 +141,30 @@ export const TableCard: React.FC<TableCardProps> = ({
         {table.columns.map((col) => {
           const key = `${table.name}.${col.name}`;
           const isColChecked = Boolean(selectedColumns[key]);
+
+          const customRenderer =
+            fieldRenderers?.[col.name] ??
+            fieldRenderers?.[`${table.name}.${col.name}`] ??
+            fieldRenderers?.[col.data_type];
+
+          if (customRenderer) {
+            return (
+              <div
+                key={col.name}
+                data-qb="table-card-column-row"
+                data-qb-column={col.name}
+                data-qb-selected={isColChecked ? "true" : "false"}
+              >
+                {customRenderer({
+                  column: col,
+                  table,
+                  isSelected: isColChecked,
+                  onToggle: () => onToggleColumn(col.name),
+                  unstyled,
+                })}
+              </div>
+            );
+          }
 
           return (
             <div

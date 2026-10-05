@@ -67,3 +67,7 @@ dist-ssr/
 # Agents scratch & teamwork logs
 .agents/
 
+# SQLite / Local Databases
+*.db
+*.sqlite
+*.sqlite3

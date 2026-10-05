@@ -150,3 +150,17 @@ def get_connector(name: str, **kwargs: Any) -> Any:
 def list_connectors() -> list[str]:
     """Helper to list registered connector names."""
     return ConnectorRegistry.list_available()
+
+
+def unregister_connector(name: str) -> None:
+    """Helper to unregister a connector by name."""
+    ConnectorRegistry.unregister(name)
+
+
+__all__ = [
+    "ConnectorRegistry",
+    "get_connector",
+    "list_connectors",
+    "register_connector",
+    "unregister_connector",
+]
