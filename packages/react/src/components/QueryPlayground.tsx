@@ -10,6 +10,7 @@ import type {
 import { useQueryState } from "../hooks/useQueryState";
 import { useSqlCompiler } from "../hooks/useSqlCompiler";
 import { normalizeSchema } from "../utils/schemaUtils";
+import { ExportWorkbench } from "./ExportWorkbench";
 
 export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
   schema,
@@ -56,12 +57,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
 
   const [activeTab, setActiveTab] = useState<"builder" | "ast" | "codegen">("builder");
   const [builderSubTab, setBuilderSubTab] = useState<"visual" | "json">("visual");
-  const [codegenTarget, setCodegenTarget] = useState<"sdk" | "sql" | "ast">("sdk");
   const [jsonSpecText, setJsonSpecText] = useState<string>(() =>
     JSON.stringify(spec, null, 2),
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
 
   // Sync external callbacks
   useEffect(() => {
@@ -90,61 +89,6 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
       setJsonError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  const handleCopy = async (text: string, targetKey: string) => {
-    if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedTarget(targetKey);
-        setTimeout(() => {
-          setCopiedTarget(null);
-        }, 2000);
-      } catch {
-        /* ignore */
-      }
-    }
-  };
-
-  // Generate TypeScript SDK snippet
-  const generateSdkSnippet = useMemo(() => {
-    const tbl = spec.table || "table";
-    const cols = spec.columns.map((c) =>
-      typeof c === "string" ? c : c.alias ? `${c.column} AS ${c.alias}` : c.column,
-    );
-    const colsStr = cols.length > 0 ? JSON.stringify(cols) : "[]";
-
-    let code = `import { createQuery } from "@jacob-white/query-builder";\n\n`;
-    code += `const query = createQuery()\n  .from("${tbl}")\n  .select(${colsStr})`;
-
-    if (spec.joins && spec.joins.length > 0) {
-      for (const j of spec.joins) {
-        code += `\n  .join("${j.table}", "${j.left_col}", "=", "${j.right_col}")`;
-      }
-    }
-
-    if (spec.filters && spec.filters.length > 0) {
-      for (const f of spec.filters) {
-        code += `\n  .where("${f.column}", "${f.op}", ${JSON.stringify(f.value)})`;
-      }
-    }
-
-    if (spec.order_by && spec.order_by.length > 0) {
-      for (const s of spec.order_by) {
-        code += `\n  .orderBy("${s.column}", "${s.direction}")`;
-      }
-    }
-
-    if (spec.distinct) {
-      code += `\n  .distinct()`;
-    }
-
-    if (spec.limit) {
-      code += `\n  .limit(${spec.limit})`;
-    }
-
-    code += `;\n\nconst result = await query.execute();`;
-    return code;
-  }, [spec]);
 
   const activeTableMeta: TableMeta | undefined = useMemo(() => {
     return normalizedSchema?.tables?.[state.primaryTable];
@@ -904,182 +848,13 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
           data-qb="playground-codegen"
           style={unstyled ? undefined : { display: "flex", flexDirection: "column", gap: "10px" }}
         >
-          {/* Controls Bar for Codegen */}
-          <div
-            style={
-              unstyled
-                ? undefined
-                : {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "8px",
-                  }
-            }
-          >
-            <div style={unstyled ? undefined : { display: "flex", gap: "6px" }}>
-              <button
-                type="button"
-                onClick={() => setCodegenTarget("sdk")}
-                data-qb="codegen-tab-sdk"
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        background: codegenTarget === "sdk" ? "#3b82f6" : "#1e293b",
-                        color: codegenTarget === "sdk" ? "#ffffff" : "#94a3b8",
-                        border: "1px solid #475569",
-                        borderRadius: "6px",
-                        padding: "4px 10px",
-                        fontSize: "0.75rem",
-                        cursor: "pointer",
-                        fontWeight: 600,
-                      }
-                }
-              >
-                TypeScript SDK
-              </button>
-              <button
-                type="button"
-                onClick={() => setCodegenTarget("sql")}
-                data-qb="codegen-tab-sql"
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        background: codegenTarget === "sql" ? "#3b82f6" : "#1e293b",
-                        color: codegenTarget === "sql" ? "#ffffff" : "#94a3b8",
-                        border: "1px solid #475569",
-                        borderRadius: "6px",
-                        padding: "4px 10px",
-                        fontSize: "0.75rem",
-                        cursor: "pointer",
-                        fontWeight: 600,
-                      }
-                }
-              >
-                Compiled SQL
-              </button>
-              <button
-                type="button"
-                onClick={() => setCodegenTarget("ast")}
-                data-qb="codegen-tab-json"
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        background: codegenTarget === "ast" ? "#3b82f6" : "#1e293b",
-                        color: codegenTarget === "ast" ? "#ffffff" : "#94a3b8",
-                        border: "1px solid #475569",
-                        borderRadius: "6px",
-                        padding: "4px 10px",
-                        fontSize: "0.75rem",
-                        cursor: "pointer",
-                        fontWeight: 600,
-                      }
-                }
-              >
-                JSON AST
-              </button>
-            </div>
-
-            <div
-              style={
-                unstyled
-                  ? undefined
-                  : { display: "flex", alignItems: "center", gap: "8px" }
-              }
-            >
-              {codegenTarget === "sql" && (
-                <select
-                  aria-label="Select Dialect for compiled SQL"
-                  data-qb="playground-dialect-select"
-                  value={activeDialect}
-                  onChange={(e) => setActiveDialect(e.target.value as SqlDialect)}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "#1e293b",
-                          color: "#38bdf8",
-                          border: "1px solid #475569",
-                          borderRadius: "6px",
-                          padding: "4px 8px",
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                        }
-                  }
-                >
-                  <option value="postgres">PostgreSQL</option>
-                  <option value="mysql">MySQL</option>
-                  <option value="sqlite">SQLite</option>
-                  <option value="snowflake">Snowflake</option>
-                  <option value="bigquery">BigQuery</option>
-                  <option value="duckdb">DuckDB</option>
-                </select>
-              )}
-
-              <button
-                type="button"
-                data-qb="playground-copy-btn"
-                onClick={() => {
-                  const textToCopy =
-                    codegenTarget === "sdk"
-                      ? generateSdkSnippet
-                      : codegenTarget === "sql"
-                        ? sql
-                        : JSON.stringify(spec, null, 2);
-                  handleCopy(textToCopy, codegenTarget);
-                }}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        background: copiedTarget === codegenTarget ? "#10b981" : "#334155",
-                        color: "#ffffff",
-                        border: "1px solid #475569",
-                        borderRadius: "6px",
-                        padding: "4px 12px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        transition: "background 0.2s",
-                      }
-                }
-              >
-                {copiedTarget === codegenTarget ? "✓ Copied!" : "📋 Copy Snippet"}
-              </button>
-            </div>
-          </div>
-
-          {/* Snippet Display */}
-          <pre
-            data-qb="playground-code-snippet"
-            style={
-              unstyled
-                ? undefined
-                : {
-                    background: "#090d16",
-                    color: codegenTarget === "sql" ? "#38bdf8" : "#e2e8f0",
-                    border: "1px solid #1e293b",
-                    borderRadius: "8px",
-                    padding: "14px",
-                    fontSize: "0.8rem",
-                    overflowX: "auto",
-                    margin: 0,
-                    lineHeight: 1.5,
-                  }
-            }
-          >
-            <code>
-              {codegenTarget === "sdk"
-                ? generateSdkSnippet
-                : codegenTarget === "sql"
-                  ? sql
-                  : JSON.stringify(spec, null, 2)}
-            </code>
-          </pre>
+          <ExportWorkbench
+            spec={spec}
+            sql={sql}
+            dialect={activeDialect}
+            onDialectChange={setActiveDialect}
+            unstyled={unstyled}
+          />
         </div>
       )}
     </div>

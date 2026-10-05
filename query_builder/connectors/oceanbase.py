@@ -45,6 +45,12 @@ class OceanBaseConnector(BaseConnector):
         self.tenant = tenant
         self.user = user
         self.password = password
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
+        self.config.setdefault("tenant", tenant)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -80,9 +86,21 @@ class OceanBaseConnector(BaseConnector):
                 driver, "__name__", ""
             ):
                 connect_kwargs["database"] = self.database
-            else:
-                connect_kwargs["db"] = self.database
-            connect_kwargs.update(self.config)
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k
+                not in (
+                    "host",
+                    "port",
+                    "user",
+                    "password",
+                    "database",
+                    "db",
+                    "tenant",
+                )
+            }
+            connect_kwargs.update(cfg)
             self._connection = driver.connect(**connect_kwargs)
             return self._connection
         except Exception as exc:

@@ -96,6 +96,11 @@ class InfluxDBConnector(BaseConnector):
         self.token = token
         self.database = database
         self.schema_name = schema_name
+        self.config.setdefault("host", host)
+        self.config.setdefault("database", database)
+        self.config.setdefault("schema_name", schema_name)
+        if token is not None:
+            self.config.setdefault("token", token)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -121,19 +126,24 @@ class InfluxDBConnector(BaseConnector):
             )
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "token", "database")
+            }
             if hasattr(driver, "connect"):
                 self._connection = driver.connect(
                     host=self.host,
                     token=self.token,
                     database=self.database,
-                    **self.config,
+                    **cfg,
                 )
             elif hasattr(driver, "InfluxDBClient3"):
                 client = driver.InfluxDBClient3(
                     host=self.host,
                     token=self.token,
                     database=self.database,
-                    **self.config,
+                    **cfg,
                 )
                 self._connection = client
             else:

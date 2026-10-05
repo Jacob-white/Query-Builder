@@ -42,6 +42,12 @@ class SAPHANAConnector(BaseConnector):
         self.user = user
         self.password = password
         self.schema_name = schema_name
+        self.config.setdefault("address", address)
+        self.config.setdefault("host", address)
+        self.config.setdefault("port", port)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
+        self.config.setdefault("schema_name", schema_name)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -63,13 +69,27 @@ class SAPHANAConnector(BaseConnector):
 
         try:
             connect_fn = getattr(driver, "connect", None)
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k
+                not in (
+                    "address",
+                    "host",
+                    "port",
+                    "user",
+                    "password",
+                    "schema_name",
+                    "currentSchema",
+                )
+            }
             self._connection = connect_fn(
                 address=self.address,
                 port=self.port,
                 user=self.user,
                 password=self.password,
                 currentSchema=self.schema_name,
-                **self.config,
+                **cfg,
             )
             return self._connection
         except Exception as exc:

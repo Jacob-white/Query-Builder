@@ -13,6 +13,7 @@ from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
+from query_builder.exceptions import SecurityError
 from query_builder.middleware import LifecycleInterceptor, MiddlewarePipeline
 
 DEFAULT_TIMEOUT_MS = 5000
@@ -95,12 +96,12 @@ def execute_compiled_spec(
     if validate_ast:
         validation = validate_sql_ast(main_sql)
         if not validation["valid"]:
-            raise CompilationError(
+            raise SecurityError(
                 f"Generated query failed AST safety validation: {validation['message']}"
             )
         count_validation = validate_sql_ast(count_sql)
         if not count_validation["valid"]:
-            raise CompilationError(
+            raise SecurityError(
                 f"Generated count query failed AST safety validation: {count_validation['message']}"
             )
 

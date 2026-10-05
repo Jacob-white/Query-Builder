@@ -73,7 +73,7 @@ export function useQueryExecution(
 
       setIsLoading(true);
       setError(null);
-      const start = performance.now();
+      const start = typeof performance !== "undefined" ? performance.now() : Date.now();
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       if (defaultTimeoutMs && defaultTimeoutMs > 0) {
@@ -113,7 +113,8 @@ export function useQueryExecution(
         }
 
         clearTimeout(timeoutId);
-        const elapsed = Math.round(performance.now() - start);
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const elapsed = Math.round(now - start);
 
         if (resData) {
           const finalResult: QueryResultData = {

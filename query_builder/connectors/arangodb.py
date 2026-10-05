@@ -238,10 +238,13 @@ class AsyncArangoDBConnector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         adapter = _ArangoCursorAdapter(conn)
-        adapter.execute(sql, params)
-        desc = adapter.description or []
-        col_names = [col[0] for col in desc]
-        rows = adapter.fetchall() or []
-        dict_rows = [dict(zip(col_names, r)) for r in rows]
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        return col_names, dict_rows, latency_ms
+        try:
+            adapter.execute(sql, params)
+            desc = adapter.description or []
+            col_names = [col[0] for col in desc]
+            rows = adapter.fetchall() or []
+            dict_rows = [dict(zip(col_names, r)) for r in rows]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return col_names, dict_rows, latency_ms
+        finally:
+            adapter.close()

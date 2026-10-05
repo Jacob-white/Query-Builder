@@ -16,7 +16,6 @@ from query_builder.ast_validator import (
 from query_builder.compiler import (
     AGGREGATE_MAP,
     OPERATOR_MAP,
-    CompilationError,
     QueryCompiler,
 )
 from query_builder.config import (
@@ -300,6 +299,13 @@ from query_builder.dialects import (
     register_dialect,
     unregister_dialect,
 )
+from query_builder.exceptions import (
+    CompilationError,
+    DialectError,
+    QueryBuilderError,
+    SecurityError,
+    ValidationError,
+)
 from query_builder.executor import (
     async_execute,
     execute_compiled_spec,
@@ -355,7 +361,6 @@ from query_builder.schema_converters import (
 )
 from query_builder.security import (
     AliasCounter,
-    SecurityError,
     apply_column_masking,
     calculate_ast_complexity,
     check_cartesian_products,
@@ -490,6 +495,7 @@ __all__ = [
     "DatabricksDialect",
     "DerbyConnector",
     "DerbyDialect",
+    "DialectError",
     "DorisConnector",
     "DorisDialect",
     "DremioConnector",
@@ -582,6 +588,7 @@ __all__ = [
     "PrestoDialect",
     "PrivacySecurityConfig",
     "PyKXConnector",
+    "QueryBuilderError",
     "QueryCancelledError",
     "QueryCompiler",
     "QueryExecutionError",
@@ -640,6 +647,7 @@ __all__ = [
     "TimescaleDialect",
     "TrinoConnector",
     "TrinoDialect",
+    "ValidationError",
     "ValidationResult",
     "ValidationSecurityConfig",
     "VerticaConnector",

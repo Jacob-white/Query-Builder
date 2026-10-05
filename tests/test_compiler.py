@@ -396,8 +396,8 @@ def test_schema_qualified_projections_and_joins():
         'SELECT "t1"."id" AS "public.orders.id", "t2"."name" AS "public.users.name"'
         in sql
     )
-    assert 'FROM "orders" "t1"' in sql
-    assert 'LEFT JOIN "users" "t2" ON "t1"."user_id" = "t2"."id"' in sql
+    assert 'FROM "public"."orders" "t1"' in sql
+    assert 'LEFT JOIN "public"."users" "t2" ON "t1"."user_id" = "t2"."id"' in sql
 
 
 def test_spec_tenant_id_in_dict_and_model():
@@ -442,4 +442,4 @@ def test_schema_qualified_tables_meta():
     sql, params, _, _ = compiler.compile()
     assert 'WHERE "t1"."tenant_id" = %s' in sql
     assert "t-100" in params
-    assert 'LEFT JOIN "users" "t2"' in sql
+    assert 'LEFT JOIN "public"."users" "t2"' in sql

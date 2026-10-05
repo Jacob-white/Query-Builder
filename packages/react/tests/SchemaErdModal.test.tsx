@@ -125,4 +125,32 @@ describe("SchemaErdModal", () => {
     render(<SchemaErdModal isOpen={true} onClose={vi.fn()} schema={multiFkSchema} />);
     expect(screen.getByText(/2 relationships/)).toBeTruthy();
   });
+
+  it("displays singular 'hop' for 1-hop bridge discovery and allows adding joins", () => {
+    const onAddJoins = vi.fn();
+    const handleClose = vi.fn();
+    render(
+      <SchemaErdModal
+        isOpen={true}
+        onClose={handleClose}
+        schema={mockSchema}
+        onAddJoins={onAddJoins}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Bridge source table"), { target: { value: "orders" } });
+    fireEvent.change(screen.getByLabelText("Bridge target table"), { target: { value: "users" } });
+    fireEvent.click(screen.getByText("Discover Bridge"));
+    expect(screen.getByText(/Path \(1 hop\):/)).toBeTruthy();
+
+    const addBridgeBtn = screen.getByText("Add Bridge Joins to Canvas");
+    fireEvent.click(addBridgeBtn);
+    expect(onAddJoins).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "users",
+        }),
+      ])
+    );
+    expect(handleClose).toHaveBeenCalledOnce();
+  });
 });

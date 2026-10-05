@@ -45,6 +45,11 @@ class StarRocksConnector(BaseConnector):
         self.schema_name = database
         self.user = user
         self.password = password
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -75,7 +80,12 @@ class StarRocksConnector(BaseConnector):
                 connect_kwargs["database"] = self.database
             else:
                 connect_kwargs["db"] = self.database
-            connect_kwargs.update(self.config)
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "port", "user", "password", "database", "db")
+            }
+            connect_kwargs.update(cfg)
             self._connection = driver.connect(**connect_kwargs)
             return self._connection
         except Exception as exc:
@@ -129,6 +139,11 @@ class AsyncStarRocksConnector(AsyncBaseConnector):
         self.schema_name = database
         self.user = user
         self.password = password
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
 
     async def connect(self) -> Any:
         if self._connection is not None:
@@ -149,13 +164,18 @@ class AsyncStarRocksConnector(AsyncBaseConnector):
             )
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "port", "user", "password", "database")
+            }
             self._connection = driver.connect(
                 host=self.host,
                 port=self.port,
                 user=self.user,
                 password=self.password,
                 database=self.database,
-                **self.config,
+                **cfg,
             )
             return self._connection
         except Exception as exc:

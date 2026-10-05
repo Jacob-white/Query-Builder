@@ -40,6 +40,10 @@ class DruidConnector(BaseConnector):
         self.port = port
         self.path = path
         self.schema_name = schema_name
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("path", path)
+        self.config.setdefault("schema_name", schema_name)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -64,12 +68,17 @@ class DruidConnector(BaseConnector):
                 getattr(driver, "db", None), "connect", None
             )
             scheme = self.config.get("scheme", "http")
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("scheme", "host", "port", "path", "schema_name")
+            }
             self._connection = connect_fn(
                 host=self.host,
                 port=self.port,
                 path=self.path,
                 scheme=scheme,
-                **{k: v for k, v in self.config.items() if k != "scheme"},
+                **cfg,
             )
             return self._connection
         except Exception as exc:

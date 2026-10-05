@@ -27,7 +27,12 @@ class _D1Cursor:
         self.description: list[tuple[str, ...]] | None = None
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
-        import requests
+        try:
+            import requests
+        except ImportError as err:
+            raise DriverNotInstalledError(
+                "requests is not installed. Install with: pip install 'query-builder-engine[d1]'"
+            ) from err
 
         payload = {"sql": sql, "params": params or []}
         resp = requests.post(self.url, json=payload, headers=self.headers, timeout=10)

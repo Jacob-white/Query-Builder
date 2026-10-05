@@ -150,21 +150,34 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
               }
             >
               {idx > 0 && (
-                <span
+                <button
+                  type="button"
+                  aria-label={`Toggle combiner for filter ${idx}`}
                   data-qb="filter-combiner"
+                  data-qb-combiner-toggle="true"
+                  onClick={() =>
+                    handleUpdate(f.id, {
+                      combiner: f.combiner === "OR" ? "AND" : "OR",
+                    })
+                  }
                   style={
                     unstyled
                       ? undefined
                       : {
                           fontSize: "0.7rem",
                           fontWeight: 700,
-                          color: "#f59e0b",
-                          minWidth: "32px",
+                          color: f.combiner === "OR" ? "#ec4899" : "#f59e0b",
+                          background: "rgba(255, 255, 255, 0.05)",
+                          border: "1px solid rgba(255, 255, 255, 0.1)",
+                          borderRadius: "4px",
+                          padding: "2px 6px",
+                          cursor: "pointer",
+                          minWidth: "36px",
                         }
                   }
                 >
-                  AND
-                </span>
+                  {f.combiner || "AND"}
+                </button>
               )}
 
               {/* Column selector */}

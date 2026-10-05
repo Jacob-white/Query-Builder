@@ -31,6 +31,7 @@ from query_builder.config import (
     SecurityConfig,
     SecurityProfile,
 )
+from query_builder.connectors import ConnectorRegistry
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -1818,3 +1819,991 @@ def test_async_100_percent_coverage():
         assert res_empty_rows["rows"] == []
 
     asyncio.run(_test())
+
+
+# ==============================================================================
+# Milestone 2 Security Hardening, Governance & Isolation Verification
+# ==============================================================================
+
+
+@pytest.mark.parametrize("alias", ConnectorRegistry.list_available())
+def test_all_registered_connectors_ssrf_enforcement(alias: str):
+    """Verifies that all 198 registered connector aliases block SSRF metadata addresses."""
+    cls = ConnectorRegistry._registry.get(alias)
+    if cls is None:
+        return
+    metadata_ip = "169.254.169.254"
+    try:
+        inst = cls(host=metadata_ip)
+    except TypeError:
+        try:
+            inst = cls(url=f"http://{metadata_ip}", host=metadata_ip)
+        except TypeError:
+            inst = cls()
+            inst.config["host"] = metadata_ip
+    with pytest.raises(SecurityError):
+        inst._validate_network_target()
+
+
+@pytest.mark.parametrize("alias", ConnectorRegistry.list_available())
+def test_all_registered_connectors_credential_scrubbing(alias: str):
+    """Verifies that secret parameters are scrubbed in __repr__ and __str__ for all 198 connectors."""
+    cls = ConnectorRegistry._registry.get(alias)
+    if cls is None:
+        return
+    secret = "super_secret_pw_98765"
+    api_secret = "secret_key_12345_token"
+    try:
+        inst = cls(password=secret, api_key=api_secret)
+    except TypeError:
+        try:
+            inst = cls()
+            inst.config["password"] = secret
+            inst.config["api_key"] = api_secret
+        except Exception:  # noqa: BLE001
+            inst = cls(url=f"postgresql://user:{secret}@localhost:5432/db")
+    s_repr = repr(inst)
+    s_str = str(inst)
+    assert secret not in s_repr
+    assert secret not in s_str
+    assert api_secret not in s_repr
+    assert api_secret not in s_str
+
+
+def test_async_base_connector_timeout_and_cancellation():
+    """Verifies timeout enforcement and cancellation cleanup in AsyncBaseConnector."""
+
+    class HangingAsyncConnector(AsyncBaseConnector):
+        dialect_name = "postgres"
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.cleaned_up = False
+
+        async def connect(self) -> Any:
+            return MagicMock()
+
+        async def execute_raw(
+            self, sql: str, params: list[Any] | None = None
+        ) -> tuple[list[str], list[dict[str, Any]], float]:
+            try:
+                await asyncio.sleep(5)
+                return ["id"], [{"id": 1}], 10.0
+            except asyncio.CancelledError:
+                self.cleaned_up = True
+                raise
+
+    async def _run():
+        # Raw sql timeout
+        conn1 = HangingAsyncConnector()
+        with pytest.raises(TimeoutError, match="timed out after 50ms"):
+            await conn1.execute(
+                sql="SELECT 1", statement_timeout_ms=50, validate_ast=False
+            )
+        assert conn1.cleaned_up is True
+
+        # Spec timeout
+        conn2 = HangingAsyncConnector()
+        with pytest.raises(TimeoutError, match="timed out after 50ms"):
+            await conn2.execute(
+                {"table": "users"}, statement_timeout_ms=50, validate_ast=False
+            )
+        assert conn2.cleaned_up is True
+
+        # Cancellation during execute
+        conn3 = HangingAsyncConnector()
+        task = asyncio.create_task(
+            conn3.execute(
+                {"table": "users"}, statement_timeout_ms=5000, validate_ast=False
+            )
+        )
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert conn3.cleaned_up is True
+
+    asyncio.run(_run())
+
+
+def test_unguarded_driver_imports():
+    """Verifies DriverNotInstalledError when optional drivers are missing in d1 and dremio."""
+    import builtins
+
+    from query_builder.connectors.d1 import _D1Cursor
+    from query_builder.connectors.dremio import _DremioFlightCursor
+
+    orig_import = builtins.__import__
+
+    def mock_no_requests(name, *args, **kwargs):
+        if name == "requests":
+            raise ImportError("No requests")
+        return orig_import(name, *args, **kwargs)
+
+    cur_d1 = _D1Cursor("http://localhost/d1", {})
+    with (
+        patch("builtins.__import__", side_effect=mock_no_requests),
+        pytest.raises(DriverNotInstalledError, match="requests is not installed"),
+    ):
+        cur_d1.execute("SELECT 1")
+
+    def mock_no_flight(name, *args, **kwargs):
+        if name == "pyarrow" or name.startswith("pyarrow"):
+            raise ImportError("No flight")
+        return orig_import(name, *args, **kwargs)
+
+    mock_client = MagicMock()
+    mock_client.get_flight_info = MagicMock()
+    cur_dremio = _DremioFlightCursor(mock_client)
+    with (
+        patch("builtins.__import__", side_effect=mock_no_flight),
+        pytest.raises(DriverNotInstalledError, match="pyarrow is not installed"),
+    ):
+        cur_dremio.execute("SELECT 1")
+
+
+def test_dynamodb_governance_lifecycle():
+    """Verifies that DynamoDBConnector enforces governance limits, read-only checks, and masking."""
+    from query_builder.connectors.dynamodb import DynamoDBConnector
+
+    mock_client = MagicMock()
+    mock_client.execute_statement.return_value = {
+        "Items": [
+            {
+                "id": {"N": "1"},
+                "email": {"S": "test@example.com"},
+                "password_hash": {"S": "hash123"},
+            }
+        ]
+    }
+    conn = DynamoDBConnector(client=mock_client)
+
+    # 1. Complexity ceiling
+    sec_comp = SecurityConfig(execution=ExecutionSecurityConfig(max_complexity_score=5))
+    with pytest.raises(SecurityError, match="AST complexity score"):
+        conn.execute(
+            {
+                "table": "users",
+                "filters": [
+                    {"column": "a", "op": "eq", "value": 1},
+                    {"column": "b", "op": "eq", "value": 2},
+                    {"column": "c", "op": "eq", "value": 3},
+                ],
+            },
+            security=sec_comp,
+        )
+
+    # 2. Join depth limit
+    sec_joins = SecurityConfig(execution=ExecutionSecurityConfig(max_join_depth=1))
+    with pytest.raises(SecurityError, match="join depth"):
+        conn.execute(
+            {
+                "table": "users",
+                "joins": [
+                    {"table": "orders", "on": "user_id"},
+                    {"table": "items", "on": "order_id"},
+                ],
+            },
+            security=sec_joins,
+        )
+
+    # 3. Read-only session violation on mutating query
+    sec_ro = SecurityConfig(
+        execution=ExecutionSecurityConfig(enforce_read_only_session=True)
+    )
+    with pytest.raises(SecurityError, match="Read-only session violation"):
+        conn.execute(
+            sql="DELETE FROM users WHERE id = 1",
+            security=sec_ro,
+            validate_ast=False,
+        )
+
+    # 4. Row limit ceiling and masking
+    sec_mask = SecurityConfig(
+        execution=ExecutionSecurityConfig(max_rows_limit=1),
+        privacy=PrivacySecurityConfig(
+            sensitive_column_patterns=[r"(?i)password", r"(?i)email"],
+            masking_strategy="redact",
+        ),
+    )
+    mock_client.execute_statement.return_value = {
+        "Items": [
+            {
+                "id": {"N": "1"},
+                "email": {"S": "alice@example.com"},
+                "password_hash": {"S": "secret1"},
+            },
+            {
+                "id": {"N": "2"},
+                "email": {"S": "bob@example.com"},
+                "password_hash": {"S": "secret2"},
+            },
+        ]
+    }
+    res = conn.execute(
+        {"table": "users", "limit": 10},
+        security=sec_mask,
+        validate_ast=False,
+    )
+    assert len(res["rows"]) == 1
+    assert res["rows"][0]["email"] == "[REDACTED]"
+    assert res["rows"][0]["password_hash"] == "[REDACTED]"
+    assert res.get("truncated") is True
+
+    # 5. Raw SQL execution with parameters
+    mock_client.execute_statement.return_value = {"Items": [{"id": {"N": "10"}}]}
+    res_sql = conn.execute(
+        sql="SELECT * FROM users WHERE id = ?",
+        params=[10],
+        validate_ast=False,
+    )
+    assert res_sql["rows"] == [{"id": 10}]
+    assert res_sql["count"] == 1
+
+    # 6. Close method
+    conn.close()
+    assert conn._client is None
+    assert conn._connection is None
+
+
+def test_polars_and_datafusion_governance_lifecycle():
+    """Verifies that PolarsConnector and DataFusionConnector enforce governance and safe parameter escaping."""
+    import polars as pl
+
+    from query_builder.connectors.datafusion import DataFusionConnector
+    from query_builder.connectors.polars import PolarsConnector
+
+    df = pl.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "O'Reilly"],
+            "secret_token": ["tok1", "tok2", "tok3"],
+        }
+    )
+    p_conn = PolarsConnector(tables={"users": df})
+
+    # Safe parameter escaping with '?' inside literal and single quotes
+    res = p_conn.execute(
+        sql="SELECT * FROM users WHERE name = ?",
+        params=["O'Reilly"],
+        validate_ast=False,
+    )
+    assert len(res["rows"]) == 1
+    assert res["rows"][0]["name"] == "O'Reilly"
+
+    # Read-only violation
+    sec_ro = SecurityConfig(
+        execution=ExecutionSecurityConfig(enforce_read_only_session=True)
+    )
+    with pytest.raises(SecurityError, match="Read-only session violation"):
+        p_conn.execute(
+            sql="DROP TABLE users",
+            security=sec_ro,
+            validate_ast=False,
+        )
+
+    # Complexity limit
+    sec_comp = SecurityConfig(execution=ExecutionSecurityConfig(max_complexity_score=2))
+    with pytest.raises(SecurityError, match="AST complexity score"):
+        p_conn.execute(
+            {
+                "table": "users",
+                "filters": [
+                    {"column": "id", "op": "eq", "value": 1},
+                    {"column": "name", "op": "eq", "value": "Alice"},
+                ],
+            },
+            security=sec_comp,
+        )
+
+    # Row limits and masking
+    sec_mask = SecurityConfig(
+        execution=ExecutionSecurityConfig(max_rows_limit=1),
+        privacy=PrivacySecurityConfig(
+            sensitive_column_patterns=[r"(?i)token"],
+            masking_strategy="redact",
+        ),
+    )
+    res_m = p_conn.execute(
+        sql="SELECT * FROM users",
+        security=sec_mask,
+        validate_ast=False,
+    )
+    assert len(res_m["rows"]) == 1
+    assert res_m["rows"][0]["secret_token"] == "[REDACTED]"
+    assert res_m.get("truncated") is True
+
+    # Close clears tables
+    p_conn.close()
+    assert len(p_conn._tables) == 0
+    assert p_conn._context is None
+
+    # DataFusion connector tests
+    mock_ctx = MagicMock()
+    mock_batch = MagicMock()
+    mock_batch.schema.names = ["id", "name", "token"]
+    mock_batch.to_pylist.return_value = [
+        {"id": 1, "name": "Alice", "token": "tok1"},
+        {"id": 2, "name": "Bob", "token": "tok2"},
+    ]
+    mock_ctx.sql.return_value.collect.return_value = [mock_batch]
+    df_conn = DataFusionConnector(context=mock_ctx, tables={"users": MagicMock()})
+
+    # Read-only violation
+    with pytest.raises(SecurityError, match="Read-only session violation"):
+        df_conn.execute(
+            sql="UPDATE users SET name = 'x'",
+            security=sec_ro,
+            validate_ast=False,
+        )
+
+    # Raw SQL execution
+    res_df = df_conn.execute(
+        sql="SELECT * FROM users WHERE name = ?",
+        params=["O'Reilly"],
+        security=sec_mask,
+        validate_ast=False,
+    )
+    assert len(res_df["rows"]) == 1
+    assert res_df["rows"][0]["token"] == "[REDACTED]"
+    assert res_df.get("truncated") is True
+
+    # Close clears tables
+    df_conn.close()
+    assert len(df_conn._tables) == 0
+    assert df_conn._context is None
+
+
+def test_adapters_and_introspection_cursor_cleanup():
+    """Verifies that DB-API adapters and schema introspection clean up cursors deterministically."""
+    from query_builder.connectors.cassandra import _CassandraCursorAdapter
+    from query_builder.connectors.exasol import _ExasolCursorAdapter
+    from query_builder.connectors.introspection import (
+        introspect_derby,
+        introspect_firebird,
+        introspect_h2,
+        introspect_informix,
+        introspect_monetdb,
+        introspect_sybase,
+    )
+    from query_builder.connectors.tdengine import _TDengineCursorAdapter
+
+    # 1. _CassandraCursorAdapter closes cursor on execute
+    mock_session = MagicMock()
+    del mock_session.execute
+    mock_cur = MagicMock()
+    mock_cur.execute.return_value = [("row",)]
+    mock_session.cursor.return_value = mock_cur
+    adapter_cass = _CassandraCursorAdapter(mock_session)
+    adapter_cass.execute("SELECT 1")
+    assert mock_cur.close.called is True
+
+    # 2. _ExasolCursorAdapter closes cursor on execute
+    mock_cur_exa = MagicMock()
+    mock_cur_exa.fetchall.return_value = []
+    mock_conn_exa = MagicMock()
+    del mock_conn_exa.execute
+    mock_conn_exa.cursor.return_value = mock_cur_exa
+    adapter_exa = _ExasolCursorAdapter(mock_conn_exa)
+    adapter_exa.execute("SELECT 1")
+    assert mock_cur_exa.close.called is True
+
+    # 3. _TDengineCursorAdapter closes cursor on execute
+    mock_cur_td = MagicMock()
+    mock_cur_td.fetchall.return_value = []
+    mock_conn_td = MagicMock()
+    mock_conn_td.cursor.return_value = mock_cur_td
+    adapter_td = _TDengineCursorAdapter(mock_conn_td)
+    adapter_td.execute("SELECT 1")
+    assert mock_cur_td.close.called is True
+
+    # 4. Introspection functions clean up cursor when given connection
+    mock_conn = MagicMock()
+    mock_introspect_cur = MagicMock()
+    mock_introspect_cur.fetchall.return_value = []
+    mock_conn.cursor.return_value = mock_introspect_cur
+
+    introspect_firebird(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+    mock_introspect_cur.close.reset_mock()
+    introspect_monetdb(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+    mock_introspect_cur.close.reset_mock()
+    introspect_h2(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+    mock_introspect_cur.close.reset_mock()
+    introspect_derby(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+    mock_introspect_cur.close.reset_mock()
+    introspect_sybase(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+    mock_introspect_cur.close.reset_mock()
+    introspect_informix(mock_conn)
+    assert mock_introspect_cur.close.called is True
+
+
+def test_enforce_tls_environment_variable():
+    """Verifies QB_ENFORCE_TLS env var parsing in base and async_base connectors."""
+    from query_builder.connectors.async_base import AsyncBaseConnector
+    from query_builder.connectors.base import BaseConnector
+
+    class DummySync(BaseConnector):
+        dialect_name = "sqlite"
+
+        def connect(self):
+            return None
+
+    class DummyAsync(AsyncBaseConnector):
+        dialect_name = "sqlite"
+
+        async def connect(self):
+            return None
+
+        async def execute_raw(self, sql, params=None):
+            return [], [], 0.0
+
+    with patch.dict(os.environ, {"QB_ENFORCE_TLS": "true"}):
+        conn_sync = DummySync(host="localhost")
+        conn_sync._validate_network_target()
+
+        conn_async = DummyAsync(host="localhost")
+        conn_async._validate_network_target()
+
+
+def test_validate_network_target_varied_endpoint_and_contact_points():
+    """Verifies varied endpoint, contact_points strings, lists, and formats in security validation."""
+    from query_builder.config import NetworkSecurityConfig
+    from query_builder.security import validate_network_target
+
+    net_cfg = NetworkSecurityConfig(allow_private_networks=True)
+
+    # endpoint with port
+    validate_network_target(
+        config={"endpoint": "localhost:9000"}, network_config=net_cfg
+    )
+    # endpoint without port
+    validate_network_target(config={"endpoint": "localhost"}, network_config=net_cfg)
+    # contact points as string with and without port
+    validate_network_target(
+        config={"contact_points": "127.0.0.1, 127.0.0.2:9042"}, network_config=net_cfg
+    )
+    # contact points as non-string, non-list
+    validate_network_target(config={"contact_points": 123}, network_config=net_cfg)
+    # contact points with invalid port
+    validate_network_target(
+        config={"contact_points": "127.0.0.1:invalid_port"}, network_config=net_cfg
+    )
+    # host already set with endpoint
+    validate_network_target(
+        host="localhost", config={"endpoint": "localhost:9000"}, network_config=net_cfg
+    )
+    # port already set with endpoint
+    validate_network_target(
+        port=8080, config={"endpoint": "localhost:9000"}, network_config=net_cfg
+    )
+
+
+def test_introspection_own_cursor_lifecycle():
+    """Verifies cursor cleanup when connection with cursor() is passed to introspection functions."""
+    from query_builder.connectors.introspection import (
+        introspect_chdb,
+        introspect_kdb,
+        introspect_opensearch,
+        introspect_sparksql,
+        introspect_surrealdb,
+    )
+
+    mock_cur = MagicMock()
+    mock_cur.fetchall.return_value = []
+    mock_cur.fetchone.return_value = None
+
+    mock_conn = MagicMock(spec=["cursor"])
+    mock_conn.cursor.return_value = mock_cur
+
+    # SparkSQL
+    mock_cur.close.reset_mock()
+    introspect_sparksql(mock_conn)
+    assert mock_cur.close.called is True
+
+    # chDB
+    mock_cur.close.reset_mock()
+    introspect_chdb(mock_conn)
+    assert mock_cur.close.called is True
+
+    # SurrealDB
+    mock_cur.close.reset_mock()
+    introspect_surrealdb(mock_conn)
+    assert mock_cur.close.called is True
+
+    # OpenSearch
+    mock_cur.close.reset_mock()
+    introspect_opensearch(mock_conn)
+    assert mock_cur.close.called is True
+
+    # Kdb+
+    mock_cur.close.reset_mock()
+    introspect_kdb(mock_conn)
+    assert mock_cur.close.called is True
+
+
+def test_polars_and_datafusion_literal_formatting_and_substitutions():
+    """Verifies literal formatting and param substitution edge cases in Polars and DataFusion."""
+    from query_builder.connectors.datafusion import (
+        DataFusionConnector,
+    )
+    from query_builder.connectors.datafusion import (
+        _format_literal as df_format,
+    )
+    from query_builder.connectors.datafusion import (
+        _substitute_params as df_substitute,
+    )
+    from query_builder.connectors.polars import (
+        PolarsConnector,
+    )
+    from query_builder.connectors.polars import (
+        _format_literal as polars_format,
+    )
+    from query_builder.connectors.polars import (
+        _substitute_params as polars_substitute,
+    )
+
+    # Polars
+    assert polars_format(None) == "NULL"
+    assert polars_format(True) == "TRUE"
+    assert polars_format(False) == "FALSE"
+    sub_p = polars_substitute("SELECT 'it''s' AS col WHERE id = ?", [42])
+    assert "42" in sub_p
+
+    cur_mock = MagicMock()
+    p_conn = PolarsConnector(cursor=cur_mock)
+    with p_conn.get_cursor() as c:
+        assert c is cur_mock
+
+    # DataFusion
+    assert df_format(None) == "NULL"
+    assert df_format(True) == "TRUE"
+    assert df_format(False) == "FALSE"
+    sub_df = df_substitute("SELECT 'it''s' AS col WHERE id = ?", [42])
+    assert "42" in sub_df
+
+    cur_mock2 = MagicMock()
+    df_conn = DataFusionConnector(cursor=cur_mock2)
+    with df_conn.get_cursor() as c:
+        assert c is cur_mock2
+
+
+def test_dynamodb_additional_branches():
+    """Verifies additional DynamoDB execution, security and lifecycle branches."""
+    from types import SimpleNamespace
+
+    from query_builder.compiler import CompilationError
+    from query_builder.config import (
+        ExecutionSecurityConfig,
+        LoggingSecurityConfig,
+        PrivacySecurityConfig,
+        SecurityConfig,
+    )
+    from query_builder.connectors.base import SecurityError
+    from query_builder.connectors.dynamodb import DynamoDBConnector
+
+    mock_client = MagicMock()
+    mock_client.execute_statement.return_value = {
+        "Items": [{"id": {"N": "1"}, "secret": {"S": "hidden"}}]
+    }
+    conn = DynamoDBConnector(client=mock_client)
+
+    # 1. Close when already None
+    conn.close()
+    conn.close()
+
+    # 2. execute with sql and validate_ast=True
+    conn._client = mock_client
+    res_sql = conn.execute(sql="SELECT * FROM users", validate_ast=True)
+    assert len(res_sql["rows"]) == 1
+
+    # 3. execute with sql and invalid AST
+    with (
+        patch(
+            "query_builder.connectors.dynamodb.validate_sql_ast",
+            return_value={"valid": False, "message": "Disallowed query"},
+        ),
+        pytest.raises(SecurityError, match="safety validation"),
+    ):
+        conn.execute(sql="SELECT * FROM users", validate_ast=True)
+
+    # 4. execute with None spec raises CompilationError
+    with pytest.raises(CompilationError, match="Specification must be a dictionary"):
+        conn.execute(None)
+
+    # 5. prevent_cartesian_products
+    sec_cart = SecurityConfig(
+        execution=ExecutionSecurityConfig(prevent_cartesian_products=True)
+    )
+    res_cart = conn.execute({"table": "users"}, security=sec_cart, validate_ast=False)
+    assert len(res_cart["rows"]) == 1
+
+    # 6. Admin bypasses privacy masking
+    sec_priv = SecurityConfig(
+        privacy=PrivacySecurityConfig(
+            sensitive_column_patterns=["secret"], masking_strategy="redact"
+        )
+    )
+    admin_ctx = {"tenant_context": SimpleNamespace(roles=["admin"])}
+    res_admin = conn.execute(
+        {"table": "users"},
+        context=admin_ctx,
+        security=sec_priv,
+        validate_ast=False,
+    )
+    assert res_admin["rows"][0]["secret"] == "hidden"
+
+    # Non-admin gets masked
+    res_masked = conn.execute(
+        {"table": "users"},
+        security=sec_priv,
+        validate_ast=False,
+    )
+    assert res_masked["rows"][0]["secret"] == "[REDACTED]"
+
+    # 7. Audit logging on success and failure
+    sec_audit = SecurityConfig(logging=LoggingSecurityConfig(emit_audit_events=True))
+    conn.execute({"table": "users"}, security=sec_audit, validate_ast=False)
+
+    mock_client.execute_statement.side_effect = RuntimeError("DynamoDB error")
+    with pytest.raises(RuntimeError):
+        conn.execute({"table": "users"}, security=sec_audit, validate_ast=False)
+
+    # 8. Count query returning invalid numeric
+    mock_client.execute_statement.side_effect = [
+        {"Items": [{"cnt": {"N": "not_a_number"}}]},
+        {"Items": [{"id": {"N": "1"}}]},
+    ]
+    res_bad_num = conn.execute({"table": "users"}, validate_ast=False)
+    assert res_bad_num["count"] == 0
+
+    # 9. Execution without audit logging and without cartesian product prevention
+    sec_no_audit = SecurityConfig(
+        logging=LoggingSecurityConfig(emit_audit_events=False),
+        execution=ExecutionSecurityConfig(prevent_cartesian_products=False),
+    )
+    mock_client.execute_statement.side_effect = None
+    mock_client.execute_statement.return_value = {
+        "Items": [{"id": {"N": "1"}, "secret": {"S": "val"}}]
+    }
+    conn.execute({"table": "users"}, security=sec_no_audit, validate_ast=False)
+    mock_client.execute_statement.side_effect = RuntimeError("Error without audit")
+    with pytest.raises(RuntimeError):
+        conn.execute({"table": "users"}, security=sec_no_audit, validate_ast=False)
+
+
+def test_validate_network_target_dual_host_and_url_ssrf_blocking():
+    """Verifies that validate_network_target inspects both host and URL endpoints, blocking SSRF."""
+    from query_builder.config import NetworkSecurityConfig
+    from query_builder.security import SecurityError, validate_network_target
+
+    net_strict = NetworkSecurityConfig(allow_private_networks=False, enforce_tls=False)
+    net_permissive = NetworkSecurityConfig(
+        allow_private_networks=True, enforce_tls=False
+    )
+
+    # 1. Dual host/url where URL targets cloud metadata IP
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            host="safe.com",
+            url="https://169.254.169.254/",
+            network_config=net_strict,
+        )
+
+    # 2. Dual host/url with port where URL targets cloud metadata IP
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            host="safe.com",
+            url="https://169.254.169.254:32010/",
+            network_config=net_permissive,
+        )
+
+    # 3. Dual host/url where host targets metadata and URL is safe
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            host="169.254.169.254",
+            url="https://safe.com/",
+            network_config=net_permissive,
+        )
+
+    # 4. Dual host/url where URL targets private IP under strict policy
+    with pytest.raises(SecurityError, match="private/internal"):
+        validate_network_target(
+            host="safe.com",
+            url="https://10.0.0.1/",
+            network_config=net_strict,
+        )
+
+    # 5. Dual host/url where URL targets private IP under permissive policy (permitted)
+    validate_network_target(
+        host="safe.com",
+        url="https://10.0.0.1/",
+        network_config=net_permissive,
+    )
+
+    # 6. Dual host/url where URL targets cloud metadata hostname
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            host="safe.com",
+            url="http://metadata.google.internal/",
+            network_config=net_permissive,
+        )
+
+    # 7. Safe host and matching safe URL
+    validate_network_target(
+        host="safe.com",
+        url="https://safe.com:8443/",
+        network_config=net_strict,
+    )
+    validate_network_target(
+        host="safe.com",
+        url="https://safe.com/",
+        network_config=net_strict,
+    )
+
+    # 8. Host is safe but URL hostname is blocked
+    bl_cfg = NetworkSecurityConfig(
+        blocked_hostnames=["evil.com"],
+        allow_private_networks=True,
+    )
+    with pytest.raises(SecurityError, match="blocked"):
+        validate_network_target(
+            host="safe.com",
+            url="https://evil.com/",
+            network_config=bl_cfg,
+        )
+
+    # 9. Host is allowed but URL hostname is not allowed
+    wl_cfg = NetworkSecurityConfig(
+        allowed_hostnames=["safe.corp"],
+        allow_private_networks=True,
+    )
+    with pytest.raises(SecurityError, match="not in allowed"):
+        validate_network_target(
+            host="safe.corp",
+            url="https://other.corp/",
+            network_config=wl_cfg,
+        )
+
+    # 10. URL with invalid port out of range
+    with pytest.raises(SecurityError, match="Invalid network target URL port"):
+        validate_network_target(
+            url="https://safe.com:99999/",
+            network_config=net_permissive,
+        )
+
+    # 11. Config with both safe host and malicious flight_endpoint
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            config={
+                "host": "safe.com",
+                "flight_endpoint": "grpc://169.254.169.254:32010",
+            },
+            network_config=net_permissive,
+        )
+
+    # 12. Config with both safe host and raw endpoint containing metadata IP
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            config={
+                "host": "safe.com",
+                "endpoint": "169.254.169.254:9000",
+            },
+            network_config=net_permissive,
+        )
+
+    # 13. URL argument is safe but config has additional distinct endpoint
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        validate_network_target(
+            url="https://safe.com",
+            config={
+                "endpoint": "grpc://169.254.169.254:32010",
+            },
+            network_config=net_permissive,
+        )
+
+    # 14. Endpoint with invalid non-numeric port in config
+    validate_network_target(
+        config={"endpoint": "localhost:not_a_port"},
+        network_config=net_permissive,
+    )
+
+    # 15. Dual targets with distinct valid ports
+    validate_network_target(
+        host="safe.com",
+        port=443,
+        url="https://safe.com:8443/",
+        network_config=net_strict,
+    )
+
+    # 16. URL with port 0 (out of valid port range)
+    with pytest.raises(SecurityError, match="Invalid network port: 0"):
+        validate_network_target(
+            host="safe.com",
+            port=443,
+            url="https://safe.com:0/",
+            network_config=net_permissive,
+        )
+
+
+def test_dremio_flight_endpoint_ssrf_blocking():
+    """Verifies DremioConnector blocks cloud metadata in flight_endpoint under default and explicit configs."""
+    from query_builder.config import NetworkSecurityConfig, SecurityConfig
+    from query_builder.connectors.dremio import DremioConnector
+    from query_builder.security import SecurityError
+
+    metadata_endpoint = "grpc://169.254.169.254:32010"
+
+    # 1. Default configuration (development mode) must block cloud metadata
+    conn_default = DremioConnector(flight_endpoint=metadata_endpoint)
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_default._validate_network_target()
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_default.connect()
+
+    # 2. Explicit security configuration
+    sec_strict = SecurityConfig(
+        network=NetworkSecurityConfig(allow_private_networks=False, enforce_tls=False)
+    )
+    conn_strict = DremioConnector(
+        flight_endpoint=metadata_endpoint, security=sec_strict
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_strict._validate_network_target()
+
+    # 3. Explicit safe host + malicious flight_endpoint
+    conn_dual = DremioConnector(
+        host="safe.com",
+        flight_endpoint=metadata_endpoint,
+        security=sec_strict,
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_dual._validate_network_target()
+
+    # 4. Malicious host + safe flight_endpoint
+    conn_dual_bad_host = DremioConnector(
+        host="169.254.169.254",
+        flight_endpoint="grpc://safe.dremio:32010",
+        security=sec_strict,
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_dual_bad_host._validate_network_target()
+
+    # 5. Malicious host without flight_endpoint
+    conn_bad_host = DremioConnector(host="169.254.169.254")
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        conn_bad_host._validate_network_target()
+
+    # 6. Safe flight_endpoint does not get shadowed by default localhost
+    conn_safe = DremioConnector(flight_endpoint="grpc://safe.dremio:32010")
+    assert "host" not in conn_safe.config
+    conn_safe._validate_network_target()
+
+    # 7. Explicit host with flight_endpoint
+    conn_explicit_host = DremioConnector(
+        host="safe.corp",
+        flight_endpoint="grpc://safe.dremio:32010",
+    )
+    assert conn_explicit_host.config.get("host") == "safe.corp"
+    conn_explicit_host._validate_network_target()
+
+    # 8. Custom port with flight_endpoint
+    conn_custom_port = DremioConnector(
+        port=9999,
+        flight_endpoint="grpc://safe.dremio:32010",
+    )
+    assert conn_custom_port.config.get("port") == 9999
+    conn_custom_port._validate_network_target()
+
+    # 9. No security network config returns early
+    conn_no_net = DremioConnector(flight_endpoint=metadata_endpoint)
+    sec_no_net = MagicMock()
+    sec_no_net.network = None
+    conn_no_net._validate_network_target(
+        security_config=sec_no_net
+    )  # returns early without error
+
+    # 10. Environment overrides for DremioConnector
+    with patch.dict(
+        os.environ,
+        {"QB_ALLOW_PRIVATE_NETWORKS": "false", "QB_ENFORCE_TLS": "false"},
+    ):
+        conn_env = DremioConnector(host="localhost")
+        with pytest.raises(SecurityError):
+            conn_env._validate_network_target()
+
+    with patch.dict(os.environ, {"QB_SECURITY_PROFILE": "strict"}):
+        conn_prof = DremioConnector(flight_endpoint="grpc://safe.dremio:32010")
+        conn_prof._validate_network_target()
+
+    # 11. Environment with QB_ENFORCE_TLS=true
+    with patch.dict(
+        os.environ,
+        {"QB_ALLOW_PRIVATE_NETWORKS": "true", "QB_ENFORCE_TLS": "true"},
+    ):
+        conn_tls = DremioConnector(flight_endpoint="grpc://safe.dremio:32010")
+        conn_tls._validate_network_target()
+
+
+def test_url_connectors_dual_host_ssrf_blocking():
+    """Verifies URL-based connectors (Neo4j, SurrealDB, Elasticsearch) block SSRF with dual targets."""
+    from query_builder.connectors.elasticsearch import ElasticsearchConnector
+    from query_builder.connectors.neo4j import Neo4jConnector
+    from query_builder.connectors.surrealdb import SurrealDBConnector
+    from query_builder.security import SecurityError
+
+    # 1. Neo4j with safe host and metadata URI
+    neo4j_conn = Neo4jConnector(host="safe.com", uri="bolt://169.254.169.254:7687")
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        neo4j_conn._validate_network_target()
+
+    # 2. Neo4j with metadata host and safe URI
+    neo4j_bad_host = Neo4jConnector(
+        host="169.254.169.254", uri="bolt://safe.neo4j:7687"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        neo4j_bad_host._validate_network_target()
+
+    # 3. SurrealDB with safe host and metadata URL
+    surreal_conn = SurrealDBConnector(
+        host="safe.com", url="ws://169.254.169.254:8000/rpc"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        surreal_conn._validate_network_target()
+
+    # 4. SurrealDB with metadata host and safe URL
+    surreal_bad_host = SurrealDBConnector(
+        host="169.254.169.254", url="ws://safe.surreal:8000/rpc"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        surreal_bad_host._validate_network_target()
+
+    # 5. Elasticsearch with safe host and metadata endpoint
+    elastic_conn = ElasticsearchConnector(
+        host="safe.com", endpoint="http://169.254.169.254:9200"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        elastic_conn._validate_network_target()
+
+    # 6. Elasticsearch with safe host and metadata URL
+    elastic_url = ElasticsearchConnector(
+        host="safe.com", url="http://169.254.169.254:9200"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        elastic_url._validate_network_target()
+
+    # 7. Elasticsearch with metadata host and safe endpoint
+    elastic_bad_host = ElasticsearchConnector(
+        host="169.254.169.254", endpoint="http://safe.elastic:9200"
+    )
+    with pytest.raises(SecurityError, match="cloud metadata"):
+        elastic_bad_host._validate_network_target()

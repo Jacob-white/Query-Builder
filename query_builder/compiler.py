@@ -12,17 +12,16 @@ from __future__ import annotations
 from typing import Any
 
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect, get_dialect
+from query_builder.exceptions import (
+    CompilationError,
+    SecurityError,
+    ValidationError,
+)
 from query_builder.join_solver import find_best_join_condition
 from query_builder.security import (
     AliasCounter,
-    SecurityError,
     resolve_ownership_predicate,
 )
-
-
-class CompilationError(Exception):
-    """Raised when query specification is invalid or violates query safety rules."""
-
 
 MAX_OFFSET = 1_000_000
 MAX_LIMIT = 10_000
@@ -48,12 +47,22 @@ ALLOWED_SPEC_KEYS = {
 }
 
 ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
-ALLOWED_JOIN_KEYS = {"table", "type", "on", "left_table", "left_col", "right_col", "id"}
+ALLOWED_JOIN_KEYS = {
+    "table",
+    "type",
+    "on",
+    "left_table",
+    "left_col",
+    "right_col",
+    "id",
+    "alias",
+}
 ALLOWED_FILTER_KEYS = {
     "column",
     "op",
     "operator",
     "value",
+    "subquery",
     "tablePrefix",
     "table_prefix",
     "table",
@@ -124,6 +133,21 @@ ALLOWED_FILTER_OPS = {
     "not in",
     "not_in",
     "between",
+    "not_like",
+    "not like",
+    "not_ilike",
+    "not ilike",
+    "not_contains",
+    "not contains",
+    "not_starts_with",
+    "not startswith",
+    "not_ends_with",
+    "not endswith",
+    "not_between",
+    "not between",
+    "exists",
+    "not_exists",
+    "not exists",
 }
 
 ALLOWED_JOIN_TYPES = {
@@ -140,12 +164,12 @@ ALLOWED_JOIN_TYPES = {
 
 def _check_ident(ident: Any, label: str) -> None:
     if not isinstance(ident, str) or not ident.strip():
-        raise CompilationError(f"Field '{label}' must be a non-empty string.")
+        raise ValidationError(f"Field '{label}' must be a non-empty string.")
     if not IDENTIFIER_REGEX.match(ident):
-        raise CompilationError(f"Invalid {label} identifier name: '{ident}'")
+        raise ValidationError(f"Invalid {label} identifier name: '{ident}'")
     parts = ident.split(".")
     if any(len(p) > 128 for p in parts):
-        raise CompilationError(
+        raise ValidationError(
             f"{label} identifier part exceeds maximum allowed length (128): '{ident}'"
         )
 
@@ -156,72 +180,84 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
     acceptable keys, data types, and defensive DoS limits.
     """
     if not isinstance(spec, dict):
-        raise CompilationError(
+        raise ValidationError(
             f"Query spec must be a dictionary, got {type(spec).__name__}"
         )
 
     if not allow_unknown_keys:
         unknown = set(spec.keys()) - ALLOWED_SPEC_KEYS
         if unknown:
-            raise CompilationError(
+            raise ValidationError(
                 f"Unexpected field(s) in query specification: {', '.join(sorted(unknown))}"
             )
 
     table = spec.get("table")
     if table is None:
-        raise CompilationError(
+        raise ValidationError(
             "Missing required 'table' parameter in query specification."
         )
-    _check_ident(table, "table")
+    if isinstance(table, dict) or hasattr(table, "__dict__"):
+        sub_dict = table if isinstance(table, dict) else table.__dict__
+        validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
+    else:
+        _check_ident(table, "table")
 
     columns = spec.get("columns", [])
     if columns is not None and not isinstance(columns, (list, tuple)):
-        raise CompilationError("Field 'columns' must be a list.")
+        raise ValidationError("Field 'columns' must be a list.")
     if columns and len(columns) > MAX_PROJECTIONS:
-        raise CompilationError(
+        raise ValidationError(
             f"Too many column projections: {len(columns)} exceeds maximum of {MAX_PROJECTIONS}."
         )
     for col in columns or []:
         if isinstance(col, str):
-            if col != "*":
+            if col == "*":
+                pass
+            elif col.endswith(".*"):
+                _check_ident(col[:-2], "column table prefix")
+            else:
                 _check_ident(col, "column")
         elif isinstance(col, dict):
             if not allow_unknown_keys:
                 unknown_col = set(col.keys()) - ALLOWED_COLUMN_KEYS
                 if unknown_col:
-                    raise CompilationError(
+                    raise ValidationError(
                         f"Unexpected field(s) in column specification: {', '.join(sorted(unknown_col))}"
                     )
             raw_col = col.get("column", col.get("name"))
             if raw_col is None:
                 continue
             if isinstance(raw_col, str):
-                if raw_col != "*":
+                if raw_col == "*":
+                    pass
+                elif raw_col.endswith(".*"):
+                    _check_ident(raw_col[:-2], "column table prefix")
+                else:
                     _check_ident(raw_col, "column")
             else:
-                raise CompilationError("Column name must be a string.")
+                raise ValidationError("Column name must be a string.")
             agg = col.get("agg") or col.get("aggregate")
             if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
-                raise CompilationError(f"Unsupported aggregate function: '{agg}'")
+                raise ValidationError(f"Unsupported aggregate function: '{agg}'")
             alias = col.get("alias")
             if alias is not None:
                 if not isinstance(alias, str):
-                    raise CompilationError("Column 'alias' must be a string.")
+                    raise ValidationError("Column 'alias' must be a string.")
                 if len(alias) > 256 or "\x00" in alias:
-                    raise CompilationError(f"Invalid column alias: '{alias}'")
+                    raise ValidationError(f"Invalid column alias: '{alias}'")
             tbl = col.get("table")
             if tbl is not None:
                 _check_ident(tbl, "column table")
         else:
-            raise CompilationError(
+            raise ValidationError(
                 f"Invalid column specification item type: {type(col).__name__}"
             )
 
     joins = spec.get("joins", [])
     if joins is not None and not isinstance(joins, (list, tuple)):
-        raise CompilationError("Field 'joins' must be a list.")
+        raise ValidationError("Field 'joins' must be a list.")
     if joins and len(joins) > MAX_JOINS:
-        raise CompilationError(
+        raise ValidationError(
             f"Too many joins: {len(joins)} exceeds maximum of {MAX_JOINS}."
         )
     for j in joins or []:
@@ -230,18 +266,20 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         elif isinstance(j, dict):
             j_dict = j
         else:
-            raise CompilationError(f"Invalid join item type: {type(j).__name__}")
+            raise ValidationError(f"Invalid join item type: {type(j).__name__}")
         if not allow_unknown_keys:
             unknown_j = set(j_dict.keys()) - ALLOWED_JOIN_KEYS
             if unknown_j:
-                raise CompilationError(
+                raise ValidationError(
                     f"Unexpected field(s) in join specification: {', '.join(sorted(unknown_j))}"
                 )
         j_tbl = j_dict.get("table")
         if j_tbl is not None:
             _check_ident(j_tbl, "join table")
         else:
-            raise CompilationError("Missing join target 'table'.")
+            raise ValidationError("Missing join target 'table'.")
+        if j_dict.get("alias"):
+            _check_ident(j_dict["alias"], "join alias")
         if j_dict.get("left_table"):
             _check_ident(j_dict["left_table"], "join left_table")
         if j_dict.get("left_col"):
@@ -251,9 +289,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         if "on" in j_dict and j_dict["on"] is not None:
             on_val = j_dict["on"]
             if not isinstance(on_val, (list, tuple)):
-                raise CompilationError("Join 'on' condition must be a list.")
+                raise ValidationError("Join 'on' condition must be a list.")
             if len(on_val) > 10:
-                raise CompilationError("Too many join ON conditions (maximum 10).")
+                raise ValidationError("Too many join ON conditions (maximum 10).")
             for cond in on_val:
                 c_dict = cond.__dict__ if hasattr(cond, "__dict__") else cond
                 if (
@@ -261,7 +299,7 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                     or "left" not in c_dict
                     or "right" not in c_dict
                 ):
-                    raise CompilationError(
+                    raise ValidationError(
                         "Join ON condition must contain 'left' and 'right'."
                     )
                 _check_ident(c_dict["left"], "join on left")
@@ -269,9 +307,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
 
     filters = spec.get("filters", [])
     if filters is not None and not isinstance(filters, (list, tuple)):
-        raise CompilationError("Field 'filters' must be a list.")
+        raise ValidationError("Field 'filters' must be a list.")
     if filters and len(filters) > MAX_FILTERS:
-        raise CompilationError(
+        raise ValidationError(
             f"Too many filters: {len(filters)} exceeds maximum of {MAX_FILTERS}."
         )
     for flt in filters or []:
@@ -280,17 +318,38 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         elif isinstance(flt, dict):
             flt_dict = flt
         else:
-            raise CompilationError(f"Invalid filter item type: {type(flt).__name__}")
+            raise ValidationError(f"Invalid filter item type: {type(flt).__name__}")
         if not allow_unknown_keys:
             unknown_flt = set(flt_dict.keys()) - ALLOWED_FILTER_KEYS
             if unknown_flt:
-                raise CompilationError(
+                raise ValidationError(
                     f"Unexpected field(s) in filter specification: {', '.join(sorted(unknown_flt))}"
                 )
-        flt_col = flt_dict.get("column")
-        if flt_col is None:
-            continue
-        _check_ident(flt_col, "filter column")
+
+        op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
+        if op not in ALLOWED_FILTER_OPS:
+            raise ValidationError(f"Unsupported filter operator: '{op}'")
+
+        val = flt_dict.get("value")
+        subquery = flt_dict.get("subquery")
+        if (
+            subquery is not None
+            or (isinstance(val, dict) and "table" in val)
+            or (hasattr(val, "__dict__") and hasattr(val, "table"))
+        ):
+            sub_spec = subquery if subquery is not None else val
+            sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
+            validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
+            flt_col = flt_dict.get("column")
+            if flt_col is not None:
+                _check_ident(flt_col, "filter column")
+        elif op in ("exists", "not_exists", "not exists"):
+            raise ValidationError("EXISTS filter requires a nested subquery.")
+        else:
+            flt_col = flt_dict.get("column")
+            if flt_col is None:
+                continue
+            _check_ident(flt_col, "filter column")
 
         prefix = (
             flt_dict.get("tablePrefix")
@@ -300,40 +359,35 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         if prefix is not None:
             _check_ident(prefix, "filter table prefix")
 
-        op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
-        if op not in ALLOWED_FILTER_OPS:
-            raise CompilationError(f"Unsupported filter operator: '{op}'")
-
-        val = flt_dict.get("value")
         if op in ("in", "not in", "not_in"):
             if isinstance(val, (list, tuple, set)) and len(val) > MAX_IN_VALUES:
-                raise CompilationError(
+                raise ValidationError(
                     f"IN filter value count ({len(val)}) exceeds maximum limit of {MAX_IN_VALUES}."
                 )
             elif isinstance(val, str):
                 items = [v for v in val.split(",") if v.strip()]
                 if len(items) > MAX_IN_VALUES:
-                    raise CompilationError(
+                    raise ValidationError(
                         f"IN filter value count ({len(items)}) exceeds maximum limit of {MAX_IN_VALUES}."
                     )
-        elif op == "between" and (
+        elif op in ("between", "not_between", "not between") and (
             (isinstance(val, (list, tuple)) and len(val) != 2)
             or (isinstance(val, str) and (" AND " not in val and "," not in val))
         ):
-            raise CompilationError("BETWEEN filter requires exactly 2 bounds.")
+            raise ValidationError("BETWEEN filter requires exactly 2 bounds.")
 
     if (
         "filter_join" in spec
         and spec["filter_join"] is not None
         and not isinstance(spec["filter_join"], str)
     ):
-        raise CompilationError("Field 'filter_join' must be a string.")
+        raise ValidationError("Field 'filter_join' must be a string.")
 
     having = spec.get("having", [])
     if having is not None and not isinstance(having, (list, tuple)):
-        raise CompilationError("Field 'having' must be a list.")
+        raise ValidationError("Field 'having' must be a list.")
     if having and len(having) > MAX_HAVING:
-        raise CompilationError(
+        raise ValidationError(
             f"Too many having specifications: {len(having)} exceeds maximum of {MAX_HAVING}."
         )
     for h in having or []:
@@ -342,29 +396,30 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         elif isinstance(h, dict):
             h_dict = h
         else:
-            raise CompilationError(f"Invalid having item type: {type(h).__name__}")
+            raise ValidationError(f"Invalid having item type: {type(h).__name__}")
         if not allow_unknown_keys:
             unknown_h = set(h_dict.keys()) - ALLOWED_HAVING_KEYS
             if unknown_h:
-                raise CompilationError(
+                raise ValidationError(
                     f"Unexpected field(s) in having specification: {', '.join(sorted(unknown_h))}"
                 )
         h_col = h_dict.get("column")
         if h_col is None:
             continue
-        _check_ident(h_col, "having column")
+        if h_col != "*":
+            _check_ident(h_col, "having column")
         h_agg = str(h_dict.get("agg", h_dict.get("aggregate", "count"))).lower()
         if h_agg not in AGGREGATE_MAP:
-            raise CompilationError(f"Unsupported having aggregate: '{h_agg}'")
+            raise ValidationError(f"Unsupported having aggregate: '{h_agg}'")
         h_op = str(h_dict.get("op", h_dict.get("operator", "gt"))).lower()
         if h_op not in OPERATOR_MAP:
-            raise CompilationError(f"Unsupported having operator: '{h_op}'")
+            raise ValidationError(f"Unsupported having operator: '{h_op}'")
 
     order_by = spec.get("order_by", [])
     if order_by is not None and not isinstance(order_by, (list, tuple)):
-        raise CompilationError("Field 'order_by' must be a list.")
+        raise ValidationError("Field 'order_by' must be a list.")
     if order_by and len(order_by) > MAX_ORDER_BY:
-        raise CompilationError(
+        raise ValidationError(
             f"Too many order by specifications: {len(order_by)} exceeds maximum of {MAX_ORDER_BY}."
         )
     for o in order_by or []:
@@ -373,11 +428,11 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         elif isinstance(o, dict):
             o_dict = o
         else:
-            raise CompilationError(f"Invalid order_by item type: {type(o).__name__}")
+            raise ValidationError(f"Invalid order_by item type: {type(o).__name__}")
         if not allow_unknown_keys:
             unknown_o = set(o_dict.keys()) - ALLOWED_ORDER_BY_KEYS
             if unknown_o:
-                raise CompilationError(
+                raise ValidationError(
                     f"Unexpected field(s) in order by specification: {', '.join(sorted(unknown_o))}"
                 )
         o_col = o_dict.get("column")
@@ -396,11 +451,11 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         try:
             lim = int(spec["limit"])
         except (ValueError, TypeError) as e:
-            raise CompilationError(f"Invalid limit value: {spec['limit']}") from e
+            raise ValidationError(f"Invalid limit value: {spec['limit']}") from e
         if lim < 0:
-            raise CompilationError("Limit must be non-negative.")
+            raise ValidationError("Limit must be non-negative.")
         if lim > MAX_LIMIT:
-            raise CompilationError(
+            raise ValidationError(
                 f"Limit ({lim}) exceeds maximum allowed limit of {MAX_LIMIT}."
             )
 
@@ -408,11 +463,11 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         try:
             off = int(spec["offset"])
         except (ValueError, TypeError) as e:
-            raise CompilationError(f"Invalid offset value: {spec['offset']}") from e
+            raise ValidationError(f"Invalid offset value: {spec['offset']}") from e
         if off < 0:
-            raise CompilationError("Offset must be non-negative.")
+            raise ValidationError("Offset must be non-negative.")
         if off > MAX_OFFSET:
-            raise CompilationError(
+            raise ValidationError(
                 f"Offset ({off}) exceeds maximum allowed limit of {MAX_OFFSET}."
             )
 
@@ -421,7 +476,7 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         and spec["distinct"] is not None
         and not isinstance(spec["distinct"], bool)
     ):
-        raise CompilationError("Field 'distinct' must be a boolean.")
+        raise ValidationError("Field 'distinct' must be a boolean.")
 
 
 class QueryCompiler:
@@ -481,6 +536,7 @@ class QueryCompiler:
         self.foreign_keys: list[dict[str, Any]] = self.schema.get("foreign_keys", [])
 
         self.table_aliases: dict[str, str] = {}
+        self._alias_counter = 0
         self.params: list[Any] = []
         self.where_clauses: list[str] = []
         self.having_clauses: list[str] = []
@@ -493,20 +549,57 @@ class QueryCompiler:
         self.has_aggregation = False
         self._ownership_alias_counter = AliasCounter()
 
-    def _get_alias(self, table_name: str) -> str:
+    def _generate_unique_alias(self) -> str:
+        self._alias_counter += 1
+        alias = f"t{self._alias_counter}"
+        while alias in self.table_aliases.values():
+            self._alias_counter += 1
+            alias = f"t{self._alias_counter}"
+        return alias
+
+    def _get_alias(
+        self,
+        table_name: str,
+        explicit_alias: str | None = None,
+        default_alias: str | None = None,
+    ) -> str:
         """Returns or creates a stable short alias (e.g. t1, t2) for a given table."""
+        if explicit_alias:
+            _check_ident(explicit_alias, "table alias")
+            self.table_aliases[explicit_alias] = explicit_alias
+            self.table_aliases[table_name] = explicit_alias
+            clean = table_name.split(".")[-1]
+            self.table_aliases[clean] = explicit_alias
+            return explicit_alias
+
         if not isinstance(table_name, str) or not table_name.strip():
             raise CompilationError(f"Invalid table name: '{table_name}'")
         if not IDENTIFIER_REGEX.match(table_name):
             raise CompilationError(f"Invalid table identifier name: '{table_name}'")
+
         clean = table_name.split(".")[-1]
-        if clean not in self.table_aliases:
-            alias = f"t{len(self.table_aliases) + 1}"
-            self.table_aliases[clean] = alias
-        return self.table_aliases[clean]
+        if table_name in self.table_aliases:
+            return self.table_aliases[table_name]
+        if clean in self.table_aliases:
+            return self.table_aliases[clean]
+
+        if default_alias and default_alias not in self.table_aliases.values():
+            alias = default_alias
+            try:
+                num_part = int(default_alias.lstrip("t"))
+                self._alias_counter = max(self._alias_counter, num_part)
+            except ValueError:
+                pass
+        else:
+            alias = self._generate_unique_alias()
+
+        self.table_aliases[table_name] = alias
+        self.table_aliases[clean] = alias
+        self.table_aliases[alias] = alias
+        return alias
 
     def _resolve_column_ref(
-        self, col_ref: str, default_table: str
+        self, col_ref: str, default_table: str, target_alias: str | None = None
     ) -> tuple[str, str, str]:
         """Resolves a column reference to (alias, col_name, quoted_column_ref)."""
         if not isinstance(col_ref, str) or not col_ref.strip():
@@ -527,8 +620,26 @@ class QueryCompiler:
             raise CompilationError(f"Invalid table identifier name: '{tbl}'")
 
         clean_tbl = tbl.split(".")[-1]
-        alias = self._get_alias(clean_tbl)
-        quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(clean_col)}"
+        clean_default = default_table.split(".")[-1]
+
+        if target_alias and (
+            tbl == target_alias
+            or clean_tbl == target_alias
+            or tbl == default_table
+            or clean_tbl == clean_default
+        ):
+            alias = target_alias
+        elif tbl in self.table_aliases:
+            alias = self.table_aliases[tbl]
+        elif clean_tbl in self.table_aliases:
+            alias = self.table_aliases[clean_tbl]
+        else:
+            alias = self._get_alias(clean_tbl)
+
+        if clean_col == "*":
+            quoted_ref = f"{self.dialect.quote_identifier(alias)}.*"
+        else:
+            quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(clean_col)}"
         return alias, clean_col, quoted_ref
 
     def compile(
@@ -549,59 +660,85 @@ class QueryCompiler:
                 "Missing required 'table' parameter in query specification."
             )
 
-        clean_base_table = base_table.split(".")[-1]
-        if (
-            self.tables_meta
-            and clean_base_table not in self.tables_meta
-            and base_table not in self.tables_meta
-        ):
-            raise CompilationError(
-                f"Invalid or missing base table in schema: '{base_table}'"
+        from_params: list[Any] = []
+        is_subquery_from = isinstance(base_table, dict) or hasattr(
+            base_table, "__dict__"
+        )
+        if is_subquery_from:
+            sub_spec = (
+                base_table if isinstance(base_table, dict) else base_table.__dict__
             )
-
-        base_alias = self._get_alias(clean_base_table)
-
-        # 1. Base table user / tenant isolation
-        if self.force_user_filter and self.user_id:
-            try:
-                predicate = resolve_ownership_predicate(
-                    self.dialect,
-                    self.tables_meta,
-                    base_alias,
-                    clean_base_table,
-                    self.user_id,
-                    self.params,
-                    self._ownership_alias_counter,
-                    self.ownership_paths,
-                )
-                self.where_clauses.append(predicate)
-            except SecurityError as e:
-                raise CompilationError(str(e)) from e
-
-        if self.tenant_id:
-            tbl_info = self.tables_meta.get(base_table) or self.tables_meta.get(
-                clean_base_table, {}
+            sub_compiler = QueryCompiler(
+                sub_spec,
+                schema=self.schema,
+                dialect=self.dialect,
+                middleware=None,
+                allow_unknown_keys=True,
             )
-            cols = [
-                c["name"] if isinstance(c, dict) else str(c)
-                for c in tbl_info.get("columns", [])
-            ]
-            if "client_id" in cols or "tenant_id" in cols:
-                col_name = "client_id" if "client_id" in cols else "tenant_id"
-                self.where_clauses.append(
-                    f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier(col_name)} = {self.dialect.placeholder}"
-                )
-                self.params.append(self.tenant_id)
-            elif self.tables_meta:
+            sub_sql, from_params, _, _ = sub_compiler.compile()
+            clean_base_table = "subquery"
+            base_alias = self._generate_unique_alias()
+            self.table_aliases[base_alias] = base_alias
+            self.table_aliases[clean_base_table] = base_alias
+            from_str = (
+                f"FROM ({sub_sql}) AS {self.dialect.quote_identifier(base_alias)}"
+            )
+        else:
+            clean_base_table = base_table.split(".")[-1]
+            if (
+                self.tables_meta
+                and clean_base_table not in self.tables_meta
+                and base_table not in self.tables_meta
+            ):
                 raise CompilationError(
-                    f"Table '{clean_base_table}' does not have a client_id or tenant_id column for tenant isolation."
+                    f"Invalid or missing base table in schema: '{base_table}'"
                 )
-            else:
-                # Default fallback when no schema metadata dictionary is provided
-                self.where_clauses.append(
-                    f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier('tenant_id')} = {self.dialect.placeholder}"
+            base_alias = self._get_alias(clean_base_table, default_alias="t1")
+            self.table_aliases[base_table] = base_alias
+            from_str = f"FROM {self.dialect.quote_identifier(base_table)} {self.dialect.quote_identifier(base_alias)}"
+
+        # 1. Base table user / tenant isolation (skip if base table is subquery)
+        if not is_subquery_from:
+            if self.force_user_filter and self.user_id:
+                try:
+                    predicate = resolve_ownership_predicate(
+                        self.dialect,
+                        self.tables_meta,
+                        base_alias,
+                        clean_base_table,
+                        self.user_id,
+                        self.params,
+                        self._ownership_alias_counter,
+                        self.ownership_paths,
+                    )
+                    self.where_clauses.append(predicate)
+                except SecurityError as e:
+                    raise CompilationError(str(e)) from e
+
+            if self.tenant_id:
+                tbl_info = self.tables_meta.get(base_table) or self.tables_meta.get(
+                    clean_base_table, {}
                 )
-                self.params.append(self.tenant_id)
+                cols = [
+                    c["name"] if isinstance(c, dict) else str(c)
+                    for c in tbl_info.get("columns", [])
+                ]
+                if "client_id" in cols or "tenant_id" in cols:
+                    col_name = "client_id" if "client_id" in cols else "tenant_id"
+                    self.where_clauses.append(
+                        f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier(col_name)} = {self.dialect.placeholder}"
+                    )
+                    self.params.append(self.tenant_id)
+                elif self.tables_meta:
+                    raise CompilationError(
+                        f"Table '{clean_base_table}' does not have a client_id or tenant_id column for tenant isolation."
+                    )
+                else:
+                    # Default fallback when no schema metadata dictionary is provided
+                    self.where_clauses.append(
+                        f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier('tenant_id')} = {self.dialect.placeholder}"
+                    )
+                    self.params.append(self.tenant_id)
 
         # 2. Process Joins
         joins_spec = self.spec.get("joins", [])
@@ -631,7 +768,20 @@ class QueryCompiler:
             ):
                 join_type = "LEFT JOIN"
 
-            target_alias = self._get_alias(clean_target_table)
+            explicit_alias = join.get("alias")
+            if explicit_alias:
+                _check_ident(explicit_alias, "join alias")
+                target_alias = explicit_alias
+                self.table_aliases[explicit_alias] = explicit_alias
+            elif (
+                clean_target_table in self.table_aliases
+                or target_table in self.table_aliases
+            ):
+                target_alias = self._generate_unique_alias()
+                self.table_aliases[target_alias] = target_alias
+            else:
+                target_alias = self._get_alias(clean_target_table)
+
             on_conditions = []
             on_spec = join.get("on", [])
 
@@ -645,14 +795,24 @@ class QueryCompiler:
                         left_ref, clean_base_table
                     )
                     _, _, quoted_right = self._resolve_column_ref(
-                        right_ref, clean_target_table
+                        right_ref, clean_target_table, target_alias=target_alias
                     )
                     on_conditions.append(f"{quoted_left} = {quoted_right}")
             elif join.get("left_col") and join.get("right_col"):
                 left_tbl = join.get("left_table", clean_base_table)
+                left_clean = left_tbl.split(".")[-1]
+                if (
+                    left_tbl not in self.table_aliases
+                    and left_clean not in self.table_aliases
+                    and left_tbl != clean_base_table
+                    and left_clean != clean_base_table
+                ):
+                    raise CompilationError(
+                        f"Join left_table '{left_tbl}' is not part of the query."
+                    )
                 _, _, quoted_left = self._resolve_column_ref(join["left_col"], left_tbl)
                 _, _, quoted_right = self._resolve_column_ref(
-                    join["right_col"], clean_target_table
+                    join["right_col"], clean_target_table, target_alias=target_alias
                 )
                 on_conditions.append(f"{quoted_left} = {quoted_right}")
             else:
@@ -664,8 +824,8 @@ class QueryCompiler:
                     if (src == clean_base_table and tgt == clean_target_table) or (
                         src == clean_target_table and tgt == clean_base_table
                     ):
-                        src_alias = self._get_alias(src)
-                        tgt_alias = self._get_alias(tgt)
+                        src_alias = base_alias
+                        tgt_alias = target_alias
                         q_src = f"{self.dialect.quote_identifier(src_alias)}.{self.dialect.quote_identifier(rel['source_column'])}"
                         q_tgt = f"{self.dialect.quote_identifier(tgt_alias)}.{self.dialect.quote_identifier(rel['target_column'])}"
                         on_conditions.append(f"{q_src} = {q_tgt}")
@@ -676,8 +836,13 @@ class QueryCompiler:
                     cond = find_best_join_condition(
                         clean_base_table, clean_target_table, self.schema
                     )
-                    l_alias = self._get_alias(cond["left_table"])
-                    r_alias = self._get_alias(cond["right_table"])
+                    l_table = cond["left_table"].split(".")[-1]
+                    l_alias = (
+                        base_alias
+                        if l_table == clean_base_table
+                        else self._get_alias(cond["left_table"])
+                    )
+                    r_alias = target_alias
                     q_l = f"{self.dialect.quote_identifier(l_alias)}.{self.dialect.quote_identifier(cond['left_col'])}"
                     q_r = f"{self.dialect.quote_identifier(r_alias)}.{self.dialect.quote_identifier(cond['right_col'])}"
                     on_conditions.append(f"{q_l} = {q_r}")
@@ -690,7 +855,7 @@ class QueryCompiler:
 
             on_clause_str = " AND ".join(on_conditions)
             self.join_clauses.append(
-                f"{join_type} {self.dialect.quote_identifier(clean_target_table)} {self.dialect.quote_identifier(target_alias)} ON {on_clause_str}"
+                f"{join_type} {self.dialect.quote_identifier(target_table)} {self.dialect.quote_identifier(target_alias)} ON {on_clause_str}"
             )
 
             # Tenant isolation on joined table
@@ -735,6 +900,10 @@ class QueryCompiler:
                 _, col_name, quoted_ref = self._resolve_column_ref(
                     col_item, clean_base_table
                 )
+                if col_name == "*":
+                    self.select_clause_items.append(quoted_ref)
+                    self.select_column_names.append(col_item)
+                    continue
                 self.select_clause_items.append(
                     f"{quoted_ref} AS {self.dialect.quote_alias(col_item)}"
                 )
@@ -747,6 +916,32 @@ class QueryCompiler:
                 agg = (col_item.get("agg") or col_item.get("aggregate") or "").lower()
                 alias = col_item.get("alias")
                 tbl = col_item.get("table", clean_base_table)
+
+                if raw_col_ref == "*":
+                    if agg:
+                        if agg == "count":
+                            self.has_aggregation = True
+                            agg_expr = "COUNT(*)"
+                            alias_label = alias or "count_all"
+                            self.select_clause_items.append(
+                                f"{agg_expr} AS {self.dialect.quote_alias(alias_label)}"
+                            )
+                            self.select_column_names.append(alias_label)
+                        elif agg == "count_distinct":
+                            raise CompilationError(
+                                "COUNT(DISTINCT *) is not supported."
+                            )
+                        else:
+                            raise CompilationError(
+                                f"Aggregate '{agg}' cannot be applied to '*'."
+                            )
+                    else:
+                        self.select_clause_items.append(
+                            f"{self.dialect.quote_identifier(base_alias)}.*"
+                        )
+                        self.select_column_names.append("*")
+                    continue
+
                 _, col_name, quoted_ref = self._resolve_column_ref(raw_col_ref, tbl)
 
                 if agg in AGGREGATE_MAP:
@@ -771,52 +966,149 @@ class QueryCompiler:
         if filter_join not in ("AND", "OR"):
             filter_join = "AND"
 
-        client_filter_clauses = []
+        client_filter_tokens: list[str] = []
         for flt in filters_spec:
             if hasattr(flt, "__dict__"):
                 flt = {k: v for k, v in flt.__dict__.items()}
 
+            op = str(flt.get("op", flt.get("operator", "eq"))).strip().lower()
+            val = flt.get("value")
+            subquery = flt.get("subquery")
             col_ref = flt.get("column")
-            if not col_ref:
+
+            is_subquery_filter = (
+                subquery is not None
+                or (isinstance(val, dict) and "table" in val)
+                or (hasattr(val, "__dict__") and hasattr(val, "table"))
+            )
+
+            if not col_ref and op not in ("exists", "not_exists", "not exists"):
                 continue
 
-            op = flt.get("op", flt.get("operator", "eq")).lower()
-            val = flt.get("value")
-            prefix = (
-                flt.get("tablePrefix")
-                or flt.get("table_prefix")
-                or flt.get("table")
-                or clean_base_table
-            )
-            _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
+            if col_ref:
+                prefix = (
+                    flt.get("tablePrefix")
+                    or flt.get("table_prefix")
+                    or flt.get("table")
+                    or clean_base_table
+                )
+                _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
+            else:
+                quoted_ref = ""
 
-            if op in ("is_null", "is null"):
-                client_filter_clauses.append(f"{quoted_ref} IS NULL")
+            clause_str = ""
+
+            if op in ("exists", "not_exists", "not exists"):
+                if not is_subquery_filter:
+                    raise CompilationError("EXISTS filter requires a nested subquery.")
+                sub_spec = subquery if subquery is not None else val
+                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
+                sub_compiler = QueryCompiler(
+                    sub_dict,
+                    schema=self.schema,
+                    dialect=self.dialect,
+                    middleware=None,
+                    allow_unknown_keys=True,
+                )
+                sub_sql, sub_params, _, _ = sub_compiler.compile()
+                not_pfx = "NOT " if "not" in op else ""
+                clause_str = f"{not_pfx}EXISTS ({sub_sql})"
+                self.params.extend(sub_params)
+
+            elif (
+                val is None
+                and not is_subquery_filter
+                and op in ("eq", "=", "neq", "!=")
+            ):
+                if op in ("eq", "="):
+                    clause_str = f"{quoted_ref} IS NULL"
+                else:
+                    clause_str = f"{quoted_ref} IS NOT NULL"
+
+            elif op in ("is_null", "is null"):
+                clause_str = f"{quoted_ref} IS NULL"
             elif op in ("is_not_null", "is not null"):
-                client_filter_clauses.append(f"{quoted_ref} IS NOT NULL")
+                clause_str = f"{quoted_ref} IS NOT NULL"
+
+            elif is_subquery_filter and op in ("in", "not in", "not_in"):
+                sub_spec = subquery if subquery is not None else val
+                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
+                sub_compiler = QueryCompiler(
+                    sub_dict,
+                    schema=self.schema,
+                    dialect=self.dialect,
+                    middleware=None,
+                    allow_unknown_keys=True,
+                )
+                sub_sql, sub_params, _, _ = sub_compiler.compile()
+                not_pfx = "NOT " if "not" in op else ""
+                clause_str = f"{quoted_ref} {not_pfx}IN ({sub_sql})"
+                self.params.extend(sub_params)
+
+            elif is_subquery_filter and op in OPERATOR_MAP:
+                sub_spec = subquery if subquery is not None else val
+                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
+                sub_compiler = QueryCompiler(
+                    sub_dict,
+                    schema=self.schema,
+                    dialect=self.dialect,
+                    middleware=None,
+                    allow_unknown_keys=True,
+                )
+                sub_sql, sub_params, _, _ = sub_compiler.compile()
+                sql_op = OPERATOR_MAP[op]
+                clause_str = f"{quoted_ref} {sql_op} ({sub_sql})"
+                self.params.extend(sub_params)
+
             elif op in OPERATOR_MAP:
                 sql_op = OPERATOR_MAP[op]
-                client_filter_clauses.append(
-                    f"{quoted_ref} {sql_op} {self.dialect.placeholder}"
-                )
+                clause_str = f"{quoted_ref} {sql_op} {self.dialect.placeholder}"
                 self.params.append(val)
-            elif op == "contains":
-                client_filter_clauses.append(self.dialect.format_ilike(quoted_ref))
+
+            elif op in ("contains", "not_contains", "not contains"):
+                expr = self.dialect.format_ilike(quoted_ref)
+                if "not" in op:
+                    clause_str = f"NOT ({expr})"
+                else:
+                    clause_str = expr
                 self.params.append(f"%{val}%")
-            elif op in ("starts_with", "startswith"):
-                client_filter_clauses.append(self.dialect.format_ilike(quoted_ref))
+
+            elif op in (
+                "starts_with",
+                "startswith",
+                "not_starts_with",
+                "not startswith",
+            ):
+                expr = self.dialect.format_ilike(quoted_ref)
+                if "not" in op:
+                    clause_str = f"NOT ({expr})"
+                else:
+                    clause_str = expr
                 self.params.append(f"{val}%")
-            elif op in ("ends_with", "endswith"):
-                client_filter_clauses.append(self.dialect.format_ilike(quoted_ref))
+
+            elif op in ("ends_with", "endswith", "not_ends_with", "not endswith"):
+                expr = self.dialect.format_ilike(quoted_ref)
+                if "not" in op:
+                    clause_str = f"NOT ({expr})"
+                else:
+                    clause_str = expr
                 self.params.append(f"%{val}")
-            elif op in ("like",):
-                client_filter_clauses.append(self.dialect.format_like(quoted_ref))
+
+            elif op in ("like", "not_like", "not like"):
+                if "not" in op:
+                    clause_str = f"{quoted_ref} NOT LIKE {self.dialect.placeholder}"
+                else:
+                    clause_str = self.dialect.format_like(quoted_ref)
                 self.params.append(f"{val}")
-            elif op in ("ilike",):
-                client_filter_clauses.append(self.dialect.format_ilike(quoted_ref))
+
+            elif op in ("ilike", "not_ilike", "not ilike"):
+                if "not" in op:
+                    clause_str = f"NOT ({self.dialect.format_ilike(quoted_ref)})"
+                else:
+                    clause_str = self.dialect.format_ilike(quoted_ref)
                 self.params.append(f"{val}")
+
             elif op in ("in", "not in", "not_in"):
-                not_prefix = "NOT " if "not" in op else ""
                 if isinstance(val, (list, tuple, set)):
                     val_list = list(val)
                 elif isinstance(val, str):
@@ -824,17 +1116,44 @@ class QueryCompiler:
                 else:
                     val_list = [val]
 
-                if len(val_list) > MAX_IN_VALUES:
+                if len(val_list) == 0:
+                    if "not" in op:
+                        clause_str = "1 = 1"
+                    else:
+                        clause_str = "1 = 0"
+                elif len(val_list) > MAX_IN_VALUES:
                     raise CompilationError(
                         f"IN clause value count ({len(val_list)}) exceeds maximum limit of {MAX_IN_VALUES}."
                     )
+                elif "not" in op:
+                    non_null_vals = [v for v in val_list if v is not None]
+                    if not non_null_vals:
+                        clause_str = "1 = 0"
+                    else:
+                        placeholders = ", ".join(
+                            [self.dialect.placeholder] * len(non_null_vals)
+                        )
+                        clause_str = f"({quoted_ref} NOT IN ({placeholders}) AND {quoted_ref} IS NOT NULL)"
+                        self.params.extend(non_null_vals)
+                else:
+                    has_none = any(v is None for v in val_list)
+                    non_null_vals = [v for v in val_list if v is not None]
+                    if has_none and non_null_vals:
+                        placeholders = ", ".join(
+                            [self.dialect.placeholder] * len(non_null_vals)
+                        )
+                        clause_str = f"({quoted_ref} IN ({placeholders}) OR {quoted_ref} IS NULL)"
+                        self.params.extend(non_null_vals)
+                    elif has_none and not non_null_vals:
+                        clause_str = f"{quoted_ref} IS NULL"
+                    else:
+                        placeholders = ", ".join(
+                            [self.dialect.placeholder] * len(val_list)
+                        )
+                        clause_str = f"{quoted_ref} IN ({placeholders})"
+                        self.params.extend(val_list)
 
-                placeholders = ", ".join([self.dialect.placeholder] * len(val_list))
-                client_filter_clauses.append(
-                    f"{quoted_ref} {not_prefix}IN ({placeholders})"
-                )
-                self.params.extend(val_list)
-            elif op == "between":
+            elif op in ("between", "not_between", "not between"):
                 if isinstance(val, (list, tuple)) and len(val) == 2:
                     p0, p1 = val[0], val[1]
                 elif isinstance(val, str) and " AND " in val:
@@ -845,15 +1164,47 @@ class QueryCompiler:
                     p0, p1 = p0.strip(), p1.strip()
                 else:
                     raise CompilationError("BETWEEN filter requires exactly 2 bounds.")
-                client_filter_clauses.append(
-                    f"{quoted_ref} BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
-                )
+                not_pfx = "NOT " if "not" in op else ""
+                clause_str = f"{quoted_ref} {not_pfx}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
                 self.params.extend([p0, p1])
             else:
                 raise CompilationError(f"Unsupported filter operator: '{op}'")
 
-        if client_filter_clauses:
-            combined_filters = f"({f' {filter_join} '.join(client_filter_clauses)})"
+            comb = flt.get("combiner") or filter_join
+            comb = comb.upper() if isinstance(comb, str) else filter_join
+            if comb not in ("AND", "OR"):
+                comb = filter_join
+
+            open_p = ""
+            p_open = flt.get("parenOpen")
+            if p_open:
+                if isinstance(p_open, bool):
+                    open_p = "("
+                elif isinstance(p_open, int):
+                    open_p = "(" * p_open
+                else:
+                    s_open = str(p_open)
+                    open_p = "(" * (s_open.count("(") or 1)
+
+            close_p = ""
+            p_close = flt.get("parenClose")
+            if p_close:
+                if isinstance(p_close, bool):
+                    close_p = ")"
+                elif isinstance(p_close, int):
+                    close_p = ")" * p_close
+                else:
+                    s_close = str(p_close)
+                    close_p = ")" * (s_close.count(")") or 1)
+
+            token = f"{open_p}{clause_str}{close_p}"
+            if client_filter_tokens:
+                client_filter_tokens.append(f"{comb} {token}")
+            else:
+                client_filter_tokens.append(token)
+
+        if client_filter_tokens:
+            combined_filters = f"({' '.join(client_filter_tokens)})"
             self.where_clauses.append(combined_filters)
 
         # 5. Process Having
@@ -863,18 +1214,31 @@ class QueryCompiler:
                 hvg = {k: v for k, v in hvg.__dict__.items()}
 
             col_ref = hvg.get("column")
-            agg = hvg.get("agg", "count").lower()
-            op = hvg.get("op", "gt").lower()
+            agg = str(hvg.get("agg", hvg.get("aggregate", "count"))).lower()
+            op = str(hvg.get("op", hvg.get("operator", "gt"))).lower()
             val = hvg.get("value")
 
-            _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
-            if agg in AGGREGATE_MAP and op in OPERATOR_MAP:
-                agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
-                sql_op = OPERATOR_MAP[op]
-                self.having_clauses.append(
-                    f"{agg_expr} {sql_op} {self.dialect.placeholder}"
-                )
-                self.params.append(val)
+            if col_ref == "*":
+                if agg == "count":
+                    agg_expr = "COUNT(*)"
+                else:
+                    raise CompilationError(
+                        f"Aggregate '{agg}' cannot be applied to '*' in HAVING."
+                    )
+            else:
+                _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
+                if agg in AGGREGATE_MAP:
+                    agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
+                else:
+                    continue
+
+            if op not in OPERATOR_MAP:
+                continue
+            sql_op = OPERATOR_MAP[op]
+            self.having_clauses.append(
+                f"{agg_expr} {sql_op} {self.dialect.placeholder}"
+            )
+            self.params.append(val)
 
         # 6. Process Order By
         order_spec = self.spec.get("order_by", [])
@@ -903,7 +1267,6 @@ class QueryCompiler:
         distinct_prefix = "DISTINCT " if is_distinct else ""
 
         select_str = f"{distinct_prefix}{', '.join(self.select_clause_items)}"
-        from_str = f"FROM {self.dialect.quote_identifier(clean_base_table)} {self.dialect.quote_identifier(base_alias)}"
         joins_str = " ".join(self.join_clauses) if self.join_clauses else ""
         where_str = (
             f"WHERE {' AND '.join(self.where_clauses)}" if self.where_clauses else ""
@@ -916,30 +1279,57 @@ class QueryCompiler:
         having_str = (
             f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
         )
-        order_by_str = (
-            f"ORDER BY {', '.join(self.order_by_items)}" if self.order_by_items else ""
-        )
+
+        if (
+            getattr(self.dialect, "requires_order_by_for_pagination", False)
+            and not self.order_by_items
+        ):
+            order_by_str = "ORDER BY (SELECT NULL)"
+        else:
+            order_by_str = (
+                f"ORDER BY {', '.join(self.order_by_items)}"
+                if self.order_by_items
+                else ""
+            )
 
         limit = min(int(self.spec.get("limit", 50)), self.max_limit)
         offset = min(max(int(self.spec.get("offset", 0)), 0), MAX_OFFSET)
 
         limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
 
-        query_parts = [f"SELECT {select_str}", from_str]
-        if joins_str:
-            query_parts.append(joins_str)
-        if where_str:
-            query_parts.append(where_str)
-        if group_by_str:
-            query_parts.append(group_by_str)
-        if having_str:
-            query_parts.append(having_str)
-        if order_by_str:
-            query_parts.append(order_by_str)
-
-        query_parts.append(limit_offset_str)
-        main_sql = "\n".join(query_parts)
-        main_params = list(self.params) + limit_params
+        if getattr(self.dialect, "pagination_placement", "suffix") == "prefix":
+            select_pfx = (
+                f"SELECT {limit_offset_str} " if limit_offset_str else "SELECT "
+            )
+            query_parts = [f"{select_pfx}{select_str}", from_str]
+            if joins_str:
+                query_parts.append(joins_str)
+            if where_str:
+                query_parts.append(where_str)
+            if group_by_str:
+                query_parts.append(group_by_str)
+            if having_str:
+                query_parts.append(having_str)
+            if order_by_str:
+                query_parts.append(order_by_str)
+            main_sql = "\n".join(query_parts)
+            main_params = limit_params + from_params + list(self.params)
+        else:
+            query_parts = [f"SELECT {select_str}", from_str]
+            if joins_str:
+                query_parts.append(joins_str)
+            if where_str:
+                query_parts.append(where_str)
+            if group_by_str:
+                query_parts.append(group_by_str)
+            if having_str:
+                query_parts.append(having_str)
+            if order_by_str:
+                query_parts.append(order_by_str)
+            if limit_offset_str:
+                query_parts.append(limit_offset_str)
+            main_sql = "\n".join(query_parts)
+            main_params = from_params + list(self.params) + limit_params
 
         # Count query construction
         count_query_parts = ["SELECT COUNT(*)", from_str]
@@ -963,7 +1353,7 @@ class QueryCompiler:
         else:
             count_sql = "\n".join(count_query_parts)
 
-        count_params = list(self.params)
+        count_params = from_params + list(self.params)
 
         if self.middleware is not None:
             compilation = {

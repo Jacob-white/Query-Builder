@@ -139,6 +139,9 @@ class KdbConnector(BaseConnector):
         self.host = host
         self.port = port
         self.database = database
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -161,13 +164,18 @@ class KdbConnector(BaseConnector):
             )
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "port", "database")
+            }
             if hasattr(driver, "QConnection"):
-                conn = driver.QConnection(host=self.host, port=self.port, **self.config)
+                conn = driver.QConnection(host=self.host, port=self.port, **cfg)
                 if hasattr(conn, "open"):
                     conn.open()
                 self._connection = conn
             elif hasattr(driver, "SyncQConnection"):
-                conn = driver.SyncQConnection(self.host, self.port, **self.config)
+                conn = driver.SyncQConnection(self.host, self.port, **cfg)
                 if hasattr(conn, "open"):
                     conn.open()
                 self._connection = conn
@@ -233,6 +241,9 @@ class AsyncKdbConnector(AsyncBaseConnector):
         self.host = host
         self.port = port
         self.database = database
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
 
     async def connect(self) -> Any:
         if self._connection is not None:
@@ -255,8 +266,13 @@ class AsyncKdbConnector(AsyncBaseConnector):
             )
 
         try:
+            cfg = {
+                k: v
+                for k, v in self.config.items()
+                if k not in ("host", "port", "database")
+            }
             if hasattr(driver, "SyncQConnection"):
-                conn = driver.SyncQConnection(self.host, self.port, **self.config)
+                conn = driver.SyncQConnection(self.host, self.port, **cfg)
                 conn.open()
                 self._connection = conn
             else:
@@ -273,13 +289,16 @@ class AsyncKdbConnector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         adapter = _KdbCursorAdapter(conn)
-        adapter.execute(sql, params)
-        desc = adapter.description or []
-        col_names = [col[0] for col in desc]
-        rows = adapter.fetchall() or []
-        dict_rows = [dict(zip(col_names, r)) for r in rows]
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        return col_names, dict_rows, latency_ms
+        try:
+            adapter.execute(sql, params)
+            desc = adapter.description or []
+            col_names = [col[0] for col in desc]
+            rows = adapter.fetchall() or []
+            dict_rows = [dict(zip(col_names, r)) for r in rows]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return col_names, dict_rows, latency_ms
+        finally:
+            adapter.close()
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()

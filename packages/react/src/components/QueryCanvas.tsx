@@ -26,6 +26,8 @@ export interface QueryCanvasProps {
   onToggleColumn: (tableName: string, colName: string) => void;
   onRemoveTable: (tableName: string) => void;
   onAddTableToCanvas: (tableName: string) => void;
+  onAddJoin?: (tableName: string) => void;
+  onReorderProjections?: (keys: string[]) => void;
   onUpdateColumnSelect: (key: string, updates: Partial<VisualColumnSelect>) => void;
   onRemoveColumnProjection: (key: string) => void;
   onJoinsChange: (joins: VisualJoin[]) => void;
@@ -42,14 +44,16 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   primaryTable,
   selectedColumns,
   orderedProjectionKeys,
-  joins,
-  filters,
-  sorts,
+  joins = [],
+  filters = [],
+  sorts = [],
   isDistinct,
   limit,
   onToggleColumn,
   onRemoveTable,
   onAddTableToCanvas,
+  onAddJoin,
+  onReorderProjections,
   onUpdateColumnSelect,
   onRemoveColumnProjection,
   onJoinsChange,
@@ -63,6 +67,18 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   const availableToAdd = allTables.filter(
     (t) => !activeTables.some((a) => a.name === t.name),
   );
+
+  const handleMoveProjection = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= orderedProjectionKeys.length) return;
+    const newKeys = [...orderedProjectionKeys];
+    const temp = newKeys[index];
+    newKeys[index] = newKeys[targetIndex];
+    newKeys[targetIndex] = temp;
+    if (onReorderProjections) {
+      onReorderProjections(newKeys);
+    }
+  };
 
   return (
     <div
@@ -140,31 +156,52 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           )}
         </div>
 
-        <div
-          data-qb="table-cards-list"
-          style={
-            unstyled
-              ? undefined
-              : {
-                  display: "flex",
-                  gap: "16px",
-                  overflowX: "auto",
-                  paddingBottom: "8px",
-                }
-          }
-        >
-          {activeTables.map((t) => (
-            <TableCard
-              key={t.name}
-              table={t}
-              isSelected={t.name === primaryTable}
-              selectedColumns={selectedColumns}
-              onToggleColumn={(col) => onToggleColumn(t.name, col)}
-              onRemoveTable={() => onRemoveTable(t.name)}
-              unstyled={unstyled}
-            />
-          ))}
-        </div>
+        {activeTables.length === 0 ? (
+          <div
+            data-qb="canvas-empty-state"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    padding: "32px",
+                    textAlign: "center",
+                    color: "#94a3b8",
+                    border: "2px dashed rgba(255, 255, 255, 0.1)",
+                    borderRadius: "10px",
+                    width: "100%",
+                  }
+            }
+          >
+            No tables in query. Select a table to start building.
+          </div>
+        ) : (
+          <div
+            data-qb="table-cards-list"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    gap: "16px",
+                    overflowX: "auto",
+                    paddingBottom: "8px",
+                  }
+            }
+          >
+            {activeTables.map((t) => (
+              <TableCard
+                key={t.name}
+                table={t}
+                isSelected={t.name === primaryTable}
+                selectedColumns={selectedColumns}
+                onToggleColumn={(col) => onToggleColumn(t.name, col)}
+                onRemoveTable={() => onRemoveTable(t.name)}
+                onAddJoin={() => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))}
+                unstyled={unstyled}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Projection fields manager */}
@@ -282,7 +319,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 : { display: "flex", flexWrap: "wrap", gap: "8px" }
             }
           >
-            {orderedProjectionKeys.map((key) => {
+            {orderedProjectionKeys.map((key, idx) => {
               const item = selectedColumns[key];
               if (!item) return null;
 
@@ -306,6 +343,30 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                         }
                   }
                 >
+                  {idx > 0 && (
+                    <button
+                      type="button"
+                      aria-label={`Move ${key} left`}
+                      data-qb="projection-move-left"
+                      onClick={() => handleMoveProjection(idx, -1)}
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "transparent",
+                              border: "none",
+                              color: "#94a3b8",
+                              cursor: "pointer",
+                              padding: "1px 3px",
+                              fontSize: "0.7rem",
+                            }
+                      }
+                      title="Move left"
+                    >
+                      ◀
+                    </button>
+                  )}
+
                   <span
                     style={
                       unstyled
@@ -315,6 +376,30 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   >
                     {item.table}.{item.name}
                   </span>
+
+                  <input
+                    type="text"
+                    aria-label={`Alias for ${key}`}
+                    data-qb="projection-alias-input"
+                    placeholder="alias"
+                    value={item.alias || ""}
+                    onChange={(e) =>
+                      onUpdateColumnSelect(key, { alias: e.target.value })
+                    }
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "#0f172a",
+                            border: "1px solid #334155",
+                            borderRadius: "4px",
+                            padding: "1px 6px",
+                            color: "#38bdf8",
+                            fontSize: "0.7rem",
+                            width: "60px",
+                          }
+                    }
+                  />
 
                   <select
                     value={item.aggregate || ""}
@@ -343,6 +428,30 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     <option value="MIN">MIN</option>
                     <option value="MAX">MAX</option>
                   </select>
+
+                  {idx < orderedProjectionKeys.length - 1 && (
+                    <button
+                      type="button"
+                      aria-label={`Move ${key} right`}
+                      data-qb="projection-move-right"
+                      onClick={() => handleMoveProjection(idx, 1)}
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "transparent",
+                              border: "none",
+                              color: "#94a3b8",
+                              cursor: "pointer",
+                              padding: "1px 3px",
+                              fontSize: "0.7rem",
+                            }
+                      }
+                      title="Move right"
+                    >
+                      ▶
+                    </button>
+                  )}
 
                   <button
                     type="button"

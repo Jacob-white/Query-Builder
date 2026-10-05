@@ -15,6 +15,7 @@ from query_builder.compiler import CompilationError
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import BaseConnector
 from query_builder.dialects import BaseDialect
+from query_builder.exceptions import SecurityError
 from query_builder.executor import async_execute
 from query_builder.middleware import LifecycleInterceptor, MiddlewarePipeline
 
@@ -209,7 +210,7 @@ def test_async_base_connector_ast_validation_failure():
                 return compilation
 
         with pytest.raises(
-            CompilationError, match="Generated query failed AST safety validation"
+            SecurityError, match="Generated query failed AST safety validation"
         ):
             await conn.execute({"table": "users"}, middleware=[MainAstCorruptor()])
 
@@ -221,7 +222,7 @@ def test_async_base_connector_ast_validation_failure():
                 return compilation
 
         with pytest.raises(
-            CompilationError,
+            SecurityError,
             match="Generated count query failed AST safety validation",
         ):
             await conn.execute({"table": "users"}, middleware=[CountAstCorruptor()])

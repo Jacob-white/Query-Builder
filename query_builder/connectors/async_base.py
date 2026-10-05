@@ -151,9 +151,37 @@ class AsyncBaseConnector(ABC):
                 )
             elif "QB_SECURITY_PROFILE" not in os.environ:
                 net_cfg.allow_private_networks = True
+            if "QB_ENFORCE_TLS" in os.environ:
+                from query_builder.config import _parse_bool
+
+                net_cfg.enforce_tls = _parse_bool(
+                    os.environ["QB_ENFORCE_TLS"],
+                    "QB_ENFORCE_TLS",
+                )
+            elif "QB_SECURITY_PROFILE" not in os.environ:
+                net_cfg.enforce_tls = False
+
+        target_config = dict(self.config) if self.config else {}
+        for attr in (
+            "host",
+            "hostname",
+            "port",
+            "endpoint",
+            "url",
+            "uri",
+            "address",
+            "server",
+            "contact_points",
+            "connection_string",
+            "dsn",
+            "flight_endpoint",
+        ):
+            val = getattr(self, attr, None)
+            if val is not None and attr not in target_config:
+                target_config[attr] = val
 
         validate_network_target(
-            config=self.config,
+            config=target_config,
             network_config=net_cfg,
         )
 
@@ -357,7 +385,7 @@ class AsyncBaseConnector(ABC):
                 if validate_ast and sec.validation.validate_ast:
                     v_res = validate_sql_ast(main_sql)
                     if not v_res["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
                         )
 
@@ -374,9 +402,16 @@ class AsyncBaseConnector(ABC):
                 if short_circuited:
                     return pipeline.run_post_execute(result_or_plan, ctx)
 
-                col_names, dict_rows, latency_ms = await self.execute_raw(
-                    main_sql, main_params
-                )
+                timeout_sec = timeout / 1000.0 if timeout else None
+                try:
+                    col_names, dict_rows, latency_ms = await asyncio.wait_for(
+                        self.execute_raw(main_sql, main_params),
+                        timeout=timeout_sec,
+                    )
+                except (TimeoutError, asyncio.TimeoutError) as exc:
+                    raise TimeoutError(
+                        f"Query execution timed out after {timeout}ms"
+                    ) from exc
                 total_count = len(dict_rows)
             else:
                 if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
@@ -448,12 +483,12 @@ class AsyncBaseConnector(ABC):
                 if validate_ast:
                     v_main = validate_sql_ast(main_sql)
                     if not v_main["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
                     v_count = validate_sql_ast(count_sql)
                     if not v_count["valid"]:
-                        raise CompilationError(
+                        raise SecurityError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"
                         )
 
@@ -481,20 +516,30 @@ class AsyncBaseConnector(ABC):
                 if short_circuited:
                     return pipeline.run_post_execute(result_or_plan, ctx)
 
-                _count_cols, count_rows, _ = await self.execute_raw(
-                    count_sql, count_params
-                )
-                total_count = 0
-                if count_rows:
-                    first_row = count_rows[0]
-                    if isinstance(first_row, dict):
-                        total_count = next(iter(first_row.values())) if first_row else 0
-                    else:
-                        total_count = first_row[0] if len(first_row) > 0 else 0
+                timeout_sec = timeout / 1000.0 if timeout else None
+                try:
+                    _count_cols, count_rows, _ = await asyncio.wait_for(
+                        self.execute_raw(count_sql, count_params),
+                        timeout=timeout_sec,
+                    )
+                    total_count = 0
+                    if count_rows:
+                        first_row = count_rows[0]
+                        if isinstance(first_row, dict):
+                            total_count = (
+                                next(iter(first_row.values())) if first_row else 0
+                            )
+                        else:
+                            total_count = first_row[0] if len(first_row) > 0 else 0
 
-                col_names, dict_rows, latency_ms = await self.execute_raw(
-                    main_sql, main_params
-                )
+                    col_names, dict_rows, latency_ms = await asyncio.wait_for(
+                        self.execute_raw(main_sql, main_params),
+                        timeout=timeout_sec,
+                    )
+                except (TimeoutError, asyncio.TimeoutError) as exc:
+                    raise TimeoutError(
+                        f"Query execution timed out after {timeout}ms"
+                    ) from exc
 
             limit = int(compiled_spec.get("limit", 50))
             offset = int(compiled_spec.get("offset", 0))

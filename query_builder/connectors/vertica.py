@@ -44,6 +44,12 @@ class VerticaConnector(BaseConnector):
         self.user = user
         self.password = password
         self.schema_name = schema_name
+        self.config.setdefault("host", host)
+        self.config.setdefault("port", port)
+        self.config.setdefault("database", database)
+        self.config.setdefault("user", user)
+        self.config.setdefault("password", password)
+        self.config.setdefault("schema_name", schema_name)
 
     def connect(self) -> Any:
         if self._connection is not None:
