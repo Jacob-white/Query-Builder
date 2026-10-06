@@ -49,9 +49,23 @@ ALLOWED_SPEC_KEYS = {
     "hybrid_search",
     "ctes",
     "window_functions",
+    "metrics",
+    "semantic_model",
+    "semantic_models",
 }
 
-ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
+ALLOWED_COLUMN_KEYS = {
+    "column",
+    "name",
+    "agg",
+    "aggregate",
+    "alias",
+    "table",
+    "time_grain",
+    "grain",
+    "metric",
+    "format",
+}
 ALLOWED_JOIN_KEYS = {
     "table",
     "type",
@@ -289,10 +303,20 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             tbl = col.get("table")
             if tbl is not None:
                 _check_ident(tbl, "column table")
+
+            time_grain = col.get("time_grain") or col.get("grain")
+            if time_grain is not None:
+                from query_builder.semantic import SUPPORTED_TIME_GRAINS
+                if str(time_grain).lower() not in SUPPORTED_TIME_GRAINS:
+                    raise ValidationError(f"Unsupported time grain: '{time_grain}'")
         else:
             raise ValidationError(
                 f"Invalid column specification item type: {type(col).__name__}"
             )
+
+    metrics = spec.get("metrics")
+    if metrics is not None and not isinstance(metrics, (list, tuple)):
+        raise ValidationError("Field 'metrics' must be a list.")
 
     joins = spec.get("joins", [])
     if joins is not None and not isinstance(joins, (list, tuple)):
@@ -704,6 +728,7 @@ class QueryCompiler:
         validate_spec: bool = True,
         allow_unknown_keys: bool = False,
         middleware: Any = None,
+        semantic_models: Any = None,
     ) -> None:
         if middleware is not None:
             from query_builder.middleware import MiddlewarePipeline
@@ -759,6 +784,39 @@ class QueryCompiler:
             c_name = getattr(cte, "name", None) or (cte.get("name") if isinstance(cte, dict) else None)
             if c_name and c_name not in self.tables_meta:
                 self.tables_meta[c_name] = {"name": c_name, "columns": []}
+
+        self.semantic_models: dict[str, Any] = {}
+        if semantic_models:
+            from query_builder.semantic import SemanticModel
+            if isinstance(semantic_models, list):
+                for sm in semantic_models:
+                    if isinstance(sm, SemanticModel):
+                        self.semantic_models[sm.name] = sm
+                        self.semantic_models[sm.table_name] = sm
+                    elif isinstance(sm, dict):
+                        m = SemanticModel.from_dict(sm)
+                        self.semantic_models[m.name] = m
+                        self.semantic_models[m.table_name] = m
+            elif isinstance(semantic_models, dict):
+                for k, v in semantic_models.items():
+                    if isinstance(v, SemanticModel):
+                        self.semantic_models[k] = v
+                    elif isinstance(v, dict):
+                        self.semantic_models[k] = SemanticModel.from_dict(v)
+
+        spec_sm = self.spec.get("semantic_model") or self.spec.get("semantic_models")
+        if spec_sm:
+            from query_builder.semantic import SemanticModel, load_semantic_models_from_dict
+            if isinstance(spec_sm, dict):
+                for m in load_semantic_models_from_dict(spec_sm):
+                    self.semantic_models[m.name] = m
+                    self.semantic_models[m.table_name] = m
+            elif isinstance(spec_sm, list):
+                for sm in spec_sm:
+                    if isinstance(sm, dict):
+                        m = SemanticModel.from_dict(sm)
+                        self.semantic_models[m.name] = m
+                        self.semantic_models[m.table_name] = m
 
         self.table_aliases: dict[str, str] = {}
         self._alias_counter = 0
@@ -1169,6 +1227,43 @@ class QueryCompiler:
 
                 _, col_name, quoted_ref = self._resolve_column_ref(raw_col_ref, tbl)
 
+                time_grain = col_item.get("time_grain") or col_item.get("grain")
+                if time_grain:
+                    from query_builder.semantic import expand_time_grain_sql
+                    time_expr = expand_time_grain_sql(quoted_ref, grain=str(time_grain), dialect=self.dialect.name)
+                    alias_label = alias or f"{raw_col_ref}_{time_grain}"
+                    self.select_clause_items.append(
+                        f"{time_expr} AS {self.dialect.quote_alias(alias_label)}"
+                    )
+                    self.select_column_names.append(alias_label)
+                    self.group_by_items.append(time_expr)
+                    continue
+
+                is_metric = bool(col_item.get("metric"))
+                metric_name = col_item.get("metric") if isinstance(col_item.get("metric"), str) else raw_col_ref
+                if is_metric or (self.semantic_models and any(hasattr(sm, "get_metric") and sm.get_metric(raw_col_ref) for sm in self.semantic_models.values())):
+                    from query_builder.semantic import MetricDefinition, expand_metric_sql, get_global_semantic_registry
+                    m_def = None
+                    if isinstance(col_item.get("metric"), dict):
+                        m_def = MetricDefinition.from_dict(col_item["metric"])
+                    if not m_def and self.semantic_models:
+                        for sm in self.semantic_models.values():
+                            if hasattr(sm, "get_metric"):
+                                m_def = sm.get_metric(metric_name)
+                                if m_def:
+                                    break
+                    if not m_def:
+                        m_def = get_global_semantic_registry().get_metric(metric_name)
+                    if m_def:
+                        self.has_aggregation = True
+                        metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
+                        alias_label = alias or m_def.name
+                        self.select_clause_items.append(
+                            f"{metric_sql} AS {self.dialect.quote_alias(alias_label)}"
+                        )
+                        self.select_column_names.append(alias_label)
+                        continue
+
                 if agg in AGGREGATE_MAP:
                     self.has_aggregation = True
                     agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
@@ -1184,6 +1279,41 @@ class QueryCompiler:
                     )
                     self.select_column_names.append(alias_label)
                     self.group_by_items.append(quoted_ref)
+
+        # 3.01. Process Top-Level Semantic Metrics
+        top_metrics = self.spec.get("metrics", [])
+        if top_metrics:
+            from query_builder.semantic import MetricDefinition, expand_metric_sql, get_global_semantic_registry
+            for m_entry in top_metrics:
+                m_def = None
+                m_alias = None
+                if isinstance(m_entry, str):
+                    m_name = m_entry
+                elif isinstance(m_entry, dict):
+                    m_name = m_entry.get("name") or m_entry.get("metric")
+                    m_alias = m_entry.get("alias")
+                    if "sql_expression" in m_entry or "sql" in m_entry:
+                        m_def = MetricDefinition.from_dict(m_entry)
+                else:
+                    continue
+
+                if not m_def and m_name:
+                    for sm in self.semantic_models.values():
+                        if hasattr(sm, "get_metric"):
+                            m_def = sm.get_metric(m_name)
+                            if m_def:
+                                break
+                    if not m_def:
+                        m_def = get_global_semantic_registry().get_metric(m_name)
+
+                if m_def:
+                    self.has_aggregation = True
+                    metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
+                    alias_label = m_alias or m_def.name
+                    self.select_clause_items.append(
+                        f"{metric_sql} AS {self.dialect.quote_alias(alias_label)}"
+                    )
+                    self.select_column_names.append(alias_label)
 
         # 3.1. Process Vector Search
         vs_spec = self.spec.get("vector_search")
@@ -1760,7 +1890,8 @@ class QueryCompiler:
                 limit_val = min(limit_val, top_k_val)
 
         limit = min(limit_val, self.max_limit)
-        offset = min(max(int(self.spec.get("offset", 0)), 0), MAX_OFFSET)
+        raw_offset = self.spec.get("offset")
+        offset = min(max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET)
 
         limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
 

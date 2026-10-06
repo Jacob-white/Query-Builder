@@ -57,3 +57,19 @@ export {
   type ExecuteQueryOptions,
 } from "./useLiveExecution";
 
+export {
+  useClientOlap,
+  type UseClientOlapResult,
+} from "./useClientOlap";
+
+export {
+  useDashboardManager,
+  type UseDashboardManagerOptions,
+  type UseDashboardManagerReturn,
+} from "./useDashboardManager";
+
+export {
+  useBringYourOwnAi,
+  type UseBringYourOwnAiOptions,
+  type UseBringYourOwnAiResult,
+} from "./useBringYourOwnAi";

@@ -11,3 +11,4 @@ export { fromPrisma } from "./prisma";
 export { fromDrizzle } from "./drizzle";
 export { fromSqlAlchemy } from "./sqlalchemy";
 export { fromJsonSchema } from "./jsonSchema";
+export * from "./semantic";

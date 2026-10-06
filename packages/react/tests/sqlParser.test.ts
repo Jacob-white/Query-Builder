@@ -262,5 +262,135 @@ describe("sqlParser", () => {
       expect(spec).not.toBeNull();
       expect(spec?.joins).toEqual([]);
     });
+
+    it("parses WITH and WITH RECURSIVE CTE clauses", () => {
+      const sql = `
+        WITH RECURSIVE subordinates AS (
+          SELECT id, manager_id FROM employees WHERE id = 1
+        ),
+        summary (dept, total) AS MATERIALIZED (
+          SELECT dept, SUM(salary) FROM employees GROUP BY dept
+        )
+        SELECT * FROM subordinates;
+      `;
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("subordinates");
+      expect(spec?.ctes).toHaveLength(2);
+      expect(spec?.ctes?.[0].name).toBe("subordinates");
+      expect(spec?.ctes?.[0].recursive).toBe(true);
+      expect(spec?.ctes?.[1].name).toBe("summary");
+      expect(spec?.ctes?.[1].columns).toEqual(["dept", "total"]);
+      expect(spec?.ctes?.[1].materialized).toBe(true);
+    });
+
+    it("parses window functions with PARTITION BY and ORDER BY", () => {
+      const sql = `
+        SELECT
+          id,
+          ROW_NUMBER() OVER (PARTITION BY dept_id ORDER BY hire_date DESC) AS rank_in_dept
+        FROM employees;
+      `;
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.window_functions).toHaveLength(1);
+      expect(spec?.window_functions?.[0].function).toBe("ROW_NUMBER");
+      expect(spec?.window_functions?.[0].partition_by).toEqual(["dept_id"]);
+      expect(spec?.window_functions?.[0].order_by).toEqual([{ column: "hire_date", direction: "DESC" }]);
+      expect(spec?.window_functions?.[0].alias).toBe("rank_in_dept");
+    });
+
+    it("parses temporal time grains (DATE_TRUNC, DATETRUNC)", () => {
+      const sql = `
+        SELECT
+          DATE_TRUNC('month', created_at) AS signup_month,
+          DATETRUNC(day, last_login) AS login_day
+        FROM users;
+      `;
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.columns[0]).toEqual({
+        column: "created_at",
+        time_grain: "month",
+        alias: "signup_month",
+      });
+      expect(spec?.columns[1]).toEqual({
+        column: "last_login",
+        time_grain: "day",
+        alias: "login_day",
+      });
+    });
+
+    it("parses filtered aggregates and raw CASE expressions with graceful degradation", () => {
+      const sql = `
+        SELECT
+          SUM(amount) FILTER (WHERE status = 'paid') AS paid_revenue,
+          CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END AS age_group
+        FROM customers
+        WHERE EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = customers.id);
+      `;
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.columns[0]).toEqual({
+        column: "amount",
+        agg: "SUM",
+        metric: "paid_revenue",
+        alias: "paid_revenue",
+      });
+      expect((spec?.columns[1] as any).raw_expression).toBe("CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END");
+      expect(spec?.filters).toHaveLength(1);
+      expect(spec?.filters?.[0].op).toBe("RAW");
+      expect(spec?.filters?.[0].column).toContain("EXISTS");
+    });
+
+    it("parses OFFSET clause alongside LIMIT", () => {
+      const sql = "SELECT * FROM items LIMIT 20 OFFSET 40;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.limit).toBe(20);
+      expect(spec?.offset).toBe(40);
+    });
+
+    it("parses raw expressions without an AS alias clause", () => {
+      const sql = "SELECT CASE WHEN age > 10 THEN 'kid' ELSE 'baby' END FROM users;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect((spec?.columns[0] as any).raw_expression).toBe("CASE WHEN age > 10 THEN 'kid' ELSE 'baby' END");
+    });
+
+    it("returns null if CTE has no main SELECT or post-CTE statement is not a SELECT", () => {
+      expect(parseSqlToSpec("WITH cte AS (SELECT 1)")).toBeNull();
+      expect(parseSqlToSpec("WITH cte AS (SELECT 1) VALUES (1, 2);")).toBeNull();
+    });
+
+    it("handles unstructured CTE definitions gracefully", () => {
+      const sql = "WITH cte_plain AS NOT_A_PAREN SELECT * FROM cte_plain;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.ctes?.[0].name).toBe("cte_plain");
+    });
+
+    it("parses CTE definitions containing strings with escaped quotes", () => {
+      const sql = "WITH cte AS (SELECT 'hel''lo' AS str) SELECT * FROM cte;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.ctes?.[0].name).toBe("cte");
+    });
+
+    it("handles conditions with unmatched parentheses or bare columns", () => {
+      const sql = "SELECT * FROM users WHERE ) OR just_col;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.filters).toHaveLength(2);
+      expect(spec?.filters?.[0].op).toBe("RAW");
+      expect(spec?.filters?.[1].op).toBe("RAW");
+    });
+
+    it("parses conditions where string literal or escaped string precedes operator", () => {
+      const sql = "SELECT * FROM users WHERE 'a''b' = col AND (flag) = true;";
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.filters).toHaveLength(2);
+    });
   });
 });
