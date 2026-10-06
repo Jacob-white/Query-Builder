@@ -74,6 +74,21 @@ class BaseDialect:
         """Formats LIMIT and OFFSET clause with bind parameters."""
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
+    def format_vector_distance(
+        self, col_ref: str, metric: str = "cosine"
+    ) -> str:
+        """Formats vector distance calculation expression for a column reference and placeholder."""
+        m = metric.lower()
+        if m in ("euclidean", "l2"):
+            return f"L2_DISTANCE({col_ref}, {self.placeholder})"
+        elif m in ("dot_product", "inner_product"):
+            return f"INNER_PRODUCT({col_ref}, {self.placeholder})"
+        return f"COSINE_DISTANCE({col_ref}, {self.placeholder})"
+
+    def format_vector_param(self, vector: list[float]) -> Any:
+        """Formats a vector list for driver query parameter binding."""
+        return str(vector)
+
     def inspect_tables_query(
         self, schema_name: str = "public"
     ) -> tuple[str, list[Any]]:
@@ -153,11 +168,33 @@ class PostgresDialect(BaseDialect):
 
     name: str = "postgres"
 
+    def format_vector_distance(
+        self, col_ref: str, metric: str = "cosine"
+    ) -> str:
+        """Formats pgvector distance operator expression."""
+        m = metric.lower()
+        if m in ("euclidean", "l2"):
+            return f"({col_ref} <-> {self.placeholder})"
+        elif m in ("dot_product", "inner_product"):
+            return f"({col_ref} <#> {self.placeholder})"
+        return f"({col_ref} <=> {self.placeholder})"
+
 
 class SnowflakeDialect(BaseDialect):
     """Snowflake dialect."""
 
     name: str = "snowflake"
+
+    def format_vector_distance(
+        self, col_ref: str, metric: str = "cosine"
+    ) -> str:
+        """Formats Snowflake vector similarity expression."""
+        m = metric.lower()
+        if m in ("euclidean", "l2"):
+            return f"VECTOR_L2_DISTANCE({col_ref}, {self.placeholder})"
+        elif m in ("dot_product", "inner_product"):
+            return f"VECTOR_INNER_PRODUCT({col_ref}, {self.placeholder})"
+        return f"VECTOR_COSINE_SIMILARITY({col_ref}, {self.placeholder})"
 
 
 class MSSQLDialect(BaseDialect):
@@ -271,6 +308,17 @@ class BigQueryDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
+    def format_vector_distance(
+        self, col_ref: str, metric: str = "cosine"
+    ) -> str:
+        """Formats BigQuery vector distance expression."""
+        m = metric.lower()
+        if m in ("euclidean", "l2"):
+            return f"EUCLIDEAN_DISTANCE({col_ref}, {self.placeholder})"
+        elif m in ("dot_product", "inner_product"):
+            return f"DOT_PRODUCT({col_ref}, {self.placeholder})"
+        return f"COSINE_DISTANCE({col_ref}, {self.placeholder})"
+
 
 class ClickHouseDialect(BaseDialect):
     """ClickHouse dialect using backtick quoting and native ILIKE."""
@@ -290,6 +338,17 @@ class ClickHouseDialect(BaseDialect):
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    def format_vector_distance(
+        self, col_ref: str, metric: str = "cosine"
+    ) -> str:
+        """Formats ClickHouse vector distance function expression."""
+        m = metric.lower()
+        if m in ("euclidean", "l2"):
+            return f"L2Distance({col_ref}, {self.placeholder})"
+        elif m in ("dot_product", "inner_product"):
+            return f"dotProduct({col_ref}, {self.placeholder})"
+        return f"cosineDistance({col_ref}, {self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "default"

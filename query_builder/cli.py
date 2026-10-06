@@ -70,6 +70,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Output compiled SQL and parameters as structured JSON.",
     )
+    compile_p.add_argument(
+        "--vector",
+        help="Optional comma-separated or JSON array query vector embedding to inject.",
+    )
+    compile_p.add_argument(
+        "--top-k",
+        type=int,
+        help="Optional top_k nearest neighbors limit for vector search.",
+    )
 
     # 2. Validate subcommand
     validate_p = subparsers.add_parser(
@@ -274,6 +283,22 @@ def main(argv: list[str] | None = None) -> int:
             if args.schema:
                 with open(args.schema, "r", encoding="utf-8") as f:
                     schema_data = json.load(f)
+
+            if getattr(args, "vector", None):
+                raw_v = args.vector.strip()
+                if raw_v.startswith("["):
+                    v_list = json.loads(raw_v)
+                else:
+                    v_list = [float(x.strip()) for x in raw_v.split(",") if x.strip()]
+                vs_dict = dict(spec_data.get("vector_search") or {})
+                vs_dict["vector"] = v_list
+                if getattr(args, "top_k", None):
+                    vs_dict["top_k"] = args.top_k
+                spec_data["vector_search"] = vs_dict
+            elif getattr(args, "top_k", None) and "vector_search" in spec_data:
+                vs_dict = dict(spec_data["vector_search"])
+                vs_dict["top_k"] = args.top_k
+                spec_data["vector_search"] = vs_dict
 
             compiler = QueryCompiler(
                 spec_data,

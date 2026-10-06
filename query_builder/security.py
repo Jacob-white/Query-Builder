@@ -706,6 +706,10 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     if spec_dict.get("window"):
         score += 5
 
+    # Vector search
+    if spec_dict.get("vector_search"):
+        score += 5
+
     return score
 
 

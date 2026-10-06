@@ -45,6 +45,7 @@ ALLOWED_SPEC_KEYS = {
     "offset",
     "distinct",
     "tenant_id",
+    "vector_search",
 }
 
 ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
@@ -514,6 +515,60 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         and not isinstance(spec["distinct"], bool)
     ):
         raise ValidationError("Field 'distinct' must be a boolean.")
+
+    if "vector_search" in spec and spec["vector_search"] is not None:
+        vs = spec["vector_search"]
+        if isinstance(vs, dict):
+            if not allow_unknown_keys:
+                allowed_vs_keys = {
+                    "vector",
+                    "column",
+                    "top_k",
+                    "metric",
+                    "include_distances",
+                    "min_score",
+                }
+                unknown_vs = set(vs.keys()) - allowed_vs_keys
+                if unknown_vs:
+                    raise ValidationError(
+                        f"Unexpected field(s) in vector_search specification: {', '.join(sorted(unknown_vs))}"
+                    )
+            vec = vs.get("vector")
+            col = vs.get("column", "embedding")
+            top_k = vs.get("top_k", 10)
+            metric = vs.get("metric", "cosine")
+            min_score = vs.get("min_score")
+        elif hasattr(vs, "vector"):
+            vec = vs.vector
+            col = getattr(vs, "column", "embedding")
+            top_k = getattr(vs, "top_k", 10)
+            metric = getattr(vs, "metric", "cosine")
+            min_score = getattr(vs, "min_score", None)
+        else:
+            raise ValidationError(
+                "Field 'vector_search' must be a dictionary or VectorSearchSpec."
+            )
+
+        if not isinstance(vec, (list, tuple)) or len(vec) == 0:
+            raise ValidationError(
+                "Field 'vector_search.vector' must be a non-empty list of numbers."
+            )
+        if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in vec):
+            raise ValidationError(
+                "All elements in 'vector_search.vector' must be numbers."
+            )
+        _check_ident(col, "vector_search column")
+        if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
+            raise ValidationError(
+                f"Field 'vector_search.top_k' must be an integer between 1 and {MAX_LIMIT}."
+            )
+        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
+        if str(metric).lower() not in valid_metrics:
+            raise ValidationError(
+                f"Invalid vector_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
+            )
+        if min_score is not None and not isinstance(min_score, (int, float)):
+            raise ValidationError("Field 'vector_search.min_score' must be a number or None.")
 
 
 class QueryCompiler:
@@ -1010,6 +1065,48 @@ class QueryCompiler:
                     self.select_column_names.append(alias_label)
                     self.group_by_items.append(quoted_ref)
 
+        # 3.1. Process Vector Search
+        vs_spec = self.spec.get("vector_search")
+        self.has_vector_search = False
+        self.vector_distance_expr = None
+        self._vector_include_dist = True
+        self._vector_param_val = None
+        if vs_spec:
+            self.has_vector_search = True
+            vs_dict = (
+                vs_spec.to_dict()
+                if hasattr(vs_spec, "to_dict")
+                else (vs_spec if isinstance(vs_spec, dict) else vs_spec.__dict__)
+            )
+            vec = vs_dict.get("vector", [])
+            vs_col = vs_dict.get("column", "embedding")
+            metric = str(vs_dict.get("metric", "cosine")).lower()
+            self._vector_include_dist = vs_dict.get("include_distances", True)
+            min_score = vs_dict.get("min_score")
+
+            _, _, vs_quoted_ref = self._resolve_column_ref(
+                vs_col, default_table=clean_base_table, target_alias=base_alias
+            )
+            self.vector_distance_expr = self.dialect.format_vector_distance(
+                vs_quoted_ref, metric=metric
+            )
+            self._vector_param_val = self.dialect.format_vector_param(vec)
+
+            if self._vector_include_dist:
+                dist_alias = "_distance"
+                self.select_clause_items.append(
+                    f"{self.vector_distance_expr} AS {self.dialect.quote_alias(dist_alias)}"
+                )
+                self.select_column_names.append(dist_alias)
+                self.params.append(self._vector_param_val)
+
+            if min_score is not None:
+                self.where_clauses.append(
+                    f"{self.vector_distance_expr} <= {self.dialect.placeholder}"
+                )
+                self.params.append(self._vector_param_val)
+                self.params.append(float(min_score))
+
         # 4. Process Filters
         filters_spec = self.spec.get("filters", [])
         filter_join = self.spec.get("filter_join", "AND").upper()
@@ -1346,7 +1443,13 @@ class QueryCompiler:
             f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
         )
 
-        if (
+        if not self.order_by_items and self.has_vector_search:
+            if self._vector_include_dist:
+                order_by_str = f"ORDER BY {self.dialect.quote_alias('_distance')} ASC"
+            else:
+                order_by_str = f"ORDER BY {self.vector_distance_expr} ASC"
+                self.params.append(self._vector_param_val)
+        elif (
             getattr(self.dialect, "requires_order_by_for_pagination", False)
             and not self.order_by_items
         ):
@@ -1358,7 +1461,21 @@ class QueryCompiler:
                 else ""
             )
 
-        limit = min(int(self.spec.get("limit", 50)), self.max_limit)
+        limit_val = int(self.spec.get("limit", 50))
+        if self.has_vector_search:
+            vs_spec_val = self.spec.get("vector_search")
+            if isinstance(vs_spec_val, dict):
+                top_k_val = int(vs_spec_val.get("top_k", 10))
+            elif hasattr(vs_spec_val, "top_k"):
+                top_k_val = int(getattr(vs_spec_val, "top_k", 10))
+            else:
+                top_k_val = 10
+            if "limit" not in self.spec:
+                limit_val = top_k_val
+            else:
+                limit_val = min(limit_val, top_k_val)
+
+        limit = min(limit_val, self.max_limit)
         offset = min(max(int(self.spec.get("offset", 0)), 0), MAX_OFFSET)
 
         limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)

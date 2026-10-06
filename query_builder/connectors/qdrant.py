@@ -8,6 +8,7 @@ dual sync and async execution protocols, and payload schema introspection.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from typing import Any
 
@@ -53,6 +54,41 @@ class _QdrantCursorAdapter:
             )
             self.description = [("collection_name",)]
             self._rows = [[getattr(c, "name", str(c))] for c in colls]
+        elif hasattr(self.conn, "search") and (
+            params is not None
+            and len(params) > 0
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+        ):
+            coll = "default"
+            import re
+
+            m = re.search(r"\bFROM\s+([`\"]?)([\w_]+)\1", clean_sql, re.IGNORECASE)
+            if m:
+                coll = m.group(2)
+            vector = [0.0] * 8
+            if params and isinstance(params[0], (list, tuple)):
+                vector = list(params[0])
+            elif params and isinstance(params[0], str):
+                with contextlib.suppress(Exception):
+                    parsed = json.loads(params[0])
+                    if isinstance(parsed, list):
+                        vector = parsed
+            limit_val = 10
+            lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+            if lm:
+                limit_val = int(lm.group(1))
+            res = self.conn.search(
+                collection_name=coll, query_vector=vector, limit=limit_val
+            )
+            self.description = [("id",), ("score",), ("payload",)]
+            self._rows = [
+                [
+                    getattr(p, "id", p.get("id") if isinstance(p, dict) else None),
+                    getattr(p, "score", p.get("score") if isinstance(p, dict) else 0.0),
+                    getattr(p, "payload", p.get("payload") if isinstance(p, dict) else {}),
+                ]
+                for p in res
+            ]
         elif hasattr(self.conn, "scroll"):
             coll = "default"
             import re

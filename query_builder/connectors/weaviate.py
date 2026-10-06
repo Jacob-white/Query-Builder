@@ -8,6 +8,7 @@ dual sync and async execution protocols, and collection schema introspection.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from typing import Any
 
@@ -55,6 +56,37 @@ class _WeaviateCursorAdapter:
             )
             self.description = [("class_name",)]
             self._rows = [[str(name)] for name in names]
+        elif hasattr(self.conn, "collections") and hasattr(self.conn.collections, "get") and (
+            params is not None
+            and len(params) > 0
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+        ):
+            coll = "default"
+            import re
+
+            m = re.search(r"\bFROM\s+([`\"]?)([\w_]+)\1", clean_sql, re.IGNORECASE)
+            if m:
+                coll = m.group(2)
+            vector = [0.0] * 8
+            if params and isinstance(params[0], (list, tuple)):
+                vector = list(params[0])
+            elif params and isinstance(params[0], str):
+                with contextlib.suppress(Exception):
+                    parsed = json.loads(params[0])
+                    if isinstance(parsed, list):
+                        vector = parsed
+            collection = self.conn.collections.get(coll)
+            res = collection.query.near_vector(near_vector=vector, limit=10)
+            objects = getattr(res, "objects", res) if hasattr(res, "objects") else res
+            self.description = [("uuid",), ("properties",), ("metadata",)]
+            self._rows = [
+                [
+                    str(getattr(obj, "uuid", "")),
+                    getattr(obj, "properties", {}),
+                    getattr(obj, "metadata", {}),
+                ]
+                for obj in (objects if isinstance(objects, list) else [])
+            ]
         elif hasattr(self.conn, "graphql") and hasattr(self.conn.graphql, "raw_query"):
             res = self.conn.graphql.raw_query(clean_sql)
             data = getattr(res, "get", lambda _: {})("data", {})

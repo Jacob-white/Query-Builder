@@ -131,6 +131,66 @@ def generate_openapi_spec() -> dict[str, Any]:
                 }
             },
         },
+        "components": {
+            "schemas": {
+                "VectorSearchSpec": {
+                    "type": "object",
+                    "properties": {
+                        "vector": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "description": "Query embedding vector",
+                        },
+                        "column": {
+                            "type": "string",
+                            "default": "embedding",
+                            "description": "Embedding column name",
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "default": 10,
+                            "description": "Max nearest neighbors to retrieve",
+                        },
+                        "metric": {
+                            "type": "string",
+                            "enum": [
+                                "cosine",
+                                "euclidean",
+                                "l2",
+                                "dot_product",
+                                "inner_product",
+                            ],
+                            "default": "cosine",
+                            "description": "Similarity / distance metric",
+                        },
+                        "include_distances": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Whether to project _distance in output",
+                        },
+                        "min_score": {
+                            "type": "number",
+                            "description": "Optional similarity score threshold",
+                        },
+                    },
+                    "required": ["vector"],
+                },
+                "QuerySpec": {
+                    "type": "object",
+                    "properties": {
+                        "table": {"type": "string"},
+                        "columns": {"type": "array", "items": {"type": "string"}},
+                        "filters": {"type": "array"},
+                        "limit": {"type": "integer", "default": 50},
+                        "offset": {"type": "integer", "default": 0},
+                        "vector_search": {
+                            "$ref": "#/components/schemas/VectorSearchSpec"
+                        },
+                    },
+                    "required": ["table"],
+                },
+            }
+        },
     }
 
 

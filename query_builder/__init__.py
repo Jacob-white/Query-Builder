@@ -439,6 +439,7 @@ from query_builder.models import (
     SchemaSnapshot,
     TableMeta,
     ValidationResult,
+    VectorSearchSpec,
 )
 from query_builder.policy import (
     SecurityPolicy,
@@ -816,6 +817,7 @@ __all__ = [
     "ValidationError",
     "ValidationResult",
     "ValidationSecurityConfig",
+    "VectorSearchSpec",
     "VerticaConnector",
     "VerticaDialect",
     "VictoriaMetricsConnector",
