@@ -9,6 +9,8 @@ import type {
   VectorSearchSpec,
   HybridSearchSpec,
   QueryPlanNode,
+  CteSpec,
+  WindowFunctionSpec,
 } from "../types";
 
 export interface CompiledVisualQuery {
@@ -36,6 +38,8 @@ export interface CompiledVisualQuery {
     limit: number;
     vector_search?: VectorSearchSpec;
     hybrid_search?: HybridSearchSpec;
+    ctes?: CteSpec[];
+    window_functions?: WindowFunctionSpec[];
   };
 }
 
@@ -275,6 +279,8 @@ export function compileVisualState(
   customOperators?: Record<string, CustomFilterOperator>,
   vectorSearch?: VectorSearchSpec | null,
   hybridSearch?: HybridSearchSpec | null,
+  ctes?: CteSpec[] | null,
+  windowFunctions?: WindowFunctionSpec[] | null,
 ): CompiledVisualQuery {
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
@@ -290,6 +296,8 @@ export function compileVisualState(
         limit,
         vector_search: vectorSearch || undefined,
         hybrid_search: hybridSearch || undefined,
+        ctes: ctes && ctes.length > 0 ? ctes : undefined,
+        window_functions: windowFunctions && windowFunctions.length > 0 ? windowFunctions : undefined,
       },
     };
   }
@@ -572,6 +580,27 @@ export function compileVisualState(
     }
   }
 
+  // Window Functions
+  if (windowFunctions && windowFunctions.length > 0) {
+    const wfClauses = windowFunctions.map((wf) => {
+      const args = wf.arguments?.length ? wf.arguments.join(", ") : wf.function === "COUNT" ? "*" : "";
+      const part = wf.partition_by?.length ? `PARTITION BY ${wf.partition_by.map((c) => sanitizeIdent(c)).join(", ")}` : "";
+      const ord = wf.order_by?.length
+        ? `ORDER BY ${wf.order_by.map((o) => `${sanitizeIdent(o.column)} ${o.direction || "ASC"}`).join(", ")}`
+        : "";
+      let frame = "";
+      if (wf.frame) {
+        frame = `${wf.frame.frame_type || "ROWS"} BETWEEN ${wf.frame.start || "UNBOUNDED PRECEDING"} AND ${wf.frame.end || "CURRENT ROW"}`;
+        if (wf.frame.exclusion) frame += ` EXCLUDE ${wf.frame.exclusion}`;
+      }
+      const overTokens = [part, ord, frame].filter(Boolean);
+      const overClause = `OVER (${overTokens.join(" ")})`;
+      const aliasClause = wf.alias ? ` AS ${quoteIdent(wf.alias, dialect)}` : "";
+      return `${wf.function}(${args}) ${overClause}${aliasClause}`;
+    });
+    selectClause = selectClause === "*" ? wfClauses.join(", ") : `${selectClause}, ${wfClauses.join(", ")}`;
+  }
+
   // Group By
   let groupClause = "";
   if (hasAggregates) {
@@ -597,8 +626,21 @@ export function compileVisualState(
   if (orderClause) queryParts.push(orderClause);
   queryParts.push(formatLimit(limit, dialect));
 
+  let ctePrefix = "";
+  if (ctes && ctes.length > 0) {
+    const hasRecursive = ctes.some((c) => c.recursive);
+    const withKw = hasRecursive ? "WITH RECURSIVE " : "WITH ";
+    const compiledCteList = ctes.map((c) => {
+      const innerSql = (c.query as any)?.sql || `SELECT * FROM ${quoteIdent(c.query?.table || "sub", dialect)}`;
+      const cols = c.columns?.length ? ` (${c.columns.map((col) => quoteIdent(col, dialect)).join(", ")})` : "";
+      const mat = c.materialized ? "MATERIALIZED " : "";
+      return `${quoteIdent(c.name, dialect)}${cols} AS ${mat}(\n${innerSql}\n)`;
+    });
+    ctePrefix = `${withKw}${compiledCteList.join(", ")}\n`;
+  }
+
   return {
-    sql: queryParts.join("\n"),
+    sql: `${ctePrefix}${queryParts.join("\n")}`,
     spec: {
       table: cleanPrimary,
       columns: specColumns,
@@ -613,6 +655,8 @@ export function compileVisualState(
       limit,
       vector_search: vectorSearch || undefined,
       hybrid_search: hybridSearch || undefined,
+      ctes: ctes && ctes.length > 0 ? ctes : undefined,
+      window_functions: windowFunctions && windowFunctions.length > 0 ? windowFunctions : undefined,
     },
   };
 }

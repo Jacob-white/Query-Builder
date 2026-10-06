@@ -47,6 +47,8 @@ ALLOWED_SPEC_KEYS = {
     "tenant_id",
     "vector_search",
     "hybrid_search",
+    "ctes",
+    "window_functions",
 }
 
 ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
@@ -659,6 +661,28 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 f"Invalid hybrid_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
             )
 
+    if "ctes" in spec and spec["ctes"] is not None:
+        ctes_val = spec["ctes"]
+        if not isinstance(ctes_val, (list, tuple)):
+            raise ValidationError("Field 'ctes' must be a list.")
+        from query_builder.ast_validator import validate_cte_dag
+
+        cte_res = validate_cte_dag(ctes_val)
+        if not cte_res.get("valid", True):
+            raise ValidationError(cte_res["violations"][0])
+
+    if "window_functions" in spec and spec["window_functions"] is not None:
+        wf_val = spec["window_functions"]
+        if not isinstance(wf_val, (list, tuple)):
+            raise ValidationError("Field 'window_functions' must be a list.")
+        from query_builder.ast_validator import validate_window_function_spec
+
+        for wf in wf_val:
+            wf_res = validate_window_function_spec(wf)
+            if not wf_res.get("valid", True):
+                raise ValidationError(wf_res["violations"][0])
+
+
 
 class QueryCompiler:
     """
@@ -728,6 +752,13 @@ class QueryCompiler:
             self.tables_meta = {}
             self.rel_meta = []
             self.foreign_keys = []
+
+        self.tables_meta = dict(self.tables_meta)
+        ctes = self.spec.get("ctes") or []
+        for cte in ctes:
+            c_name = getattr(cte, "name", None) or (cte.get("name") if isinstance(cte, dict) else None)
+            if c_name and c_name not in self.tables_meta:
+                self.tables_meta[c_name] = {"name": c_name, "columns": []}
 
         self.table_aliases: dict[str, str] = {}
         self._alias_counter = 0
@@ -1257,6 +1288,101 @@ class QueryCompiler:
                 if self._hybrid_text_quoted_refs:
                     self.params.append(self._hybrid_text_param)
 
+        # 3b. Process Window Functions
+        window_funcs_spec = self.spec.get("window_functions", [])
+        for wf_item in window_funcs_spec:
+            if hasattr(wf_item, "__dict__"):
+                wf = {k: v for k, v in wf_item.__dict__.items() if not k.startswith("_")}
+            elif isinstance(wf_item, dict):
+                wf = wf_item
+            else:
+                continue
+
+            wf_func = str(wf.get("function", "")).strip().upper()
+            if not wf_func:
+                continue
+
+            # Arguments
+            wf_args = wf.get("arguments", [])
+            if wf_args == ["*"]:
+                args_str = "*"
+            elif wf_args:
+                formatted_args = []
+                for a in wf_args:
+                    if isinstance(a, str):
+                        _, _, qa = self._resolve_column_ref(a, clean_base_table)
+                        formatted_args.append(qa)
+                    else:
+                        formatted_args.append(str(a))
+                args_str = ", ".join(formatted_args)
+            elif wf_func == "COUNT":
+                args_str = "*"
+            else:
+                args_str = ""
+
+            # Partition By
+            wf_parts = wf.get("partition_by", [])
+            if wf_parts:
+                quoted_parts = []
+                for p in wf_parts:
+                    _, _, qp = self._resolve_column_ref(p, clean_base_table)
+                    quoted_parts.append(qp)
+                part_clause = f"PARTITION BY {', '.join(quoted_parts)}"
+            else:
+                part_clause = ""
+
+            # Order By
+            wf_orders = wf.get("order_by", [])
+            if wf_orders:
+                quoted_orders = []
+                for ord_item in wf_orders:
+                    if hasattr(ord_item, "__dict__"):
+                        ord_item = {k: v for k, v in ord_item.__dict__.items()}
+                    col_ref = ord_item.get("column")
+                    if not col_ref:
+                        continue
+                    direction = ord_item.get("direction", "ASC").upper()
+                    if direction not in ("ASC", "DESC"):
+                        direction = "ASC"
+                    prefix = ord_item.get("table_prefix") or ord_item.get("tablePrefix") or clean_base_table
+                    _, _, qo = self._resolve_column_ref(col_ref, prefix)
+                    quoted_orders.append(f"{qo} {direction}")
+                order_clause = f"ORDER BY {', '.join(quoted_orders)}" if quoted_orders else ""
+            else:
+                order_clause = ""
+
+            # Frame
+            wf_frame = wf.get("frame")
+            if wf_frame:
+                if hasattr(wf_frame, "__dict__"):
+                    wf_frame = {k: v for k, v in wf_frame.__dict__.items()}
+                ftype = (wf_frame.get("frame_type") or "ROWS").upper()
+                if ftype == "GROUPS" and not getattr(self.dialect, "supports_window_groups_frame", False):
+                    raise CompilationError(f"Dialect '{self.dialect.name}' does not support GROUPS window frame specification.")
+                start = (wf_frame.get("start") or "UNBOUNDED PRECEDING").upper()
+                end = wf_frame.get("end")
+                if end:
+                    frame_clause = f"{ftype} BETWEEN {start} AND {str(end).upper()}"
+                else:
+                    frame_clause = f"{ftype} {start}"
+                exclusion = wf_frame.get("exclusion")
+                if exclusion:
+                    frame_clause = f"{frame_clause} EXCLUDE {str(exclusion).upper()}"
+            else:
+                frame_clause = ""
+
+            over_tokens = [tok for tok in (part_clause, order_clause, frame_clause) if tok]
+            over_clause = f"OVER ({' '.join(over_tokens)})"
+            wf_expr = f"{wf_func}({args_str}) {over_clause}"
+
+            alias = wf.get("alias")
+            if alias:
+                self.select_clause_items.append(f"{wf_expr} AS {self.dialect.quote_alias(alias)}")
+                self.select_column_names.append(alias)
+            else:
+                self.select_clause_items.append(wf_expr)
+                self.select_column_names.append(wf_func)
+
         # 4. Process Filters
         filters_spec = self.spec.get("filters", [])
         filter_join = self.spec.get("filter_join", "AND").upper()
@@ -1695,6 +1821,54 @@ class QueryCompiler:
             count_sql = "\n".join(count_query_parts)
 
         count_params = from_params + list(self.params)
+
+        # Process CTEs (Common Table Expressions)
+        ctes_spec = self.spec.get("ctes") or []
+        cte_params: list[Any] = []
+        cte_sql_prefix = ""
+        if ctes_spec:
+            has_recursive = any(
+                (c.get("recursive") if isinstance(c, dict) else getattr(c, "recursive", False))
+                for c in ctes_spec
+            )
+            with_kw = "WITH RECURSIVE " if has_recursive else "WITH "
+            compiled_ctes: list[str] = []
+            for cte in ctes_spec:
+                if hasattr(cte, "__dict__"):
+                    cte_dict = {k: v for k, v in cte.__dict__.items() if not k.startswith("_")}
+                elif isinstance(cte, dict):
+                    cte_dict = cte
+                else:
+                    raise CompilationError(f"Invalid CTE item type: {type(cte).__name__}")
+                c_name = cte_dict.get("name")
+                c_cols = cte_dict.get("columns", [])
+                c_mat = cte_dict.get("materialized")
+                c_query = cte_dict.get("query")
+                if isinstance(c_query, dict):
+                    inner_query_spec = c_query
+                elif hasattr(c_query, "__dict__"):
+                    inner_query_spec = {k: v for k, v in c_query.__dict__.items() if not k.startswith("_")}
+                else:
+                    raise CompilationError(f"CTE '{c_name}' query must be a QuerySpec or dict.")
+
+                inner_compiler = QueryCompiler(
+                    inner_query_spec,
+                    schema=self.schema,
+                    dialect=self.dialect,
+                    allow_unknown_keys=True,
+                )
+                inner_sql, inner_params, _, _ = inner_compiler.compile()
+                cte_params.extend(inner_params)
+
+                cols_clause = f" ({', '.join(self.dialect.quote_identifier(c) for c in c_cols)})" if c_cols else ""
+                mat_clause = self.dialect.format_cte_materialized(c_mat)
+                quoted_c_name = self.dialect.quote_identifier(c_name)
+                compiled_ctes.append(f"{quoted_c_name}{cols_clause} AS {mat_clause}(\n{inner_sql}\n)")
+            cte_sql_prefix = f"{with_kw}{', '.join(compiled_ctes)}\n"
+            main_sql = f"{cte_sql_prefix}{main_sql}"
+            main_params = cte_params + main_params
+            count_sql = f"{cte_sql_prefix}{count_sql}"
+            count_params = cte_params + count_params
 
         if self.middleware is not None:
             compilation = {

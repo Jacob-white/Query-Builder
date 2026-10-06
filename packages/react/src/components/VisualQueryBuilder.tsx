@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import type {
   VisualQueryBuilderProps,
   TableMeta,
+  ColumnMeta,
   VisualColumnSelect,
   VisualFilter,
   VisualJoin,
@@ -19,6 +20,11 @@ import { SchemaExplorerModal } from "./SchemaExplorerModal";
 import { QueryChartPreview } from "./QueryChartPreview";
 import { QueryTemplateManager } from "./QueryTemplateManager";
 import { QueryPlanVisualizer } from "./QueryPlanVisualizer";
+import { NlqPromptBar } from "./NlqPromptBar";
+import { LiveExecutionBar } from "./LiveExecutionBar";
+import { PipelineDagCanvas } from "./PipelineDagCanvas";
+import { WindowFunctionBuilder } from "./WindowFunctionBuilder";
+import { useLiveExecution, type LiveExecutionResult } from "../hooks/useLiveExecution";
 import { compileVisualState, estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema } from "../utils/schemaUtils";
@@ -28,7 +34,7 @@ import { findBestJoinCondition } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
-import type { QueryPlanNode } from "../types";
+import type { QueryPlanNode, CteSpec, WindowFunctionSpec } from "../types";
 
 export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
   VisualQueryBuilderProps<Schema>,
@@ -38,6 +44,17 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   unstyled?: boolean;
   queryPlan?: QueryPlanNode;
   showPlanTab?: boolean;
+  showNlqBar?: boolean;
+  nlqApiUrl?: string;
+  nlqDefaultProvider?: any;
+  showLiveExecutionBar?: boolean;
+  liveExecutionApiUrl?: string;
+  liveExecutionConnectionId?: string;
+  onLiveExecutionSuccess?: (results: LiveExecutionResult) => void;
+  onLiveExecutionError?: (error: Error) => void;
+  initialCtes?: CteSpec[];
+  initialWindowFunctions?: WindowFunctionSpec[];
+  showPipelineTab?: boolean;
 };
 
 export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
@@ -47,6 +64,17 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   dialect = "postgres",
   queryPlan,
   showPlanTab = false,
+  showNlqBar = false,
+  nlqApiUrl,
+  nlqDefaultProvider,
+  showLiveExecutionBar = false,
+  liveExecutionApiUrl,
+  liveExecutionConnectionId,
+  onLiveExecutionSuccess,
+  onLiveExecutionError,
+  initialCtes = [],
+  initialWindowFunctions = [],
+  showPipelineTab = false,
   onExecuteQuery: propExecuteQuery,
   onSaveQuery,
   theme: propTheme,
@@ -87,10 +115,52 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   );
 
   const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
-  const allTables = useMemo(() => Object.values(normalizedSchema?.tables || {}), [normalizedSchema]);
+
+  const [ctes, setCtes] = useState<CteSpec[]>(initialCtes);
+  const [activeStageName, setActiveStageName] = useState<string | null>(null);
+  const [windowFunctions, setWindowFunctions] = useState<WindowFunctionSpec[]>(initialWindowFunctions);
+  const [isWfBuilderOpen, setIsWfBuilderOpen] = useState<boolean>(false);
+
+  // Dynamic Schema Augmentation: expose upstream CTEs as virtual tables
+  const augmentedSchema = useMemo(() => {
+    if (!normalizedSchema) return normalizedSchema;
+    if (ctes.length === 0) return normalizedSchema;
+    const copyTables = { ...normalizedSchema.tables };
+    for (const cte of ctes) {
+      if (activeStageName && cte.name === activeStageName) continue;
+      const cols: ColumnMeta[] = [];
+      if (cte.query?.columns) {
+        cte.query.columns.forEach((col: any) => {
+          if (typeof col === "string") {
+            cols.push({ name: col, data_type: "text", is_nullable: true, is_primary: false });
+          } else if (col && typeof col === "object") {
+            cols.push({ name: col.alias || col.column || "col", data_type: "text", is_nullable: true, is_primary: false });
+          }
+        });
+      }
+      if (cte.query?.window_functions) {
+        cte.query.window_functions.forEach((wf: any) => {
+          if (wf.alias) cols.push({ name: wf.alias, data_type: "numeric", is_nullable: true, is_primary: false });
+        });
+      }
+      if (cols.length === 0) {
+        cols.push(
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+          { name: "value", data_type: "text", is_nullable: true, is_primary: false },
+        );
+      }
+      copyTables[cte.name] = {
+        name: cte.name,
+        columns: cols,
+      };
+    }
+    return { ...normalizedSchema, tables: copyTables };
+  }, [normalizedSchema, ctes, activeStageName]);
+
+  const allTables = useMemo(() => Object.values(augmentedSchema?.tables || {}), [augmentedSchema]);
   const defaultTable = initialTable || allTables[0]?.name || "";
 
-  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart" | "plan">("visual");
+  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart" | "plan" | "pipeline">("visual");
   const [primaryTable, setPrimaryTable] = useState<string>(defaultTable);
   const [activeTableNames, setActiveTableNames] = useState<string[]>(
     defaultTable ? [defaultTable] : [],
@@ -125,6 +195,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     results: useRef<HTMLButtonElement | null>(null),
     chart: useRef<HTMLButtonElement | null>(null),
     plan: useRef<HTMLButtonElement | null>(null),
+    pipeline: useRef<HTMLButtonElement | null>(null),
   };
 
   useEffect(() => {
@@ -144,9 +215,9 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   // Active table metadata
   const activeTables: TableMeta[] = useMemo(() => {
     return activeTableNames
-      .map((name) => normalizedSchema?.tables?.[name])
+      .map((name) => augmentedSchema?.tables?.[name])
       .filter((t): t is TableMeta => Boolean(t));
-  }, [activeTableNames, normalizedSchema]);
+  }, [activeTableNames, augmentedSchema]);
 
   // Compiled visual query
   const compiled = useMemo(() => {
@@ -159,12 +230,14 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       sorts,
       isDistinct,
       limit,
-      normalizedSchema,
+      augmentedSchema,
       dialect,
       "AND",
       customOperators,
       vectorSearch,
       hybridSearch,
+      ctes,
+      windowFunctions,
     );
   }, [
     primaryTable,
@@ -175,11 +248,13 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     sorts,
     isDistinct,
     limit,
-    normalizedSchema,
+    augmentedSchema,
     dialect,
     customOperators,
     vectorSearch,
     hybridSearch,
+    ctes,
+    windowFunctions,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -304,15 +379,61 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     setIsRawMode(false);
   };
 
+  const handleApplyNlqSpec = (appliedSpec: any) => {
+    if (appliedSpec && appliedSpec.table) {
+      const converted = specToState(appliedSpec);
+      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
+      if (converted.activeTables && converted.activeTables.length > 0) {
+        setActiveTableNames(converted.activeTables);
+      }
+      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
+      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
+      if (converted.joins) setJoins(converted.joins);
+      if (converted.filters) setFilters(converted.filters);
+      if (converted.sorts) setSorts(converted.sorts);
+      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
+      if (converted.limit !== undefined) setLimit(converted.limit);
+      if (appliedSpec.vector_search) setVectorSearch(appliedSpec.vector_search);
+      if (appliedSpec.hybrid_search) setHybridSearch(appliedSpec.hybrid_search);
+      setIsRawMode(false);
+    }
+  };
+
+  const liveExec = useLiveExecution({
+    apiUrl: liveExecutionApiUrl,
+    connectionId: liveExecutionConnectionId,
+    dialect,
+    onSuccess: (res) => {
+      setQueryResults({
+        columns: res.columns,
+        rows: res.rows,
+        count: res.rowCount,
+        durationMs: res.executionTimeMs,
+      });
+      setActiveTab("results");
+      onLiveExecutionSuccess?.(res);
+    },
+    onError: onLiveExecutionError,
+  });
+
+  const getActiveSpec = (): any => {
+    const base = isRawMode
+      ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
+      : compiled.spec;
+    if (!base) return base;
+    const merged = { ...base };
+    if (ctes.length > 0) merged.ctes = ctes;
+    if (windowFunctions.length > 0) merged.window_functions = windowFunctions;
+    return merged;
+  };
+
   // Execute current query
   const handleRunQuery = async () => {
     if (!onExecuteQuery) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
-      const parsedSpec = isRawMode
-        ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
-        : compiled.spec;
+      const parsedSpec = getActiveSpec();
       const result = await onExecuteQuery(currentSql, parsedSpec);
       if (result) {
         setQueryResults(result);
@@ -481,17 +602,23 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   };
 
   const hasPlanTab = Boolean(queryPlan || showPlanTab);
+  const hasPipelineTab = Boolean(showPipelineTab || ctes.length > 0);
 
   const handleTabKeyDown = (
     e: React.KeyboardEvent<HTMLButtonElement>,
-    tab: "visual" | "sql" | "results" | "chart" | "plan",
+    tab: "visual" | "sql" | "results" | "chart" | "plan" | "pipeline",
   ) => {
-    const tabs: ("visual" | "sql" | "results" | "chart" | "plan")[] = hasPlanTab
-      ? ["visual", "sql", "results", "chart", "plan"]
-      : ["visual", "sql", "results", "chart"];
+    const tabs: ("visual" | "sql" | "results" | "chart" | "plan" | "pipeline")[] = [
+      "visual",
+      "sql",
+      "results",
+      "chart",
+    ];
+    if (hasPipelineTab) tabs.push("pipeline");
+    if (hasPlanTab) tabs.push("plan");
     const currentIndex = tabs.indexOf(tab);
     if (currentIndex === -1) return;
-    let targetTab: "visual" | "sql" | "results" | "chart" | "plan" | null = null;
+    let targetTab: "visual" | "sql" | "results" | "chart" | "plan" | "pipeline" | null = null;
 
     if (e.key === "ArrowRight") {
       e.preventDefault();
@@ -692,6 +819,37 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             >
               📈 Visual Chart
             </button>
+            {hasPipelineTab && (
+              <button
+                ref={tabRefs.pipeline}
+                role="tab"
+                id="tab-pipeline"
+                aria-controls="panel-pipeline"
+                aria-selected={activeTab === "pipeline"}
+                tabIndex={activeTab === "pipeline" ? 0 : -1}
+                onKeyDown={(e) => handleTabKeyDown(e, "pipeline")}
+                type="button"
+                onClick={() => setActiveTab("pipeline")}
+                data-qb="tab"
+                data-qb-tab="pipeline"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: activeTab === "pipeline" ? activeTheme.colors.primary : "transparent",
+                        color: activeTab === "pipeline" ? "#fff" : activeTheme.colors.textMuted,
+                        border: "none",
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 12px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        fontWeight: activeTheme.typography.fontWeightSemibold,
+                        cursor: "pointer",
+                      }
+                }
+              >
+                🔀 Pipeline {ctes.length > 0 ? `(${ctes.length})` : ""}
+              </button>
+            )}
             {hasPlanTab && (
               <button
                 ref={tabRefs.plan}
@@ -724,6 +882,31 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               </button>
             )}
           </div>
+
+          {/* Window Functions Button */}
+          <button
+            type="button"
+            onClick={() => setIsWfBuilderOpen(true)}
+            aria-label="Open window functions builder"
+            data-qb="btn-window-functions"
+            data-testid="btn-open-wf-builder"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(30, 41, 59, 0.5)",
+                    color: "#a855f7",
+                    border: "1px solid rgba(168, 85, 247, 0.3)",
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 12px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    fontWeight: activeTheme.typography.fontWeightSemibold,
+                    cursor: "pointer",
+                  }
+            }
+          >
+            🪟 Window Functions {windowFunctions.length > 0 ? `(${windowFunctions.length})` : ""}
+          </button>
 
           {/* Schema Explorer Button */}
           <button
@@ -979,6 +1162,25 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         </div>
       )}
 
+      {showLiveExecutionBar && (
+        <LiveExecutionBar
+          connectionId={liveExecutionConnectionId}
+          connectionStatus={liveExec.connectionStatus}
+          connectionLatencyMs={liveExec.connectionLatencyMs}
+          isExecuting={liveExec.isExecuting}
+          executionTimeMs={liveExec.executionTimeMs}
+          rowCount={liveExec.results?.rowCount ?? null}
+          error={liveExec.error}
+          onDismissError={liveExec.clearResults}
+          onTestConnection={() => void liveExec.testConnection()}
+          onExecute={() => {
+            void liveExec.executeQuery(getActiveSpec());
+          }}
+          onCancel={() => void liveExec.cancelExecution()}
+          unstyled={unstyled}
+        />
+      )}
+
       {/* Tab Panels */}
       {activeTab === "visual" && (
         <div
@@ -989,6 +1191,17 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           data-qb="tab-panel"
           data-qb-panel="visual"
         >
+          {showNlqBar && (
+            <NlqPromptBar
+              schema={normalizedSchema}
+              currentSpec={compiled.spec}
+              onApplySpec={handleApplyNlqSpec}
+              apiUrl={nlqApiUrl}
+              defaultProvider={nlqDefaultProvider}
+              dialect={dialect}
+              unstyled={unstyled}
+            />
+          )}
           <QueryCanvas
             schema={normalizedSchema}
             activeTables={activeTables}
@@ -1179,6 +1392,48 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           />
         </div>
       )}
+
+      {hasPipelineTab && activeTab === "pipeline" && (
+        <div
+          role="tabpanel"
+          id="panel-pipeline"
+          aria-labelledby="tab-pipeline"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="pipeline"
+        >
+          <PipelineDagCanvas
+            ctes={ctes}
+            onCtesChange={setCtes}
+            onSelectStage={(stage) => {
+              setActiveStageName(stage);
+              if (stage) {
+                setPrimaryTable(stage);
+                if (!activeTableNames.includes(stage)) {
+                  setActiveTableNames((prev) => [...prev, stage]);
+                }
+              }
+              setActiveTab("visual");
+            }}
+            selectedStage={activeStageName}
+            unstyled={unstyled}
+          />
+        </div>
+      )}
+
+      {/* Window Function Builder Modal */}
+      <WindowFunctionBuilder
+        isOpen={isWfBuilderOpen}
+        onClose={() => setIsWfBuilderOpen(false)}
+        onSave={(wf) => setWindowFunctions((prev) => [...prev, wf])}
+        availableColumns={Object.values(augmentedSchema?.tables || {}).flatMap((t) =>
+          (t.columns || []).map((c) => ({
+            table: t.name,
+            name: typeof c === "string" ? c : c.name,
+          }))
+        )}
+        unstyled={unstyled}
+      />
 
       {/* Schema ERD Modal */}
       <SchemaErdModal

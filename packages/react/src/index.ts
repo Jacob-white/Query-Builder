@@ -19,6 +19,24 @@ export { TableFiltersEditor } from "./components/TableFiltersEditor";
 export { TableJoinEditor } from "./components/TableJoinEditor";
 export { TableSortsEditor } from "./components/TableSortsEditor";
 export {
+  NlqPromptBar,
+  type NlqPromptBarProps,
+} from "./components/NlqPromptBar";
+export {
+  LiveExecutionBar,
+  type LiveExecutionBarProps,
+} from "./components/LiveExecutionBar";
+export {
+  PipelineDagCanvas,
+  type PipelineDagCanvasProps,
+  detectCteCycles,
+} from "./components/PipelineDagCanvas";
+export {
+  WindowFunctionBuilder,
+  type WindowFunctionBuilderProps,
+  SUPPORTED_WINDOW_FUNCTIONS,
+} from "./components/WindowFunctionBuilder";
+export {
   VectorHybridControl,
   type VectorHybridControlProps,
 } from "./components/VectorHybridControl";
@@ -34,6 +52,7 @@ export {
 } from "./components/SchemaExplorerModal";
 export { QueryResultsTable } from "./components/QueryResultsTable";
 export { QueryChartPreview } from "./components/QueryChartPreview";
+export { BiChartVisualizer } from "./components/BiChartVisualizer";
 export { QueryPlayground } from "./components/QueryPlayground";
 export { ExportWorkbench, type ExportWorkbenchProps } from "./components/ExportWorkbench";
 export {

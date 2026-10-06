@@ -1323,4 +1323,73 @@ describe("compileVisualState", () => {
     expect(res.spec.table).toBe("orders");
     expect(res.spec.order_by[0].tablePrefix).toBe("orders");
   });
+
+  it("compiles CTEs and window functions in compileVisualState", () => {
+    const res = compileVisualState(
+      "active_users",
+      {
+        "active_users.id": { table: "active_users", name: "id" },
+      },
+      ["active_users.id"],
+      [],
+      [],
+      [],
+      false,
+      50,
+      mockSchema,
+      "postgres",
+      "AND",
+      undefined,
+      null,
+      null,
+      [
+        {
+          name: "raw_stage",
+          columns: ["id", "salary"],
+          materialized: true,
+          query: {
+            table: "users" as any,
+          } as any,
+        },
+        {
+          name: "recursive_stage",
+          recursive: true,
+          query: {
+            table: "raw_stage" as any,
+            sql: 'SELECT 1 AS "id"',
+          } as any,
+        },
+      ],
+      [
+        {
+          function: "ROW_NUMBER",
+          arguments: [],
+          alias: "row_num",
+          partition_by: ["dept_id"],
+          order_by: [{ column: "salary", direction: "DESC" }],
+          frame: {
+            frame_type: "ROWS",
+            start: "UNBOUNDED PRECEDING",
+            end: "CURRENT ROW",
+            exclusion: "CURRENT ROW",
+          },
+        },
+        {
+          function: "COUNT",
+          arguments: [],
+        },
+        {
+          function: "LEAD",
+          arguments: ["salary", "1"],
+        },
+      ],
+    );
+
+    expect(res.sql).toContain("WITH RECURSIVE");
+    expect(res.sql).toContain('"raw_stage" ("id", "salary") AS MATERIALIZED (\nSELECT * FROM "users"\n)');
+    expect(res.sql).toContain('"recursive_stage" AS (\nSELECT 1 AS "id"\n)');
+    expect(res.sql).toContain('ROW_NUMBER() OVER (PARTITION BY dept_id ORDER BY salary DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW) AS "row_num"');
+    expect(res.sql).toContain("COUNT(*) OVER ()");
+    expect(res.sql).toContain("LEAD(salary, 1) OVER ()");
+  });
 });

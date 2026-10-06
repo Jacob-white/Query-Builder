@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import type { QuerySpec, SqlDialect } from "../types";
+import type { QuerySpec, SqlDialect, ExportFormat } from "../types";
 import { useSqlCompiler } from "../hooks/useSqlCompiler";
 
 export interface ExportWorkbenchProps {
@@ -8,6 +8,8 @@ export interface ExportWorkbenchProps {
   dialect?: SqlDialect;
   onDialectChange?: (dialect: SqlDialect) => void;
   onCopy?: (text: string, format: string) => void;
+  streamEndpoint?: string;
+  onExportStream?: (format: ExportFormat) => Promise<void> | void;
   className?: string;
   style?: React.CSSProperties;
   unstyled?: boolean;
@@ -59,13 +61,19 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
   dialect: propDialect = "postgres",
   onDialectChange,
   onCopy,
+  streamEndpoint = "/api/v1/export/stream",
+  onExportStream,
   className,
   style,
   unstyled = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<"sdk" | "sql" | "ast">("sdk");
+  const [activeTab, setActiveTab] = useState<"sdk" | "sql" | "ast" | "export">("sdk");
   const [activeDialect, setActiveDialect] = useState<SqlDialect>(propDialect);
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
+
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (propDialect) {
@@ -93,8 +101,10 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
         return displaySql;
       case "ast":
         return astJson;
+      case "export":
+        return `// Streaming Export Config\n// Format: ${exportFormat}\n// Target: ${streamEndpoint}\n\nPOST ${streamEndpoint}\nPayload: ${JSON.stringify({ spec, format: exportFormat }, null, 2)}`;
     }
-  }, [activeTab, sdkCode, displaySql, astJson]);
+  }, [activeTab, sdkCode, displaySql, astJson, exportFormat, streamEndpoint, spec]);
 
   const handleDialectChange = (newDialect: SqlDialect) => {
     setActiveDialect(newDialect);
@@ -115,6 +125,49 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
       } catch {
         /* ignore */
       }
+    }
+  };
+
+  const handleStreamDownload = async () => {
+    setIsExporting(true);
+    setExportStatus("Downloading...");
+
+    try {
+      if (onExportStream) {
+        await onExportStream(exportFormat);
+        setExportStatus("Download complete!");
+        return;
+      }
+
+      if (typeof fetch !== "undefined") {
+        const res = await fetch(streamEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ spec, format: exportFormat }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Export failed with HTTP ${res.status}`);
+        }
+
+        const blob = await res.blob();
+        if (typeof window !== "undefined" && window.URL && document.createElement) {
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = downloadUrl;
+          const ext = exportFormat === "excel" ? "xlsx" : exportFormat;
+          link.download = `export.${ext}`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(downloadUrl);
+        }
+        setExportStatus("Download complete!");
+      }
+    } catch (err: any) {
+      setExportStatus(`Export error: ${err?.message || String(err)}`);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -213,6 +266,27 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
           >
             JSON AST
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("export")}
+            data-qb="codegen-tab-export"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: activeTab === "export" ? "#3b82f6" : "#1e293b",
+                    color: activeTab === "export" ? "#ffffff" : "#94a3b8",
+                    border: "1px solid #475569",
+                    borderRadius: "6px",
+                    padding: "4px 10px",
+                    fontSize: "0.75rem",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }
+            }
+          >
+            Streaming Export
+          </button>
         </div>
 
         <div
@@ -253,6 +327,60 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
             </select>
           )}
 
+          {activeTab === "export" && (
+            <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "6px" }}>
+              <select
+                aria-label="Select Export Format"
+                data-qb="export-format-select"
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "#1e293b",
+                        color: "#38bdf8",
+                        border: "1px solid #475569",
+                        borderRadius: "6px",
+                        padding: "4px 8px",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                      }
+                }
+              >
+                <option value="csv">CSV (.csv)</option>
+                <option value="json">JSON (.json)</option>
+                <option value="jsonl">JSON Lines (.jsonl)</option>
+                <option value="parquet">Parquet (.parquet)</option>
+                <option value="arrow">Arrow Stream (.arrow)</option>
+                <option value="excel">Excel (.xlsx)</option>
+              </select>
+
+              <button
+                type="button"
+                data-qb="export-download-btn"
+                disabled={isExporting}
+                onClick={handleStreamDownload}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: isExporting ? "#475569" : "#2563eb",
+                        color: "#ffffff",
+                        border: "1px solid #3b82f6",
+                        borderRadius: "6px",
+                        padding: "4px 12px",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        cursor: isExporting ? "wait" : "pointer",
+                      }
+                }
+              >
+                {isExporting ? "⏳ Downloading..." : "⬇ Download Stream"}
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             data-qb="playground-copy-btn"
@@ -277,6 +405,27 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
           </button>
         </div>
       </div>
+
+      {exportStatus && (
+        <div
+          data-qb="export-status-badge"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  fontSize: "0.75rem",
+                  background: exportStatus.includes("error")
+                    ? "rgba(239, 68, 68, 0.2)"
+                    : "rgba(16, 185, 129, 0.2)",
+                  color: exportStatus.includes("error") ? "#f87171" : "#34d399",
+                }
+          }
+        >
+          {exportStatus}
+        </div>
+      )}
 
       {/* Snippet Display */}
       <pre

@@ -251,6 +251,15 @@ class OrderBySpec:
     direction: str = "asc"  # asc, desc
     table_prefix: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "column": self.column,
+            "direction": self.direction,
+        }
+        if self.table_prefix is not None:
+            d["table_prefix"] = self.table_prefix
+        return d
+
 
 @dataclass
 class VectorSearchSpec:
@@ -358,6 +367,100 @@ class HybridSearchSpec:
 
 
 @dataclass
+class WindowFrameSpec:
+    """Specification of window function frame bounds (ROWS, RANGE, GROUPS)."""
+
+    frame_type: str = "ROWS"  # ROWS, RANGE, GROUPS
+    start: str = "UNBOUNDED PRECEDING"
+    end: str | None = None
+    exclusion: str | None = None
+
+    def __post_init__(self) -> None:
+        self.frame_type = (self.frame_type or "ROWS").upper().strip()
+        if self.frame_type not in {"ROWS", "RANGE", "GROUPS"}:
+            raise ValueError(f"Invalid frame_type: '{self.frame_type}'. Must be ROWS, RANGE, or GROUPS.")
+        self.start = (self.start or "UNBOUNDED PRECEDING").upper().strip()
+        if self.end is not None:
+            self.end = self.end.upper().strip()
+        if self.exclusion is not None:
+            self.exclusion = self.exclusion.upper().strip()
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "frame_type": self.frame_type,
+            "start": self.start,
+        }
+        if self.end is not None:
+            d["end"] = self.end
+        if self.exclusion is not None:
+            d["exclusion"] = self.exclusion
+        return d
+
+
+@dataclass
+class WindowFunctionSpec:
+    """Specification of an advanced window function with partition, order, and framing."""
+
+    function: str
+    arguments: list[Any] = field(default_factory=list)
+    partition_by: list[str] = field(default_factory=list)
+    order_by: list[dict[str, Any] | OrderBySpec] = field(default_factory=list)
+    frame: WindowFrameSpec | dict[str, Any] | None = None
+    alias: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.function:
+            raise ValueError("WindowFunctionSpec 'function' cannot be empty.")
+        self.function = self.function.upper().strip()
+        if isinstance(self.frame, dict):
+            self.frame = WindowFrameSpec(**self.frame)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "function": self.function,
+            "arguments": list(self.arguments),
+            "partition_by": list(self.partition_by),
+            "order_by": [
+                o.to_dict() if hasattr(o, "to_dict") else (o.__dict__ if hasattr(o, "__dict__") else o)
+                for o in self.order_by
+            ],
+        }
+        if self.frame is not None:
+            d["frame"] = self.frame.to_dict() if hasattr(self.frame, "to_dict") else self.frame
+        if self.alias is not None:
+            d["alias"] = self.alias
+        return d
+
+
+@dataclass
+class CteSpec:
+    """Specification of a Common Table Expression (WITH stage) in a DAG pipeline."""
+
+    name: str
+    query: QuerySpec | dict[str, Any]
+    columns: list[str] = field(default_factory=list)
+    recursive: bool = False
+    materialized: bool | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name or not isinstance(self.name, str):
+            raise ValueError("CteSpec 'name' must be a non-empty string identifier.")
+        if isinstance(self.query, dict):
+            self.query = QuerySpec(**self.query)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "name": self.name,
+            "query": self.query.to_dict() if hasattr(self.query, "to_dict") else self.query,
+            "columns": list(self.columns),
+            "recursive": self.recursive,
+        }
+        if self.materialized is not None:
+            d["materialized"] = self.materialized
+        return d
+
+
+@dataclass
 class QuerySpec:
     """Declarative specification for building and compiling a SQL query."""
 
@@ -374,12 +477,24 @@ class QuerySpec:
     tenant_id: Any = None
     vector_search: VectorSearchSpec | dict[str, Any] | None = None
     hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
+    ctes: list[CteSpec | dict[str, Any]] = field(default_factory=list)
+    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if isinstance(self.vector_search, dict):
             self.vector_search = VectorSearchSpec(**self.vector_search)
         if isinstance(self.hybrid_search, dict):
             self.hybrid_search = HybridSearchSpec(**self.hybrid_search)
+        if self.ctes:
+            self.ctes = [
+                CteSpec(**c) if isinstance(c, dict) else c
+                for c in self.ctes
+            ]
+        if self.window_functions:
+            self.window_functions = [
+                WindowFunctionSpec(**w) if isinstance(w, dict) else w
+                for w in self.window_functions
+            ]
 
     def to_dict(self) -> dict[str, Any]:
         res: dict[str, Any] = {
@@ -420,6 +535,16 @@ class QuerySpec:
                 if hasattr(self.hybrid_search, "to_dict")
                 else self.hybrid_search
             )
+        if self.ctes:
+            res["ctes"] = [
+                c.to_dict() if hasattr(c, "to_dict") else (c.__dict__ if hasattr(c, "__dict__") else c)
+                for c in self.ctes
+            ]
+        if self.window_functions:
+            res["window_functions"] = [
+                w.to_dict() if hasattr(w, "to_dict") else (w.__dict__ if hasattr(w, "__dict__") else w)
+                for w in self.window_functions
+            ]
         return res
 
 

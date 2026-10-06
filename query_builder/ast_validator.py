@@ -705,3 +705,199 @@ def validate_sql_ast(
         if is_valid
         else unique_violations[0],
     }
+
+
+SUPPORTED_WINDOW_FUNCTIONS: set[str] = {
+    "ROW_NUMBER",
+    "RANK",
+    "DENSE_RANK",
+    "PERCENT_RANK",
+    "CUME_DIST",
+    "NTILE",
+    "LEAD",
+    "LAG",
+    "FIRST_VALUE",
+    "LAST_VALUE",
+    "NTH_VALUE",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+}
+
+
+def validate_cte_dag(ctes: list[Any]) -> dict[str, Any]:
+    """
+    Validates a collection of CTE specifications for DAG structure:
+    1. Valid identifier names and uniqueness.
+    2. Identifies dependencies between CTEs.
+    3. Detects circular dependencies (cycles).
+    4. Ensures self-referencing CTEs are explicitly marked recursive=True.
+    5. Computes a valid topological execution order.
+    """
+    violations: list[str] = []
+    cycles: list[list[str]] = []
+    topological_order: list[str] = []
+
+    if not ctes:
+        return {
+            "valid": True,
+            "cycles": cycles,
+            "violations": violations,
+            "topological_order": topological_order,
+        }
+
+    cte_names: set[str] = set()
+    graph: dict[str, list[str]] = {}
+    recursive_map: dict[str, bool] = {}
+
+    for cte in ctes:
+        name = getattr(cte, "name", None) or (cte.get("name") if isinstance(cte, dict) else None)
+        if not name or not isinstance(name, str):
+            violations.append("CTE specification is missing a valid 'name'.")
+            continue
+        clean_name = name.strip()
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", clean_name):
+            violations.append(f"Invalid CTE identifier name: '{name}'.")
+
+        if clean_name.lower() in {n.lower() for n in cte_names}:
+            violations.append(f"Duplicate CTE name detected: '{name}'.")
+        cte_names.add(clean_name)
+
+        is_recursive = bool(
+            getattr(cte, "recursive", False) or (cte.get("recursive") if isinstance(cte, dict) else False)
+        )
+        recursive_map[clean_name] = is_recursive
+
+        # Extract dependencies from query table and joins
+        q = getattr(cte, "query", None) or (cte.get("query") if isinstance(cte, dict) else {})
+        deps: list[str] = []
+        if isinstance(q, dict):
+            base_tbl = q.get("table")
+            if isinstance(base_tbl, str):
+                deps.append(base_tbl)
+            for j in q.get("joins", []):
+                if isinstance(j, dict) and "table" in j:
+                    deps.append(j["table"])
+                elif hasattr(j, "table"):
+                    deps.append(j.table)
+        elif hasattr(q, "table"):
+            deps.append(q.table)
+            for j in getattr(q, "joins", []):
+                if hasattr(j, "table"):
+                    deps.append(j.table)
+                elif isinstance(j, dict) and "table" in j:
+                    deps.append(j["table"])
+
+        graph[clean_name] = deps
+
+    if violations:
+        return {
+            "valid": False,
+            "cycles": cycles,
+            "violations": violations,
+            "topological_order": topological_order,
+        }
+
+    # Check for self-referencing CTEs without recursive=True
+    for cte_name, deps in graph.items():
+        if cte_name in deps and not recursive_map.get(cte_name, False):
+            violations.append(
+                f"Self-referencing CTE '{cte_name}' must be marked as recursive."
+            )
+
+    # Filter dependencies to only internal CTEs
+    internal_graph: dict[str, list[str]] = {
+        name: [d for d in deps if d in cte_names and d != name]
+        for name, deps in graph.items()
+    }
+
+    # Detect cycles via 3-color DFS
+    state: dict[str, int] = {name: 0 for name in cte_names}
+    path: list[str] = []
+
+    def dfs(node: str) -> None:
+        state[node] = 1
+        path.append(node)
+        for neighbor in internal_graph.get(node, []):
+            if state[neighbor] == 1:
+                cycle_start = path.index(neighbor)
+                cycle = path[cycle_start:] + [neighbor]
+                cycles.append(cycle)
+                violations.append(
+                    f"Circular dependency detected in CTEs: {' -> '.join(cycle)}"
+                )
+            elif state[neighbor] == 0:
+                dfs(neighbor)
+        path.pop()
+        state[node] = 2
+        topological_order.append(node)
+
+    for node in cte_names:
+        if state[node] == 0:
+            dfs(node)
+
+    is_valid = len(violations) == 0
+    return {
+        "valid": is_valid,
+        "cycles": cycles,
+        "violations": violations,
+        "topological_order": topological_order if is_valid else [],
+    }
+
+
+def validate_window_function_spec(spec: Any) -> dict[str, Any]:
+    """
+    Validates a window function specification:
+    1. Function name is recognized and valid.
+    2. Window frame type is ROWS, RANGE, or GROUPS.
+    3. Window frame boundaries are semantically valid.
+    """
+    violations: list[str] = []
+    func = getattr(spec, "function", None) or (spec.get("function") if isinstance(spec, dict) else None)
+    if not func or not isinstance(func, str):
+        return {
+            "valid": False,
+            "violations": ["Window function is missing a valid 'function' name."],
+        }
+
+    clean_func = func.upper().strip()
+    if clean_func not in SUPPORTED_WINDOW_FUNCTIONS:
+        violations.append(f"Unsupported window function: '{func}'.")
+
+    frame = getattr(spec, "frame", None) or (spec.get("frame") if isinstance(spec, dict) else None)
+    if frame:
+        ftype = (
+            getattr(frame, "frame_type", None)
+            or (frame.get("frame_type") if isinstance(frame, dict) else "ROWS")
+            or "ROWS"
+        ).upper().strip()
+        if ftype not in {"ROWS", "RANGE", "GROUPS"}:
+            violations.append(
+                f"Invalid frame_type '{ftype}'. Must be ROWS, RANGE, or GROUPS."
+            )
+
+        start = (
+            getattr(frame, "start", None)
+            or (frame.get("start") if isinstance(frame, dict) else "UNBOUNDED PRECEDING")
+            or "UNBOUNDED PRECEDING"
+        ).upper().strip()
+        end = getattr(frame, "end", None) or (frame.get("end") if isinstance(frame, dict) else None)
+        if end:
+            end = str(end).upper().strip()
+
+        if "UNBOUNDED FOLLOWING" in start:
+            violations.append("Window frame start cannot be UNBOUNDED FOLLOWING.")
+        if end and "UNBOUNDED PRECEDING" in end:
+            violations.append("Window frame end cannot be UNBOUNDED PRECEDING.")
+        if "FOLLOWING" in start and end and ("PRECEDING" in end or end == "CURRENT ROW"):
+            violations.append("Window frame start FOLLOWING cannot precede end PRECEDING or CURRENT ROW.")
+        if start == "CURRENT ROW" and end and "PRECEDING" in end:
+            violations.append("Window frame start CURRENT ROW cannot precede end PRECEDING.")
+
+    return {
+        "valid": len(violations) == 0,
+        "violations": violations,
+    }
+

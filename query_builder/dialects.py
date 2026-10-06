@@ -49,6 +49,17 @@ class BaseDialect:
     placeholder: str = "%s"
     pagination_placement: str = "suffix"
     requires_order_by_for_pagination: bool = False
+    supports_cte: bool = True
+    supports_recursive_cte: bool = True
+    supports_materialized_cte: bool = False
+    supports_window_functions: bool = True
+    supports_window_groups_frame: bool = False
+
+    def format_cte_materialized(self, materialized: bool | None) -> str:
+        """Returns MATERIALIZED or NOT MATERIALIZED hint if supported, else empty string."""
+        if materialized is None or not getattr(self, "supports_materialized_cte", False):
+            return ""
+        return "MATERIALIZED " if materialized else "NOT MATERIALIZED "
 
     def quote_identifier(self, ident: str) -> str:
         """Quotes a schema, table, or column identifier."""
@@ -177,6 +188,8 @@ class PostgresDialect(BaseDialect):
     """PostgreSQL dialect."""
 
     name: str = "postgres"
+    supports_materialized_cte: bool = True
+    supports_window_groups_frame: bool = True
 
     def format_vector_distance(
         self, col_ref: str, metric: str = "cosine"
@@ -259,6 +272,8 @@ class SQLiteDialect(BaseDialect):
 
     name: str = "sqlite"
     placeholder: str = "?"
+    supports_materialized_cte: bool = True
+    supports_window_groups_frame: bool = False
 
     def format_ilike(self, col_ref: str) -> str:
         # SQLite LIKE is case-insensitive by default for ASCII
@@ -314,6 +329,8 @@ class DuckDBDialect(BaseDialect):
 
     name: str = "duckdb"
     placeholder: str = "?"
+    supports_materialized_cte: bool = True
+    supports_window_groups_frame: bool = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
