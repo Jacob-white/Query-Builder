@@ -591,7 +591,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     // Fallback expression in SELECT
     const spec1 = parseSqlToSpec("SELECT (price * 1.1) FROM products;");
     expect(spec1).not.toBeNull();
-    expect(spec1?.columns).toContain("(price * 1.1)");
+    expect(spec1?.columns[0]).toMatchObject({ column: "(price * 1.1)", raw_expression: "(price * 1.1)" });
 
     // Join ON without table prefix on left or right
     const spec2 = parseSqlToSpec("SELECT * FROM users JOIN orders ON user_id = id;");

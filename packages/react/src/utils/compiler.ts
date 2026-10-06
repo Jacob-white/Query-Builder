@@ -1,3 +1,4 @@
+import { expandMetricSql, expandTimeGrainSql } from "../adapters/semantic";
 import type {
   VisualColumnSelect,
   VisualFilter,
@@ -11,13 +12,27 @@ import type {
   QueryPlanNode,
   CteSpec,
   WindowFunctionSpec,
+  MetricDefinition,
+  SemanticModel,
+  TimeGrain,
+  QuerySpec,
 } from "../types";
+import { specToState } from "../hooks/useQueryState";
 
 export interface CompiledVisualQuery {
   sql: string;
   spec: {
     table: string;
-    columns: (string | { column: string; agg?: string; alias?: string })[];
+    columns: (
+      | string
+      | {
+          column: string;
+          agg?: string;
+          alias?: string;
+          time_grain?: string;
+          metric?: string | MetricDefinition;
+        }
+    )[];
     joins: {
       table: string;
       type: string;
@@ -40,6 +55,7 @@ export interface CompiledVisualQuery {
     hybrid_search?: HybridSearchSpec;
     ctes?: CteSpec[];
     window_functions?: WindowFunctionSpec[];
+    semantic_models?: SemanticModel[];
   };
 }
 
@@ -60,6 +76,7 @@ const ALLOWED_OPERATORS = new Set([
   "BETWEEN",
   "IS NULL",
   "IS NOT NULL",
+  "RAW",
 ]);
 
 const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
@@ -281,6 +298,7 @@ export function compileVisualState(
   hybridSearch?: HybridSearchSpec | null,
   ctes?: CteSpec[] | null,
   windowFunctions?: WindowFunctionSpec[] | null,
+  semanticModels?: SemanticModel[] | null,
 ): CompiledVisualQuery {
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
@@ -298,25 +316,50 @@ export function compileVisualState(
         hybrid_search: hybridSearch || undefined,
         ctes: ctes && ctes.length > 0 ? ctes : undefined,
         window_functions: windowFunctions && windowFunctions.length > 0 ? windowFunctions : undefined,
+        semantic_models: semanticModels && semanticModels.length > 0 ? semanticModels : undefined,
       },
     };
   }
 
   const cleanPrimary = cleanTableName(primaryTable);
   const safeProjectionKeys = (orderedProjectionKeys || []).slice(0, 100);
-  const hasAggregates = safeProjectionKeys.some(
-    (k) =>
-      Boolean(
-        selectedColumns[k]?.aggregate &&
-          ALLOWED_AGGREGATES.has(selectedColumns[k]?.aggregate as string),
-      ),
-  );
+
+  const isItemMetric = (item: VisualColumnSelect): boolean => {
+    if (Boolean(item.metric)) return true;
+    const tbl = cleanTableName(item.table || cleanPrimary);
+    const tblMeta = schemaData?.tables?.[tbl] || schemaData?.tables?.[item.table];
+    if (tblMeta?.metrics?.some((m) => m.name === item.name)) return true;
+    if (
+      semanticModels?.some(
+        (sm) =>
+          (sm.tableName === tbl || sm.name === tbl || sm.tableName === item.table) &&
+          sm.metrics?.some((m) => m.name === item.name),
+      )
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const hasAggregates = safeProjectionKeys.some((k) => {
+    const it = selectedColumns[k];
+    if (!it) return false;
+    if (it.aggregate && ALLOWED_AGGREGATES.has(it.aggregate as string)) return true;
+    if (isItemMetric(it)) return true;
+    return false;
+  });
 
   // Projections
   let selectClause = "*";
   const specColumns: (
     | string
-    | { column: string; agg?: string; alias?: string }
+    | {
+        column: string;
+        agg?: string;
+        alias?: string;
+        time_grain?: string;
+        metric?: string | MetricDefinition;
+      }
   )[] = [];
   const usedAliases = new Set<string>();
 
@@ -355,6 +398,107 @@ export function compileVisualState(
             alias,
           });
           return `${aggUpper}(${colRef}) AS ${quoteAlias(alias, dialect)}`;
+        }
+
+        if (item.rawExpression) {
+          let alias = sanitizeIdent(item.alias || item.name || "expr");
+          if (usedAliases.has(alias)) {
+            let disambiguated = `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
+          specColumns.push({
+            column: item.rawExpression,
+            alias,
+          });
+          return `${item.rawExpression} AS ${quoteAlias(alias, dialect)}`;
+        }
+
+        if (item.timeGrain) {
+          let alias = sanitizeIdent(item.alias || `${colName}_${item.timeGrain}`);
+          if (usedAliases.has(alias)) {
+            let disambiguated = `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
+          specColumns.push({
+            column: `${tableAlias}.${colName}`,
+            time_grain: item.timeGrain,
+            alias,
+          });
+          const tgSql = expandTimeGrainSql(colRef, item.timeGrain, dialect);
+          return `${tgSql} AS ${quoteAlias(alias, dialect)}`;
+        }
+
+        let metricDef: MetricDefinition | undefined;
+        if (typeof item.metric === "object" && item.metric !== null) {
+          metricDef = item.metric as MetricDefinition;
+        } else {
+          const metricName = typeof item.metric === "string" ? item.metric : item.name;
+          const isExplicitMetric = Boolean(item.metric);
+          const tblMeta = schemaData?.tables?.[tableAlias] || schemaData?.tables?.[item.table];
+          const foundInTbl = tblMeta?.metrics?.find((m) => m.name === metricName || m.name === colName);
+          if (foundInTbl) {
+            metricDef = foundInTbl;
+          } else if (semanticModels) {
+            for (const sm of semanticModels) {
+              if (sm.tableName === tableAlias || sm.name === tableAlias || sm.tableName === item.table) {
+                const foundInSm = sm.metrics?.find((m) => m.name === metricName || m.name === colName);
+                if (foundInSm) {
+                  metricDef = foundInSm;
+                  break;
+                }
+              }
+            }
+          }
+          if (!metricDef && isExplicitMetric) {
+            metricDef = {
+              name: metricName,
+              title: metricName,
+              sqlExpression: colRef,
+              aggregation: "sum",
+            };
+          }
+        }
+
+        if (metricDef) {
+          let alias = sanitizeIdent(item.alias || metricDef.name || colName);
+          if (usedAliases.has(alias)) {
+            let disambiguated = `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
+          specColumns.push({
+            column: `${tableAlias}.${colName}`,
+            metric: metricDef.name,
+            alias,
+          });
+          const metricSql = expandMetricSql(metricDef, dialect);
+          return `${metricSql} AS ${quoteAlias(alias, dialect)}`;
         }
 
         if (item.alias) {
@@ -457,7 +601,9 @@ export function compileVisualState(
 
       const customOp = customOperators?.[f.operator];
 
-      if (customOp?.formatSql) {
+      if (f.operator === "RAW") {
+        expr = f.rawExpression || f.column;
+      } else if (customOp?.formatSql) {
         expr = customOp.formatSql(colRef, f.value, dialect);
       } else if (customOp && customOp.hasValue === false) {
         expr = `${colRef} ${customOp.value}`;
@@ -607,12 +753,19 @@ export function compileVisualState(
     const nonAggCols = safeProjectionKeys
       .map((k) => selectedColumns[k])
       .filter((item): item is VisualColumnSelect =>
-        Boolean(item && !item.aggregate),
+        Boolean(item && !item.aggregate && !isItemMetric(item)),
       )
       .map((item) => {
         const tbl = cleanTableName(item.table || cleanPrimary);
         const colName = sanitizeIdent(item.name);
-        return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
+        const colRef = `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
+        if (item.rawExpression) {
+          return item.rawExpression;
+        }
+        if (item.timeGrain) {
+          return expandTimeGrainSql(colRef, item.timeGrain, dialect);
+        }
+        return colRef;
       });
     if (nonAggCols.length > 0) {
       groupClause = `GROUP BY ${nonAggCols.join(", ")}`;
@@ -657,6 +810,7 @@ export function compileVisualState(
       hybrid_search: hybridSearch || undefined,
       ctes: ctes && ctes.length > 0 ? ctes : undefined,
       window_functions: windowFunctions && windowFunctions.length > 0 ? windowFunctions : undefined,
+      semantic_models: semanticModels && semanticModels.length > 0 ? semanticModels : undefined,
     },
   };
 }
@@ -768,4 +922,51 @@ export function estimateClientPlan(spec: any): QueryPlanNode {
       },
     ],
   };
+}
+
+/**
+ * Compiles a QuerySpec or partial spec directly to SQL string.
+ */
+export function compileSpecToSql(
+  spec: Partial<QuerySpec> | Record<string, any>,
+  dialect: SqlDialect = "postgres",
+  schemaData?: SchemaSnapshot | null,
+): string {
+  const state = specToState(spec);
+  const primaryTable = state.primaryTable || (spec as any).table || "";
+  if (!primaryTable) return "";
+  const selectedColumns = state.selectedColumns || {};
+  const orderedProjectionKeys = state.orderedProjectionKeys || Object.keys(selectedColumns);
+  const joins = state.joins || [];
+  const filters = state.filters || [];
+  const sorts = state.sorts || [];
+  const isDistinct = state.isDistinct || false;
+  const limit = typeof state.limit === "number" ? state.limit : ((spec as any).limit ?? 50);
+  const filterJoin = (spec as any).filter_join || "AND";
+  const ctes = (spec as any).ctes;
+  const windowFunctions = (spec as any).window_functions;
+  const vectorSearch = (spec as any).vector_search;
+  const hybridSearch = (spec as any).hybrid_search;
+  const semanticModels = (spec as any).semantic_models;
+
+  const compiled = compileVisualState(
+    primaryTable,
+    selectedColumns,
+    orderedProjectionKeys,
+    joins,
+    filters,
+    sorts,
+    isDistinct,
+    limit,
+    schemaData,
+    dialect,
+    filterJoin,
+    undefined,
+    vectorSearch,
+    hybridSearch,
+    ctes,
+    windowFunctions,
+    semanticModels,
+  );
+  return compiled.sql;
 }

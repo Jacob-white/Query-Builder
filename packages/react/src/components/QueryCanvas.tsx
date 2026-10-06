@@ -419,33 +419,90 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     }
                   />
 
-                  <select
-                    value={item.aggregate || ""}
-                    onChange={(e) =>
-                      onUpdateColumnSelect(key, {
-                        aggregate: e.target.value as VisualColumnSelect["aggregate"],
-                      })
-                    }
-                    style={
-                      unstyled
-                        ? undefined
-                        : {
-                            background: "#0f172a",
-                            color: item.aggregate ? "#f59e0b" : "#64748b",
-                            border: "1px solid #334155",
-                            borderRadius: "4px",
-                            padding: "1px 4px",
-                            fontSize: "0.7rem",
-                          }
-                    }
-                  >
-                    <option value="">(none)</option>
-                    <option value="COUNT">COUNT</option>
-                    <option value="SUM">SUM</option>
-                    <option value="AVG">AVG</option>
-                    <option value="MIN">MIN</option>
-                    <option value="MAX">MAX</option>
-                  </select>
+                  {item.metric && (
+                    <span
+                      data-qb="projection-metric-badge"
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "rgba(16, 185, 129, 0.2)",
+                              color: "#34d399",
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              padding: "1px 5px",
+                              borderRadius: "4px",
+                            }
+                      }
+                    >
+                      Σ Metric
+                    </span>
+                  )}
+
+                  {!item.metric && (
+                    <select
+                      value={item.timeGrain || ""}
+                      data-qb="projection-timegrain-select"
+                      aria-label={`Time grain for ${key}`}
+                      onChange={(e) =>
+                        onUpdateColumnSelect(key, {
+                          timeGrain: (e.target.value as any) || undefined,
+                        })
+                      }
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "#0f172a",
+                              color: item.timeGrain ? "#a78bfa" : "#64748b",
+                              border: "1px solid #334155",
+                              borderRadius: "4px",
+                              padding: "1px 4px",
+                              fontSize: "0.7rem",
+                            }
+                      }
+                    >
+                      <option value="">(no grain)</option>
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="year">Year</option>
+                      <option value="hour">Hour</option>
+                      <option value="minute">Minute</option>
+                      <option value="second">Second</option>
+                    </select>
+                  )}
+
+                  {!item.metric && !item.timeGrain && (
+                    <select
+                      value={item.aggregate || ""}
+                      onChange={(e) =>
+                        onUpdateColumnSelect(key, {
+                          aggregate: e.target.value as VisualColumnSelect["aggregate"],
+                        })
+                      }
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "#0f172a",
+                              color: item.aggregate ? "#f59e0b" : "#64748b",
+                              border: "1px solid #334155",
+                              borderRadius: "4px",
+                              padding: "1px 4px",
+                              fontSize: "0.7rem",
+                            }
+                      }
+                    >
+                      <option value="">(none)</option>
+                      <option value="COUNT">COUNT</option>
+                      <option value="SUM">SUM</option>
+                      <option value="AVG">AVG</option>
+                      <option value="MIN">MIN</option>
+                      <option value="MAX">MAX</option>
+                    </select>
+                  )}
 
                   {idx < orderedProjectionKeys.length - 1 && (
                     <button

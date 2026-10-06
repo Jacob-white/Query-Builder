@@ -55,6 +55,29 @@ export { QueryChartPreview } from "./components/QueryChartPreview";
 export { BiChartVisualizer } from "./components/BiChartVisualizer";
 export { QueryPlayground } from "./components/QueryPlayground";
 export { ExportWorkbench, type ExportWorkbenchProps } from "./components/ExportWorkbench";
+export { LocalDataModal, type LocalDataModalProps } from "./components/LocalDataModal";
+export { DashboardWorkbench, type DashboardWorkbenchProps } from "./components/DashboardWorkbench";
+export {
+  QueryPerformanceAdvisor,
+  type QueryPerformanceAdvisorProps,
+} from "./components/QueryPerformanceAdvisor";
+export {
+  estimateCloudQueryCost,
+  recommendIndexes,
+  analyzeQueryPerformance,
+} from "./utils/performanceAdvisor";
+export {
+  InMemoryOlapEngine,
+  getClientOlapEngine,
+  resetClientOlapEngine,
+  type DuckDBDriverConfig,
+} from "./drivers/duckdbDriver";
+export {
+  detectFileFormat,
+  sanitizeTableName,
+  ingestLocalFile,
+  type IngestibleFormat,
+} from "./utils/localDataIngest";
 export {
   QueryTemplateManager,
   SEED_TEMPLATES,
@@ -102,9 +125,11 @@ export type {
   QueryBuilderContextValue,
 } from "./theme/QueryBuilderProvider";
 
-// Component Showcase
 export { ComponentShowcase } from "./components/ComponentShowcase";
 export type {
   ComponentShowcaseProps,
   ShowcaseTab,
 } from "./components/ComponentShowcase";
+
+// Bring Your Own AI (BYO-AI) & Agentic Framework
+export * from "./ai";

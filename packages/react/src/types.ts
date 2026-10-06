@@ -16,6 +16,8 @@ export interface TableMeta {
   comment?: string;
   columns: ColumnMeta[];
   has_user_id?: boolean;
+  metrics?: MetricDefinition[];
+  dimensions?: DimensionDefinition[];
 }
 
 export interface ForeignKeyMeta {
@@ -218,6 +220,53 @@ export interface FieldRendererProps {
 
 export type CustomFieldRenderer = (props: FieldRendererProps) => React.ReactNode;
 
+export type TimeGrain =
+  | "second"
+  | "minute"
+  | "hour"
+  | "day"
+  | "week"
+  | "month"
+  | "quarter"
+  | "year";
+
+export interface MetricFilter {
+  field: string;
+  operator: string;
+  value: any;
+}
+
+export interface MetricDefinition {
+  name: string;
+  title: string;
+  description?: string;
+  sqlExpression: string;
+  aggregation: "sum" | "avg" | "count" | "count_distinct" | "min" | "max" | "custom";
+  filters?: MetricFilter[];
+  format?: "currency" | "percentage" | "number" | "decimal" | "integer" | "duration" | "raw";
+  table?: string;
+}
+
+export interface DimensionDefinition {
+  name: string;
+  title: string;
+  description?: string;
+  sqlExpression: string;
+  dataType?: string;
+  timeGrains?: TimeGrain[];
+  table?: string;
+}
+
+export interface SemanticModel {
+  name: string;
+  tableName: string;
+  description?: string;
+  primaryKey?: string;
+  defaultTimeDimension?: string;
+  dimensions?: DimensionDefinition[];
+  metrics?: MetricDefinition[];
+}
+
 export interface VisualJoin<Schema = any> {
   id: string;
   type: "LEFT JOIN" | "INNER JOIN" | "RIGHT JOIN" | "FULL JOIN";
@@ -236,6 +285,7 @@ export interface VisualFilter<Schema = any> {
   operator: FilterOperator;
   value: string | number | boolean;
   parenClose?: string;
+  rawExpression?: string;
 }
 
 export interface VisualSort<Schema = any> {
@@ -250,6 +300,10 @@ export interface VisualColumnSelect<Schema = any> {
   name: SchemaColumnNames<Schema, any> | string;
   aggregate?: "" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
   alias?: string;
+  timeGrain?: TimeGrain;
+  metric?: boolean | string | MetricDefinition;
+  format?: string;
+  rawExpression?: string;
 }
 
 export interface VectorSearchSpec {
@@ -325,6 +379,7 @@ export interface QuerySpec<Schema = any> {
   }[];
   distinct: boolean;
   limit: number;
+  offset?: number;
   vector_search?: VectorSearchSpec;
   hybrid_search?: HybridSearchSpec;
   ctes?: CteSpec[];
@@ -530,6 +585,7 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  ai?: import("./ai/types").ByoAiConfig;
 }
 
 // ==========================================
@@ -624,3 +680,139 @@ export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = 
   onSqlChange?: (sql: string) => void;
   readOnly?: boolean;
 }
+
+// ==========================================
+// DuckDB-Wasm Client OLAP & Local Ingest Types
+// ==========================================
+
+export interface DuckDBTableMeta {
+  name: string;
+  rowCount: number;
+  columns: { name: string; type: string }[];
+  fileSource?: string;
+  sourceType: "csv" | "tsv" | "parquet" | "json" | "query_cache";
+}
+
+export interface DuckDBQueryResult {
+  columns: string[];
+  rows: Record<string, any>[];
+  rowCount: number;
+  executionTimeMs: number;
+}
+
+export interface DuckDBIngestOptions {
+  delimiter?: string;
+  header?: boolean;
+  inferTypes?: boolean;
+  sampleRows?: number;
+}
+
+export interface ClientOlapEngine {
+  isReady: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  tables: Record<string, DuckDBTableMeta>;
+  activeTable?: string;
+  query(sql: string): Promise<DuckDBQueryResult>;
+  ingestCsv(tableName: string, csvContent: string, options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
+  ingestJson(tableName: string, rows: Record<string, any>[], options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
+  ingestParquet(tableName: string, buffer: Uint8Array, options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
+  registerBackendResults(tableName: string, rows: Record<string, any>[]): Promise<DuckDBTableMeta>;
+  dropTable(tableName: string): Promise<void>;
+  clear(): Promise<void>;
+  getSchemaSnapshot(): SchemaSnapshot;
+}
+
+// ==========================================
+// Phase 4: Multi-Tile Dashboard Workbench Types
+// ==========================================
+
+export type DashboardTileType = "chart" | "kpi" | "pivot" | "table";
+
+export interface DashboardTileLayout {
+  x?: number;
+  y?: number;
+  w: number; // Column span (1..4)
+  h: number; // Row span (1..2)
+}
+
+export interface KpiConfig {
+  title?: string;
+  subtitle?: string;
+  valueField?: string;
+  deltaPercentage?: number;
+  statusColor?: string;
+}
+
+export interface PivotConfig {
+  rowDimensions: string[];
+  columnDimensions: string[];
+  valueMetrics: { field: string; agg: "sum" | "avg" | "count" | "min" | "max" }[];
+}
+
+export interface GlobalFilter {
+  field: string;
+  operator: string;
+  value: any;
+}
+
+export interface CrossFilterState {
+  sourceTileId: string;
+  field: string;
+  value: any;
+}
+
+export interface DashboardTile {
+  id: string;
+  title: string;
+  description?: string;
+  type: DashboardTileType;
+  querySpec?: QuerySpec;
+  sql?: string;
+  cachedRows?: Record<string, any>[];
+  layout: DashboardTileLayout;
+  chartType?: ChartType;
+  kpiConfig?: KpiConfig;
+  pivotConfig?: PivotConfig;
+}
+
+export interface DashboardState {
+  id: string;
+  title: string;
+  tiles: DashboardTile[];
+  globalFilters: GlobalFilter[];
+  crossFilter: CrossFilterState | null;
+}
+
+// ==========================================
+// Phase 5: AI Cost & Performance Advisor Types
+// ==========================================
+
+export interface CloudCostEstimate {
+  bytesScannedEstimated: number;
+  dollarCostEstimated: number;
+  creditsEstimated?: number;
+  pricingTier: string;
+  isCached?: boolean;
+}
+
+export interface IndexRecommendation {
+  id: string;
+  table: string;
+  columns: string[];
+  indexName: string;
+  ddl: string;
+  rationale: string;
+  estimatedImpact: "high" | "medium" | "low";
+}
+
+export interface PerformanceAdvisorInsight {
+  type: "cost" | "warning" | "index" | "optimization";
+  severity: "info" | "warning" | "critical";
+  title: string;
+  message: string;
+  recommendation?: IndexRecommendation;
+  costEstimate?: CloudCostEstimate;
+}
+
+

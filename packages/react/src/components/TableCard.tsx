@@ -258,6 +258,121 @@ export const TableCard: React.FC<TableCardProps> = ({
           );
         })}
       </div>
+
+      {/* Metrics list */}
+      {table.metrics && table.metrics.length > 0 && (
+        <div
+          data-qb="table-card-metrics-section"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                  padding: "6px 0",
+                  background: "rgba(15, 23, 42, 0.4)",
+                }
+          }
+        >
+          <div
+            style={
+              unstyled
+                ? undefined
+                : {
+                    padding: "4px 14px",
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "#94a3b8",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }
+            }
+          >
+            <span>📈 Metrics ({table.metrics.length})</span>
+          </div>
+          {table.metrics.map((metric) => {
+            const key = `${table.name}.${metric.name}`;
+            const isMetricChecked = Boolean(selectedColumns[key]);
+            return (
+              <div
+                key={metric.name}
+                data-qb="table-card-metric-row"
+                data-qb-metric={metric.name}
+                data-qb-selected={isMetricChecked ? "true" : "false"}
+                onClick={() => onToggleColumn(metric.name)}
+                title={metric.description || `${metric.title} (${metric.aggregation})`}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        padding: "5px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        background: isMetricChecked
+                          ? "rgba(16, 185, 129, 0.15)"
+                          : "transparent",
+                        transition: "background 0.15s ease",
+                        fontSize: "0.8rem",
+                      }
+                }
+              >
+                <div
+                  style={
+                    unstyled
+                      ? undefined
+                      : { display: "flex", alignItems: "center", gap: "8px" }
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    data-qb="table-card-metric-checkbox"
+                    checked={isMetricChecked}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => onToggleColumn(metric.name)}
+                    aria-label={`Select metric ${table.name}.${metric.name}`}
+                    style={unstyled ? undefined : { cursor: "pointer" }}
+                  />
+                  <span
+                    data-qb="table-card-metric-name"
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            color: isMetricChecked ? "#6ee7b7" : "#cbd5e1",
+                            fontWeight: isMetricChecked ? 600 : 400,
+                          }
+                    }
+                  >
+                    {metric.title || metric.name}
+                  </span>
+                </div>
+                <span
+                  data-qb="table-card-metric-badge"
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          background: "rgba(16, 185, 129, 0.2)",
+                          color: "#34d399",
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: "4px",
+                          textTransform: "uppercase",
+                        }
+                  }
+                >
+                  {metric.aggregation || "metric"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

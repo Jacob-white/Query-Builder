@@ -182,12 +182,16 @@ export function specToState<Schema = any>(
         const parts = c.column.split(".");
         const table = parts.length > 1 ? parts[0] : primary;
         const col = parts.length > 1 ? parts.slice(1).join(".") : parts[0];
-        const key = `${table}.${col}`;
+        const rawExpr = c.raw_expression || c.rawExpression;
+        const key = rawExpr ? `raw_${keys.length + 1}` : `${table}.${col}`;
         selected[key] = {
           table: table as SchemaTableNames<Schema>,
           name: col,
           aggregate: (c.agg as any) || undefined,
           alias: c.alias,
+          timeGrain: c.time_grain || c.timeGrain,
+          metric: c.metric,
+          rawExpression: rawExpr,
         };
         keys.push(key);
       }
@@ -248,8 +252,9 @@ export function specToState<Schema = any>(
         combiner: f.combiner || "AND",
         tablePrefix: prefix,
         column: col,
-        operator: f.operator || f.op || "=",
+        operator: (f.operator || f.op || "=").toUpperCase() === "RAW" ? "RAW" : (f.operator || f.op || "="),
         value: f.value ?? "",
+        rawExpression: f.raw_expression || f.rawExpression,
       };
     });
   }

@@ -24,6 +24,7 @@ import { NlqPromptBar } from "./NlqPromptBar";
 import { LiveExecutionBar } from "./LiveExecutionBar";
 import { PipelineDagCanvas } from "./PipelineDagCanvas";
 import { WindowFunctionBuilder } from "./WindowFunctionBuilder";
+import { AiAssistantWidget } from "./AiAssistantWidget";
 import { useLiveExecution, type LiveExecutionResult } from "../hooks/useLiveExecution";
 import { compileVisualState, estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
@@ -34,7 +35,8 @@ import { findBestJoinCondition } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
-import type { QueryPlanNode, CteSpec, WindowFunctionSpec } from "../types";
+import { attachSemanticModelsToTables } from "../adapters/semantic";
+import type { QueryPlanNode, CteSpec, WindowFunctionSpec, SemanticModel } from "../types";
 
 export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
   VisualQueryBuilderProps<Schema>,
@@ -55,6 +57,7 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   initialCtes?: CteSpec[];
   initialWindowFunctions?: WindowFunctionSpec[];
   showPipelineTab?: boolean;
+  semanticModels?: SemanticModel[];
 };
 
 export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
@@ -75,6 +78,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   initialCtes = [],
   initialWindowFunctions = [],
   showPipelineTab = false,
+  semanticModels,
   onExecuteQuery: propExecuteQuery,
   onSaveQuery,
   theme: propTheme,
@@ -84,6 +88,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   customOperators: propCustomOperators,
   fieldRenderers: propFieldRenderers,
   cellRenderers: propCellRenderers,
+  ai,
 }) => {
   const { theme: contextTheme } = useTheme();
   const qbContext = useQueryBuilderContext();
@@ -121,41 +126,45 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const [windowFunctions, setWindowFunctions] = useState<WindowFunctionSpec[]>(initialWindowFunctions);
   const [isWfBuilderOpen, setIsWfBuilderOpen] = useState<boolean>(false);
 
-  // Dynamic Schema Augmentation: expose upstream CTEs as virtual tables
+  // Dynamic Schema Augmentation: expose upstream CTEs as virtual tables & attach semantic models
   const augmentedSchema = useMemo(() => {
     if (!normalizedSchema) return normalizedSchema;
-    if (ctes.length === 0) return normalizedSchema;
-    const copyTables = { ...normalizedSchema.tables };
-    for (const cte of ctes) {
-      if (activeStageName && cte.name === activeStageName) continue;
-      const cols: ColumnMeta[] = [];
-      if (cte.query?.columns) {
-        cte.query.columns.forEach((col: any) => {
-          if (typeof col === "string") {
-            cols.push({ name: col, data_type: "text", is_nullable: true, is_primary: false });
-          } else if (col && typeof col === "object") {
-            cols.push({ name: col.alias || col.column || "col", data_type: "text", is_nullable: true, is_primary: false });
-          }
-        });
+    let copyTables = { ...normalizedSchema.tables };
+    if (ctes.length > 0) {
+      for (const cte of ctes) {
+        if (activeStageName && cte.name === activeStageName) continue;
+        const cols: ColumnMeta[] = [];
+        if (cte.query?.columns) {
+          cte.query.columns.forEach((col: any) => {
+            if (typeof col === "string") {
+              cols.push({ name: col, data_type: "text", is_nullable: true, is_primary: false });
+            } else if (col && typeof col === "object") {
+              cols.push({ name: col.alias || col.column || "col", data_type: "text", is_nullable: true, is_primary: false });
+            }
+          });
+        }
+        if (cte.query?.window_functions) {
+          cte.query.window_functions.forEach((wf: any) => {
+            if (wf.alias) cols.push({ name: wf.alias, data_type: "numeric", is_nullable: true, is_primary: false });
+          });
+        }
+        if (cols.length === 0) {
+          cols.push(
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "value", data_type: "text", is_nullable: true, is_primary: false },
+          );
+        }
+        copyTables[cte.name] = {
+          name: cte.name,
+          columns: cols,
+        };
       }
-      if (cte.query?.window_functions) {
-        cte.query.window_functions.forEach((wf: any) => {
-          if (wf.alias) cols.push({ name: wf.alias, data_type: "numeric", is_nullable: true, is_primary: false });
-        });
-      }
-      if (cols.length === 0) {
-        cols.push(
-          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
-          { name: "value", data_type: "text", is_nullable: true, is_primary: false },
-        );
-      }
-      copyTables[cte.name] = {
-        name: cte.name,
-        columns: cols,
-      };
+    }
+    if (semanticModels && semanticModels.length > 0) {
+      copyTables = attachSemanticModelsToTables(copyTables, semanticModels);
     }
     return { ...normalizedSchema, tables: copyTables };
-  }, [normalizedSchema, ctes, activeStageName]);
+  }, [normalizedSchema, ctes, activeStageName, semanticModels]);
 
   const allTables = useMemo(() => Object.values(augmentedSchema?.tables || {}), [augmentedSchema]);
   const defaultTable = initialTable || allTables[0]?.name || "";
@@ -238,6 +247,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       hybridSearch,
       ctes,
       windowFunctions,
+      semanticModels,
     );
   }, [
     primaryTable,
@@ -255,6 +265,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     hybridSearch,
     ctes,
     windowFunctions,
+    semanticModels,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -269,7 +280,13 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         delete next[key];
         setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
       } else {
-        next[key] = { table: tableName, name: colName };
+        const tblMeta = augmentedSchema?.tables?.[tableName];
+        const isMetric = tblMeta?.metrics?.find((m) => m.name === colName);
+        next[key] = {
+          table: tableName,
+          name: colName,
+          metric: isMetric || undefined,
+        };
         setOrderedProjectionKeys((keys) => [...keys, key]);
       }
       return next;
@@ -356,6 +373,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       if (converted.sorts) setSorts(converted.sorts);
       if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
       if (converted.limit !== undefined) setLimit(converted.limit);
+      if ((parsed as any).ctes) setCtes((parsed as any).ctes);
+      if ((parsed as any).window_functions) setWindowFunctions((parsed as any).window_functions);
     }
   };
 
@@ -374,6 +393,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       if (converted.sorts) setSorts(converted.sorts);
       if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
       if (converted.limit !== undefined) setLimit(converted.limit);
+      if ((parsed as any).ctes) setCtes((parsed as any).ctes);
+      if ((parsed as any).window_functions) setWindowFunctions((parsed as any).window_functions);
     }
     setRawSql(compiled.sql);
     setIsRawMode(false);
@@ -1283,7 +1304,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               Live SQL Code Editor
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {isRawMode && !parseSqlToSpec(rawSql, normalizedSchema) && (
+              {isRawMode && (
                 <span
                   data-qb="sql-sync-badge"
                   style={
@@ -1291,16 +1312,24 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
                       ? undefined
                       : {
                           fontSize: "0.75rem",
-                          color: "#f87171",
-                          background: "rgba(239, 68, 68, 0.15)",
-                          border: "1px solid rgba(239, 68, 68, 0.3)",
+                          color: parseSqlToSpec(rawSql, normalizedSchema) ? "#34d399" : "#f87171",
+                          background: parseSqlToSpec(rawSql, normalizedSchema)
+                            ? "rgba(16, 185, 129, 0.15)"
+                            : "rgba(239, 68, 68, 0.15)",
+                          border: `1px solid ${
+                            parseSqlToSpec(rawSql, normalizedSchema)
+                              ? "rgba(16, 185, 129, 0.3)"
+                              : "rgba(239, 68, 68, 0.3)"
+                          }`,
                           padding: "2px 8px",
                           borderRadius: "4px",
                           fontWeight: 600,
                         }
                   }
                 >
-                  Custom Raw SQL (Visual Canvas Unsynced)
+                  {parseSqlToSpec(rawSql, normalizedSchema)
+                    ? "⚡ Synced with Visual Canvas (Continuous Sync)"
+                    : "Custom Raw SQL (Visual Canvas Unsynced)"}
                 </span>
               )}
               <button
@@ -1477,6 +1506,18 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         defaultMode={templateManagerMode}
         unstyled={unstyled}
       />
+
+      {/* Bring Your Own AI (BYO-AI) Assistant Widget */}
+      {ai && (
+        <AiAssistantWidget
+          {...ai}
+          schema={normalizedSchema}
+          currentSpec={compiled.spec}
+          dialect={dialect}
+          onApplySpec={handleApplyNlqSpec}
+          unstyled={unstyled}
+        />
+      )}
     </div>
   );
 };
