@@ -9,6 +9,8 @@ import type {
   QueryResultData,
   QueryTemplate,
   DatabaseSchemaDefinition,
+  VectorSearchSpec,
+  HybridSearchSpec,
 } from "../types";
 import { QueryCanvas } from "./QueryCanvas";
 import { QueryResultsTable } from "./QueryResultsTable";
@@ -16,7 +18,8 @@ import { SchemaErdModal } from "./SchemaErdModal";
 import { SchemaExplorerModal } from "./SchemaExplorerModal";
 import { QueryChartPreview } from "./QueryChartPreview";
 import { QueryTemplateManager } from "./QueryTemplateManager";
-import { compileVisualState } from "../utils/compiler";
+import { QueryPlanVisualizer } from "./QueryPlanVisualizer";
+import { compileVisualState, estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema } from "../utils/schemaUtils";
 import { parseSqlToSpec } from "../utils/sqlParser";
@@ -25,6 +28,7 @@ import { findBestJoinCondition } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
+import type { QueryPlanNode } from "../types";
 
 export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
   VisualQueryBuilderProps<Schema>,
@@ -32,6 +36,8 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
 > & {
   theme?: "dark" | "light" | "auto" | QueryBuilderTheme;
   unstyled?: boolean;
+  queryPlan?: QueryPlanNode;
+  showPlanTab?: boolean;
 };
 
 export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
@@ -39,6 +45,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   presets = [],
   initialTable,
   dialect = "postgres",
+  queryPlan,
+  showPlanTab = false,
   onExecuteQuery: propExecuteQuery,
   onSaveQuery,
   theme: propTheme,
@@ -82,7 +90,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const allTables = useMemo(() => Object.values(normalizedSchema?.tables || {}), [normalizedSchema]);
   const defaultTable = initialTable || allTables[0]?.name || "";
 
-  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart">("visual");
+  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart" | "plan">("visual");
   const [primaryTable, setPrimaryTable] = useState<string>(defaultTable);
   const [activeTableNames, setActiveTableNames] = useState<string[]>(
     defaultTable ? [defaultTable] : [],
@@ -97,6 +105,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const [sorts, setSorts] = useState<VisualSort[]>([]);
   const [isDistinct, setIsDistinct] = useState<boolean>(false);
   const [limit, setLimit] = useState<number>(50);
+  const [vectorSearch, setVectorSearch] = useState<VectorSearchSpec | null>(null);
+  const [hybridSearch, setHybridSearch] = useState<HybridSearchSpec | null>(null);
 
   const [rawSql, setRawSql] = useState<string>("");
   const [isRawMode, setIsRawMode] = useState<boolean>(false);
@@ -114,6 +124,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     sql: useRef<HTMLButtonElement | null>(null),
     results: useRef<HTMLButtonElement | null>(null),
     chart: useRef<HTMLButtonElement | null>(null),
+    plan: useRef<HTMLButtonElement | null>(null),
   };
 
   useEffect(() => {
@@ -152,6 +163,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       dialect,
       "AND",
       customOperators,
+      vectorSearch,
+      hybridSearch,
     );
   }, [
     primaryTable,
@@ -165,6 +178,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     normalizedSchema,
     dialect,
     customOperators,
+    vectorSearch,
+    hybridSearch,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -465,13 +480,18 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     setIsTemplateManagerOpen(false);
   };
 
+  const hasPlanTab = Boolean(queryPlan || showPlanTab);
+
   const handleTabKeyDown = (
     e: React.KeyboardEvent<HTMLButtonElement>,
-    tab: "visual" | "sql" | "results" | "chart",
+    tab: "visual" | "sql" | "results" | "chart" | "plan",
   ) => {
-    const tabs: ("visual" | "sql" | "results" | "chart")[] = ["visual", "sql", "results", "chart"];
+    const tabs: ("visual" | "sql" | "results" | "chart" | "plan")[] = hasPlanTab
+      ? ["visual", "sql", "results", "chart", "plan"]
+      : ["visual", "sql", "results", "chart"];
     const currentIndex = tabs.indexOf(tab);
-    let targetTab: "visual" | "sql" | "results" | "chart" | null = null;
+    if (currentIndex === -1) return;
+    let targetTab: "visual" | "sql" | "results" | "chart" | "plan" | null = null;
 
     if (e.key === "ArrowRight") {
       e.preventDefault();
@@ -672,6 +692,37 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             >
               📈 Visual Chart
             </button>
+            {hasPlanTab && (
+              <button
+                ref={tabRefs.plan}
+                role="tab"
+                id="tab-plan"
+                aria-controls="panel-plan"
+                aria-selected={activeTab === "plan"}
+                tabIndex={activeTab === "plan" ? 0 : -1}
+                onKeyDown={(e) => handleTabKeyDown(e, "plan")}
+                type="button"
+                onClick={() => setActiveTab("plan")}
+                data-qb="tab"
+                data-qb-tab="plan"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: activeTab === "plan" ? activeTheme.colors.primary : "transparent",
+                        color: activeTab === "plan" ? "#fff" : activeTheme.colors.textMuted,
+                        border: "none",
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 12px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        fontWeight: activeTheme.typography.fontWeightSemibold,
+                        cursor: "pointer",
+                      }
+                }
+              >
+                ⚡ Query Plan
+              </button>
+            )}
           </div>
 
           {/* Schema Explorer Button */}
@@ -973,6 +1024,10 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             onSortsChange={setSorts}
             onDistinctChange={setIsDistinct}
             onLimitChange={setLimit}
+            vectorSearch={vectorSearch}
+            hybridSearch={hybridSearch}
+            onVectorChange={setVectorSearch}
+            onHybridChange={setHybridSearch}
             unstyled={unstyled}
             customOperators={customOperators}
             fieldRenderers={fieldRenderers}
@@ -1106,6 +1161,22 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           data-qb-panel="chart"
         >
           <QueryChartPreview results={queryResults} unstyled={unstyled} />
+        </div>
+      )}
+
+      {hasPlanTab && activeTab === "plan" && (
+        <div
+          role="tabpanel"
+          id="panel-plan"
+          aria-labelledby="tab-plan"
+          tabIndex={0}
+          data-qb="tab-panel"
+          data-qb-panel="plan"
+        >
+          <QueryPlanVisualizer
+            plan={queryPlan || estimateClientPlan(compiled.spec)}
+            unstyled={unstyled}
+          />
         </div>
       )}
 

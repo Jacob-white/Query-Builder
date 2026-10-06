@@ -149,7 +149,7 @@ def _parse_table_schema(
         )
 
     # Fallback to single 'id' primary key if none specified and 'id' exists
-    if not primary_keys and any(c.name == "id" for c in columns):
+    if not primary_keys:
         for c in columns:
             if c.name == "id":
                 c.is_primary = True

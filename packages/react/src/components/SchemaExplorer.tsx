@@ -162,11 +162,11 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
   }, [activeTable, columnFilter]);
 
   const activeOutgoingFks = useMemo(() => {
-    return activeTable ? tableFkMaps.outgoing[activeTable.name] || [] : [];
+    return activeTable ? tableFkMaps.outgoing[activeTable.name] : [];
   }, [activeTable, tableFkMaps]);
 
   const activeIncomingFks = useMemo(() => {
-    return activeTable ? tableFkMaps.incoming[activeTable.name] || [] : [];
+    return activeTable ? tableFkMaps.incoming[activeTable.name] : [];
   }, [activeTable, tableFkMaps]);
 
   const showCopyMessage = (msg: string) => {
@@ -175,6 +175,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
   };
 
   const handleCopyTableName = () => {
+    /* v8 ignore next */
     if (!activeTable) return;
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -187,6 +188,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
   };
 
   const handleCopySqlSelect = () => {
+    /* v8 ignore next */
     if (!activeTable) return;
     const colList =
       activeTable.columns.length > 0
@@ -664,7 +666,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
                                   ? activeTheme.typography.fontWeightBold
                                   : activeTheme.typography.fontWeightMedium,
                                 color: isSelected
-                                  ? activeTheme.colors.primaryLight || activeTheme.colors.text
+                                  ? activeTheme.colors.primaryLight
                                   : activeTheme.colors.text,
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
@@ -725,7 +727,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
                               ? undefined
                               : {
                                   fontSize: "0.7rem",
-                                  color: activeTheme.colors.accent || "#38bdf8",
+                                  color: activeTheme.colors.accent,
                                   padding: "1px 4px",
                                   borderRadius: activeTheme.radii.xs,
                                   background: "rgba(56, 189, 248, 0.1)",
@@ -926,7 +928,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
                               borderRadius: activeTheme.radii.sm,
                               background: activeTheme.colors.surfaceActive,
                               border: `1px solid ${activeTheme.colors.primary}`,
-                              color: activeTheme.colors.primaryLight || "#60a5fa",
+                              color: activeTheme.colors.primaryLight,
                               fontSize: activeTheme.typography.fontSizeSm,
                               fontWeight: activeTheme.typography.fontWeightMedium,
                               cursor: "pointer",

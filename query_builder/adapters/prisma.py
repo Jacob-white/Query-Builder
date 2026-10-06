@@ -215,8 +215,12 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
                 if len(parts) >= 2:
                     rel_type = parts[1].replace("?", "").replace("[]", "")
                     target_table = model_to_table.get(rel_type, rel_type)
-                    from_fields = [f.strip() for f in rel_m.group(1).split(",")]
-                    to_fields = [f.strip() for f in rel_m.group(2).split(",")]
+                    from_fields = [
+                        f.strip() for f in rel_m.group(1).split(",") if f.strip()
+                    ]
+                    to_fields = [
+                        f.strip() for f in rel_m.group(2).split(",") if f.strip()
+                    ]
                     if from_fields and to_fields:
                         relation_map[from_fields[0]] = (target_table, to_fields[0])
 

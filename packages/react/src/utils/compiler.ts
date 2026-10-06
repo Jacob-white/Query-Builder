@@ -6,6 +6,9 @@ import type {
   SchemaSnapshot,
   SqlDialect,
   CustomFilterOperator,
+  VectorSearchSpec,
+  HybridSearchSpec,
+  QueryPlanNode,
 } from "../types";
 
 export interface CompiledVisualQuery {
@@ -31,6 +34,8 @@ export interface CompiledVisualQuery {
     order_by: { column: string; direction: "ASC" | "DESC"; tablePrefix?: string }[];
     distinct: boolean;
     limit: number;
+    vector_search?: VectorSearchSpec;
+    hybrid_search?: HybridSearchSpec;
   };
 }
 
@@ -268,6 +273,8 @@ export function compileVisualState(
   dialect: SqlDialect = "postgres",
   filterJoin: "AND" | "OR" = "AND",
   customOperators?: Record<string, CustomFilterOperator>,
+  vectorSearch?: VectorSearchSpec | null,
+  hybridSearch?: HybridSearchSpec | null,
 ): CompiledVisualQuery {
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
@@ -281,6 +288,8 @@ export function compileVisualState(
         order_by: [],
         distinct: false,
         limit,
+        vector_search: vectorSearch || undefined,
+        hybrid_search: hybridSearch || undefined,
       },
     };
   }
@@ -545,6 +554,24 @@ export function compileVisualState(
     orderClause = `ORDER BY ${sortParts.join(", ")}`;
   }
 
+  // Vector Search SQL projection and ordering
+  if (
+    vectorSearch &&
+    Array.isArray(vectorSearch.vector) &&
+    vectorSearch.vector.length > 0
+  ) {
+    const vCol = sanitizeIdent(vectorSearch.column || "embedding");
+    const vRef = `${quoteIdent(cleanPrimary, dialect)}.${quoteIdent(vCol, dialect)}`;
+    const vecStr = `'[${vectorSearch.vector.join(",")}]'`;
+    if (vectorSearch.include_distances) {
+      const distExpr = `(${vRef} <=> ${vecStr}) AS "_distance"`;
+      selectClause = selectClause === "*" ? `*, ${distExpr}` : `${selectClause}, ${distExpr}`;
+    }
+    if (!orderClause) {
+      orderClause = `ORDER BY ${vRef} <=> ${vecStr} ASC`;
+    }
+  }
+
   // Group By
   let groupClause = "";
   if (hasAggregates) {
@@ -584,6 +611,117 @@ export function compileVisualState(
       order_by: specSorts,
       distinct: isDistinct,
       limit,
+      vector_search: vectorSearch || undefined,
+      hybrid_search: hybridSearch || undefined,
     },
+  };
+}
+
+/**
+ * Estimates a client-side QueryPlanNode hierarchy from a compiled QuerySpec.
+ */
+export function estimateClientPlan(spec: any): QueryPlanNode {
+  const table = spec?.table || "unknown";
+  const limit = spec?.limit || 50;
+  const joins = spec?.joins || [];
+  const filters = spec?.filters || [];
+  const isVector = Boolean(spec?.vector_search);
+  const isHybrid = Boolean(spec?.hybrid_search);
+
+  let scanNode: QueryPlanNode;
+  if (isHybrid) {
+    scanNode = {
+      node_type: "Hybrid Search Merge",
+      table,
+      cost_estimate: 320,
+      rows_estimated: Math.min(limit, 100),
+      cost_percentage: 80,
+      children: [
+        {
+          node_type: "Vector KNN Scan",
+          table,
+          cost_estimate: 180,
+          rows_estimated: 100,
+          cost_percentage: 45,
+          warnings: [
+            "Create an HNSW or IVFFlat vector index to accelerate nearest neighbor retrieval.",
+          ],
+        },
+        {
+          node_type: "Full-Text Scan",
+          table,
+          cost_estimate: 140,
+          rows_estimated: 200,
+          cost_percentage: 35,
+        },
+      ],
+    };
+  } else if (isVector) {
+    scanNode = {
+      node_type: "KNN Scan",
+      table,
+      cost_estimate: 280,
+      rows_estimated: Math.min(limit, 100),
+      cost_percentage: 80,
+      warnings: [
+        "Create an HNSW or IVFFlat vector index to accelerate nearest neighbor retrieval.",
+      ],
+    };
+  } else if (filters.length > 0) {
+    scanNode = {
+      node_type: "Seq Scan",
+      table,
+      cost_estimate: 150,
+      rows_estimated: 10000,
+      cost_percentage: 75,
+      warnings: [
+        `Sequential table scan on '${table}' with 10,000 estimated rows. Consider adding an index on relevant filter columns.`,
+      ],
+    };
+  } else {
+    scanNode = {
+      node_type: "Seq Scan",
+      table,
+      cost_estimate: 120,
+      rows_estimated: 5000,
+      cost_percentage: 70,
+    };
+  }
+
+  let currentNode = scanNode;
+  for (const j of joins) {
+    const jTable = j?.table || "joined_table";
+    currentNode = {
+      node_type: `${j?.type || "LEFT"} Join`,
+      cost_estimate: currentNode.cost_estimate! + 100,
+      rows_estimated: currentNode.rows_estimated,
+      cost_percentage: 85,
+      children: [
+        currentNode,
+        {
+          node_type: "Seq Scan",
+          table: jTable,
+          cost_estimate: 60,
+          rows_estimated: 2000,
+          cost_percentage: 15,
+        },
+      ],
+    };
+  }
+
+  return {
+    node_type: "Limit",
+    cost_estimate: currentNode.cost_estimate! + 25,
+    rows_estimated: limit,
+    cost_percentage: 100,
+    children: [
+      {
+        node_type: "Sort",
+        cost_estimate: currentNode.cost_estimate! + 20,
+        rows_estimated: currentNode.rows_estimated,
+        cost_percentage: 95,
+        children: [currentNode],
+      },
+    ],
   };
 }

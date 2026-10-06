@@ -581,4 +581,16 @@ describe("VisualQueryBuilder", () => {
     expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("renders Query Plan tab and switches to visual execution plan view", () => {
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="users" showPlanTab={true} />);
+
+    const planTabBtn = screen.getByRole("tab", { name: /Query Plan/i });
+    expect(planTabBtn).toBeTruthy();
+
+    fireEvent.click(planTabBtn);
+
+    expect(screen.getByText("Visual Query Execution Plan")).toBeTruthy();
+    expect(screen.getAllByText("users").length).toBeGreaterThan(0);
+  });
 });

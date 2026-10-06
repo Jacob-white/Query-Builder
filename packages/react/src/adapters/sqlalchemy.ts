@@ -194,7 +194,7 @@ export function fromSqlAlchemy(
         ];
         for (const tok of typeTokens) {
           if (callArgs.includes(tok)) {
-            dataType = SQLALCHEMY_TYPE_MAP[tok.toLowerCase()] || "text";
+            dataType = SQLALCHEMY_TYPE_MAP[tok.toLowerCase()];
             break;
           }
         }

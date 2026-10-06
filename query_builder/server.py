@@ -15,9 +15,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
+from query_builder.cache import compute_cache_key, get_global_cache
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.connectors.registry import get_connector
 from query_builder.dialects import DIALECTS
+from query_builder.explain import estimate_plan_from_spec, normalize_explain_output
 from query_builder.export import ExportError, export_dataset
 from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
 from query_builder.pool import ConnectionPool
@@ -89,6 +91,25 @@ def generate_openapi_spec() -> dict[str, Any]:
                         "200": {"description": "Query result"},
                         "400": {"description": "Execution error"},
                         "403": {"description": "Forbidden by security policy"},
+                    },
+                }
+            },
+            "/api/v1/stream": {
+                "post": {
+                    "summary": "Stream Query Execution via Server-Sent Events",
+                    "responses": {
+                        "200": {"description": "Server-Sent Events stream"},
+                        "400": {"description": "Streaming error"},
+                        "403": {"description": "Forbidden by security policy"},
+                    },
+                }
+            },
+            "/api/v1/explain": {
+                "post": {
+                    "summary": "Explain and Analyze Query Plan",
+                    "responses": {
+                        "200": {"description": "Normalized QueryPlanNode tree"},
+                        "400": {"description": "Explain error"},
                     },
                 }
             },
@@ -175,6 +196,52 @@ def generate_openapi_spec() -> dict[str, Any]:
                     },
                     "required": ["vector"],
                 },
+                "HybridSearchSpec": {
+                    "type": "object",
+                    "properties": {
+                        "vector": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "description": "Query embedding vector",
+                        },
+                        "vector_column": {
+                            "type": "string",
+                            "default": "embedding",
+                            "description": "Embedding column name",
+                        },
+                        "query_text": {
+                            "type": "string",
+                            "description": "Text query for full-text search",
+                        },
+                        "text_columns": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Text columns to search against",
+                        },
+                        "alpha": {
+                            "type": "number",
+                            "default": 0.5,
+                            "description": "Hybrid weight (1.0 = pure vector, 0.0 = pure text)",
+                        },
+                        "fusion": {
+                            "type": "string",
+                            "enum": ["rrf", "linear"],
+                            "default": "rrf",
+                            "description": "Fusion strategy",
+                        },
+                        "rrf_k": {
+                            "type": "integer",
+                            "default": 60,
+                            "description": "RRF smoothing factor",
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "default": 10,
+                            "description": "Max nearest neighbors to retrieve",
+                        },
+                    },
+                    "required": ["vector", "query_text", "text_columns"],
+                },
                 "QuerySpec": {
                     "type": "object",
                     "properties": {
@@ -186,8 +253,36 @@ def generate_openapi_spec() -> dict[str, Any]:
                         "vector_search": {
                             "$ref": "#/components/schemas/VectorSearchSpec"
                         },
+                        "hybrid_search": {
+                            "$ref": "#/components/schemas/HybridSearchSpec"
+                        },
                     },
                     "required": ["table"],
+                },
+                "QueryPlanNode": {
+                    "type": "object",
+                    "properties": {
+                        "node_type": {"type": "string"},
+                        "table": {"type": "string", "nullable": True},
+                        "cost_estimate": {"type": "number"},
+                        "actual_time_ms": {"type": "number", "nullable": True},
+                        "rows_estimated": {"type": "integer"},
+                        "rows_actual": {"type": "integer", "nullable": True},
+                        "filter_predicate": {"type": "string", "nullable": True},
+                        "index_name": {"type": "string", "nullable": True},
+                        "cost_percentage": {"type": "number"},
+                        "warnings": {"type": "array", "items": {"type": "string"}},
+                        "children": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/QueryPlanNode"},
+                        },
+                    },
+                    "required": [
+                        "node_type",
+                        "cost_estimate",
+                        "rows_estimated",
+                        "cost_percentage",
+                    ],
                 },
             }
         },
@@ -440,7 +535,7 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 )
             return
 
-        if path == "/api/v1/execute":
+        if path in ("/api/v1/execute", "/api/query"):
             spec = body.get("spec")
             sql = body.get("sql")
             connector_name = body.get("connector", "sqlite")
@@ -448,6 +543,8 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
             tenant_id = body.get("tenant_id")
             policy = body.get("policy")
             timeout_ms = body.get("timeout_ms")
+            use_cache = body.get("use_cache", False)
+            cache_ttl = body.get("cache_ttl")
 
             if not spec and not sql:
                 self.send_error_response(
@@ -456,6 +553,20 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     status=400,
                 )
                 return
+
+            cache = get_global_cache()
+            cache_key = None
+            if use_cache:
+                target = spec if spec is not None else {"sql": sql, "params": body.get("params", [])}
+                cache_key = compute_cache_key(
+                    target, dialect=connector_name, tenant_id=tenant_id
+                )
+                cached_res = cache.get(cache_key)
+                if cached_res is not None and isinstance(cached_res, dict):
+                    res_copy = dict(cached_res)
+                    res_copy["cached"] = True
+                    self.send_json_response(res_copy)
+                    return
 
             try:
                 conn = get_connector(
@@ -495,6 +606,10 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     }
                     executed_sql = sql
 
+                result_data["cached"] = False
+                if use_cache and cache_key is not None:
+                    cache.set(cache_key, result_data, ttl=cache_ttl)
+
                 self.telemetry_collector.record_execution(
                     sql=executed_sql,
                     latency_ms=result_data.get("latency_ms", 0.0),
@@ -519,6 +634,171 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 self.send_error_response(
                     f"Execution failed: {exc}",
                     code="EXECUTION_ERROR",
+                    status=400,
+                )
+            return
+
+        if path in ("/api/v1/stream", "/api/query/stream"):
+            spec = body.get("spec")
+            sql = body.get("sql")
+            connector_name = body.get("connector", "sqlite")
+            config = body.get("config", {})
+            tenant_id = body.get("tenant_id")
+            policy = body.get("policy")
+            timeout_ms = body.get("timeout_ms")
+            batch_size = int(body.get("batch_size", 250))
+            if batch_size <= 0:
+                batch_size = 250
+
+            if not spec and not sql:
+                self.send_error_response(
+                    "Either 'spec' or 'sql' must be provided.",
+                    code="BAD_REQUEST",
+                    status=400,
+                )
+                return
+
+            try:
+                conn = get_connector(
+                    connector_name,
+                    **(config if isinstance(config, dict) else {}),
+                )
+                if spec is not None:
+                    active_spec = spec
+                    if tenant_id or policy is not None:
+                        ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
+                        active_spec = apply_security_policy(
+                            spec,
+                            context=ctx,
+                            policy=SecurityPolicy(**policy)
+                            if isinstance(policy, dict)
+                            else policy,
+                        )
+                    result_data = conn.execute(
+                        active_spec, statement_timeout_ms=timeout_ms
+                    )
+                else:
+                    assert sql is not None
+                    params = body.get("params", [])
+                    cols, rows, latency = conn.execute_raw(sql, params)
+                    result_data = {
+                        "sql": sql,
+                        "params": params,
+                        "columns": cols,
+                        "rows": rows,
+                        "count": len(rows),
+                        "limit": len(rows),
+                        "offset": 0,
+                        "latency_ms": round(latency, 2),
+                        "dialect": conn.dialect_name,
+                    }
+
+                columns = result_data.get("columns", [])
+                rows = result_data.get("rows", [])
+                total_count = len(rows)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header(
+                    "Access-Control-Allow-Headers", "Content-Type, Authorization"
+                )
+                self.end_headers()
+
+                def send_event(event_name: str, payload: dict[str, Any]) -> None:
+                    chunk = f"event: {event_name}\ndata: {json.dumps(payload, default=str)}\n\n".encode()
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+
+                send_event(
+                    "metadata",
+                    {
+                        "columns": columns,
+                        "total_estimated": total_count,
+                        "dialect": result_data.get("dialect", connector_name),
+                        "sql": result_data.get("sql", ""),
+                    },
+                )
+
+                for i in range(0, total_count, batch_size):
+                    batch_rows = rows[i : i + batch_size]
+                    send_event(
+                        "batch",
+                        {
+                            "rows": batch_rows,
+                            "batch_index": i // batch_size,
+                            "batch_size": len(batch_rows),
+                        },
+                    )
+
+                send_event(
+                    "stats",
+                    {
+                        "elapsed_ms": result_data.get("latency_ms", 0.0),
+                        "rows_received": total_count,
+                        "cache_hit": False,
+                    },
+                )
+
+                send_event("done", {"status": "complete"})
+                self.close_connection = True
+
+            except SecurityError as exc:
+                self.send_error_response(str(exc), code="FORBIDDEN", status=403)
+            except Exception as exc:  # noqa: BLE001
+                self.send_error_response(
+                    f"Streaming failed: {exc}",
+                    code="STREAM_ERROR",
+                    status=400,
+                )
+            return
+
+        if path in ("/api/v1/explain", "/api/query/explain"):
+            spec = body.get("spec")
+            raw_explain = body.get("raw_explain")
+            connector_name = body.get("connector", "sqlite")
+            dialect = body.get("dialect", connector_name)
+            schema = body.get("schema")
+
+            try:
+                if raw_explain is not None:
+                    node = normalize_explain_output(raw_explain, dialect=dialect)
+                elif spec is not None:
+                    node = estimate_plan_from_spec(spec, schema=schema)
+                elif body.get("sql"):
+                    sql = body["sql"]
+                    config = body.get("config", {})
+                    try:
+                        conn = get_connector(
+                            connector_name,
+                            **(config if isinstance(config, dict) else {}),
+                        )
+                        explain_sql = (
+                            f"EXPLAIN QUERY PLAN {sql}"
+                            if "sqlite" in connector_name
+                            else f"EXPLAIN {sql}"
+                        )
+                        _, rows, _ = conn.execute_raw(explain_sql)
+                        node = normalize_explain_output(rows, dialect=dialect)
+                    except Exception:  # noqa: BLE001
+                        node = estimate_plan_from_spec(
+                            {"table": "query", "columns": ["*"]}
+                        )
+                else:
+                    self.send_error_response(
+                        "Either 'spec', 'raw_explain', or 'sql' must be provided.",
+                        code="BAD_REQUEST",
+                        status=400,
+                    )
+                    return
+
+                self.send_json_response(node.to_dict())
+            except Exception as exc:  # noqa: BLE001
+                self.send_error_response(
+                    f"Explain failed: {exc}",
+                    code="EXPLAIN_ERROR",
                     status=400,
                 )
             return

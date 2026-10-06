@@ -261,6 +261,45 @@ export interface VectorSearchSpec {
   min_score?: number;
 }
 
+export interface HybridSearchSpec {
+  vector: number[];
+  vector_column?: string;
+  query_text: string;
+  text_columns: string[];
+  alpha?: number; // 0.0 = pure text, 1.0 = pure vector
+  fusion?: "rrf" | "linear";
+  rrf_k?: number;
+  top_k?: number;
+  metric?: "cosine" | "euclidean" | "l2" | "dot_product" | "inner_product";
+  include_scores?: boolean;
+}
+
+export interface QueryPlanNode {
+  node_type: string;
+  table?: string;
+  cost_estimate?: number;
+  actual_time_ms?: number;
+  rows_estimated?: number;
+  rows_actual?: number;
+  filter_predicate?: string;
+  index_name?: string;
+  cost_percentage?: number;
+  warnings?: string[];
+  children?: QueryPlanNode[];
+}
+
+export interface StreamingQueryState {
+  rows: Record<string, any>[];
+  columns: string[];
+  isStreaming: boolean;
+  progress: {
+    rowsReceived: number;
+    totalEstimated?: number;
+    elapsedMs: number;
+  };
+  error: string | null;
+}
+
 export interface QuerySpec<Schema = any> {
   table: SchemaTableNames<Schema>;
   columns: (string | { column: string; agg?: string; alias?: string })[];
@@ -287,6 +326,7 @@ export interface QuerySpec<Schema = any> {
   distinct: boolean;
   limit: number;
   vector_search?: VectorSearchSpec;
+  hybrid_search?: HybridSearchSpec;
 }
 
 export interface SqlPreset {
