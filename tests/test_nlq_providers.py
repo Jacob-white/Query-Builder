@@ -405,3 +405,40 @@ def test_mock_nlq_provider_non_dict_raw_tables() -> None:
     # schema is not None, but tables is not a dict -> line 95 is False
     ast, _ = prov.generate_ast("select id from users", schema={"tables": "not_a_dict"})
     assert ast["table"] == "users"
+
+
+def test_mock_nlq_provider_explain_without_order_by() -> None:
+    prov = MockNlqProvider()
+    query_dict = {
+        "table": "users",
+        "columns": ["id", "email"],
+        "filters": [],
+        "order_by": [],  # Empty order_by branch
+        "limit": 10,
+    }
+    res = prov.explain_query(query_dict)
+    assert res["summary"].startswith("Queries users")
+    assert any("Limit query output to 10 rows." in step for step in res["steps"])
+
+
+def test_nlq_provider_security_scheme_and_ssrf() -> None:
+    # 1. Reject invalid URL scheme (e.g. file://, ftp://)
+    o_prov = OpenAiProvider(api_key="sk-test", base_url="file:///etc/passwd")
+    with pytest.raises(NlqProviderError, match="Forbidden URL scheme 'file'"):
+        o_prov.generate_ast("test query")
+
+    # 2. Reject cloud metadata SSRF on external providers
+    g_prov = GeminiProvider(api_key="test_key")
+    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+        g_prov._execute_http("http://169.254.169.254/latest/meta-data/", {})
+
+    # 3. Reject cloud metadata SSRF on Ollama even though allow_private_networks is True
+    ol_prov = OllamaProvider(base_url="http://169.254.169.254")
+    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+        ol_prov.generate_ast("test query")
+
+    # 4. Reject private network SSRF on AnthropicProvider
+    a_prov = AnthropicProvider(api_key="test_key", base_url="http://192.168.1.100")
+    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+        a_prov.generate_ast("test query")
+

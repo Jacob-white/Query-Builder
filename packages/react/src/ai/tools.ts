@@ -7,6 +7,7 @@ import type { QuerySpec } from "../types";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { compileSpecToSql } from "../utils/compiler";
 import { autoHealClientQuerySpec } from "./selfHealing";
+import { validateSqlSafety } from "../utils/safety";
 
 export const REACT_AGENT_TOOL_SCHEMAS = [
   {
@@ -144,7 +145,23 @@ export function executeAgentToolCall(
   args: Record<string, any> | string,
   options: ExecuteAgentToolOptions = {}
 ): Record<string, any> {
-  const parsedArgs = typeof args === "string" ? JSON.parse(args) : args;
+  if (typeof toolName !== "string") {
+    return { success: false, error: "Tool name must be a string." };
+  }
+  let parsedArgs: Record<string, any>;
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args);
+      parsedArgs = typeof parsed === "object" && parsed !== null ? parsed : {};
+    } catch (err: any) {
+      return { success: false, error: `Invalid JSON arguments: ${err?.message || "parse error"}` };
+    }
+  } else if (typeof args === "object" && args !== null) {
+    parsedArgs = args;
+  } else {
+    return { success: false, error: "Arguments must be an object or JSON string." };
+  }
+
   const dialect = options.dialect || "postgres";
   const schema = options.schema;
 
@@ -207,6 +224,18 @@ export function executeAgentToolCall(
       };
     }
 
+    if (rawSql) {
+      const safetyCheck = validateSqlSafety(rawSql);
+      if (!safetyCheck.valid) {
+        return {
+          success: false,
+          valid: false,
+          error: `Security validation failed: ${safetyCheck.violations.join("; ") || safetyCheck.message}`,
+          security_violations: safetyCheck.violations,
+        };
+      }
+    }
+
     if (rawSql && !spec) {
       const parsed = parseSqlToSpec(rawSql);
       if (!parsed) {
@@ -225,6 +254,16 @@ export function executeAgentToolCall(
     const compiled = options.onCompile
       ? options.onCompile(finalSpec, targetDialect)
       : compileSpecToSql(finalSpec, targetDialect as any);
+
+    const compiledSafety = validateSqlSafety(compiled);
+    if (!compiledSafety.valid) {
+      return {
+        success: false,
+        valid: false,
+        error: `Security validation failed on compiled query: ${compiledSafety.violations.join("; ") || compiledSafety.message}`,
+        security_violations: compiledSafety.violations,
+      };
+    }
 
     return {
       success: true,

@@ -6,6 +6,7 @@ Provides SQLite-dialect execution via Cloudflare D1 REST API and schema introspe
 
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -70,9 +71,11 @@ class _D1Client:
     """Connection abstraction providing cursor creation for Cloudflare D1."""
 
     def __init__(self, account_id: str, database_id: str, api_token: str) -> None:
+        safe_acc = urllib.parse.quote(str(account_id), safe="")
+        safe_db = urllib.parse.quote(str(database_id), safe="")
         self.url = (
-            f"https://api.cloudflare.com/client/v4/accounts/{account_id}/"
-            f"d1/database/{database_id}/query"
+            f"https://api.cloudflare.com/client/v4/accounts/{safe_acc}/"
+            f"d1/database/{safe_db}/query"
         )
         self.headers = {
             "Authorization": f"Bearer {api_token}",

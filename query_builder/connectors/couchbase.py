@@ -90,7 +90,7 @@ class CouchbaseConnector(BaseConnector):
         self,
         connstr: str = "couchbase://localhost",
         username: str = "Administrator",
-        password: str = "password",
+        password: str = "",
         bucket_name: str = "default",
         scope_name: str = "_default",
         connection: Any = None,

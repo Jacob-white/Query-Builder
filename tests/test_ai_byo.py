@@ -229,6 +229,27 @@ def test_execute_agent_tool_explain_and_unknown():
     assert unknown["success"] is False
     assert "Unknown tool" in unknown["error"]
 
+    # Security & Input Validation Hardening
+    # 1. Non-string tool name
+    bad_name = execute_agent_tool_call(12345, {})  # type: ignore[arg-type]
+    assert bad_name["success"] is False
+    assert "Tool name must be a string" in bad_name["error"]
+
+    # 2. Malformed JSON string
+    bad_json = execute_agent_tool_call("build_query", "{ not valid json")
+    assert bad_json["success"] is False
+    assert "Invalid JSON arguments" in bad_json["error"]
+
+    # 3. Invalid arguments type (not str and not dict)
+    bad_type = execute_agent_tool_call("build_query", 999)  # type: ignore[arg-type]
+    assert bad_type["success"] is False
+    assert "Arguments must be a valid JSON string or dictionary" in bad_type["error"]
+
+    # 4. Non-integer limit fallback
+    fallback_lim = execute_agent_tool_call("build_query", {"intent": "users", "limit": "not_an_int"})
+    assert fallback_lim["success"] is True
+    assert fallback_lim["spec"]["limit"] == 50
+
 
 # ==========================================
 # 2. BringYourOwnAiProvider

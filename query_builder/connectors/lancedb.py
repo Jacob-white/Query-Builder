@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+import tempfile
 import time
 from typing import Any
 
@@ -22,6 +24,8 @@ from query_builder.connectors.base import (
 )
 from query_builder.connectors.introspection import introspect_lancedb
 from query_builder.connectors.registry import register_connector
+
+DEFAULT_LANCEDB_URI = os.path.join(tempfile.gettempdir(), "lancedb")
 
 
 class _LanceDBCursorAdapter:
@@ -138,13 +142,13 @@ class LanceDBConnector(BaseConnector):
 
     def __init__(
         self,
-        uri: str = "/tmp/lancedb",
+        uri: str = DEFAULT_LANCEDB_URI,
         connection: Any = None,
         cursor: Any = None,
         **config: Any,
     ) -> None:
         super().__init__(connection=connection, cursor=cursor, **config)
-        self.uri = uri
+        self.uri = uri or DEFAULT_LANCEDB_URI
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -222,12 +226,12 @@ class AsyncLanceDBConnector(AsyncBaseConnector):
 
     def __init__(
         self,
-        uri: str = "/tmp/lancedb",
+        uri: str = DEFAULT_LANCEDB_URI,
         connection: Any = None,
         **config: Any,
     ) -> None:
         super().__init__(connection=connection, **config)
-        self.uri = uri
+        self.uri = uri or DEFAULT_LANCEDB_URI
 
     async def connect(self) -> Any:
         if self._connection is not None:
