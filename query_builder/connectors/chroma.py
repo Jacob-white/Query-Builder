@@ -8,6 +8,7 @@ dual sync and async execution protocols, and collection schema introspection.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from typing import Any
 
@@ -50,6 +51,40 @@ class _ChromaCursorAdapter:
             cols = self.conn.list_collections()
             self.description = [("collection_name",)]
             self._rows = [[getattr(c, "name", str(c))] for c in cols]
+        elif hasattr(self.conn, "query") and (
+            params is not None
+            and len(params) > 0
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+        ):
+            vector = [[0.0] * 8]
+            if params and isinstance(params[0], (list, tuple)):
+                vector = [list(params[0])]
+            elif params and isinstance(params[0], str):
+                with contextlib.suppress(Exception):
+                    parsed = json.loads(params[0])
+                    if isinstance(parsed, list):
+                        vector = [parsed]
+            limit_val = 10
+            import re
+            lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+            if lm:
+                limit_val = int(lm.group(1))
+            res = self.conn.query(query_embeddings=vector, n_results=limit_val)
+            ids = res.get("ids", [[]])[0] if isinstance(res, dict) and res.get("ids") else []
+            docs = res.get("documents", [[]])[0] if isinstance(res, dict) and res.get("documents") else []
+            dists = res.get("distances", [[]])[0] if isinstance(res, dict) and res.get("distances") else []
+            metas = res.get("metadatas", [[]])[0] if isinstance(res, dict) and res.get("metadatas") else []
+            self.description = [("id",), ("document",), ("distance",), ("metadata",)]
+            n = max(len(ids), len(docs), len(dists), len(metas))
+            self._rows = [
+                [
+                    ids[i] if i < len(ids) else None,
+                    docs[i] if i < len(docs) else None,
+                    dists[i] if i < len(dists) else 0.0,
+                    metas[i] if i < len(metas) else {},
+                ]
+                for i in range(n)
+            ]
         elif hasattr(self.conn, "get"):
             res = self.conn.get(limit=10)
             ids = res.get("ids", [])

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import time
 from typing import Any
 
@@ -63,7 +64,21 @@ class _LanceDBCursorAdapter:
             try:
                 tbl = self.conn.open_table(tbl_name)
                 if hasattr(tbl, "search"):
-                    arrow_tbl = tbl.search().limit(10).to_arrow()
+                    vector = None
+                    if params and len(params) > 0:
+                        if isinstance(params[0], (list, tuple)):
+                            vector = list(params[0])
+                        elif isinstance(params[0], str):
+                            with contextlib.suppress(Exception):
+                                parsed = json.loads(params[0])
+                                if isinstance(parsed, list):
+                                    vector = parsed
+                    limit_val = 10
+                    lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+                    if lm:
+                        limit_val = int(lm.group(1))
+                    search_builder = tbl.search(vector) if vector is not None else tbl.search()
+                    arrow_tbl = search_builder.limit(limit_val).to_arrow()
                     self.description = [(f.name,) for f in arrow_tbl.schema]
                     pylist = arrow_tbl.to_pylist()
                     self._rows = [

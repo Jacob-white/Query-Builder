@@ -8,6 +8,7 @@ dual sync and async execution protocols, and collection schema introspection.
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from typing import Any
 
@@ -50,6 +51,40 @@ class _MilvusCursorAdapter:
             cols = self.conn.list_collections()
             self.description = [("collection_name",)]
             self._rows = [[str(c)] for c in cols]
+        elif hasattr(self.conn, "search") and (
+            params is not None
+            and len(params) > 0
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+        ):
+            coll = "default"
+            import re
+
+            m = re.search(r"\bFROM\s+([`\"]?)([\w_]+)\1", clean_sql, re.IGNORECASE)
+            if m:
+                coll = m.group(2)
+            vector = [[0.0] * 8]
+            if params and isinstance(params[0], (list, tuple)):
+                vector = [list(params[0])]
+            elif params and isinstance(params[0], str):
+                with contextlib.suppress(Exception):
+                    parsed = json.loads(params[0])
+                    if isinstance(parsed, list):
+                        vector = [parsed]
+            limit_val = 10
+            lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+            if lm:
+                limit_val = int(lm.group(1))
+            res = self.conn.search(collection_name=coll, data=vector, limit=limit_val)
+            self.description = [("id",), ("distance",), ("entity",)]
+            self._rows = [
+                [
+                    getattr(r, "id", r.get("id") if isinstance(r, dict) else None),
+                    getattr(r, "distance", r.get("distance") if isinstance(r, dict) else 0.0),
+                    getattr(r, "entity", r.get("entity") if isinstance(r, dict) else {}),
+                ]
+                for hits in (res if isinstance(res, list) else [res])
+                for r in (hits if isinstance(hits, list) else [hits])
+            ]
         elif hasattr(self.conn, "query"):
             coll = "default"
             import re

@@ -253,6 +253,44 @@ class OrderBySpec:
 
 
 @dataclass
+class VectorSearchSpec:
+    """Specification for vector similarity / nearest neighbor search."""
+
+    vector: list[float]
+    column: str = "embedding"
+    top_k: int = 10
+    metric: str = "cosine"  # cosine, euclidean, l2, dot_product, inner_product
+    include_distances: bool = True
+    min_score: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vector, (list, tuple)):
+            raise TypeError("VectorSearchSpec 'vector' must be a list or tuple of numbers.")
+        if len(self.vector) == 0:
+            raise ValueError("VectorSearchSpec 'vector' cannot be empty.")
+        self.vector = [float(v) for v in self.vector]
+        if self.top_k <= 0:
+            raise ValueError("VectorSearchSpec 'top_k' must be greater than 0.")
+        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
+        if self.metric.lower() not in valid_metrics:
+            raise ValueError(
+                f"Invalid VectorSearchSpec 'metric': '{self.metric}'. Must be one of {sorted(valid_metrics)}."
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "vector": list(self.vector),
+            "column": self.column,
+            "top_k": self.top_k,
+            "metric": self.metric,
+            "include_distances": self.include_distances,
+        }
+        if self.min_score is not None:
+            result["min_score"] = self.min_score
+        return result
+
+
+@dataclass
 class QuerySpec:
     """Declarative specification for building and compiling a SQL query."""
 
@@ -267,6 +305,46 @@ class QuerySpec:
     offset: int = 0
     distinct: bool = False
     tenant_id: Any = None
+    vector_search: VectorSearchSpec | dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.vector_search, dict):
+            self.vector_search = VectorSearchSpec(**self.vector_search)
+
+    def to_dict(self) -> dict[str, Any]:
+        res: dict[str, Any] = {
+            "table": self.table,
+            "columns": list(self.columns),
+            "joins": [
+                j.to_dict() if hasattr(j, "to_dict") else (j.__dict__ if hasattr(j, "__dict__") else j)
+                for j in self.joins
+            ],
+            "filters": [
+                f.to_dict() if hasattr(f, "to_dict") else (f.__dict__ if hasattr(f, "__dict__") else f)
+                for f in self.filters
+            ],
+            "filter_join": self.filter_join,
+            "having": [
+                h.to_dict() if hasattr(h, "to_dict") else (h.__dict__ if hasattr(h, "__dict__") else h)
+                for h in self.having
+            ],
+            "order_by": [
+                o.to_dict() if hasattr(o, "to_dict") else (o.__dict__ if hasattr(o, "__dict__") else o)
+                for o in self.order_by
+            ],
+            "limit": self.limit,
+            "offset": self.offset,
+            "distinct": self.distinct,
+        }
+        if self.tenant_id is not None:
+            res["tenant_id"] = self.tenant_id
+        if self.vector_search is not None:
+            res["vector_search"] = (
+                self.vector_search.to_dict()
+                if hasattr(self.vector_search, "to_dict")
+                else self.vector_search
+            )
+        return res
 
 
 @dataclass

@@ -9,6 +9,7 @@ export * from "./utils/safety";
 export * from "./utils/compiler";
 export * from "./utils/schemaUtils";
 export * from "./utils/sqlParser";
+export * from "./utils/vectorUtils";
 export * from "./adapters";
 
 export { VisualQueryBuilder } from "./components/VisualQueryBuilder";

@@ -252,6 +252,15 @@ export interface VisualColumnSelect<Schema = any> {
   alias?: string;
 }
 
+export interface VectorSearchSpec {
+  vector: number[];
+  column?: string;
+  top_k?: number;
+  metric?: "cosine" | "euclidean" | "l2" | "dot_product" | "inner_product";
+  include_distances?: boolean;
+  min_score?: number;
+}
+
 export interface QuerySpec<Schema = any> {
   table: SchemaTableNames<Schema>;
   columns: (string | { column: string; agg?: string; alias?: string })[];
@@ -277,6 +286,7 @@ export interface QuerySpec<Schema = any> {
   }[];
   distinct: boolean;
   limit: number;
+  vector_search?: VectorSearchSpec;
 }
 
 export interface SqlPreset {

@@ -62,8 +62,29 @@ class _PineconeCursorAdapter:
             self.description = [("index_name",)]
             self._rows = [[str(name)] for name in names]
         elif hasattr(self.conn, "query"):
+            v = [0.0] * 8
+            k = 10
+            if params and len(params) > 0:
+                if all(isinstance(x, (int, float)) for x in params):
+                    v = params
+                elif isinstance(params[0], (list, tuple)):
+                    v = list(params[0])
+                elif isinstance(params[0], str) and params[0].startswith("["):
+                    import json
+
+                    with contextlib.suppress(Exception):
+                        parsed = json.loads(params[0])
+                        if isinstance(parsed, list):
+                            v = parsed
+                if len(params) > 1 and isinstance(params[1], int):
+                    k = params[1]
+            import re
+
+            lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+            if lm:
+                k = int(lm.group(1))
             res = self.conn.query(
-                vector=params or [0.0] * 8, top_k=10, include_metadata=True
+                vector=v, top_k=k, include_metadata=True
             )
             matches = (
                 res.get("matches", [])
