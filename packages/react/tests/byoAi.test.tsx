@@ -132,12 +132,13 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     expect(sqlRes.spec.table).toBe("users");
     expect(sqlRes.sql).toContain("users");
 
-    // With unparsable SQL
+    // With unparsable SQL (valid SELECT statement structure, but lacking FROM table)
     const badSqlRes = executeAgentToolCall("validate_and_compile_query", {
-      sql: "INVALID NOT A QUERY",
+      sql: "SELECT 1",
     });
     expect(badSqlRes.success).toBe(false);
     expect(badSqlRes.valid).toBe(false);
+    expect(badSqlRes.error).toContain("Failed to parse SQL query: SELECT 1");
 
     // With spec AST and custom onCompile
     const specRes = executeAgentToolCall(
@@ -157,6 +158,45 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     expect(specRes.valid).toBe(true);
     expect(specRes.spec.table).toBe("users");
     expect(specRes.sql).toBe("SELECT custom FROM users [postgres]");
+  });
+
+  it("enforces security validation and input hardening in executeAgentToolCall", () => {
+    // 1. Non-string tool name
+    const badNameRes = executeAgentToolCall(12345 as any, {});
+    expect(badNameRes.success).toBe(false);
+    expect(badNameRes.error).toContain("Tool name must be a string");
+
+    // 2. Malformed JSON argument string
+    const badJsonRes = executeAgentToolCall("build_query", "{ not valid json");
+    expect(badJsonRes.success).toBe(false);
+    expect(badJsonRes.error).toContain("Invalid JSON arguments");
+
+    // 3. Invalid argument types (neither object nor string)
+    const badTypeRes = executeAgentToolCall("build_query", 9999 as any);
+    expect(badTypeRes.success).toBe(false);
+    expect(badTypeRes.error).toContain("Arguments must be an object or JSON string");
+
+    // 4. Dangerous raw SQL blocked by validateSqlSafety
+    const dropRes = executeAgentToolCall("validate_and_compile_query", {
+      sql: "DROP TABLE users;",
+    });
+    expect(dropRes.success).toBe(false);
+    expect(dropRes.valid).toBe(false);
+    expect(dropRes.error).toContain("Security validation failed");
+
+    // 5. Dangerous compiled query blocked by validateSqlSafety
+    const dangerousCompileRes = executeAgentToolCall(
+      "validate_and_compile_query",
+      {
+        spec: { table: "users" },
+      },
+      {
+        onCompile: () => "DROP TABLE users;",
+      }
+    );
+    expect(dangerousCompileRes.success).toBe(false);
+    expect(dangerousCompileRes.valid).toBe(false);
+    expect(dangerousCompileRes.error).toContain("Security validation failed on compiled query");
   });
 
   it("executes get_schema_catalog tool call in markdown and json formats", () => {

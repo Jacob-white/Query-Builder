@@ -227,16 +227,31 @@ def execute_agent_tool_call(
         dialect: Default SQL dialect.
         nlq_service: Optional preconfigured NlqService instance.
     """
-    args = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
+    if not isinstance(tool_name, str):
+        return {"success": False, "error": "Tool name must be a string."}
     name = tool_name.strip()
 
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            args = parsed if isinstance(parsed, dict) else {}
+        except Exception as exc:
+            return {"success": False, "error": f"Invalid JSON arguments: {exc}"}
+    elif isinstance(arguments, dict):
+        args = dict(arguments)
+    else:
+        return {"success": False, "error": "Arguments must be a valid JSON string or dictionary."}
+
     if name == "build_query":
-        intent = args.get("intent", "").strip()
+        intent = str(args.get("intent", "")).strip()
         if not intent:
             return {"success": False, "error": "Missing required argument 'intent'."}
 
         target_dialect = args.get("dialect", dialect) or "postgres"
-        limit = int(args.get("limit", 50))
+        try:
+            limit = int(args.get("limit", 50))
+        except (ValueError, TypeError):
+            limit = 50
         svc = nlq_service or NlqService(default_provider="mock")
 
         res = svc.translate({

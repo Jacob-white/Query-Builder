@@ -8,6 +8,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from typing import Any
@@ -48,6 +49,54 @@ class NlqProvider(ABC):
         self.base_url = base_url
         self.timeout = timeout
         self.extra_kwargs = kwargs
+
+    def _safe_execute_http_request(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        allow_private_networks: bool = False,
+    ) -> bytes:
+        """
+        Safely executes an outbound HTTP request for NLQ providers.
+        Strictly enforces:
+        1. Only permitted URL schemes ('http', 'https').
+        2. Network egress validation via validate_network_target to block SSRF
+           (cloud metadata 169.254.169.254, internal private subnets when disabled).
+        """
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.lower()
+        if scheme not in ("http", "https"):
+            raise NlqProviderError(
+                f"Forbidden URL scheme '{scheme}'. Only 'http' and 'https' are allowed."
+            )
+
+        from query_builder.config import NetworkSecurityConfig
+        from query_builder.exceptions import SecurityError
+        from query_builder.security import validate_network_target
+
+        try:
+            validate_network_target(
+                url=url,
+                network_config=NetworkSecurityConfig(
+                    allow_private_networks=allow_private_networks,
+                    enforce_tls=not allow_private_networks,
+                ),
+            )
+        except SecurityError as sec_err:
+            raise NlqProviderError(
+                f"Security validation blocked network request: {sec_err}"
+            ) from sec_err
+
+        req = urllib.request.Request(  # noqa: S310
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        # Scheme and network target are validated above; urlopen is restricted to http/https and non-metadata egress targets.
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
+            return resp.read()
 
     @abstractmethod
     def generate_ast(
@@ -300,26 +349,23 @@ class GeminiProvider(NlqProvider):
             raise NlqProviderError(f"Failed to parse Gemini explain JSON: {exc}") from exc
 
     def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        headers = {"Content-Type": "application/json"}
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
-                res = json.loads(raw)
-                candidates = res.get("candidates", [])
-                if not candidates:
-                    raise NlqProviderError("Gemini returned empty candidates list.")
-                text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
-                usage = res.get("usageMetadata", {})
-                tokens = usage.get("totalTokenCount")
-                return text, tokens
+            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw = raw_bytes.decode("utf-8")
+            res = json.loads(raw)
+            candidates = res.get("candidates", [])
+            if not candidates:
+                raise NlqProviderError("Gemini returned empty candidates list.")
+            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+            usage = res.get("usageMetadata", {})
+            tokens = usage.get("totalTokenCount")
+            return text, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
             raise NlqProviderError(f"Gemini HTTP {exc.code} error: {err_body}") from exc
+        except NlqProviderError:
+            raise
         except Exception as exc:
             raise NlqProviderError(f"Gemini request failed: {exc}") from exc
 
@@ -395,28 +441,25 @@ class OpenAiProvider(NlqProvider):
             raise NlqProviderError(f"Failed to parse OpenAI explain JSON: {exc}") from exc
 
     def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
-                res = json.loads(raw)
-                choices = res.get("choices", [])
-                if not choices:
-                    raise NlqProviderError("OpenAI returned no choices.")
-                content = choices[0].get("message", {}).get("content", "{}")
-                tokens = res.get("usage", {}).get("total_tokens")
-                return content, tokens
+            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw = raw_bytes.decode("utf-8")
+            res = json.loads(raw)
+            choices = res.get("choices", [])
+            if not choices:
+                raise NlqProviderError("OpenAI returned no choices.")
+            content = choices[0].get("message", {}).get("content", "{}")
+            tokens = res.get("usage", {}).get("total_tokens")
+            return content, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
             raise NlqProviderError(f"OpenAI HTTP {exc.code} error: {err_body}") from exc
+        except NlqProviderError:
+            raise
         except Exception as exc:
             raise NlqProviderError(f"OpenAI request failed: {exc}") from exc
 
@@ -488,28 +531,25 @@ class AnthropicProvider(NlqProvider):
             raise NlqProviderError(f"Failed to parse Anthropic explain JSON: {exc}") from exc
 
     def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key or "",
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+        }
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
-                res = json.loads(raw)
-                content_blocks = res.get("content", [])
-                text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
-                usage = res.get("usage", {})
-                tokens = (usage.get("input_tokens", 0) + usage.get("output_tokens", 0)) or None
-                return text, tokens
+            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw = raw_bytes.decode("utf-8")
+            res = json.loads(raw)
+            content_blocks = res.get("content", [])
+            text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
+            usage = res.get("usage", {})
+            tokens = (usage.get("input_tokens", 0) + usage.get("output_tokens", 0)) or None
+            return text, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
             raise NlqProviderError(f"Anthropic HTTP {exc.code} error: {err_body}") from exc
+        except NlqProviderError:
+            raise
         except Exception as exc:
             raise NlqProviderError(f"Anthropic request failed: {exc}") from exc
 
@@ -576,24 +616,21 @@ class OllamaProvider(NlqProvider):
             raise NlqProviderError(f"Failed to parse Ollama explain JSON: {exc}") from exc
 
     def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        headers = {"Content-Type": "application/json"}
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
-                res = json.loads(raw)
-                response_text = res.get("response", "{}")
-                eval_count = res.get("eval_count")
-                prompt_eval_count = res.get("prompt_eval_count")
-                tokens = (eval_count + prompt_eval_count) if (eval_count and prompt_eval_count) else eval_count
-                return response_text, tokens
+            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=True)
+            raw = raw_bytes.decode("utf-8")
+            res = json.loads(raw)
+            response_text = res.get("response", "{}")
+            eval_count = res.get("eval_count")
+            prompt_eval_count = res.get("prompt_eval_count")
+            tokens = (eval_count + prompt_eval_count) if (eval_count and prompt_eval_count) else eval_count
+            return response_text, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
             raise NlqProviderError(f"Ollama HTTP {exc.code} error: {err_body}") from exc
+        except NlqProviderError:
+            raise
         except Exception as exc:
             raise NlqProviderError(f"Ollama request failed: {exc}") from exc
 

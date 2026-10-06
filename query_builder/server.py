@@ -705,7 +705,9 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                         token.throw_if_cancelled()
                         executed_sql = result_data.get("sql", "")
                     else:
-                        assert sql is not None
+                        if sql is None:
+                            self.send_error_response("SQL statement must not be null.", code="BAD_REQUEST", status=400)
+                            return
                         params = body.get("params", [])
                         token.throw_if_cancelled()
                         cols, rows, latency = conn.execute_raw(sql, params)
@@ -858,7 +860,9 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                         active_spec, statement_timeout_ms=timeout_ms
                     )
                 else:
-                    assert sql is not None
+                    if sql is None:
+                        self.send_error_response("SQL statement must not be null.", code="BAD_REQUEST", status=400)
+                        return
                     params = body.get("params", [])
                     cols, rows, latency = conn.execute_raw(sql, params)
                     result_data = {
