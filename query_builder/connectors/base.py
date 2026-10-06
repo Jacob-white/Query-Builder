@@ -366,6 +366,22 @@ class BaseConnector(ABC):
             else self.middleware
         )
 
+        use_cache = kwargs.get("use_cache", sec.execution.enable_cache)
+        cache_ttl = kwargs.get("cache_ttl", sec.execution.default_ttl_seconds)
+        cache_key = None
+        if use_cache:
+            from query_builder.cache import compute_cache_key, get_global_cache
+
+            target = spec if spec is not None else {"sql": sql, "params": params or []}
+            cache_key = compute_cache_key(
+                target, dialect=self.dialect_name, tenant_id=kwargs.get("tenant_id")
+            )
+            cached_res = get_global_cache().get(cache_key)
+            if cached_res is not None and isinstance(cached_res, dict):
+                res_copy = dict(cached_res)
+                res_copy["cached"] = True
+                return res_copy
+
         spec_table = "unknown"
         try:
             if spec is None:
@@ -612,6 +628,12 @@ class BaseConnector(ABC):
                     parameters=main_params,
                     redact_parameters=sec.logging.redact_parameters,
                 )
+
+            raw_result["cached"] = False
+            if use_cache and cache_key is not None:
+                from query_builder.cache import get_global_cache
+
+                get_global_cache().set(cache_key, raw_result, ttl=cache_ttl)
 
             return pipeline.run_post_execute(raw_result, ctx)
 

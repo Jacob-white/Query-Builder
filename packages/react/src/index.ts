@@ -18,6 +18,14 @@ export { TableCard } from "./components/TableCard";
 export { TableFiltersEditor } from "./components/TableFiltersEditor";
 export { TableJoinEditor } from "./components/TableJoinEditor";
 export { TableSortsEditor } from "./components/TableSortsEditor";
+export {
+  VectorHybridControl,
+  type VectorHybridControlProps,
+} from "./components/VectorHybridControl";
+export {
+  QueryPlanVisualizer,
+  type QueryPlanVisualizerProps,
+} from "./components/QueryPlanVisualizer";
 export { SchemaErdModal } from "./components/SchemaErdModal";
 export { SchemaExplorer, type SchemaExplorerProps } from "./components/SchemaExplorer";
 export {

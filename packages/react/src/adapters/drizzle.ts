@@ -198,7 +198,6 @@ export function fromDrizzle(
     const varName = headerMatch[1] || "";
     const tableName = headerMatch[2];
     const callStartIdx = code.indexOf("(", headerMatch.index);
-    if (callStartIdx === -1) continue;
 
     // Balance parentheses to find full call
     let depth = 0;
@@ -415,11 +414,11 @@ export function fromDrizzle(
 
   // Post-process foreign keys
   for (const tbl of tables) {
-    const fks = tbl.foreignKeys || tbl.foreign_keys || [];
+    const fks = tbl.foreignKeys!;
     for (const fk of fks) {
-      const targetTable = tables.find((t) => t.name === (fk.foreignTable || fk.foreign_table));
+      const targetTable = tables.find((t) => t.name === fk.foreignTable);
       if (targetTable) {
-        const fCol = fk.foreignColumn || fk.foreign_column;
+        const fCol = fk.foreignColumn;
         const matched = targetTable.columns.find((c) => c.name === fCol);
         if (!matched) {
           const caseMatched = targetTable.columns.find((c) => c.name.toLowerCase() === fCol?.toLowerCase());

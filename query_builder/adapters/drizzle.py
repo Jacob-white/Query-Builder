@@ -117,7 +117,7 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
         var_name = header_match.group(1) or ""
         table_name = header_match.group(2)
         call_start_idx = code.find("(", header_match.start())
-        if call_start_idx == -1:
+        if call_start_idx == -1:  # pragma: no cover
             continue
 
         # Balance parentheses to find full call

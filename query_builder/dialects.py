@@ -89,6 +89,16 @@ class BaseDialect:
         """Formats a vector list for driver query parameter binding."""
         return str(vector)
 
+    def format_text_search(
+        self, col_refs: list[str], placeholder: str | None = None
+    ) -> str:
+        """Formats a basic text matching score expression."""
+        ph = placeholder or self.placeholder
+        if not col_refs:
+            return "1.0"
+        cases = [f"(CASE WHEN {col} LIKE {ph} THEN 1.0 ELSE 0.0 END)" for col in col_refs]
+        return f"({' + '.join(cases)})"
+
     def inspect_tables_query(
         self, schema_name: str = "public"
     ) -> tuple[str, list[Any]]:
@@ -179,6 +189,16 @@ class PostgresDialect(BaseDialect):
             return f"({col_ref} <#> {self.placeholder})"
         return f"({col_ref} <=> {self.placeholder})"
 
+    def format_text_search(
+        self, col_refs: list[str], placeholder: str | None = None
+    ) -> str:
+        """Formats PostgreSQL ts_rank_cd full text search ranking score."""
+        ph = placeholder or self.placeholder
+        if not col_refs:
+            return "1.0"
+        coalesced = " || ' ' || ".join([f"COALESCE({col}::text, '')" for col in col_refs])
+        return f"ts_rank_cd(to_tsvector('english', {coalesced}), plainto_tsquery('english', {ph}))"
+
 
 class SnowflakeDialect(BaseDialect):
     """Snowflake dialect."""
@@ -195,6 +215,16 @@ class SnowflakeDialect(BaseDialect):
         elif m in ("dot_product", "inner_product"):
             return f"VECTOR_INNER_PRODUCT({col_ref}, {self.placeholder})"
         return f"VECTOR_COSINE_SIMILARITY({col_ref}, {self.placeholder})"
+
+    def format_text_search(
+        self, col_refs: list[str], placeholder: str | None = None
+    ) -> str:
+        """Formats Snowflake keyword search score expression."""
+        ph = placeholder or self.placeholder
+        if not col_refs:
+            return "1.0"
+        cases = [f"(CASE WHEN CONTAINS(LOWER({col}), LOWER({ph})) THEN 1.0 ELSE 0.0 END)" for col in col_refs]
+        return f"({' + '.join(cases)})"
 
 
 class MSSQLDialect(BaseDialect):
@@ -349,6 +379,16 @@ class ClickHouseDialect(BaseDialect):
         elif m in ("dot_product", "inner_product"):
             return f"dotProduct({col_ref}, {self.placeholder})"
         return f"cosineDistance({col_ref}, {self.placeholder})"
+
+    def format_text_search(
+        self, col_refs: list[str], placeholder: str | None = None
+    ) -> str:
+        """Formats ClickHouse positionCaseInsensitive scoring."""
+        ph = placeholder or self.placeholder
+        if not col_refs:
+            return "1.0"
+        cases = [f"if(positionCaseInsensitive({col}, {ph}) > 0, 1.0, 0.0)" for col in col_refs]
+        return f"({' + '.join(cases)})"
 
     def inspect_tables_query(
         self, schema_name: str = "default"

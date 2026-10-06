@@ -46,6 +46,7 @@ ALLOWED_SPEC_KEYS = {
     "distinct",
     "tenant_id",
     "vector_search",
+    "hybrid_search",
 }
 
 ALLOWED_COLUMN_KEYS = {"column", "name", "agg", "aggregate", "alias", "table"}
@@ -569,6 +570,94 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             )
         if min_score is not None and not isinstance(min_score, (int, float)):
             raise ValidationError("Field 'vector_search.min_score' must be a number or None.")
+
+    if "hybrid_search" in spec and spec["hybrid_search"] is not None:
+        hs = spec["hybrid_search"]
+        if isinstance(hs, dict):
+            if not allow_unknown_keys:
+                allowed_hs_keys = {
+                    "vector",
+                    "vector_column",
+                    "query_text",
+                    "text_columns",
+                    "alpha",
+                    "fusion",
+                    "rrf_k",
+                    "top_k",
+                    "metric",
+                    "include_scores",
+                }
+                unknown_hs = set(hs.keys()) - allowed_hs_keys
+                if unknown_hs:
+                    raise ValidationError(
+                        f"Unexpected field(s) in hybrid_search specification: {', '.join(sorted(unknown_hs))}"
+                    )
+            vec = hs.get("vector")
+            v_col = hs.get("vector_column", "embedding")
+            q_text = hs.get("query_text", "")
+            t_cols = hs.get("text_columns", [])
+            alpha = hs.get("alpha", 0.5)
+            fusion = hs.get("fusion", "rrf")
+            rrf_k = hs.get("rrf_k", 60)
+            top_k = hs.get("top_k", 10)
+            metric = hs.get("metric", "cosine")
+        elif hasattr(hs, "vector"):
+            vec = hs.vector
+            v_col = getattr(hs, "vector_column", "embedding")
+            q_text = getattr(hs, "query_text", "")
+            t_cols = getattr(hs, "text_columns", [])
+            alpha = getattr(hs, "alpha", 0.5)
+            fusion = getattr(hs, "fusion", "rrf")
+            rrf_k = getattr(hs, "rrf_k", 60)
+            top_k = getattr(hs, "top_k", 10)
+            metric = getattr(hs, "metric", "cosine")
+        else:
+            raise ValidationError(
+                "Field 'hybrid_search' must be a dictionary or HybridSearchSpec."
+            )
+
+        if not isinstance(vec, (list, tuple)) or len(vec) == 0:
+            raise ValidationError(
+                "Field 'hybrid_search.vector' must be a non-empty list of numbers."
+            )
+        if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in vec):
+            raise ValidationError(
+                "All elements in 'hybrid_search.vector' must be numbers."
+            )
+        _check_ident(v_col, "hybrid_search vector_column")
+
+        if not isinstance(q_text, str):
+            raise ValidationError("Field 'hybrid_search.query_text' must be a string.")
+
+        if not isinstance(t_cols, (list, tuple)):
+            raise ValidationError(
+                "Field 'hybrid_search.text_columns' must be a list of column names."
+            )
+        for tc in t_cols:
+            _check_ident(tc, "hybrid_search text_column")
+
+        if not isinstance(alpha, (int, float)) or not (0.0 <= float(alpha) <= 1.0):
+            raise ValidationError("Field 'hybrid_search.alpha' must be a number between 0.0 and 1.0.")
+
+        valid_fusions = {"rrf", "linear"}
+        if str(fusion).lower() not in valid_fusions:
+            raise ValidationError(
+                f"Invalid hybrid_search 'fusion': '{fusion}'. Must be one of {sorted(valid_fusions)}."
+            )
+
+        if not isinstance(rrf_k, int) or rrf_k <= 0:
+            raise ValidationError("Field 'hybrid_search.rrf_k' must be a positive integer.")
+
+        if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
+            raise ValidationError(
+                f"Field 'hybrid_search.top_k' must be an integer between 1 and {MAX_LIMIT}."
+            )
+
+        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
+        if str(metric).lower() not in valid_metrics:
+            raise ValidationError(
+                f"Invalid hybrid_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
+            )
 
 
 class QueryCompiler:
@@ -1107,6 +1196,67 @@ class QueryCompiler:
                 self.params.append(self._vector_param_val)
                 self.params.append(float(min_score))
 
+        # 3.2. Process Hybrid Search
+        hs_spec = self.spec.get("hybrid_search")
+        self.has_hybrid_search = False
+        self.hybrid_score_expr = None
+        self._hybrid_include_scores = True
+        self._hybrid_vector_param = None
+        self._hybrid_text_param = None
+        self._hybrid_text_quoted_refs: list[str] = []
+        if hs_spec:
+            self.has_hybrid_search = True
+            hs_dict = (
+                hs_spec.to_dict()
+                if hasattr(hs_spec, "to_dict")
+                else (hs_spec if isinstance(hs_spec, dict) else hs_spec.__dict__)
+            )
+            vec = hs_dict.get("vector", [])
+            v_col = hs_dict.get("vector_column", "embedding")
+            q_text = hs_dict.get("query_text", "")
+            t_cols = hs_dict.get("text_columns", [])
+            alpha = float(hs_dict.get("alpha", 0.5))
+            fusion = str(hs_dict.get("fusion", "rrf")).lower()
+            rrf_k = int(hs_dict.get("rrf_k", 60))
+            self._hybrid_include_scores = hs_dict.get("include_scores", True)
+            metric = str(hs_dict.get("metric", "cosine")).lower()
+
+            _, _, vs_quoted_ref = self._resolve_column_ref(
+                v_col, default_table=clean_base_table, target_alias=base_alias
+            )
+            self._hybrid_text_quoted_refs = [
+                self._resolve_column_ref(
+                    tc, default_table=clean_base_table, target_alias=base_alias
+                )[2]
+                for tc in t_cols
+            ]
+
+            v_dist = self.dialect.format_vector_distance(vs_quoted_ref, metric=metric)
+            t_score = self.dialect.format_text_search(self._hybrid_text_quoted_refs)
+
+            self._hybrid_vector_param = self.dialect.format_vector_param(vec)
+            self._hybrid_text_param = f"%{q_text}%" if q_text else "%"
+
+            if fusion == "linear":
+                self.hybrid_score_expr = (
+                    f"({alpha} * (1.0 / (1.0 + {v_dist})) + {round(1.0 - alpha, 4)} * ({t_score}))"
+                )
+            else:  # rrf
+                self.hybrid_score_expr = (
+                    f"((1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY {v_dist} ASC))) + "
+                    f"(1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY ({t_score}) DESC))))"
+                )
+
+            if self._hybrid_include_scores:
+                score_alias = "_score"
+                self.select_clause_items.append(
+                    f"{self.hybrid_score_expr} AS {self.dialect.quote_alias(score_alias)}"
+                )
+                self.select_column_names.append(score_alias)
+                self.params.append(self._hybrid_vector_param)
+                if self._hybrid_text_quoted_refs:
+                    self.params.append(self._hybrid_text_param)
+
         # 4. Process Filters
         filters_spec = self.spec.get("filters", [])
         filter_join = self.spec.get("filter_join", "AND").upper()
@@ -1449,6 +1599,14 @@ class QueryCompiler:
             else:
                 order_by_str = f"ORDER BY {self.vector_distance_expr} ASC"
                 self.params.append(self._vector_param_val)
+        elif not self.order_by_items and self.has_hybrid_search:
+            if self._hybrid_include_scores:
+                order_by_str = f"ORDER BY {self.dialect.quote_alias('_score')} DESC"
+            else:
+                order_by_str = f"ORDER BY {self.hybrid_score_expr} DESC"
+                self.params.append(self._hybrid_vector_param)
+                if self._hybrid_text_quoted_refs:
+                    self.params.append(self._hybrid_text_param)
         elif (
             getattr(self.dialect, "requires_order_by_for_pagination", False)
             and not self.order_by_items
@@ -1462,12 +1620,12 @@ class QueryCompiler:
             )
 
         limit_val = int(self.spec.get("limit", 50))
-        if self.has_vector_search:
-            vs_spec_val = self.spec.get("vector_search")
-            if isinstance(vs_spec_val, dict):
-                top_k_val = int(vs_spec_val.get("top_k", 10))
-            elif hasattr(vs_spec_val, "top_k"):
-                top_k_val = int(getattr(vs_spec_val, "top_k", 10))
+        if self.has_vector_search or self.has_hybrid_search:
+            search_spec_val = self.spec.get("vector_search") or self.spec.get("hybrid_search")
+            if isinstance(search_spec_val, dict):
+                top_k_val = int(search_spec_val.get("top_k", 10))
+            elif hasattr(search_spec_val, "top_k"):
+                top_k_val = int(getattr(search_spec_val, "top_k", 10))
             else:
                 top_k_val = 10
             if "limit" not in self.spec:

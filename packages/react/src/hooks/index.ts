@@ -34,3 +34,9 @@ export {
   type UseSchemaIntrospectionOptions,
   type UseSchemaIntrospectionReturn,
 } from "./useSchemaIntrospection";
+
+export {
+  useStreamingQuery,
+  type UseStreamingQueryOptions,
+  type UseStreamingQueryReturn,
+} from "./useStreamingQuery";

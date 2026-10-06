@@ -102,17 +102,16 @@ def _reflect_live_sqlalchemy(target: Any) -> SchemaDict | None:
 
             fk: ForeignKey | None = None
             if col.foreign_keys:
-                for live_fk in col.foreign_keys:
-                    target_col = live_fk.column.name
-                    target_tbl = live_fk.column.table.name
-                    fk = ForeignKey(
-                        table=tbl_name,
-                        column=col_name,
-                        foreign_table=target_tbl,
-                        foreign_column=target_col,
-                    )
-                    foreign_keys.append(fk)
-                    break
+                live_fk = next(iter(col.foreign_keys))
+                target_col = live_fk.column.name
+                target_tbl = live_fk.column.table.name
+                fk = ForeignKey(
+                    table=tbl_name,
+                    column=col_name,
+                    foreign_table=target_tbl,
+                    foreign_column=target_col,
+                )
+                foreign_keys.append(fk)
 
             columns.append(
                 ColumnSchema(

@@ -291,6 +291,73 @@ class VectorSearchSpec:
 
 
 @dataclass
+class HybridSearchSpec:
+    """Specification for hybrid search combining dense vector KNN and sparse/full-text keyword search."""
+
+    vector: list[float]
+    vector_column: str = "embedding"
+    query_text: str = ""
+    text_columns: list[str] = field(default_factory=list)
+    alpha: float = 0.5  # 1.0 = pure vector, 0.0 = pure text, 0.5 = balanced hybrid
+    fusion: str = "rrf"  # "rrf" or "linear"
+    rrf_k: int = 60
+    top_k: int = 10
+    metric: str = "cosine"  # cosine, euclidean, l2, dot_product, inner_product
+    include_scores: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vector, (list, tuple)):
+            raise TypeError("HybridSearchSpec 'vector' must be a list or tuple of numbers.")
+        if len(self.vector) == 0:
+            raise ValueError("HybridSearchSpec 'vector' cannot be empty.")
+        self.vector = [float(v) for v in self.vector]
+
+        if not isinstance(self.query_text, str):
+            raise TypeError("HybridSearchSpec 'query_text' must be a string.")
+
+        if not isinstance(self.text_columns, (list, tuple)):
+            raise TypeError("HybridSearchSpec 'text_columns' must be a list of column names.")
+        self.text_columns = list(self.text_columns)
+
+        if not (0.0 <= self.alpha <= 1.0):
+            raise ValueError(f"HybridSearchSpec 'alpha' must be between 0.0 and 1.0, got {self.alpha}.")
+
+        valid_fusions = {"rrf", "linear"}
+        if self.fusion.lower() not in valid_fusions:
+            raise ValueError(
+                f"Invalid HybridSearchSpec 'fusion': '{self.fusion}'. Must be one of {sorted(valid_fusions)}."
+            )
+        self.fusion = self.fusion.lower()
+
+        if self.rrf_k <= 0:
+            raise ValueError("HybridSearchSpec 'rrf_k' must be greater than 0.")
+
+        if self.top_k <= 0:
+            raise ValueError("HybridSearchSpec 'top_k' must be greater than 0.")
+
+        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
+        if self.metric.lower() not in valid_metrics:
+            raise ValueError(
+                f"Invalid HybridSearchSpec 'metric': '{self.metric}'. Must be one of {sorted(valid_metrics)}."
+            )
+        self.metric = self.metric.lower()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "vector": list(self.vector),
+            "vector_column": self.vector_column,
+            "query_text": self.query_text,
+            "text_columns": list(self.text_columns),
+            "alpha": self.alpha,
+            "fusion": self.fusion,
+            "rrf_k": self.rrf_k,
+            "top_k": self.top_k,
+            "metric": self.metric,
+            "include_scores": self.include_scores,
+        }
+
+
+@dataclass
 class QuerySpec:
     """Declarative specification for building and compiling a SQL query."""
 
@@ -306,10 +373,13 @@ class QuerySpec:
     distinct: bool = False
     tenant_id: Any = None
     vector_search: VectorSearchSpec | dict[str, Any] | None = None
+    hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.vector_search, dict):
             self.vector_search = VectorSearchSpec(**self.vector_search)
+        if isinstance(self.hybrid_search, dict):
+            self.hybrid_search = HybridSearchSpec(**self.hybrid_search)
 
     def to_dict(self) -> dict[str, Any]:
         res: dict[str, Any] = {
@@ -343,6 +413,12 @@ class QuerySpec:
                 self.vector_search.to_dict()
                 if hasattr(self.vector_search, "to_dict")
                 else self.vector_search
+            )
+        if self.hybrid_search is not None:
+            res["hybrid_search"] = (
+                self.hybrid_search.to_dict()
+                if hasattr(self.hybrid_search, "to_dict")
+                else self.hybrid_search
             )
         return res
 

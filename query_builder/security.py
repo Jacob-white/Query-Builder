@@ -710,6 +710,10 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     if spec_dict.get("vector_search"):
         score += 5
 
+    # Hybrid search
+    if spec_dict.get("hybrid_search"):
+        score += 8
+
     return score
 
 

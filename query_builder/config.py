@@ -75,6 +75,9 @@ class ExecutionSecurityConfig:
     max_join_depth: int = 5
     max_complexity_score: int = 100
     prevent_cartesian_products: bool = True
+    enable_cache: bool = False
+    default_ttl_seconds: int = 300
+    max_cache_entries: int = 1000
 
     def __post_init__(self) -> None:
         if self.statement_timeout_ms < 0:
@@ -92,6 +95,14 @@ class ExecutionSecurityConfig:
         if self.max_complexity_score <= 0:
             raise ValueError(
                 f"max_complexity_score must be greater than 0, got {self.max_complexity_score}"
+            )
+        if self.default_ttl_seconds < 0:
+            raise ValueError(
+                f"default_ttl_seconds must be non-negative, got {self.default_ttl_seconds}"
+            )
+        if self.max_cache_entries <= 0:
+            raise ValueError(
+                f"max_cache_entries must be greater than 0, got {self.max_cache_entries}"
             )
 
 
@@ -480,6 +491,26 @@ def load_security_config_from_env(
         config.execution.prevent_cartesian_products = _parse_bool(
             source["QB_PREVENT_CARTESIAN_PRODUCTS"], "QB_PREVENT_CARTESIAN_PRODUCTS"
         )
+    if "QB_ENABLE_CACHE" in source:
+        config.execution.enable_cache = _parse_bool(
+            source["QB_ENABLE_CACHE"], "QB_ENABLE_CACHE"
+        )
+    if "QB_DEFAULT_TTL_SECONDS" in source:
+        config.execution.default_ttl_seconds = _parse_int(
+            source["QB_DEFAULT_TTL_SECONDS"], "QB_DEFAULT_TTL_SECONDS"
+        )
+        if config.execution.default_ttl_seconds < 0:
+            raise ValueError(
+                f"QB_DEFAULT_TTL_SECONDS must be non-negative, got {config.execution.default_ttl_seconds}"
+            )
+    if "QB_MAX_CACHE_ENTRIES" in source:
+        config.execution.max_cache_entries = _parse_int(
+            source["QB_MAX_CACHE_ENTRIES"], "QB_MAX_CACHE_ENTRIES"
+        )
+        if config.execution.max_cache_entries <= 0:
+            raise ValueError(
+                f"QB_MAX_CACHE_ENTRIES must be greater than 0, got {config.execution.max_cache_entries}"
+            )
 
     # --- Validation Overrides ---
     if "QB_VALIDATE_AST" in source:

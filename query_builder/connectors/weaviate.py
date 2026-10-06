@@ -59,7 +59,7 @@ class _WeaviateCursorAdapter:
         elif hasattr(self.conn, "collections") and hasattr(self.conn.collections, "get") and (
             params is not None
             and len(params) > 0
-            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower() or "score" in clean_sql.lower())
         ):
             coll = "default"
             import re

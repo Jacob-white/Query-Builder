@@ -8,11 +8,14 @@ import type {
   SchemaSnapshot,
   CustomFilterOperator,
   CustomFieldRenderer,
+  VectorSearchSpec,
+  HybridSearchSpec,
 } from "../types";
 import { TableCard } from "./TableCard";
 import { TableFiltersEditor } from "./TableFiltersEditor";
 import { TableJoinEditor } from "./TableJoinEditor";
 import { TableSortsEditor } from "./TableSortsEditor";
+import { VectorHybridControl } from "./VectorHybridControl";
 
 export interface QueryCanvasProps {
   schema?: SchemaSnapshot | null;
@@ -25,6 +28,8 @@ export interface QueryCanvasProps {
   sorts: VisualSort[];
   isDistinct: boolean;
   limit: number;
+  vectorSearch?: VectorSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
   onToggleColumn: (tableName: string, colName: string) => void;
   onRemoveTable: (tableName: string) => void;
   onAddTableToCanvas: (tableName: string) => void;
@@ -37,6 +42,8 @@ export interface QueryCanvasProps {
   onSortsChange: (sorts: VisualSort[]) => void;
   onDistinctChange: (distinct: boolean) => void;
   onLimitChange: (limit: number) => void;
+  onVectorChange?: (vs: VectorSearchSpec | null) => void;
+  onHybridChange?: (hs: HybridSearchSpec | null) => void;
   unstyled?: boolean;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
@@ -53,6 +60,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   sorts = [],
   isDistinct,
   limit,
+  vectorSearch,
+  hybridSearch,
   onToggleColumn,
   onRemoveTable,
   onAddTableToCanvas,
@@ -65,6 +74,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onSortsChange,
   onDistinctChange,
   onLimitChange,
+  onVectorChange,
+  onHybridChange,
   unstyled = false,
   customOperators,
   fieldRenderers,
@@ -511,6 +522,18 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         onChange={onSortsChange}
         unstyled={unstyled}
       />
+
+      {/* Semantic Vector & Hybrid Retrieval */}
+      {onVectorChange && onHybridChange && (
+        <VectorHybridControl
+          vectorSearch={vectorSearch}
+          hybridSearch={hybridSearch}
+          activeTables={activeTables}
+          onVectorChange={onVectorChange}
+          onHybridChange={onHybridChange}
+          unstyled={unstyled}
+        />
+      )}
     </div>
   );
 };

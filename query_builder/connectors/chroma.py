@@ -54,7 +54,7 @@ class _ChromaCursorAdapter:
         elif hasattr(self.conn, "query") and (
             params is not None
             and len(params) > 0
-            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower())
+            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower() or "score" in clean_sql.lower())
         ):
             vector = [[0.0] * 8]
             if params and isinstance(params[0], (list, tuple)):
