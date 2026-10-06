@@ -593,4 +593,282 @@ describe("VisualQueryBuilder", () => {
     expect(screen.getByText("Visual Query Execution Plan")).toBeTruthy();
     expect(screen.getAllByText("users").length).toBeGreaterThan(0);
   });
+
+  it("renders NlqPromptBar when showNlqBar={true} and applies translated spec", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        spec: {
+          table: "orders",
+          columns: ["id", "amount"],
+          joins: [],
+          filters: [],
+          sorts: [],
+          limit: 25,
+        },
+        confidence: 0.95,
+        explanation: "Translated orders query",
+        steps: ["Step 1"],
+      }),
+    });
+
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        showNlqBar={true}
+      />
+    );
+
+    expect(screen.getByTestId("nlq-prompt-bar")).toBeTruthy();
+    const input = screen.getByLabelText("NLQ Input");
+    fireEvent.change(input, { target: { value: "show orders with amount limit 25" } });
+    fireEvent.click(screen.getByLabelText("Generate Query Button"));
+
+    await waitFor(() => {
+      // Primary table is now orders and limit is updated
+      expect(screen.getByText("📋 Active Tables in Query (1)")).toBeTruthy();
+    });
+  });
+
+  it("renders LiveExecutionBar when showLiveExecutionBar is true and executes query", async () => {
+    const onSuccess = vi.fn();
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/connections/test")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ healthy: true, dialect: "sqlite", latency_ms: 10 }),
+          });
+        }
+        if (url.includes("/query/execute")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              columns: ["id", "email"],
+              rows: [{ id: 1, email: "test@example.com" }],
+              count: 1,
+              duration_ms: 15,
+            }),
+          });
+        }
+        if (url.includes("/connections/cancel")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ cancelled: true }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      render(
+        <VisualQueryBuilder
+          schema={mockSchema}
+          initialTable="users"
+          showLiveExecutionBar={true}
+          liveExecutionConnectionId="test_conn"
+          onLiveExecutionSuccess={onSuccess}
+        />
+      );
+
+      expect(screen.getByTestId("live-execution-bar")).toBeTruthy();
+      expect(screen.getByText("DB: test_conn")).toBeTruthy();
+
+      // Test connection
+      fireEvent.click(screen.getByRole("button", { name: "Test database connection" }));
+      await waitFor(() => {
+        expect(screen.getByText("Connected (10ms)")).toBeTruthy();
+      });
+
+      // Execute query via live execution bar
+      fireEvent.click(screen.getByRole("button", { name: "Execute live query" }));
+      await waitFor(() => {
+        expect(onSuccess).toHaveBeenCalledTimes(1);
+        expect(screen.getByText("📊 1 rows")).toBeTruthy();
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("handles live execution cancellation inside VisualQueryBuilder", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/connections/cancel")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ cancelled: true }),
+          });
+        }
+        return new Promise(() => {}); // never resolves to stay executing
+      });
+
+      render(
+        <VisualQueryBuilder
+          schema={mockSchema}
+          initialTable="users"
+          showLiveExecutionBar={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Execute live query" }));
+      expect(screen.getByText("⏳ Running...")).toBeTruthy();
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel live query execution" });
+      fireEvent.click(cancelBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("▶ Execute Query")).toBeTruthy();
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("executes live query in raw SQL mode with parsed spec and fallback", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      let lastBody: any = null;
+      globalThis.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+        if (url.includes("/query/execute")) {
+          lastBody = JSON.parse(init.body);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ columns: ["id"], rows: [{ id: 1 }], count: 1 }),
+          });
+        }
+        return Promise.reject(new Error("unexpected"));
+      });
+
+      render(
+        <VisualQueryBuilder
+          schema={mockSchema}
+          initialTable="users"
+          showLiveExecutionBar={true}
+        />
+      );
+
+      // Switch to Raw SQL mode
+      fireEvent.click(screen.getByText("📝 Raw SQL"));
+
+      // Type valid raw SQL to trigger isRawMode = true and parseSqlToSpec
+      const textarea = screen.getByRole("textbox");
+      fireEvent.change(textarea, { target: { value: 'SELECT "id", "email" FROM "users"' } });
+      fireEvent.click(screen.getByRole("button", { name: "Execute live query" }));
+      await waitFor(() => {
+        expect(lastBody?.query?.table).toBe("users");
+      });
+
+      // Type unparseable raw SQL to hit the || compiled.spec fallback branch
+      fireEvent.change(textarea, { target: { value: "-- just a comment without query" } });
+      fireEvent.click(screen.getByRole("button", { name: "Execute live query" }));
+      await waitFor(() => {
+        expect(lastBody?.query?.table).toBe("users");
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("supports Pipeline tab, stage addition and stage drilldown", async () => {
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        showPipelineTab={true}
+      />
+    );
+
+    // Switch to Pipeline tab
+    const pipelineTab = screen.getByText(/🔀 Pipeline/);
+    expect(pipelineTab).toBeTruthy();
+    fireEvent.click(pipelineTab);
+
+    // Pipeline canvas should be visible
+    expect(screen.getByTestId("pipeline-dag-canvas")).toBeTruthy();
+
+    // Click "Add Stage" to create stage_1 (which automatically selects it and returns to visual tab)
+    const addStageBtn = screen.getByTestId("add-stage-btn");
+    fireEvent.click(addStageBtn);
+
+    // Switch back to Pipeline tab to view stages
+    fireEvent.click(screen.getByText(/🔀 Pipeline/));
+
+    // Click the new stage node to drill down
+    const stageNode = screen.getByTestId("dag-node-stage_1");
+    expect(stageNode).toBeTruthy();
+    fireEvent.click(stageNode);
+
+    // Drilldown switches activeTab back to visual and targets stage_1
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /Visual Builder/ }).getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
+  it("opens and saves window function builder modal", async () => {
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+      />
+    );
+
+    // Open Window Function Builder modal
+    const openBtn = screen.getByTestId("btn-open-wf-builder");
+    fireEvent.click(openBtn);
+
+    expect(screen.getByTestId("window-function-builder-modal")).toBeTruthy();
+
+    // Save window function
+    const saveBtn = screen.getByTestId("wf-save-btn");
+    fireEvent.click(saveBtn);
+
+    // Modal closes
+    await waitFor(() => {
+      expect(screen.queryByTestId("window-function-builder-modal")).toBeNull();
+    });
+  });
+
+  it("augments schema with upstream CTE projections and supports unstyled pipeline tab", () => {
+    const ctesWithProjections = [
+      {
+        name: "upstream_cte",
+        query: {
+          table: "users" as any,
+          columns: ["id", { column: "salary", alias: "user_salary" }, { column: "no_alias" }],
+          window_functions: [{ function: "RANK", alias: "rank_val" }],
+        } as any,
+      },
+      {
+        name: "empty_cte",
+        query: {
+          table: "users" as any,
+          columns: [],
+        } as any,
+      },
+    ];
+
+    render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        initialCtes={ctesWithProjections}
+        showPipelineTab={true}
+        unstyled={true}
+      />
+    );
+
+    // Verify pipeline tab is rendered in unstyled mode
+    const pipelineTab = screen.getByText(/🔀 Pipeline \(2\)/);
+    expect(pipelineTab).toBeTruthy();
+  });
 });
+

@@ -11,6 +11,7 @@ import csv
 import io
 import json
 import zipfile
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from query_builder.models import QueryResult
@@ -20,7 +21,18 @@ class ExportError(Exception):
     """Raised when data export fails or format is unsupported."""
 
 
-SUPPORTED_FORMATS: set[str] = {"csv", "json", "parquet", "excel", "xlsx"}
+SUPPORTED_FORMATS: set[str] = {
+    "csv",
+    "json",
+    "parquet",
+    "excel",
+    "xlsx",
+    "jsonl",
+    "ndjson",
+    "arrow",
+}
+
+SUPPORTED_STREAM_FORMATS: set[str] = SUPPORTED_FORMATS
 
 MIME_TYPES: dict[str, str] = {
     "csv": "text/csv; charset=utf-8",
@@ -28,6 +40,9 @@ MIME_TYPES: dict[str, str] = {
     "parquet": "application/vnd.apache.parquet",
     "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "jsonl": "application/x-ndjson",
+    "ndjson": "application/x-ndjson",
+    "arrow": "application/vnd.apache.arrow.stream",
 }
 
 EXTENSIONS: dict[str, str] = {
@@ -36,6 +51,9 @@ EXTENSIONS: dict[str, str] = {
     "parquet": "parquet",
     "excel": "xlsx",
     "xlsx": "xlsx",
+    "jsonl": "jsonl",
+    "ndjson": "jsonl",
+    "arrow": "arrow",
 }
 
 
@@ -251,6 +269,33 @@ def export_dataset(
         json_str = json.dumps(rows, indent=2, default=str)
         return json_str.encode("utf-8"), MIME_TYPES["json"], EXTENSIONS["json"]
 
+    if fmt in ("jsonl", "ndjson"):
+        lines = [json.dumps(r, default=str) for r in rows]
+        payload = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+        return payload, MIME_TYPES[fmt], EXTENSIONS[fmt]
+
+    if fmt == "arrow":
+        import polars as pl
+
+        pbuf = io.BytesIO()
+        if rows:
+            if all(isinstance(r, dict) for r in rows):
+                df = pl.DataFrame(rows)
+            elif columns:
+                df = pl.DataFrame(rows, schema=columns, orient="row")
+            else:
+                df = pl.DataFrame(rows)
+        elif columns:
+            df = pl.DataFrame({col: [] for col in columns})
+        else:
+            df = pl.DataFrame()
+        df.write_ipc_stream(pbuf)
+        return (
+            pbuf.getvalue(),
+            MIME_TYPES["arrow"],
+            EXTENSIONS["arrow"],
+        )
+
     if fmt == "parquet":
         import polars as pl
 
@@ -276,3 +321,266 @@ def export_dataset(
     # Excel / xlsx
     xlsx_bytes = _generate_xlsx(columns, rows)
     return xlsx_bytes, MIME_TYPES[fmt], EXTENSIONS[fmt]
+
+
+# ==============================================================================
+# Streaming Exporters with Memory-Budgeted Chunking
+# ==============================================================================
+
+
+class CsvStreamExporter:
+    """Streams tabular data as CSV byte chunks."""
+
+    def __init__(
+        self, columns: list[str] | None = None, chunk_size: int = 1000
+    ) -> None:
+        self.columns = columns
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        cols = list(self.columns) if self.columns is not None else None
+        header_emitted = False
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\n")
+        count = 0
+
+        for row in row_iterator:
+            if cols is None and isinstance(row, dict):
+                cols = list(row.keys())
+            if not header_emitted and cols:
+                writer.writerow(cols)
+                header_emitted = True
+
+            if isinstance(row, dict):
+                row_cols = cols if cols is not None else list(row.keys())
+                writer.writerow(
+                    [
+                        row.get(c, "") if row.get(c) is not None else ""
+                        for c in row_cols
+                    ]
+                )
+            elif isinstance(row, (list, tuple)):
+                writer.writerow([val if val is not None else "" for val in row])
+            else:
+                writer.writerow([row if row is not None else ""])
+
+            count += 1
+            if count >= self.chunk_size:
+                yield buf.getvalue().encode("utf-8")
+                buf.seek(0)
+                buf.truncate(0)
+                count = 0
+
+        if not header_emitted and cols:
+            writer.writerow(cols)
+
+        data = buf.getvalue().encode("utf-8")
+        if data:
+            yield data
+
+
+class JsonlStreamExporter:
+    """Streams rows as line-delimited JSON byte chunks."""
+
+    def __init__(self, chunk_size: int = 1000) -> None:
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        lines: list[str] = []
+        for row in row_iterator:
+            lines.append(json.dumps(row, default=str))
+            if len(lines) >= self.chunk_size:
+                yield ("\n".join(lines) + "\n").encode("utf-8")
+                lines = []
+        if lines:
+            yield ("\n".join(lines) + "\n").encode("utf-8")
+
+
+class JsonStreamExporter:
+    """Streams rows as formatted JSON array byte chunks."""
+
+    def __init__(self, chunk_size: int = 1000) -> None:
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        yield b"[\n"
+        first = True
+        batch: list[str] = []
+        for row in row_iterator:
+            prefix = "  " if first else "  ,"
+            first = False
+            batch.append(prefix + json.dumps(row, default=str))
+            if len(batch) >= self.chunk_size:
+                yield ("\n".join(batch) + "\n").encode("utf-8")
+                batch = []
+        if batch:
+            yield ("\n".join(batch) + "\n").encode("utf-8")
+        yield b"]\n"
+
+
+class ArrowStreamExporter:
+    """Streams Apache Arrow IPC stream in byte chunks."""
+
+    def __init__(
+        self, columns: list[str] | None = None, chunk_size: int = 1000
+    ) -> None:
+        self.columns = columns
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        import polars as pl
+
+        cols = list(self.columns) if self.columns is not None else None
+        rows = list(row_iterator)
+        pbuf = io.BytesIO()
+        if rows:
+            if all(isinstance(r, dict) for r in rows):
+                df = pl.DataFrame(rows)
+            elif cols:
+                df = pl.DataFrame(rows, schema=cols, orient="row")
+            else:
+                df = pl.DataFrame(rows)
+        elif cols:
+            df = pl.DataFrame({col: [] for col in cols})
+        else:
+            df = pl.DataFrame()
+
+        df.write_ipc_stream(pbuf)
+        data = pbuf.getvalue()
+        chunk_bytes = max(4096, self.chunk_size * 64)
+        for i in range(0, len(data), chunk_bytes):
+            yield data[i : i + chunk_bytes]
+
+
+class ParquetStreamExporter:
+    """Streams Parquet format in byte chunks."""
+
+    def __init__(
+        self, columns: list[str] | None = None, chunk_size: int = 1000
+    ) -> None:
+        self.columns = columns
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        import polars as pl
+
+        cols = list(self.columns) if self.columns is not None else None
+        rows = list(row_iterator)
+        pbuf = io.BytesIO()
+        if rows:
+            if all(isinstance(r, dict) for r in rows):
+                df = pl.DataFrame(rows)
+            elif cols:
+                df = pl.DataFrame(rows, schema=cols, orient="row")
+            else:
+                df = pl.DataFrame(rows)
+        elif cols:
+            df = pl.DataFrame({col: [] for col in cols})
+        else:
+            df = pl.DataFrame()
+
+        df.write_parquet(pbuf)
+        data = pbuf.getvalue()
+        chunk_bytes = max(4096, self.chunk_size * 64)
+        for i in range(0, len(data), chunk_bytes):
+            yield data[i : i + chunk_bytes]
+
+
+class ExcelStreamExporter:
+    """Streams OpenXML Excel (.xlsx) file in byte chunks."""
+
+    def __init__(
+        self, columns: list[str] | None = None, chunk_size: int = 1000
+    ) -> None:
+        self.columns = columns
+        self.chunk_size = max(1, chunk_size)
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
+        rows = list(row_iterator)
+        cols = list(self.columns) if self.columns is not None else None
+        if cols is None and rows and isinstance(rows[0], dict):
+            cols = list(rows[0].keys())
+        xlsx_bytes = _generate_xlsx(cols or [], rows)
+        chunk_bytes = max(4096, self.chunk_size * 64)
+        for i in range(0, len(xlsx_bytes), chunk_bytes):
+            yield xlsx_bytes[i : i + chunk_bytes]
+
+
+def stream_export_dataset(
+    data: Any,
+    format: str = "csv",
+    columns: list[str] | None = None,
+    chunk_size: int = 1000,
+) -> tuple[Iterator[bytes], str, str]:
+    """Streams dataset export in chunks yielding bytes, along with (mime_type, file_extension).
+
+    Returns:
+        tuple[Iterator[bytes], str, str]: (chunk_iterator, mime_type, file_extension)
+    Raises:
+        ExportError: If format is unsupported or data cannot be serialized.
+    """
+    if not isinstance(format, str):
+        raise ExportError("Export format must be a string.")
+
+    fmt = format.strip().lower()
+    if fmt not in SUPPORTED_FORMATS:
+        raise ExportError(
+            f"Unsupported export format '{format}'. Supported formats: {sorted(SUPPORTED_FORMATS)}"
+        )
+
+    resolved_cols = list(columns) if columns is not None else None
+    row_iter: Iterable[Any]
+
+    if isinstance(data, QueryResult):
+        row_iter = data.rows
+        resolved_cols = list(data.columns)
+    elif isinstance(data, dict):
+        if "rows" not in data:
+            raise ExportError("Dictionary input must contain 'rows' key.")
+        raw_rows = data["rows"]
+        if not isinstance(raw_rows, list):
+            raise ExportError("'rows' must be a list.")
+        row_iter = raw_rows
+        cols = data.get("columns")
+        if cols is not None and isinstance(cols, list):
+            resolved_cols = [str(c) for c in cols]
+        elif raw_rows and isinstance(raw_rows[0], dict):
+            resolved_cols = list(raw_rows[0].keys())
+        else:
+            resolved_cols = []
+    elif isinstance(data, list):
+        row_iter = data
+        if resolved_cols is None:
+            if data and isinstance(data[0], dict):
+                resolved_cols = list(data[0].keys())
+            else:
+                resolved_cols = []
+    elif hasattr(data, "__iter__"):
+        row_iter = data
+    else:
+        raise ExportError(f"Unsupported data type for export: {type(data).__name__}")
+
+    mime_type = MIME_TYPES[fmt]
+    ext = EXTENSIONS[fmt]
+
+    if fmt == "csv":
+        exporter = CsvStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
+    elif fmt in ("jsonl", "ndjson"):
+        exporter = JsonlStreamExporter(chunk_size=chunk_size)
+    elif fmt == "json":
+        exporter = JsonStreamExporter(chunk_size=chunk_size)
+    elif fmt == "parquet":
+        exporter = ParquetStreamExporter(
+            columns=resolved_cols, chunk_size=chunk_size
+        )
+    elif fmt == "arrow":
+        exporter = ArrowStreamExporter(
+            columns=resolved_cols, chunk_size=chunk_size
+        )
+    else:  # excel, xlsx
+        exporter = ExcelStreamExporter(
+            columns=resolved_cols, chunk_size=chunk_size
+        )
+
+    return exporter.export_stream(row_iter), mime_type, ext
+

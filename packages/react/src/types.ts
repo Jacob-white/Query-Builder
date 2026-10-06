@@ -327,6 +327,36 @@ export interface QuerySpec<Schema = any> {
   limit: number;
   vector_search?: VectorSearchSpec;
   hybrid_search?: HybridSearchSpec;
+  ctes?: CteSpec[];
+  window_functions?: WindowFunctionSpec[];
+}
+
+export interface WindowFrameSpec {
+  frame_type?: "ROWS" | "RANGE" | "GROUPS";
+  start?: string;
+  end?: string;
+  exclusion?: string;
+}
+
+export interface WindowFunctionSpec {
+  function: string;
+  arguments?: (string | number)[];
+  partition_by?: string[];
+  order_by?: {
+    column: string;
+    direction?: "ASC" | "DESC";
+    tablePrefix?: string;
+  }[];
+  frame?: WindowFrameSpec;
+  alias?: string;
+}
+
+export interface CteSpec {
+  name: string;
+  query: QuerySpec;
+  columns?: string[];
+  recursive?: boolean;
+  materialized?: boolean;
 }
 
 export interface SqlPreset {
@@ -353,6 +383,7 @@ export interface QueryResultData {
   rows: Record<string, unknown>[];
   count: number;
   latency_ms?: number;
+  durationMs?: number;
 }
 
 export type SqlDialect =
@@ -502,10 +533,10 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
 }
 
 // ==========================================
-// Charting Types
+// Charting & BI Visualizer Types
 // ==========================================
 
-export type ChartType = "bar" | "line" | "pie";
+export type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "donut" | "kpi";
 
 export type AggregationMode = "SUM" | "COUNT" | "AVG" | "MIN" | "MAX" | "NONE";
 
@@ -526,6 +557,27 @@ export interface ChartDataPoint {
   count: number;
   rawRows?: Record<string, unknown>[];
 }
+
+export interface BiChartAdapterContext {
+  results: QueryResultData | null;
+  chartType: ChartType;
+  effectiveCategory: string;
+  effectiveMetric: string;
+  points: ChartDataPoint[];
+  stacked?: boolean;
+}
+
+export interface BiChartVisualizerProps extends QueryChartPreviewProps {
+  chartType?: ChartType;
+  onChartTypeChange?: (type: ChartType) => void;
+  stacked?: boolean;
+  onStackedChange?: (stacked: boolean) => void;
+  adapter?: "builtin" | "echarts" | "vega-lite" | ((context: BiChartAdapterContext) => React.ReactNode);
+  kpiTitle?: string;
+  kpiSubtitle?: string;
+}
+
+export type ExportFormat = "csv" | "json" | "parquet" | "excel" | "xlsx" | "arrow" | "jsonl" | "ndjson";
 
 // ==========================================
 // Template Management Types

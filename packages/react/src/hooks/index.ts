@@ -40,3 +40,20 @@ export {
   type UseStreamingQueryOptions,
   type UseStreamingQueryReturn,
 } from "./useStreamingQuery";
+
+export {
+  useNlqQuery,
+  type UseNlqQueryOptions,
+  type UseNlqQueryResult,
+  type NlqProviderName,
+} from "./useNlqQuery";
+
+export {
+  useLiveExecution,
+  type UseLiveExecutionOptions,
+  type UseLiveExecutionReturn,
+  type LiveExecutionResult,
+  type LiveExecutionStatus,
+  type ExecuteQueryOptions,
+} from "./useLiveExecution";
+

@@ -20,9 +20,17 @@ from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.connectors.registry import get_connector
 from query_builder.dialects import DIALECTS
 from query_builder.explain import estimate_plan_from_spec, normalize_explain_output
-from query_builder.export import ExportError, export_dataset
+from query_builder.export import ExportError, export_dataset, stream_export_dataset
+from query_builder.nlq import NlqError, NlqService, NlqValidationError
 from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
-from query_builder.pool import ConnectionPool
+from query_builder.pool import (
+    ConnectionPool,
+    ConnectionPoolManager,
+    PoolError,
+    QueryCancelledError,
+    get_connection_pool_manager,
+    mask_credentials,
+)
 from query_builder.security import SecurityError
 from query_builder.telemetry import TelemetryCollector
 from query_builder.templates import TemplateError, TemplateStore
@@ -94,6 +102,41 @@ def generate_openapi_spec() -> dict[str, Any]:
                     },
                 }
             },
+            "/api/v1/query/execute": {
+                "post": {
+                    "summary": "Execute Live Query with Connection Pool",
+                    "responses": {
+                        "200": {"description": "Live query execution result"},
+                        "400": {"description": "Execution error or cancellation"},
+                    },
+                }
+            },
+            "/api/v1/connections": {
+                "get": {
+                    "summary": "List Registered Connection Pools",
+                    "responses": {"200": {"description": "List of connection pools"}},
+                },
+                "post": {
+                    "summary": "Register New Connection Pool",
+                    "responses": {"201": {"description": "Connection pool registered"}},
+                },
+                "delete": {
+                    "summary": "Remove Connection Pool",
+                    "responses": {"200": {"description": "Connection pool removed"}},
+                },
+            },
+            "/api/v1/connections/test": {
+                "post": {
+                    "summary": "Test Connection Health & Latency",
+                    "responses": {"200": {"description": "Connection test result"}},
+                },
+            },
+            "/api/v1/connections/cancel": {
+                "post": {
+                    "summary": "Cancel In-Flight Query Execution",
+                    "responses": {"200": {"description": "Cancellation result"}},
+                },
+            },
             "/api/v1/stream": {
                 "post": {
                     "summary": "Stream Query Execution via Server-Sent Events",
@@ -119,6 +162,15 @@ def generate_openapi_spec() -> dict[str, Any]:
                     "responses": {
                         "200": {"description": "Exported tabular file"},
                         "400": {"description": "Export error"},
+                    },
+                }
+            },
+            "/api/v1/export/stream": {
+                "post": {
+                    "summary": "Stream Tabular Data Export with Chunked Transfer Encoding",
+                    "responses": {
+                        "200": {"description": "Chunked binary/text stream download"},
+                        "400": {"description": "Streaming export error"},
                     },
                 }
             },
@@ -149,6 +201,30 @@ def generate_openapi_spec() -> dict[str, Any]:
                 "get": {
                     "summary": "Get Execution Telemetry Metrics",
                     "responses": {"200": {"description": "Telemetry metrics summary"}},
+                }
+            },
+            "/api/v1/nlq/translate": {
+                "post": {
+                    "summary": "Translate Natural Language into QuerySpec AST",
+                    "responses": {
+                        "200": {"description": "Validated QuerySpec and confidence"},
+                        "400": {"description": "Translation error"},
+                    },
+                }
+            },
+            "/api/v1/nlq/explain": {
+                "post": {
+                    "summary": "Explain Visual Query AST in Natural Language",
+                    "responses": {
+                        "200": {"description": "Natural language explanation"},
+                        "400": {"description": "Explain error"},
+                    },
+                }
+            },
+            "/api/v1/nlq/providers": {
+                "get": {
+                    "summary": "List Available NLQ Providers",
+                    "responses": {"200": {"description": "List of available NLQ providers"}},
                 }
             },
         },
@@ -321,6 +397,8 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
     telemetry_collector: TelemetryCollector = TelemetryCollector()
     template_store: TemplateStore = TemplateStore()
     connection_pool: ConnectionPool | None = None
+    connection_pool_manager: ConnectionPoolManager = get_connection_pool_manager()
+    nlq_service: NlqService = NlqService()
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress default stderr HTTP request logging for test cleanliness."""
@@ -429,6 +507,18 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
             self.send_json_response([t.to_dict() for t in templates])
             return
 
+        if path == "/api/v1/nlq/providers":
+            self.send_json_response(
+                {"providers": self.nlq_service.list_available_providers()}
+            )
+            return
+
+        if path == "/api/v1/connections":
+            self.send_json_response(
+                {"connections": self.connection_pool_manager.list_pools()}
+            )
+            return
+
         self.send_error_response(
             f"Endpoint not found: {path}", code="NOT_FOUND", status=404
         )
@@ -535,24 +625,30 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 )
             return
 
-        if path in ("/api/v1/execute", "/api/query"):
-            spec = body.get("spec")
+        if path in ("/api/v1/query/execute", "/api/v1/execute", "/api/query"):
+            spec = body.get("spec") or body.get("query")
             sql = body.get("sql")
-            connector_name = body.get("connector", "sqlite")
+            connector_name = body.get("connector", body.get("dialect", "sqlite"))
+            connection_id = body.get("connection_id")
             config = body.get("config", {})
             tenant_id = body.get("tenant_id")
             policy = body.get("policy")
             timeout_ms = body.get("timeout_ms")
             use_cache = body.get("use_cache", False)
             cache_ttl = body.get("cache_ttl")
+            execution_id = body.get("execution_id")
+            limit = body.get("limit")
+            offset = body.get("offset")
 
             if not spec and not sql:
                 self.send_error_response(
-                    "Either 'spec' or 'sql' must be provided.",
+                    "Either 'spec', 'query', or 'sql' must be provided.",
                     code="BAD_REQUEST",
                     status=400,
                 )
                 return
+
+            eid, token = self.connection_pool_manager.create_execution(execution_id)
 
             cache = get_global_cache()
             cache_key = None
@@ -565,47 +661,69 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 if cached_res is not None and isinstance(cached_res, dict):
                     res_copy = dict(cached_res)
                     res_copy["cached"] = True
+                    self.connection_pool_manager.unregister_execution(eid)
                     self.send_json_response(res_copy)
                     return
 
             try:
-                conn = get_connector(
-                    connector_name,
-                    **(config if isinstance(config, dict) else {}),
-                )
+                token.throw_if_cancelled()
 
-                if spec is not None:
-                    active_spec = spec
-                    if tenant_id or policy is not None:
-                        ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
-                        active_spec = apply_security_policy(
-                            spec,
-                            context=ctx,
-                            policy=SecurityPolicy(**policy)
-                            if isinstance(policy, dict)
-                            else policy,
-                        )
-                    result_data = conn.execute(
-                        active_spec, statement_timeout_ms=timeout_ms
+                # If connection_id is provided and registered in connection_pool_manager
+                if connection_id and self.connection_pool_manager.has_pool(connection_id):
+                    result_data = self.connection_pool_manager.execute_query(
+                        sql_or_spec=spec if spec is not None else sql,
+                        connection_id=connection_id,
+                        params=body.get("params"),
+                        timeout_ms=timeout_ms,
+                        limit=limit,
+                        offset=offset,
+                        execution_id=eid,
+                        cancellation_token=token,
                     )
                     executed_sql = result_data.get("sql", "")
                 else:
-                    assert sql is not None
-                    params = body.get("params", [])
-                    cols, rows, latency = conn.execute_raw(sql, params)
-                    result_data = {
-                        "sql": sql,
-                        "params": params,
-                        "columns": cols,
-                        "rows": rows,
-                        "count": len(rows),
-                        "limit": len(rows),
-                        "offset": 0,
-                        "latency_ms": round(latency, 2),
-                        "dialect": conn.dialect_name,
-                    }
-                    executed_sql = sql
+                    conn = get_connector(
+                        connector_name,
+                        **(config if isinstance(config, dict) else {}),
+                    )
 
+                    if spec is not None:
+                        active_spec = spec
+                        if tenant_id or policy is not None:
+                            ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
+                            active_spec = apply_security_policy(
+                                spec,
+                                context=ctx,
+                                policy=SecurityPolicy(**policy)
+                                if isinstance(policy, dict)
+                                else policy,
+                            )
+                        token.throw_if_cancelled()
+                        result_data = conn.execute(
+                            active_spec, statement_timeout_ms=timeout_ms
+                        )
+                        token.throw_if_cancelled()
+                        executed_sql = result_data.get("sql", "")
+                    else:
+                        assert sql is not None
+                        params = body.get("params", [])
+                        token.throw_if_cancelled()
+                        cols, rows, latency = conn.execute_raw(sql, params)
+                        token.throw_if_cancelled()
+                        result_data = {
+                            "sql": sql,
+                            "params": params,
+                            "columns": cols,
+                            "rows": rows,
+                            "count": len(rows),
+                            "limit": limit or len(rows),
+                            "offset": offset or 0,
+                            "latency_ms": round(latency, 2),
+                            "dialect": conn.dialect_name,
+                        }
+                        executed_sql = sql
+
+                result_data["execution_id"] = eid
                 result_data["cached"] = False
                 if use_cache and cache_key is not None:
                     cache.set(cache_key, result_data, ttl=cache_ttl)
@@ -621,6 +739,8 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     tenant_id=tenant_id,
                 )
                 self.send_json_response(result_data)
+            except QueryCancelledError as exc:
+                self.send_error_response(str(exc), code="CANCELLED", status=400)
             except SecurityError as exc:
                 self.send_error_response(str(exc), code="FORBIDDEN", status=403)
             except Exception as exc:  # noqa: BLE001
@@ -636,6 +756,66 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     code="EXECUTION_ERROR",
                     status=400,
                 )
+            finally:
+                self.connection_pool_manager.unregister_execution(eid)
+            return
+
+        if path == "/api/v1/connections":
+            conn_id = body.get("connection_id")
+            if not conn_id or not isinstance(conn_id, str):
+                self.send_error_response("Missing required 'connection_id'.", code="BAD_REQUEST", status=400)
+                return
+
+            connector_name = body.get("connector", "sqlite")
+            config = body.get("config", {})
+            max_size = body.get("max_size", 10)
+            min_size = body.get("min_size", 0)
+            timeout = body.get("timeout", 30.0)
+            metadata = dict(body.get("metadata", {}))
+            metadata["connector"] = connector_name
+            metadata["dialect"] = body.get("dialect", connector_name)
+
+            try:
+                def factory():
+                    c = get_connector(connector_name, **(config if isinstance(config, dict) else {}))
+                    return c.connect()
+
+                pool = ConnectionPool(
+                    factory=factory,
+                    max_size=int(max_size),
+                    min_size=int(min_size),
+                    timeout=float(timeout),
+                )
+                self.connection_pool_manager.register_pool(conn_id, pool, metadata=metadata)
+                self.send_json_response({
+                    "status": "registered",
+                    "connection_id": conn_id,
+                    "metadata": mask_credentials(metadata),
+                }, status=201)
+            except Exception as exc:  # noqa: BLE001
+                self.send_error_response(f"Failed to register connection pool: {exc}", code="POOL_ERROR", status=400)
+            return
+
+        if path == "/api/v1/connections/test":
+            target = body.get("connection_id") or body
+            try:
+                res = self.connection_pool_manager.test_connection(target)
+                self.send_json_response(res)
+            except Exception as exc:  # noqa: BLE001
+                self.send_error_response(f"Connection test failed: {exc}", code="CONNECTION_TEST_ERROR", status=400)
+            return
+
+        if path == "/api/v1/connections/cancel":
+            exec_id = body.get("execution_id")
+            if not exec_id or not isinstance(exec_id, str):
+                self.send_error_response("Missing required 'execution_id'.", code="BAD_REQUEST", status=400)
+                return
+            cancelled = self.connection_pool_manager.cancel_execution(exec_id)
+            self.send_json_response({
+                "cancelled": cancelled,
+                "execution_id": exec_id,
+                "message": "Execution cancelled" if cancelled else "Execution not found or already completed",
+            })
             return
 
         if path in ("/api/v1/stream", "/api/query/stream"):
@@ -833,6 +1013,76 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if path == "/api/v1/export/stream":
+            format_name = body.get("format", "csv")
+            chunk_size = int(body.get("chunk_size", 1000))
+            if chunk_size <= 0:
+                chunk_size = 1000
+
+            try:
+                if "rows" in body:
+                    export_data: Any = body
+                elif "spec" in body:
+                    connector_name = body.get("connector", "sqlite")
+                    config = body.get("config", {})
+                    conn = get_connector(
+                        connector_name,
+                        **(config if isinstance(config, dict) else {}),
+                    )
+                    res = conn.execute(body["spec"])
+                    export_data = {
+                        "rows": res.get("rows", []),
+                        "columns": res.get("columns", []),
+                    }
+                elif "sql" in body:
+                    connector_name = body.get("connector", "sqlite")
+                    config = body.get("config", {})
+                    conn = get_connector(
+                        connector_name,
+                        **(config if isinstance(config, dict) else {}),
+                    )
+                    cols, rows, _ = conn.execute_raw(
+                        body["sql"], body.get("params", [])
+                    )
+                    export_data = {
+                        "rows": rows,
+                        "columns": cols,
+                    }
+                else:
+                    export_data = body
+
+                stream_iter, mime_type, ext = stream_export_dataset(
+                    export_data, format=format_name, chunk_size=chunk_size
+                )
+
+                self.send_response(200)
+                self.send_header("Content-Type", mime_type)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header(
+                    "Content-Disposition", f'attachment; filename="export.{ext}"'
+                )
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
+                self.end_headers()
+
+                for chunk in stream_iter:
+                    self.wfile.write(
+                        f"{len(chunk):X}\r\n".encode("ascii")
+                        + chunk
+                        + b"\r\n"
+                    )
+                    self.wfile.flush()
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+                self.close_connection = True
+            except (ExportError, Exception) as exc:  # noqa: BLE001
+                self.send_error_response(
+                    f"Streaming export failed: {exc}",
+                    code="EXPORT_ERROR",
+                    status=400,
+                )
+            return
+
         if path == "/api/v1/templates":
             try:
                 created = self.template_store.save(body)
@@ -841,6 +1091,62 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 self.send_error_response(
                     f"Template creation failed: {exc}",
                     code="VALIDATION_ERROR",
+                    status=400,
+                )
+            return
+
+        if path == "/api/v1/nlq/translate":
+            prompt = body.get("prompt")
+            if not prompt or not isinstance(prompt, str) or not prompt.strip():
+                self.send_error_response(
+                    "Missing required non-empty 'prompt' string.",
+                    code="BAD_REQUEST",
+                    status=400,
+                )
+                return
+            try:
+                result = self.nlq_service.translate(body)
+                self.send_json_response(result.to_dict())
+            except (NlqValidationError, NlqError) as exc:
+                self.send_error_response(
+                    f"NLQ translation failed: {exc}",
+                    code="NLQ_ERROR",
+                    status=400,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.send_error_response(
+                    f"NLQ internal error: {exc}",
+                    code="INTERNAL_ERROR",
+                    status=500,
+                )
+            return
+
+        if path == "/api/v1/nlq/explain":
+            query = body.get("query", body.get("spec"))
+            if not query or not isinstance(query, dict):
+                self.send_error_response(
+                    "Missing required 'query' or 'spec' dictionary.",
+                    code="BAD_REQUEST",
+                    status=400,
+                )
+                return
+            dialect = body.get("dialect", "postgres")
+            provider = body.get("provider", "mock")
+            api_key = body.get("api_key")
+            model = body.get("model")
+            try:
+                res = self.nlq_service.explain(
+                    query,
+                    dialect=dialect,
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                )
+                self.send_json_response(res.to_dict())
+            except (NlqError, Exception) as exc:  # noqa: BLE001
+                self.send_error_response(
+                    f"NLQ explain failed: {exc}",
+                    code="NLQ_ERROR",
                     status=400,
                 )
             return
@@ -871,6 +1177,28 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 self.send_error_response(str(exc), code="FORBIDDEN", status=403)
             return
 
+        if path == "/api/v1/connections" or path.startswith("/api/v1/connections/"):
+            conn_id = query.get("connection_id", [None])[0]
+            if not conn_id and path.startswith("/api/v1/connections/"):
+                conn_id = path.split("/")[-1]
+            if not conn_id:
+                self.send_error_response(
+                    "Missing required 'connection_id'.",
+                    code="BAD_REQUEST",
+                    status=400,
+                )
+                return
+            if self.connection_pool_manager.has_pool(conn_id):
+                self.connection_pool_manager.remove_pool(conn_id)
+                self.send_json_response({"deleted": True, "connection_id": conn_id})
+            else:
+                self.send_error_response(
+                    f"Connection pool '{conn_id}' not found.",
+                    code="NOT_FOUND",
+                    status=404,
+                )
+            return
+
         self.send_error_response(
             f"Endpoint not found: {path}", code="NOT_FOUND", status=404
         )
@@ -882,16 +1210,28 @@ def create_server(
     telemetry_collector: TelemetryCollector | None = None,
     template_store: TemplateStore | None = None,
     pool: ConnectionPool | None = None,
+    connection_pool_manager: ConnectionPoolManager | None = None,
+    nlq_service: NlqService | None = None,
 ) -> ThreadingHTTPServer:
     """Creates and returns configured ThreadingHTTPServer instance."""
     collector = (
         telemetry_collector if telemetry_collector is not None else TelemetryCollector()
     )
     store = template_store if template_store is not None else TemplateStore()
+    nlq = nlq_service if nlq_service is not None else NlqService()
+    mgr = (
+        connection_pool_manager
+        if connection_pool_manager is not None
+        else get_connection_pool_manager()
+    )
+    if pool is not None:
+        mgr.register_pool("default", pool)
 
     class BoundQueryBuilderHandler(QueryBuilderHandler):
         telemetry_collector = collector
         template_store = store
         connection_pool = pool
+        connection_pool_manager = mgr
+        nlq_service = nlq
 
     return ThreadingHTTPServer((host, port), BoundQueryBuilderHandler)
