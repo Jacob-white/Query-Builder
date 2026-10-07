@@ -32,7 +32,7 @@ function cleanIdent(ident: string): string {
 /**
  * Evaluates a single row against a WHERE condition.
  */
-function evaluateCondition(
+export function evaluateCondition(
   row: Record<string, any>,
   col: string,
   op: string,

@@ -196,9 +196,7 @@ class TestFusionAlgorithms:
             {"id": "doc1", "_score": 2.0},
         ]
 
-        fused = linear_combination_fusion(
-            dense, sparse, key="id", alpha=0.5, top_k=2
-        )
+        fused = linear_combination_fusion(dense, sparse, key="id", alpha=0.5, top_k=2)
         assert len(fused) == 2
         # doc1 dense norm = 1.0, sparse norm = 0.0 -> score = 0.5
         # doc2 dense norm = 0.0, sparse norm = 1.0 -> score = 0.5
@@ -257,7 +255,7 @@ class TestHybridSearchCompiler:
 
         # Check projections
         assert '"_score"' in sql
-        assert "DENSE_RANK() OVER (ORDER BY (\"t1\".\"embedding\" <=> %s) ASC)" in sql
+        assert 'DENSE_RANK() OVER (ORDER BY ("t1"."embedding" <=> %s) ASC)' in sql
         assert "ts_rank_cd(to_tsvector('english'" in sql
         # Check ordering and limit
         assert 'ORDER BY "_score" DESC' in sql
@@ -287,7 +285,7 @@ class TestHybridSearchCompiler:
         compiler = QueryCompiler(spec, dialect=PostgresDialect())
         sql, params, _, _ = compiler.compile()
 
-        assert "0.7 * (1.0 / (1.0 + (\"t1\".\"embedding\" <=> %s)))" in sql
+        assert '0.7 * (1.0 / (1.0 + ("t1"."embedding" <=> %s)))' in sql
         assert "0.3 * (ts_rank_cd" in sql
         assert 'ORDER BY "_score" DESC' in sql
         assert params[0] == "[0.5, 0.5]"
@@ -313,7 +311,7 @@ class TestHybridSearchCompiler:
 
         assert "cosineDistance(`t1`.`vec`, %s)" in sql
         assert "positionCaseInsensitive(`t1`.`message`, %s)" in sql
-        assert 'ORDER BY `_score` DESC' in sql
+        assert "ORDER BY `_score` DESC" in sql
 
     def test_snowflake_hybrid_search_compilation(self) -> None:
         spec = QuerySpec(

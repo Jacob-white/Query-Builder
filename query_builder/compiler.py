@@ -291,23 +291,37 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             case_when = col.get("case_when")
             if case_when is not None:
                 if hasattr(case_when, "__dict__"):
-                    cw_dict = {k: v for k, v in case_when.__dict__.items() if not k.startswith("_")}
+                    cw_dict = {
+                        k: v
+                        for k, v in case_when.__dict__.items()
+                        if not k.startswith("_")
+                    }
                 elif isinstance(case_when, dict):
                     cw_dict = case_when
                 else:
-                    raise ValidationError("Field 'case_when' must be a dictionary or CaseWhenSpec.")
+                    raise ValidationError(
+                        "Field 'case_when' must be a dictionary or CaseWhenSpec."
+                    )
                 branches = cw_dict.get("branches", [])
                 if not isinstance(branches, (list, tuple)) or len(branches) == 0:
-                    raise ValidationError("'case_when' must contain a non-empty list of 'branches'.")
+                    raise ValidationError(
+                        "'case_when' must contain a non-empty list of 'branches'."
+                    )
                 for b in branches:
                     if hasattr(b, "__dict__"):
-                        b_dict = {k: v for k, v in b.__dict__.items() if not k.startswith("_")}
+                        b_dict = {
+                            k: v for k, v in b.__dict__.items() if not k.startswith("_")
+                        }
                     elif isinstance(b, dict):
                         b_dict = b
                     else:
-                        raise ValidationError("Each branch in 'case_when' must be a dict or CaseWhenBranch.")
+                        raise ValidationError(
+                            "Each branch in 'case_when' must be a dict or CaseWhenBranch."
+                        )
                     if not b_dict.get("condition"):
-                        raise ValidationError("Each branch in 'case_when' must have a 'condition'.")
+                        raise ValidationError(
+                            "Each branch in 'case_when' must have a 'condition'."
+                        )
 
             if raw_col is None:
                 if case_when is not None or col.get("expression") is not None:
@@ -340,6 +354,7 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             time_grain = col.get("time_grain") or col.get("grain")
             if time_grain is not None:
                 from query_builder.semantic import SUPPORTED_TIME_GRAINS
+
                 if str(time_grain).lower() not in SUPPORTED_TIME_GRAINS:
                     raise ValidationError(f"Unsupported time grain: '{time_grain}'")
         else:
@@ -628,7 +643,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 f"Invalid vector_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
             )
         if min_score is not None and not isinstance(min_score, (int, float)):
-            raise ValidationError("Field 'vector_search.min_score' must be a number or None.")
+            raise ValidationError(
+                "Field 'vector_search.min_score' must be a number or None."
+            )
 
     if "hybrid_search" in spec and spec["hybrid_search"] is not None:
         hs = spec["hybrid_search"]
@@ -696,7 +713,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             _check_ident(tc, "hybrid_search text_column")
 
         if not isinstance(alpha, (int, float)) or not (0.0 <= float(alpha) <= 1.0):
-            raise ValidationError("Field 'hybrid_search.alpha' must be a number between 0.0 and 1.0.")
+            raise ValidationError(
+                "Field 'hybrid_search.alpha' must be a number between 0.0 and 1.0."
+            )
 
         valid_fusions = {"rrf", "linear"}
         if str(fusion).lower() not in valid_fusions:
@@ -705,7 +724,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             )
 
         if not isinstance(rrf_k, int) or rrf_k <= 0:
-            raise ValidationError("Field 'hybrid_search.rrf_k' must be a positive integer.")
+            raise ValidationError(
+                "Field 'hybrid_search.rrf_k' must be a positive integer."
+            )
 
         if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
             raise ValidationError(
@@ -745,18 +766,26 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             raise ValidationError("Field 'set_operations' must be a list.")
         for so in so_val:
             if hasattr(so, "__dict__"):
-                so_dict = {k: v for k, v in so.__dict__.items() if not k.startswith("_")}
+                so_dict = {
+                    k: v for k, v in so.__dict__.items() if not k.startswith("_")
+                }
             elif isinstance(so, dict):
                 so_dict = so
             else:
-                raise ValidationError("Each set operation must be a dict or SetOperationSpec.")
+                raise ValidationError(
+                    "Each set operation must be a dict or SetOperationSpec."
+                )
             op = str(so_dict.get("operation", "UNION")).upper().strip()
             valid_ops = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
             if op not in valid_ops:
-                raise ValidationError(f"Invalid set operation: '{op}'. Must be one of {sorted(valid_ops)}.")
+                raise ValidationError(
+                    f"Invalid set operation: '{op}'. Must be one of {sorted(valid_ops)}."
+                )
             q = so_dict.get("query")
             if not q:
-                raise ValidationError("Set operation must include a 'query' sub-specification.")
+                raise ValidationError(
+                    "Set operation must include a 'query' sub-specification."
+                )
             if isinstance(q, dict):
                 validate_query_spec(q, allow_unknown_keys=allow_unknown_keys)
             elif hasattr(q, "__dict__"):
@@ -772,7 +801,9 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
     if "grouping_sets" in spec and spec["grouping_sets"] is not None:
         gs_val = spec["grouping_sets"]
         if not isinstance(gs_val, (list, tuple)) and not hasattr(gs_val, "sets"):
-            raise ValidationError("Field 'grouping_sets' must be a list of column lists.")
+            raise ValidationError(
+                "Field 'grouping_sets' must be a list of column lists."
+            )
 
     if "rollup" in spec and spec["rollup"] is not None:
         r_val = spec["rollup"]
@@ -788,7 +819,6 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
         p_val = spec["pivot"]
         if not isinstance(p_val, dict) and not hasattr(p_val, "column"):
             raise ValidationError("Field 'pivot' must be a PivotSpec or dict.")
-
 
 
 class QueryCompiler:
@@ -816,6 +846,7 @@ class QueryCompiler:
     ) -> None:
         if capabilities is not None:
             from query_builder.capabilities import EngineCapabilities
+
             if isinstance(capabilities, EngineCapabilities):
                 self.capabilities: EngineCapabilities | None = capabilities
             elif isinstance(capabilities, dict):
@@ -879,13 +910,16 @@ class QueryCompiler:
         self.tables_meta = dict(self.tables_meta)
         ctes = self.spec.get("ctes") or []
         for cte in ctes:
-            c_name = getattr(cte, "name", None) or (cte.get("name") if isinstance(cte, dict) else None)
+            c_name = getattr(cte, "name", None) or (
+                cte.get("name") if isinstance(cte, dict) else None
+            )
             if c_name and c_name not in self.tables_meta:
                 self.tables_meta[c_name] = {"name": c_name, "columns": []}
 
         self.semantic_models: dict[str, Any] = {}
         if semantic_models:
             from query_builder.semantic import SemanticModel
+
             if isinstance(semantic_models, list):
                 for sm in semantic_models:
                     if isinstance(sm, SemanticModel):
@@ -904,7 +938,11 @@ class QueryCompiler:
 
         spec_sm = self.spec.get("semantic_model") or self.spec.get("semantic_models")
         if spec_sm:
-            from query_builder.semantic import SemanticModel, load_semantic_models_from_dict
+            from query_builder.semantic import (
+                SemanticModel,
+                load_semantic_models_from_dict,
+            )
+
             if isinstance(spec_sm, dict):
                 for m in load_semantic_models_from_dict(spec_sm):
                     self.semantic_models[m.name] = m
@@ -1065,7 +1103,9 @@ class QueryCompiler:
     ) -> str:
         """Compiles declarative CASE WHEN branches into SQL conditional expression."""
         if hasattr(cw_spec, "__dict__"):
-            cw_dict = {k: v for k, v in cw_spec.__dict__.items() if not k.startswith("_")}
+            cw_dict = {
+                k: v for k, v in cw_spec.__dict__.items() if not k.startswith("_")
+            }
         elif isinstance(cw_spec, dict):
             cw_dict = cw_spec
         else:
@@ -1089,7 +1129,12 @@ class QueryCompiler:
             col_ref = cond.get("column")
             op = str(cond.get("op", cond.get("operator", "eq"))).strip().lower()
             val = cond.get("value")
-            pfx = cond.get("table_prefix") or cond.get("tablePrefix") or cond.get("table") or clean_base_table
+            pfx = (
+                cond.get("table_prefix")
+                or cond.get("tablePrefix")
+                or cond.get("table")
+                or clean_base_table
+            )
             _, _, quoted_cond_ref = self._resolve_column_ref(col_ref, pfx)
 
             if op in ("is_null", "is null"):
@@ -1412,7 +1457,10 @@ class QueryCompiler:
                 case_when = col_item.get("case_when")
                 if case_when is not None:
                     case_body = self._compile_case_when(case_when, clean_base_table)
-                    alias_label = col_item.get("alias") or f"case_{len(self.select_clause_items) + 1}"
+                    alias_label = (
+                        col_item.get("alias")
+                        or f"case_{len(self.select_clause_items) + 1}"
+                    )
                     self.select_clause_items.append(
                         f"{case_body} AS {self.dialect.quote_alias(alias_label)}"
                     )
@@ -1457,7 +1505,10 @@ class QueryCompiler:
                 time_grain = col_item.get("time_grain") or col_item.get("grain")
                 if time_grain:
                     from query_builder.semantic import expand_time_grain_sql
-                    time_expr = expand_time_grain_sql(quoted_ref, grain=str(time_grain), dialect=self.dialect.name)
+
+                    time_expr = expand_time_grain_sql(
+                        quoted_ref, grain=str(time_grain), dialect=self.dialect.name
+                    )
                     alias_label = alias or f"{raw_col_ref}_{time_grain}"
                     self.select_clause_items.append(
                         f"{time_expr} AS {self.dialect.quote_alias(alias_label)}"
@@ -1467,9 +1518,24 @@ class QueryCompiler:
                     continue
 
                 is_metric = bool(col_item.get("metric"))
-                metric_name = col_item.get("metric") if isinstance(col_item.get("metric"), str) else raw_col_ref
-                if is_metric or (self.semantic_models and any(hasattr(sm, "get_metric") and sm.get_metric(raw_col_ref) for sm in self.semantic_models.values())):
-                    from query_builder.semantic import MetricDefinition, expand_metric_sql, get_global_semantic_registry
+                metric_name = (
+                    col_item.get("metric")
+                    if isinstance(col_item.get("metric"), str)
+                    else raw_col_ref
+                )
+                if is_metric or (
+                    self.semantic_models
+                    and any(
+                        hasattr(sm, "get_metric") and sm.get_metric(raw_col_ref)
+                        for sm in self.semantic_models.values()
+                    )
+                ):
+                    from query_builder.semantic import (
+                        MetricDefinition,
+                        expand_metric_sql,
+                        get_global_semantic_registry,
+                    )
+
                     m_def = None
                     if isinstance(col_item.get("metric"), dict):
                         m_def = MetricDefinition.from_dict(col_item["metric"])
@@ -1510,7 +1576,12 @@ class QueryCompiler:
         # 3.01. Process Top-Level Semantic Metrics
         top_metrics = self.spec.get("metrics", [])
         if top_metrics:
-            from query_builder.semantic import MetricDefinition, expand_metric_sql, get_global_semantic_registry
+            from query_builder.semantic import (
+                MetricDefinition,
+                expand_metric_sql,
+                get_global_semantic_registry,
+            )
+
             for m_entry in top_metrics:
                 m_def = None
                 m_alias = None
@@ -1626,9 +1697,7 @@ class QueryCompiler:
             self._hybrid_text_param = f"%{q_text}%" if q_text else "%"
 
             if fusion == "linear":
-                self.hybrid_score_expr = (
-                    f"({alpha} * (1.0 / (1.0 + {v_dist})) + {round(1.0 - alpha, 4)} * ({t_score}))"
-                )
+                self.hybrid_score_expr = f"({alpha} * (1.0 / (1.0 + {v_dist})) + {round(1.0 - alpha, 4)} * ({t_score}))"
             else:  # rrf
                 self.hybrid_score_expr = (
                     f"((1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY {v_dist} ASC))) + "
@@ -1649,7 +1718,9 @@ class QueryCompiler:
         window_funcs_spec = self.spec.get("window_functions", [])
         for wf_item in window_funcs_spec:
             if hasattr(wf_item, "__dict__"):
-                wf = {k: v for k, v in wf_item.__dict__.items() if not k.startswith("_")}
+                wf = {
+                    k: v for k, v in wf_item.__dict__.items() if not k.startswith("_")
+                }
             elif isinstance(wf_item, dict):
                 wf = wf_item
             else:
@@ -1701,10 +1772,16 @@ class QueryCompiler:
                     direction = ord_item.get("direction", "ASC").upper()
                     if direction not in ("ASC", "DESC"):
                         direction = "ASC"
-                    prefix = ord_item.get("table_prefix") or ord_item.get("tablePrefix") or clean_base_table
+                    prefix = (
+                        ord_item.get("table_prefix")
+                        or ord_item.get("tablePrefix")
+                        or clean_base_table
+                    )
                     _, _, qo = self._resolve_column_ref(col_ref, prefix)
                     quoted_orders.append(f"{qo} {direction}")
-                order_clause = f"ORDER BY {', '.join(quoted_orders)}" if quoted_orders else ""
+                order_clause = (
+                    f"ORDER BY {', '.join(quoted_orders)}" if quoted_orders else ""
+                )
             else:
                 order_clause = ""
 
@@ -1714,8 +1791,12 @@ class QueryCompiler:
                 if hasattr(wf_frame, "__dict__"):
                     wf_frame = {k: v for k, v in wf_frame.__dict__.items()}
                 ftype = (wf_frame.get("frame_type") or "ROWS").upper()
-                if ftype == "GROUPS" and not getattr(self.dialect, "supports_window_groups_frame", False):
-                    raise CompilationError(f"Dialect '{self.dialect.name}' does not support GROUPS window frame specification.")
+                if ftype == "GROUPS" and not getattr(
+                    self.dialect, "supports_window_groups_frame", False
+                ):
+                    raise CompilationError(
+                        f"Dialect '{self.dialect.name}' does not support GROUPS window frame specification."
+                    )
                 start = (wf_frame.get("start") or "UNBOUNDED PRECEDING").upper()
                 end = wf_frame.get("end")
                 if end:
@@ -1728,13 +1809,17 @@ class QueryCompiler:
             else:
                 frame_clause = ""
 
-            over_tokens = [tok for tok in (part_clause, order_clause, frame_clause) if tok]
+            over_tokens = [
+                tok for tok in (part_clause, order_clause, frame_clause) if tok
+            ]
             over_clause = f"OVER ({' '.join(over_tokens)})"
             wf_expr = f"{wf_func}({args_str}) {over_clause}"
 
             alias = wf.get("alias")
             if alias:
-                self.select_clause_items.append(f"{wf_expr} AS {self.dialect.quote_alias(alias)}")
+                self.select_clause_items.append(
+                    f"{wf_expr} AS {self.dialect.quote_alias(alias)}"
+                )
                 self.select_column_names.append(alias)
             else:
                 self.select_clause_items.append(wf_expr)
@@ -2076,7 +2161,13 @@ class QueryCompiler:
             or self.spec.get("rollup")
             or self.spec.get("cube")
         )
-        if has_grouping and (self.group_by_items or self.spec.get("rollup") or self.spec.get("cube")):
+        if has_grouping and (
+            self.group_by_items
+            or self.spec.get("rollup")
+            or self.spec.get("cube")
+            or self.spec.get("grouping_sets")
+            or self.spec.get("grouping_type")
+        ):
             g_type = (self.spec.get("grouping_type") or "").lower()
             if g_type == "rollup" or self.spec.get("rollup"):
                 rollup_spec = self.spec.get("rollup")
@@ -2084,7 +2175,9 @@ class QueryCompiler:
                 if r_cols is None and isinstance(rollup_spec, dict):
                     r_cols = rollup_spec.get("columns")
                 if r_cols:
-                    quoted_r = [self._resolve_column_ref(c, clean_base_table)[2] for c in r_cols]
+                    quoted_r = [
+                        self._resolve_column_ref(c, clean_base_table)[2] for c in r_cols
+                    ]
                     group_by_str = f"GROUP BY ROLLUP({', '.join(quoted_r)})"
                 elif self.group_by_items:
                     group_by_str = f"GROUP BY ROLLUP({', '.join(self.group_by_items)})"
@@ -2094,7 +2187,9 @@ class QueryCompiler:
                 if c_cols is None and isinstance(cube_spec, dict):
                     c_cols = cube_spec.get("columns")
                 if c_cols:
-                    quoted_c = [self._resolve_column_ref(c, clean_base_table)[2] for c in c_cols]
+                    quoted_c = [
+                        self._resolve_column_ref(c, clean_base_table)[2] for c in c_cols
+                    ]
                     group_by_str = f"GROUP BY CUBE({', '.join(quoted_c)})"
                 elif self.group_by_items:
                     group_by_str = f"GROUP BY CUBE({', '.join(self.group_by_items)})"
@@ -2104,10 +2199,14 @@ class QueryCompiler:
                     g_sets = g_sets.sets
                 formatted_sets = []
                 for s in g_sets:
-                    quoted_s = [self._resolve_column_ref(c, clean_base_table)[2] for c in s]
+                    quoted_s = [
+                        self._resolve_column_ref(c, clean_base_table)[2] for c in s
+                    ]
                     formatted_sets.append(f"({', '.join(quoted_s)})")
                 if formatted_sets:
-                    group_by_str = f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
+                    group_by_str = (
+                        f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
+                    )
                 elif self.group_by_items:
                     group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
             elif self.group_by_items:
@@ -2145,7 +2244,9 @@ class QueryCompiler:
 
         limit_val = int(self.spec.get("limit", 50))
         if self.has_vector_search or self.has_hybrid_search:
-            search_spec_val = self.spec.get("vector_search") or self.spec.get("hybrid_search")
+            search_spec_val = self.spec.get("vector_search") or self.spec.get(
+                "hybrid_search"
+            )
             if isinstance(search_spec_val, dict):
                 top_k_val = int(search_spec_val.get("top_k", 10))
             elif hasattr(search_spec_val, "top_k"):
@@ -2159,7 +2260,9 @@ class QueryCompiler:
 
         limit = min(limit_val, self.max_limit)
         raw_offset = self.spec.get("offset")
-        offset = min(max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET)
+        offset = min(
+            max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET
+        )
 
         limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
 
@@ -2227,18 +2330,26 @@ class QueryCompiler:
         cte_sql_prefix = ""
         if ctes_spec:
             has_recursive = any(
-                (c.get("recursive") if isinstance(c, dict) else getattr(c, "recursive", False))
+                (
+                    c.get("recursive")
+                    if isinstance(c, dict)
+                    else getattr(c, "recursive", False)
+                )
                 for c in ctes_spec
             )
             with_kw = "WITH RECURSIVE " if has_recursive else "WITH "
             compiled_ctes: list[str] = []
             for cte in ctes_spec:
                 if hasattr(cte, "__dict__"):
-                    cte_dict = {k: v for k, v in cte.__dict__.items() if not k.startswith("_")}
+                    cte_dict = {
+                        k: v for k, v in cte.__dict__.items() if not k.startswith("_")
+                    }
                 elif isinstance(cte, dict):
                     cte_dict = cte
                 else:
-                    raise CompilationError(f"Invalid CTE item type: {type(cte).__name__}")
+                    raise CompilationError(
+                        f"Invalid CTE item type: {type(cte).__name__}"
+                    )
                 c_name = cte_dict.get("name")
                 c_cols = cte_dict.get("columns", [])
                 c_mat = cte_dict.get("materialized")
@@ -2246,9 +2357,15 @@ class QueryCompiler:
                 if isinstance(c_query, dict):
                     inner_query_spec = c_query
                 elif hasattr(c_query, "__dict__"):
-                    inner_query_spec = {k: v for k, v in c_query.__dict__.items() if not k.startswith("_")}
+                    inner_query_spec = {
+                        k: v
+                        for k, v in c_query.__dict__.items()
+                        if not k.startswith("_")
+                    }
                 else:
-                    raise CompilationError(f"CTE '{c_name}' query must be a QuerySpec or dict.")
+                    raise CompilationError(
+                        f"CTE '{c_name}' query must be a QuerySpec or dict."
+                    )
 
                 inner_compiler = QueryCompiler(
                     inner_query_spec,
@@ -2259,10 +2376,16 @@ class QueryCompiler:
                 inner_sql, inner_params, _, _ = inner_compiler.compile()
                 cte_params.extend(inner_params)
 
-                cols_clause = f" ({', '.join(self.dialect.quote_identifier(c) for c in c_cols)})" if c_cols else ""
+                cols_clause = (
+                    f" ({', '.join(self.dialect.quote_identifier(c) for c in c_cols)})"
+                    if c_cols
+                    else ""
+                )
                 mat_clause = self.dialect.format_cte_materialized(c_mat)
                 quoted_c_name = self.dialect.quote_identifier(c_name)
-                compiled_ctes.append(f"{quoted_c_name}{cols_clause} AS {mat_clause}(\n{inner_sql}\n)")
+                compiled_ctes.append(
+                    f"{quoted_c_name}{cols_clause} AS {mat_clause}(\n{inner_sql}\n)"
+                )
             cte_sql_prefix = f"{with_kw}{', '.join(compiled_ctes)}\n"
             main_sql = f"{cte_sql_prefix}{main_sql}"
             main_params = cte_params + main_params
@@ -2274,11 +2397,15 @@ class QueryCompiler:
         if set_ops_spec:
             for so in set_ops_spec:
                 if hasattr(so, "__dict__"):
-                    so_dict = {k: v for k, v in so.__dict__.items() if not k.startswith("_")}
+                    so_dict = {
+                        k: v for k, v in so.__dict__.items() if not k.startswith("_")
+                    }
                 elif isinstance(so, dict):
                     so_dict = so
                 else:
-                    raise CompilationError(f"Invalid set operation item type: {type(so).__name__}")
+                    raise CompilationError(
+                        f"Invalid set operation item type: {type(so).__name__}"
+                    )
                 op = str(so_dict.get("operation") or "UNION").upper().strip()
                 sub_query = so_dict.get("query")
                 if not sub_query:
@@ -2314,4 +2441,3 @@ class QueryCompiler:
 
 
 AnalyticalCompiler = QueryCompiler
-

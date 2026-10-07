@@ -7,7 +7,13 @@ from __future__ import annotations
 from typing import Any
 
 from query_builder.compiler import OPERATOR_MAP
-from query_builder.models import FilterSpec, HavingSpec, JoinSpec, OrderBySpec, QuerySpec
+from query_builder.models import (
+    FilterSpec,
+    HavingSpec,
+    JoinSpec,
+    OrderBySpec,
+    QuerySpec,
+)
 from query_builder.nlq.models import NlqValidationError
 
 VALID_JOIN_TYPES = {"INNER", "LEFT", "RIGHT", "FULL", "CROSS"}
@@ -31,7 +37,9 @@ class NlqAstValidator:
                 if isinstance(t_meta, dict):
                     self.tables_meta[t_name.lower()] = {
                         "original_name": t_name,
-                        "columns": self._extract_column_names(t_meta.get("columns", {})),
+                        "columns": self._extract_column_names(
+                            t_meta.get("columns", {})
+                        ),
                     }
 
     def _extract_column_names(self, cols: Any) -> set[str]:
@@ -50,27 +58,35 @@ class NlqAstValidator:
     def validate(self, raw_ast: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         """Validates, grounds, and sanitizes an AST dict, returning the sanitized dict and any warnings."""
         if not isinstance(raw_ast, dict):
-            raise NlqValidationError(f"Expected dictionary AST, got {type(raw_ast).__name__}")
+            raise NlqValidationError(
+                f"Expected dictionary AST, got {type(raw_ast).__name__}"
+            )
 
         warnings: list[str] = []
 
         # 1. Base table validation
         table = raw_ast.get("table")
         if not table or not isinstance(table, str) or not table.strip():
-            raise NlqValidationError("QuerySpec AST must specify a non-empty 'table' string.")
+            raise NlqValidationError(
+                "QuerySpec AST must specify a non-empty 'table' string."
+            )
 
         table_str = table.strip()
         matched_table = self._resolve_table(table_str)
         if matched_table:
             table_str = matched_table
         elif self.tables_meta:
-            warnings.append(f"Table '{table_str}' was not found in the supplied database schema.")
+            warnings.append(
+                f"Table '{table_str}' was not found in the supplied database schema."
+            )
 
         # 2. Columns validation
         raw_cols = raw_ast.get("columns", [])
         if not isinstance(raw_cols, list):
             raw_cols = []
-            warnings.append("'columns' field was not a list; defaulted to empty column list.")
+            warnings.append(
+                "'columns' field was not a list; defaulted to empty column list."
+            )
 
         sanitized_cols: list[str | dict[str, Any]] = []
         for col in raw_cols:
@@ -88,11 +104,13 @@ class NlqAstValidator:
                 else:
                     agg = None
                 alias = col.get("alias")
-                sanitized_cols.append({
-                    "column": self._resolve_column(table_str, c_name.strip()),
-                    **({"agg": agg} if agg else {}),
-                    **({"alias": str(alias).strip()} if alias else {}),
-                })
+                sanitized_cols.append(
+                    {
+                        "column": self._resolve_column(table_str, c_name.strip()),
+                        **({"agg": agg} if agg else {}),
+                        **({"alias": str(alias).strip()} if alias else {}),
+                    }
+                )
 
         # 3. Joins validation
         raw_joins = raw_ast.get("joins", [])
@@ -107,17 +125,21 @@ class NlqAstValidator:
                 j_type = str(join_item.get("type", "INNER")).upper()
                 if j_type not in VALID_JOIN_TYPES:
                     j_type = "INNER"
-                resolved_j_table = self._resolve_table(j_table.strip()) or j_table.strip()
+                resolved_j_table = (
+                    self._resolve_table(j_table.strip()) or j_table.strip()
+                )
                 left_table = join_item.get("left_table", table_str)
                 left_col = join_item.get("left_col", "id")
                 right_col = join_item.get("right_col", "id")
-                sanitized_joins.append({
-                    "table": resolved_j_table,
-                    "type": j_type,
-                    "left_table": left_table,
-                    "left_col": left_col,
-                    "right_col": right_col,
-                })
+                sanitized_joins.append(
+                    {
+                        "table": resolved_j_table,
+                        "type": j_type,
+                        "left_table": left_table,
+                        "left_col": left_col,
+                        "right_col": right_col,
+                    }
+                )
 
         # 4. Filters validation
         raw_filters = raw_ast.get("filters", [])
@@ -130,15 +152,35 @@ class NlqAstValidator:
                 if not isinstance(col_name, str) or not col_name.strip():
                     continue
                 op = str(f.get("op", "=")).upper()
-                if op not in OPERATOR_MAP and op not in {"=", "!=", ">", "<", ">=", "<=", "LIKE", "ILIKE", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"}:
+                if op not in OPERATOR_MAP and op not in {
+                    "=",
+                    "!=",
+                    ">",
+                    "<",
+                    ">=",
+                    "<=",
+                    "LIKE",
+                    "ILIKE",
+                    "IN",
+                    "NOT IN",
+                    "BETWEEN",
+                    "IS NULL",
+                    "IS NOT NULL",
+                }:
                     op = "="
                 val = f.get("value")
-                sanitized_filters.append({
-                    "column": col_name.strip(),
-                    "op": op,
-                    "value": val,
-                    **({"tablePrefix": f["tablePrefix"]} if "tablePrefix" in f else {}),
-                })
+                sanitized_filters.append(
+                    {
+                        "column": col_name.strip(),
+                        "op": op,
+                        "value": val,
+                        **(
+                            {"tablePrefix": f["tablePrefix"]}
+                            if "tablePrefix" in f
+                            else {}
+                        ),
+                    }
+                )
 
         filter_join = str(raw_ast.get("filter_join", "AND")).upper()
         if filter_join not in {"AND", "OR"}:
@@ -150,11 +192,13 @@ class NlqAstValidator:
         if isinstance(raw_having, list):
             for h in raw_having:
                 if isinstance(h, dict) and "column" in h:
-                    sanitized_having.append({
-                        "column": str(h["column"]).strip(),
-                        "op": str(h.get("op", "=")).upper(),
-                        "value": h.get("value"),
-                    })
+                    sanitized_having.append(
+                        {
+                            "column": str(h["column"]).strip(),
+                            "op": str(h.get("op", "=")).upper(),
+                            "value": h.get("value"),
+                        }
+                    )
 
         # 6. Order by validation
         raw_order_by = raw_ast.get("order_by", [])
@@ -169,11 +213,17 @@ class NlqAstValidator:
                 direction = str(ob.get("direction", "ASC")).upper()
                 if direction not in VALID_DIRECTIONS:
                     direction = "ASC"
-                sanitized_order_by.append({
-                    "column": col_name.strip(),
-                    "direction": direction,
-                    **({"tablePrefix": ob["tablePrefix"]} if "tablePrefix" in ob else {}),
-                })
+                sanitized_order_by.append(
+                    {
+                        "column": col_name.strip(),
+                        "direction": direction,
+                        **(
+                            {"tablePrefix": ob["tablePrefix"]}
+                            if "tablePrefix" in ob
+                            else {}
+                        ),
+                    }
+                )
 
         # 7. Pagination and flags
         limit = raw_ast.get("limit", 50)
@@ -199,7 +249,13 @@ class NlqAstValidator:
                 vector_search = None
             else:
                 metric = str(vector_search.get("metric", "cosine")).lower()
-                if metric not in {"cosine", "euclidean", "l2", "dot_product", "inner_product"}:
+                if metric not in {
+                    "cosine",
+                    "euclidean",
+                    "l2",
+                    "dot_product",
+                    "inner_product",
+                }:
                     metric = "cosine"
                 vector_search = {
                     "vector": [float(x) for x in v_vec],
@@ -218,7 +274,9 @@ class NlqAstValidator:
             else:
                 hybrid_search = {
                     "vector": [float(x) for x in h_vec],
-                    "vector_column": str(hybrid_search.get("vector_column", "embedding")),
+                    "vector_column": str(
+                        hybrid_search.get("vector_column", "embedding")
+                    ),
                     "query_text": str(hybrid_search.get("query_text", "")),
                     "text_columns": list(hybrid_search.get("text_columns", [])),
                     "alpha": float(hybrid_search.get("alpha", 0.5)),
@@ -262,7 +320,9 @@ class NlqAstValidator:
                 hybrid_search=result_ast["hybrid_search"],
             )
         except Exception as exc:  # pragma: no cover - defensive validation
-            raise NlqValidationError(f"Failed to instantiate QuerySpec from validated AST: {exc}") from exc
+            raise NlqValidationError(
+                f"Failed to instantiate QuerySpec from validated AST: {exc}"
+            ) from exc
 
         return result_ast, warnings
 

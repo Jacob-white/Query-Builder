@@ -330,9 +330,9 @@ export function executeAgentToolCall(
     const healed = autoHealClientQuerySpec(spec, schema);
     const finalSpec = healed.healedSpec;
 
-    const colCount = finalSpec.columns ? finalSpec.columns.length : 1;
-    const joinCount = finalSpec.joins ? finalSpec.joins.length : 0;
-    const filterCount = finalSpec.filters ? finalSpec.filters.length : 0;
+    const colCount = finalSpec.columns.length;
+    const joinCount = finalSpec.joins.length;
+    const filterCount = finalSpec.filters.length;
 
     return {
       success: true,

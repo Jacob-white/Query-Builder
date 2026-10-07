@@ -56,12 +56,18 @@ def running_server():
     def factory():
         conn = sqlite3.connect(":memory:")
         conn.execute("CREATE TABLE products (id INT, name TEXT, price REAL)")
-        conn.execute("INSERT INTO products VALUES (1, 'Widget', 19.99), (2, 'Gadget', 49.99)")
+        conn.execute(
+            "INSERT INTO products VALUES (1, 'Widget', 19.99), (2, 'Gadget', 49.99)"
+        )
         conn.commit()
         return conn
 
     mem_pool = ConnectionPool(factory=factory, max_size=5)
-    pool_mgr.register_pool("mem_db", mem_pool, metadata={"dialect": "sqlite", "password": "supersecretpassword"})
+    pool_mgr.register_pool(
+        "mem_db",
+        mem_pool,
+        metadata={"dialect": "sqlite", "password": "supersecretpassword"},
+    )
 
     server = create_server(
         host="127.0.0.1",
@@ -157,7 +163,9 @@ def test_post_connection_register_and_delete(running_server):
     assert status == 404
 
     # Delete via path param
-    mgr.register_pool("another_pool", ConnectionPool(factory=lambda: sqlite3.connect(":memory:")))
+    mgr.register_pool(
+        "another_pool", ConnectionPool(factory=lambda: sqlite3.connect(":memory:"))
+    )
     status, data = _make_request(
         url,
         "/api/v1/connections/another_pool",
@@ -287,7 +295,9 @@ def test_query_execute_validation_and_cancellation(running_server):
         data={},
     )
     assert status == 400
-    assert "Either 'spec', 'query', or 'sql' must be provided." in data["error"]["message"]
+    assert (
+        "Either 'spec', 'query', or 'sql' must be provided." in data["error"]["message"]
+    )
 
     # Pre-cancel an execution token and verify 400 CANCELLED
     eid, token = mgr.create_execution("to_cancel")
@@ -353,4 +363,3 @@ def test_create_server_with_pool_registers_default():
         assert server.RequestHandlerClass.connection_pool_manager.has_pool("default")
     finally:
         server.server_close()
-

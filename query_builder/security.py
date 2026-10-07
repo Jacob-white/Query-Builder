@@ -17,7 +17,7 @@ import urllib.parse
 from dataclasses import asdict
 from typing import Any
 
-from query_builder.config import SecurityProfile
+from query_builder.config import SecurityProfile  # noqa: F401
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect
 from query_builder.exceptions import SecurityError
 from query_builder.models import QuerySpec
@@ -724,7 +724,7 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             if isinstance(q, (dict, QuerySpec)):
                 score += calculate_ast_complexity(q)
         elif hasattr(so, "query"):
-            q = getattr(so, "query")
+            q = so.query
             if isinstance(q, (dict, QuerySpec)):
                 score += calculate_ast_complexity(q)
 
@@ -733,7 +733,11 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     for c in cols:
         if isinstance(c, dict) and "case_when" in c:
             cw = c["case_when"]
-            branches = cw.get("branches", []) if isinstance(cw, dict) else getattr(cw, "branches", [])
+            branches = (
+                cw.get("branches", [])
+                if isinstance(cw, dict)
+                else getattr(cw, "branches", [])
+            )
             score += 2 * max(1, len(branches))
 
     # Grouping Type

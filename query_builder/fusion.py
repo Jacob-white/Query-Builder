@@ -50,7 +50,9 @@ def reciprocal_rank_fusion(
         if doc_id not in doc_map:
             doc_map[doc_id] = dict(item)
         else:
-            doc_map[doc_id].update({k: v for k, v in item.items() if k not in doc_map[doc_id]})
+            doc_map[doc_id].update(
+                {k: v for k, v in item.items() if k not in doc_map[doc_id]}
+            )
         scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (rrf_k + rank))
 
     # Sparse ranking pass (1-indexed)
@@ -61,7 +63,9 @@ def reciprocal_rank_fusion(
         if doc_id not in doc_map:
             doc_map[doc_id] = dict(item)
         else:
-            doc_map[doc_id].update({k: v for k, v in item.items() if k not in doc_map[doc_id]})
+            doc_map[doc_id].update(
+                {k: v for k, v in item.items() if k not in doc_map[doc_id]}
+            )
         scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (rrf_k + rank))
 
     # Sort documents by descending RRF score
@@ -105,7 +109,9 @@ def linear_combination_fusion(
     """
     alpha = max(0.0, min(1.0, float(alpha)))
 
-    def _normalize_scores(items: list[dict[str, Any]], score_key: str) -> dict[Any, float]:
+    def _normalize_scores(
+        items: list[dict[str, Any]], score_key: str
+    ) -> dict[Any, float]:
         raw: dict[Any, float] = {}
         for item in items:
             doc_id = item.get(key, id(item))
@@ -140,7 +146,9 @@ def linear_combination_fusion(
         if doc_id not in doc_map:
             doc_map[doc_id] = dict(item)
         else:
-            doc_map[doc_id].update({k: v for k, v in item.items() if k not in doc_map[doc_id]})
+            doc_map[doc_id].update(
+                {k: v for k, v in item.items() if k not in doc_map[doc_id]}
+            )
 
     final_scores: dict[Any, float] = {}
     for doc_id in all_ids:

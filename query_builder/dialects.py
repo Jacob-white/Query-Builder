@@ -57,7 +57,9 @@ class BaseDialect:
 
     def format_cte_materialized(self, materialized: bool | None) -> str:
         """Returns MATERIALIZED or NOT MATERIALIZED hint if supported, else empty string."""
-        if materialized is None or not getattr(self, "supports_materialized_cte", False):
+        if materialized is None or not getattr(
+            self, "supports_materialized_cte", False
+        ):
             return ""
         return "MATERIALIZED " if materialized else "NOT MATERIALIZED "
 
@@ -85,9 +87,7 @@ class BaseDialect:
         """Formats LIMIT and OFFSET clause with bind parameters."""
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
-    def format_vector_distance(
-        self, col_ref: str, metric: str = "cosine"
-    ) -> str:
+    def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats vector distance calculation expression for a column reference and placeholder."""
         m = metric.lower()
         if m in ("euclidean", "l2"):
@@ -107,7 +107,9 @@ class BaseDialect:
         ph = placeholder or self.placeholder
         if not col_refs:
             return "1.0"
-        cases = [f"(CASE WHEN {col} LIKE {ph} THEN 1.0 ELSE 0.0 END)" for col in col_refs]
+        cases = [
+            f"(CASE WHEN {col} LIKE {ph} THEN 1.0 ELSE 0.0 END)" for col in col_refs
+        ]
         return f"({' + '.join(cases)})"
 
     def inspect_tables_query(
@@ -191,9 +193,7 @@ class PostgresDialect(BaseDialect):
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
 
-    def format_vector_distance(
-        self, col_ref: str, metric: str = "cosine"
-    ) -> str:
+    def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats pgvector distance operator expression."""
         m = metric.lower()
         if m in ("euclidean", "l2"):
@@ -209,7 +209,9 @@ class PostgresDialect(BaseDialect):
         ph = placeholder or self.placeholder
         if not col_refs:
             return "1.0"
-        coalesced = " || ' ' || ".join([f"COALESCE({col}::text, '')" for col in col_refs])
+        coalesced = " || ' ' || ".join(
+            [f"COALESCE({col}::text, '')" for col in col_refs]
+        )
         return f"ts_rank_cd(to_tsvector('english', {coalesced}), plainto_tsquery('english', {ph}))"
 
 
@@ -218,9 +220,7 @@ class SnowflakeDialect(BaseDialect):
 
     name: str = "snowflake"
 
-    def format_vector_distance(
-        self, col_ref: str, metric: str = "cosine"
-    ) -> str:
+    def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats Snowflake vector similarity expression."""
         m = metric.lower()
         if m in ("euclidean", "l2"):
@@ -236,7 +236,10 @@ class SnowflakeDialect(BaseDialect):
         ph = placeholder or self.placeholder
         if not col_refs:
             return "1.0"
-        cases = [f"(CASE WHEN CONTAINS(LOWER({col}), LOWER({ph})) THEN 1.0 ELSE 0.0 END)" for col in col_refs]
+        cases = [
+            f"(CASE WHEN CONTAINS(LOWER({col}), LOWER({ph})) THEN 1.0 ELSE 0.0 END)"
+            for col in col_refs
+        ]
         return f"({' + '.join(cases)})"
 
 
@@ -355,9 +358,7 @@ class BigQueryDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
-    def format_vector_distance(
-        self, col_ref: str, metric: str = "cosine"
-    ) -> str:
+    def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats BigQuery vector distance expression."""
         m = metric.lower()
         if m in ("euclidean", "l2"):
@@ -386,9 +387,7 @@ class ClickHouseDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
 
-    def format_vector_distance(
-        self, col_ref: str, metric: str = "cosine"
-    ) -> str:
+    def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats ClickHouse vector distance function expression."""
         m = metric.lower()
         if m in ("euclidean", "l2"):
@@ -404,7 +403,10 @@ class ClickHouseDialect(BaseDialect):
         ph = placeholder or self.placeholder
         if not col_refs:
             return "1.0"
-        cases = [f"if(positionCaseInsensitive({col}, {ph}) > 0, 1.0, 0.0)" for col in col_refs]
+        cases = [
+            f"if(positionCaseInsensitive({col}, {ph}) > 0, 1.0, 0.0)"
+            for col in col_refs
+        ]
         return f"({' + '.join(cases)})"
 
     def inspect_tables_query(

@@ -109,7 +109,11 @@ class InMemoryLRUCache(BaseQueryCache):
 
     def set(self, key: str, value: Any, ttl: int | None = None) -> None:
         effective_ttl = ttl if ttl is not None else self.default_ttl
-        expire_at = (time.time() + effective_ttl) if effective_ttl and effective_ttl > 0 else None
+        expire_at = (
+            (time.time() + effective_ttl)
+            if effective_ttl and effective_ttl > 0
+            else None
+        )
 
         with self._lock:
             if key in self._cache:
@@ -139,7 +143,9 @@ class InMemoryLRUCache(BaseQueryCache):
     def stats(self) -> dict[str, Any]:
         with self._lock:
             total_requests = self._hits + self._misses
-            hit_ratio = round(self._hits / total_requests, 4) if total_requests > 0 else 0.0
+            hit_ratio = (
+                round(self._hits / total_requests, 4) if total_requests > 0 else 0.0
+            )
             return {
                 "type": "in_memory_lru",
                 "size": len(self._cache),
@@ -191,7 +197,9 @@ class RedisQueryCache(BaseQueryCache):
             val = self.client.get(self._format_key(key))
             if val is not None:
                 self._hits += 1
-                return json.loads(val.decode("utf-8") if isinstance(val, bytes) else str(val))
+                return json.loads(
+                    val.decode("utf-8") if isinstance(val, bytes) else str(val)
+                )
         self._misses += 1
         return None
 

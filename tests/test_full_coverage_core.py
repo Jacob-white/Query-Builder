@@ -80,8 +80,18 @@ def test_schema_analyze_with_unmapped_foreign_keys():
             "users": {"columns": [{"name": "id"}]},
         },
         "foreign_keys": [
-            {"table": "orders", "foreign_table": "users", "column": "u_id", "foreign_column": "id"},
-            {"table": "users", "foreign_table": "external_orgs", "column": "org_id", "foreign_column": "id"},
+            {
+                "table": "orders",
+                "foreign_table": "users",
+                "column": "u_id",
+                "foreign_column": "id",
+            },
+            {
+                "table": "users",
+                "foreign_table": "external_orgs",
+                "column": "org_id",
+                "foreign_column": "id",
+            },
         ],
     }
     res = explore_schema(raw_data)
@@ -179,11 +189,13 @@ def test_config_cache_validation_and_env():
     with pytest.raises(ValueError, match="max_cache_entries"):
         ExecutionSecurityConfig(max_cache_entries=0)
 
-    cfg = load_security_config_from_env({
-        "QB_ENABLE_CACHE": "true",
-        "QB_DEFAULT_TTL_SECONDS": "300",
-        "QB_MAX_CACHE_ENTRIES": "1000",
-    })
+    cfg = load_security_config_from_env(
+        {
+            "QB_ENABLE_CACHE": "true",
+            "QB_DEFAULT_TTL_SECONDS": "300",
+            "QB_MAX_CACHE_ENTRIES": "1000",
+        }
+    )
     assert cfg.execution.enable_cache is True
     assert cfg.execution.default_ttl_seconds == 300
     assert cfg.execution.max_cache_entries == 1000

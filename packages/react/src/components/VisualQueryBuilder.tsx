@@ -312,8 +312,8 @@ export const VisualQueryBuilder = React.forwardRef<
   const [activeStageName, setActiveStageName] = useState<string | null>(null);
   const [isWfBuilderOpen, setIsWfBuilderOpen] = useState<boolean>(false);
 
-  const ctes = state.ctes || [];
-  const windowFunctions = state.windowFunctions || [];
+  const ctes = state.ctes;
+  const windowFunctions = state.windowFunctions;
   const vectorSearch = state.vectorSearch || null;
   const hybridSearch = state.hybridSearch || null;
   const setCtes = actions.setCtes;
@@ -570,26 +570,11 @@ export const VisualQueryBuilder = React.forwardRef<
   const safety = useMemo(() => validateSqlSafety(currentSql), [currentSql]);
 
   const getActiveSpec = useCallback((): any => {
-    const base = isRawMode
-      ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
-      : compiled.spec;
-    if (!base) return base;
-    const merged = { ...base };
-    if (ctes.length > 0) merged.ctes = ctes;
-    if (windowFunctions.length > 0) merged.window_functions = windowFunctions;
-    if (vectorSearch) merged.vector_search = vectorSearch;
-    if (hybridSearch) merged.hybrid_search = hybridSearch;
-    return merged;
-  }, [
-    isRawMode,
-    currentSql,
-    normalizedSchema,
-    compiled.spec,
-    ctes,
-    windowFunctions,
-    vectorSearch,
-    hybridSearch,
-  ]);
+    if (isRawMode) {
+      return parseSqlToSpec(currentSql, normalizedSchema);
+    }
+    return compiled.spec;
+  }, [isRawMode, currentSql, normalizedSchema, compiled.spec]);
 
   // Synchronize controlled `value` prop into useQueryState
   const initialCanonical = useMemo(
@@ -1999,9 +1984,9 @@ export const VisualQueryBuilder = React.forwardRef<
         onClose={() => setIsWfBuilderOpen(false)}
         onSave={(wf) => setWindowFunctions([...windowFunctions, wf])}
         availableColumns={Object.values(augmentedSchema?.tables || {}).flatMap((t) =>
-          (t.columns || []).map((c) => ({
+          t.columns.map((c) => ({
             table: t.name,
-            name: typeof c === "string" ? c : c.name,
+            name: c.name,
           }))
         )}
         unstyled={unstyled}

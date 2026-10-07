@@ -6,7 +6,6 @@ Covers 100% of statements, branches, and functions in query_builder/parser.py.
 
 from __future__ import annotations
 
-import pytest
 
 from query_builder.models import QuerySpec
 from query_builder.parser import (
@@ -93,7 +92,9 @@ class TestParserHelpers:
         assert op3 is not None
         assert op3[0] == "IS NULL"
 
-        op4 = find_top_level_operator("EXISTS (SELECT 1 FROM orders WHERE orders.id = 1)")
+        op4 = find_top_level_operator(
+            "EXISTS (SELECT 1 FROM orders WHERE orders.id = 1)"
+        )
         assert op4 is None
 
         op5 = find_top_level_operator("'a''b' = col")
@@ -130,7 +131,9 @@ class TestSqlParser:
         assert spec.limit == 50
         assert spec.offset == 0
 
-        spec_dist = parse_sql_to_spec("SELECT DISTINCT id, email AS user_email FROM users;")
+        spec_dist = parse_sql_to_spec(
+            "SELECT DISTINCT id, email AS user_email FROM users;"
+        )
         assert spec_dist is not None
         assert spec_dist.table == "users"
         assert spec_dist.distinct is True
@@ -160,15 +163,52 @@ class TestSqlParser:
         assert spec.table == "analytics"
         assert len(spec.columns) == 9
 
-        assert spec.columns[0] == {"column": "id", "agg": "COUNT", "alias": "user_count"}
-        assert spec.columns[1] == {"column": "email", "agg": "COUNT", "alias": "unique_emails"}
-        assert spec.columns[2] == {"column": "salary", "agg": "SUM", "alias": "total_salary"}
-        assert spec.columns[3] == {"column": "score", "agg": "AVG", "alias": "avg_score"}
-        assert spec.columns[4] == {"column": "created_at", "agg": "MIN", "alias": "earliest"}
-        assert spec.columns[5] == {"column": "created_at", "agg": "MAX", "alias": "latest"}
-        assert spec.columns[6] == {"column": "created_at", "time_grain": "month", "alias": "signup_month"}
-        assert spec.columns[7] == {"column": "last_login", "time_grain": "day", "alias": "login_day"}
-        assert spec.columns[8] == {"column": "amount", "agg": "SUM", "metric": "paid_revenue", "alias": "paid_revenue"}
+        assert spec.columns[0] == {
+            "column": "id",
+            "agg": "COUNT",
+            "alias": "user_count",
+        }
+        assert spec.columns[1] == {
+            "column": "email",
+            "agg": "COUNT",
+            "alias": "unique_emails",
+        }
+        assert spec.columns[2] == {
+            "column": "salary",
+            "agg": "SUM",
+            "alias": "total_salary",
+        }
+        assert spec.columns[3] == {
+            "column": "score",
+            "agg": "AVG",
+            "alias": "avg_score",
+        }
+        assert spec.columns[4] == {
+            "column": "created_at",
+            "agg": "MIN",
+            "alias": "earliest",
+        }
+        assert spec.columns[5] == {
+            "column": "created_at",
+            "agg": "MAX",
+            "alias": "latest",
+        }
+        assert spec.columns[6] == {
+            "column": "created_at",
+            "time_grain": "month",
+            "alias": "signup_month",
+        }
+        assert spec.columns[7] == {
+            "column": "last_login",
+            "time_grain": "day",
+            "alias": "login_day",
+        }
+        assert spec.columns[8] == {
+            "column": "amount",
+            "agg": "SUM",
+            "metric": "paid_revenue",
+            "alias": "paid_revenue",
+        }
 
     def test_aggregate_without_alias(self) -> None:
         spec = parse_sql_to_spec("SELECT COUNT(id) FROM users;")
@@ -215,7 +255,10 @@ class TestSqlParser:
         assert spec is not None
         assert len(spec.columns) == 3
         assert spec.columns[0]["alias"] == "age_group"
-        assert spec.columns[0]["raw_expression"] == "CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END"
+        assert (
+            spec.columns[0]["raw_expression"]
+            == "CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END"
+        )
         assert spec.columns[1]["alias"] == "subtotal"
         assert spec.columns[1]["raw_expression"] == "price * quantity"
         assert spec.columns[2]["alias"] == "raw_func_without_alias(x)"
@@ -340,7 +383,9 @@ class TestSqlParser:
         assert "EXISTS" in raw_filters[0].column
 
     def test_where_or_join_and_bare_conditions(self) -> None:
-        sql = "SELECT * FROM users WHERE status = 'pending' OR age < 21 OR ) OR just_col;"
+        sql = (
+            "SELECT * FROM users WHERE status = 'pending' OR age < 21 OR ) OR just_col;"
+        )
         spec = parse_sql_to_spec(sql)
         assert spec is not None
         assert spec.filter_join == "OR"
@@ -392,7 +437,9 @@ class TestSqlParser:
         assert spec.columns == ["id", "name"]
 
         # Escaped quote in WHERE and paren-wrapped left side operand
-        spec_escaped = parse_sql_to_spec("SELECT * FROM users WHERE name = 'O''Connor' AND (age + 5) >= 25;")
+        spec_escaped = parse_sql_to_spec(
+            "SELECT * FROM users WHERE name = 'O''Connor' AND (age + 5) >= 25;"
+        )
         assert spec_escaped is not None
         assert len(spec_escaped.filters) == 2
         assert spec_escaped.filters[0].value == "O'Connor"
@@ -425,7 +472,9 @@ class TestSqlParser:
         parse_sql_to_spec("WITH cte AS (SELECT 1)) SELECT * FROM cte;")
 
         # 5. Join without simple a = b condition
-        spec_join_non_match = parse_sql_to_spec("SELECT * FROM users JOIN orders ON TRUE WHERE users.id = 1;")
+        spec_join_non_match = parse_sql_to_spec(
+            "SELECT * FROM users JOIN orders ON TRUE WHERE users.id = 1;"
+        )
         assert spec_join_non_match is not None
         assert len(spec_join_non_match.joins) == 1
 
@@ -434,4 +483,3 @@ class TestSqlParser:
         assert spec_lim is not None
         assert spec_lim.limit == 50
         assert spec_lim.offset == 0
-

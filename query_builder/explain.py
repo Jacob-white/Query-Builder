@@ -85,7 +85,11 @@ def parse_postgres_plan(plan_dict: dict[str, Any]) -> QueryPlanNode:
     node_type = plan.get("Node Type", "Execution Node")
     table = plan.get("Relation Name")
     cost_estimate = float(plan.get("Total Cost", 0.0))
-    actual_time = float(plan.get("Actual Total Time", 0.0)) if "Actual Total Time" in plan else None
+    actual_time = (
+        float(plan.get("Actual Total Time", 0.0))
+        if "Actual Total Time" in plan
+        else None
+    )
     rows_est = int(plan.get("Plan Rows", 0))
     rows_act = int(plan.get("Actual Rows", 0)) if "Actual Rows" in plan else None
     filter_pred = plan.get("Filter") or plan.get("Index Cond")
@@ -133,7 +137,9 @@ def estimate_plan_from_spec(
     base_cost = 150.0
 
     if hybrid_search:
-        h_dict = hybrid_search if isinstance(hybrid_search, dict) else asdict(hybrid_search)
+        h_dict = (
+            hybrid_search if isinstance(hybrid_search, dict) else asdict(hybrid_search)
+        )
         vec_col = h_dict.get("vector_column", "embedding")
         text_cols = h_dict.get("text_columns", ["content"])
         knn_child = QueryPlanNode(
@@ -158,7 +164,9 @@ def estimate_plan_from_spec(
             children=[knn_child, text_child],
         )
     elif vector_search:
-        v_dict = vector_search if isinstance(vector_search, dict) else asdict(vector_search)
+        v_dict = (
+            vector_search if isinstance(vector_search, dict) else asdict(vector_search)
+        )
         scan_node = QueryPlanNode(
             node_type="KNN Scan",
             table=table_name,
@@ -172,7 +180,9 @@ def estimate_plan_from_spec(
             if isinstance(f, (list, tuple)) and len(f) >= 3:
                 filter_exprs.append(f"{f[0]} {f[1]} {f[2]}")
             elif isinstance(f, dict):
-                filter_exprs.append(f"{f.get('column')} {f.get('op', '=')} {f.get('value')}")
+                filter_exprs.append(
+                    f"{f.get('column')} {f.get('op', '=')} {f.get('value')}"
+                )
         scan_node = QueryPlanNode(
             node_type="Seq Scan",
             table=table_name,
@@ -229,7 +239,9 @@ def estimate_plan_from_spec(
     return root
 
 
-def normalize_explain_output(raw_output: Any, dialect: str = "postgres") -> QueryPlanNode:
+def normalize_explain_output(
+    raw_output: Any, dialect: str = "postgres"
+) -> QueryPlanNode:
     """Normalizes raw DB explain output or dict into a standard QueryPlanNode."""
     d = dialect.lower().strip()
     if (

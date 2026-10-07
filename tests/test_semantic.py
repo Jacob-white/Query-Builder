@@ -75,7 +75,9 @@ class TestMetricDefinition:
             )
 
     def test_metric_fallback_format_and_missing_fields(self):
-        m = MetricDefinition(name="users", title="Users", sql_expression="id", format="custom_unknown")
+        m = MetricDefinition(
+            name="users", title="Users", sql_expression="id", format="custom_unknown"
+        )
         assert m.format == "number"
 
         with pytest.raises(SemanticError, match="requires a 'name'"):
@@ -115,10 +117,17 @@ class TestSemanticModel:
             name="subscriptions",
             table_name="billing_subscriptions",
             dimensions=[
-                DimensionDefinition(name="plan", title="Plan", sql_expression="plan_name")
+                DimensionDefinition(
+                    name="plan", title="Plan", sql_expression="plan_name"
+                )
             ],
             metrics=[
-                MetricDefinition(name="total_revenue", title="Revenue", sql_expression="amount", aggregation="sum")
+                MetricDefinition(
+                    name="total_revenue",
+                    title="Revenue",
+                    sql_expression="amount",
+                    aggregation="sum",
+                )
             ],
         )
         assert sm.get_dimension("plan") is not None
@@ -149,7 +158,14 @@ class TestSemanticRegistry:
         sm = SemanticModel(
             name="users",
             table_name="app_users",
-            metrics=[MetricDefinition(name="active_count", title="Active", sql_expression="id", aggregation="count")],
+            metrics=[
+                MetricDefinition(
+                    name="active_count",
+                    title="Active",
+                    sql_expression="id",
+                    aggregation="count",
+                )
+            ],
         )
         reg.register_model(sm)
 
@@ -209,7 +225,13 @@ models:
     def test_load_from_file_path(self, tmp_path: Path):
         file_path = tmp_path / "semantic_model.json"
         file_path.write_text(
-            json.dumps({"name": "customers", "table": "users", "metrics": [{"name": "cnt", "sql": "id", "aggregation": "count"}]})
+            json.dumps(
+                {
+                    "name": "customers",
+                    "table": "users",
+                    "metrics": [{"name": "cnt", "sql": "id", "aggregation": "count"}],
+                }
+            )
         )
         models = load_semantic_models_from_yaml(file_path)
         assert len(models) == 1
@@ -223,22 +245,69 @@ models:
 
 class TestSqlExpansions:
     def test_format_filter_sql_all_operators(self):
-        assert _format_filter_sql(MetricFilter("status", "eq", "active"), "postgres") == "status = 'active'"
-        assert _format_filter_sql(MetricFilter("status", "eq", None), "postgres") == "status IS NULL"
-        assert _format_filter_sql(MetricFilter("status", "neq", "archived"), "postgres") == "status <> 'archived'"
-        assert _format_filter_sql(MetricFilter("status", "neq", None), "postgres") == "status IS NOT NULL"
-        assert _format_filter_sql(MetricFilter("amount", "gt", 100), "postgres") == "amount > 100"
-        assert _format_filter_sql(MetricFilter("amount", "gte", 50), "postgres") == "amount >= 50"
-        assert _format_filter_sql(MetricFilter("amount", "lt", 10), "postgres") == "amount < 10"
-        assert _format_filter_sql(MetricFilter("amount", "lte", 5), "postgres") == "amount <= 5"
-        assert _format_filter_sql(MetricFilter("tier", "in", ["gold", "platinum"]), "postgres") == "tier IN ('gold', 'platinum')"
-        assert _format_filter_sql(MetricFilter("tier", "not_in", ["free", "trial"]), "postgres") == "tier NOT IN ('free', 'trial')"
-        assert _format_filter_sql(MetricFilter("deleted_at", "is_null", None), "postgres") == "deleted_at IS NULL"
-        assert _format_filter_sql(MetricFilter("deleted_at", "is_not_null", None), "postgres") == "deleted_at IS NOT NULL"
-        assert _format_filter_sql(MetricFilter("code", "other", 42), "postgres") == "code = 42"
+        assert (
+            _format_filter_sql(MetricFilter("status", "eq", "active"), "postgres")
+            == "status = 'active'"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("status", "eq", None), "postgres")
+            == "status IS NULL"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("status", "neq", "archived"), "postgres")
+            == "status <> 'archived'"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("status", "neq", None), "postgres")
+            == "status IS NOT NULL"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("amount", "gt", 100), "postgres")
+            == "amount > 100"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("amount", "gte", 50), "postgres")
+            == "amount >= 50"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("amount", "lt", 10), "postgres")
+            == "amount < 10"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("amount", "lte", 5), "postgres")
+            == "amount <= 5"
+        )
+        assert (
+            _format_filter_sql(
+                MetricFilter("tier", "in", ["gold", "platinum"]), "postgres"
+            )
+            == "tier IN ('gold', 'platinum')"
+        )
+        assert (
+            _format_filter_sql(
+                MetricFilter("tier", "not_in", ["free", "trial"]), "postgres"
+            )
+            == "tier NOT IN ('free', 'trial')"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("deleted_at", "is_null", None), "postgres")
+            == "deleted_at IS NULL"
+        )
+        assert (
+            _format_filter_sql(
+                MetricFilter("deleted_at", "is_not_null", None), "postgres"
+            )
+            == "deleted_at IS NOT NULL"
+        )
+        assert (
+            _format_filter_sql(MetricFilter("code", "other", 42), "postgres")
+            == "code = 42"
+        )
 
     def test_expand_metric_sql_unfiltered(self):
-        m = MetricDefinition(name="sales", title="Sales", sql_expression="amount", aggregation="sum")
+        m = MetricDefinition(
+            name="sales", title="Sales", sql_expression="amount", aggregation="sum"
+        )
         assert expand_metric_sql(m, "postgres") == "SUM(amount)"
         assert expand_metric_sql(m, "mysql") == "SUM(amount)"
 
@@ -277,11 +346,19 @@ class TestSqlExpansions:
             aggregation="count_distinct",
             filters=[MetricFilter("tier", "neq", "free")],
         )
-        assert expand_metric_sql(m, "postgres") == "COUNT(DISTINCT user_id) FILTER (WHERE tier <> 'free')"
-        assert expand_metric_sql(m, "mysql") == "COUNT(DISTINCT CASE WHEN tier <> 'free' THEN user_id ELSE NULL END)"
+        assert (
+            expand_metric_sql(m, "postgres")
+            == "COUNT(DISTINCT user_id) FILTER (WHERE tier <> 'free')"
+        )
+        assert (
+            expand_metric_sql(m, "mysql")
+            == "COUNT(DISTINCT CASE WHEN tier <> 'free' THEN user_id ELSE NULL END)"
+        )
 
         # Unfiltered count distinct
-        m_unfilt = MetricDefinition(name="uniq", title="Uniq", sql_expression="id", aggregation="count_distinct")
+        m_unfilt = MetricDefinition(
+            name="uniq", title="Uniq", sql_expression="id", aggregation="count_distinct"
+        )
         assert expand_metric_sql(m_unfilt, "postgres") == "COUNT(DISTINCT id)"
 
     def test_expand_custom_metric(self):
@@ -292,19 +369,36 @@ class TestSqlExpansions:
             aggregation="custom",
             filters=[MetricFilter("x", "gt", 0)],
         )
-        assert expand_metric_sql(m, "postgres") == "CASE WHEN x > 0 THEN (SUM(a) / NULLIF(SUM(b), 0)) ELSE NULL END"
+        assert (
+            expand_metric_sql(m, "postgres")
+            == "CASE WHEN x > 0 THEN (SUM(a) / NULLIF(SUM(b), 0)) ELSE NULL END"
+        )
 
-        m_raw = MetricDefinition(name="raw", title="Raw", sql_expression="1 + 1", aggregation="custom")
+        m_raw = MetricDefinition(
+            name="raw", title="Raw", sql_expression="1 + 1", aggregation="custom"
+        )
         assert expand_metric_sql(m_raw, "postgres") == "(1 + 1)"
 
     def test_expand_time_grain_sql_all_dialects(self):
         # Postgres / DuckDB / Snowflake
-        assert expand_time_grain_sql("created_at", "month", "postgres") == "DATE_TRUNC('month', created_at)"
-        assert expand_time_grain_sql("created_at", "day", "duckdb") == "DATE_TRUNC('day', created_at)"
-        assert expand_time_grain_sql("created_at", "year", "snowflake") == "DATE_TRUNC('year', created_at)"
+        assert (
+            expand_time_grain_sql("created_at", "month", "postgres")
+            == "DATE_TRUNC('month', created_at)"
+        )
+        assert (
+            expand_time_grain_sql("created_at", "day", "duckdb")
+            == "DATE_TRUNC('day', created_at)"
+        )
+        assert (
+            expand_time_grain_sql("created_at", "year", "snowflake")
+            == "DATE_TRUNC('year', created_at)"
+        )
 
         # BigQuery
-        assert expand_time_grain_sql("ts", "quarter", "bigquery") == "DATE_TRUNC(ts, QUARTER)"
+        assert (
+            expand_time_grain_sql("ts", "quarter", "bigquery")
+            == "DATE_TRUNC(ts, QUARTER)"
+        )
 
         # SQLite
         assert "STRFTIME" in expand_time_grain_sql("ts", "month", "sqlite")
@@ -340,7 +434,9 @@ class TestCompilerSemanticIntegration:
                         "title": "MRR",
                         "sql": "amount_cents / 100.0",
                         "aggregation": "sum",
-                        "filters": [{"field": "status", "operator": "eq", "value": "active"}],
+                        "filters": [
+                            {"field": "status", "operator": "eq", "value": "active"}
+                        ],
                     },
                     "alias": "active_mrr",
                 },
@@ -362,15 +458,20 @@ class TestCompilerSemanticIntegration:
         }
         compiler = QueryCompiler(spec, dialect="postgres")
         sql, params, _, _ = compiler.compile()
-        assert "DATE_TRUNC('month', \"t1\".\"created_at\") AS \"order_month\"" in sql
-        assert "GROUP BY DATE_TRUNC('month', \"t1\".\"created_at\")" in sql
+        assert 'DATE_TRUNC(\'month\', "t1"."created_at") AS "order_month"' in sql
+        assert 'GROUP BY DATE_TRUNC(\'month\', "t1"."created_at")' in sql
 
     def test_compile_with_semantic_model_and_top_level_metrics(self):
         semantic_model = SemanticModel(
             name="sales",
             table_name="sales_records",
             metrics=[
-                MetricDefinition(name="total_sales", title="Total", sql_expression="amount", aggregation="sum")
+                MetricDefinition(
+                    name="total_sales",
+                    title="Total",
+                    sql_expression="amount",
+                    aggregation="sum",
+                )
             ],
         )
         spec = {
@@ -381,8 +482,8 @@ class TestCompilerSemanticIntegration:
         }
         compiler = QueryCompiler(spec, dialect="postgres")
         sql, params, _, _ = compiler.compile()
-        assert "SUM(amount) AS \"total_sales\"" in sql
-        assert "GROUP BY \"t1\".\"region\"" in sql
+        assert 'SUM(amount) AS "total_sales"' in sql
+        assert 'GROUP BY "t1"."region"' in sql
 
     def test_validate_time_grain_and_metrics_in_spec(self):
         spec_bad_grain = {
@@ -415,23 +516,28 @@ class TestSemanticEdgeCasesAndCoverage:
         assert len(models3) == 1
 
     def test_model_from_dict_non_dict_items(self):
-        sm = SemanticModel.from_dict({
-            "name": "edge",
-            "dimensions": ["not_a_dict"],
-            "metrics": ["not_a_dict"],
-        })
+        sm = SemanticModel.from_dict(
+            {
+                "name": "edge",
+                "dimensions": ["not_a_dict"],
+                "metrics": ["not_a_dict"],
+            }
+        )
         assert len(sm.dimensions) == 0
         assert len(sm.metrics) == 0
 
     def test_registry_metric_with_existing_table(self):
         reg = SemanticRegistry()
-        m = MetricDefinition(name="custom_m", title="Custom", sql_expression="x", table="custom_table")
+        m = MetricDefinition(
+            name="custom_m", title="Custom", sql_expression="x", table="custom_table"
+        )
         sm = SemanticModel(name="test_model", table_name="default_table", metrics=[m])
         reg.register_model(sm)
         assert reg.get_metric("custom_m").table == "custom_table"
 
     def test_fallback_yaml_parser_without_yaml_module(self, monkeypatch):
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -475,6 +581,7 @@ models:
                 return 12345
 
         import sys
+
         sys.modules["yaml"] = FakeYaml()
         try:
             res_dict = parse_simple_yaml_or_json("dict_doc")
@@ -492,9 +599,18 @@ models:
 
     def test_format_filter_sql_scalar_in_and_fallback_dialect(self):
         # scalar IN and NOT IN
-        assert _format_filter_sql(MetricFilter("id", "in", "SELECT id FROM v"), "postgres") == "id IN (SELECT id FROM v)"
-        assert _format_filter_sql(MetricFilter("id", "not_in", "SELECT id FROM v"), "postgres") == "id NOT IN (SELECT id FROM v)"
+        assert (
+            _format_filter_sql(MetricFilter("id", "in", "SELECT id FROM v"), "postgres")
+            == "id IN (SELECT id FROM v)"
+        )
+        assert (
+            _format_filter_sql(
+                MetricFilter("id", "not_in", "SELECT id FROM v"), "postgres"
+            )
+            == "id NOT IN (SELECT id FROM v)"
+        )
 
         # Fallback dialect for time grain
-        assert expand_time_grain_sql("col", "day", "exotic_db") == "DATE_TRUNC('day', col)"
-
+        assert (
+            expand_time_grain_sql("col", "day", "exotic_db") == "DATE_TRUNC('day', col)"
+        )

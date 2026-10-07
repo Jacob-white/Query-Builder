@@ -324,7 +324,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
               }
             >
               {availableColumns.length === 0 ? (
-                <span style={{ fontSize: "0.8125rem", color: theme.colors.textMuted || "#94a3b8" }}>
+                <span style={{ fontSize: "0.8125rem", color: theme.colors.textMuted }}>
                   No columns available
                 </span>
               ) : (

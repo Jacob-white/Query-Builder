@@ -753,7 +753,9 @@ def validate_cte_dag(ctes: list[Any]) -> dict[str, Any]:
     recursive_map: dict[str, bool] = {}
 
     for cte in ctes:
-        name = getattr(cte, "name", None) or (cte.get("name") if isinstance(cte, dict) else None)
+        name = getattr(cte, "name", None) or (
+            cte.get("name") if isinstance(cte, dict) else None
+        )
         if not name or not isinstance(name, str):
             violations.append("CTE specification is missing a valid 'name'.")
             continue
@@ -766,12 +768,15 @@ def validate_cte_dag(ctes: list[Any]) -> dict[str, Any]:
         cte_names.add(clean_name)
 
         is_recursive = bool(
-            getattr(cte, "recursive", False) or (cte.get("recursive") if isinstance(cte, dict) else False)
+            getattr(cte, "recursive", False)
+            or (cte.get("recursive") if isinstance(cte, dict) else False)
         )
         recursive_map[clean_name] = is_recursive
 
         # Extract dependencies from query table and joins
-        q = getattr(cte, "query", None) or (cte.get("query") if isinstance(cte, dict) else {})
+        q = getattr(cte, "query", None) or (
+            cte.get("query") if isinstance(cte, dict) else {}
+        )
         deps: list[str] = []
         if isinstance(q, dict):
             base_tbl = q.get("table")
@@ -855,7 +860,9 @@ def validate_window_function_spec(spec: Any) -> dict[str, Any]:
     3. Window frame boundaries are semantically valid.
     """
     violations: list[str] = []
-    func = getattr(spec, "function", None) or (spec.get("function") if isinstance(spec, dict) else None)
+    func = getattr(spec, "function", None) or (
+        spec.get("function") if isinstance(spec, dict) else None
+    )
     if not func or not isinstance(func, str):
         return {
             "valid": False,
@@ -866,24 +873,40 @@ def validate_window_function_spec(spec: Any) -> dict[str, Any]:
     if clean_func not in SUPPORTED_WINDOW_FUNCTIONS:
         violations.append(f"Unsupported window function: '{func}'.")
 
-    frame = getattr(spec, "frame", None) or (spec.get("frame") if isinstance(spec, dict) else None)
+    frame = getattr(spec, "frame", None) or (
+        spec.get("frame") if isinstance(spec, dict) else None
+    )
     if frame:
         ftype = (
-            getattr(frame, "frame_type", None)
-            or (frame.get("frame_type") if isinstance(frame, dict) else "ROWS")
-            or "ROWS"
-        ).upper().strip()
+            (
+                getattr(frame, "frame_type", None)
+                or (frame.get("frame_type") if isinstance(frame, dict) else "ROWS")
+                or "ROWS"
+            )
+            .upper()
+            .strip()
+        )
         if ftype not in {"ROWS", "RANGE", "GROUPS"}:
             violations.append(
                 f"Invalid frame_type '{ftype}'. Must be ROWS, RANGE, or GROUPS."
             )
 
         start = (
-            getattr(frame, "start", None)
-            or (frame.get("start") if isinstance(frame, dict) else "UNBOUNDED PRECEDING")
-            or "UNBOUNDED PRECEDING"
-        ).upper().strip()
-        end = getattr(frame, "end", None) or (frame.get("end") if isinstance(frame, dict) else None)
+            (
+                getattr(frame, "start", None)
+                or (
+                    frame.get("start")
+                    if isinstance(frame, dict)
+                    else "UNBOUNDED PRECEDING"
+                )
+                or "UNBOUNDED PRECEDING"
+            )
+            .upper()
+            .strip()
+        )
+        end = getattr(frame, "end", None) or (
+            frame.get("end") if isinstance(frame, dict) else None
+        )
         if end:
             end = str(end).upper().strip()
 
@@ -891,13 +914,20 @@ def validate_window_function_spec(spec: Any) -> dict[str, Any]:
             violations.append("Window frame start cannot be UNBOUNDED FOLLOWING.")
         if end and "UNBOUNDED PRECEDING" in end:
             violations.append("Window frame end cannot be UNBOUNDED PRECEDING.")
-        if "FOLLOWING" in start and end and ("PRECEDING" in end or end == "CURRENT ROW"):
-            violations.append("Window frame start FOLLOWING cannot precede end PRECEDING or CURRENT ROW.")
+        if (
+            "FOLLOWING" in start
+            and end
+            and ("PRECEDING" in end or end == "CURRENT ROW")
+        ):
+            violations.append(
+                "Window frame start FOLLOWING cannot precede end PRECEDING or CURRENT ROW."
+            )
         if start == "CURRENT ROW" and end and "PRECEDING" in end:
-            violations.append("Window frame start CURRENT ROW cannot precede end PRECEDING.")
+            violations.append(
+                "Window frame start CURRENT ROW cannot precede end PRECEDING."
+            )
 
     return {
         "valid": len(violations) == 0,
         "violations": violations,
     }
-

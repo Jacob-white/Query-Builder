@@ -32,8 +32,8 @@ export interface QueryState<Schema = any> {
   isDirty: boolean;
   vectorSearch?: VectorSearchSpec | null;
   hybridSearch?: HybridSearchSpec | null;
-  ctes?: CteSpec[];
-  windowFunctions?: WindowFunctionSpec[];
+  ctes: CteSpec[];
+  windowFunctions: WindowFunctionSpec[];
 }
 
 export interface QueryHistory<Schema = any> {
@@ -799,14 +799,8 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     (spec: QuerySpec<Schema> | Record<string, unknown>) => {
       const parsed = specToState<Schema>(spec);
       const isFullSpec = Boolean(parsed.primaryTable || (spec as any).table);
-      const joinTables = (parsed.joins || []).map((j: any) => j.table).filter(Boolean);
-
       applyUpdate((prev) => {
-        const activeTables =
-          parsed.activeTables ||
-          (parsed.primaryTable
-            ? (Array.from(new Set([parsed.primaryTable, ...joinTables])) as SchemaTableNames<Schema>[])
-            : prev.activeTables);
+        const activeTables = parsed.activeTables || prev.activeTables;
 
         return {
           ...prev,

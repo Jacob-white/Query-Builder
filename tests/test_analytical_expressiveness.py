@@ -29,7 +29,11 @@ class TestAnalyticalExpressiveness:
                     "case_when": {
                         "branches": [
                             {
-                                "condition": {"column": "status", "op": "eq", "value": "active"},
+                                "condition": {
+                                    "column": "status",
+                                    "op": "eq",
+                                    "value": "active",
+                                },
                                 "then_value": "Active User",
                             }
                         ],
@@ -42,7 +46,9 @@ class TestAnalyticalExpressiveness:
         compiler = QueryCompiler(spec, dialect="postgres")
         sql, params, count_sql, _ = compiler.compile()
 
-        assert 'CASE WHEN "t1"."status" = %s THEN %s ELSE %s END AS "status_label"' in sql
+        assert (
+            'CASE WHEN "t1"."status" = %s THEN %s ELSE %s END AS "status_label"' in sql
+        )
         assert params == ["active", "Active User", "Inactive", 50, 0]
         assert "COUNT(*)" in count_sql
 
@@ -71,7 +77,10 @@ class TestAnalyticalExpressiveness:
         compiler = QueryCompiler(spec, dialect="sqlite")
         sql, params, _, _ = compiler.compile()
 
-        assert 'CASE WHEN "t1"."score" >= ? THEN ? WHEN "t1"."score" >= ? THEN ? ELSE ? END AS "final_grade"' in sql
+        assert (
+            'CASE WHEN "t1"."score" >= ? THEN ? WHEN "t1"."score" >= ? THEN ? ELSE ? END AS "final_grade"'
+            in sql
+        )
         assert params == [90, "A", 80, "B", "F", 50, 0]
 
     def test_case_when_column_references(self):
@@ -83,7 +92,11 @@ class TestAnalyticalExpressiveness:
                     "case_when": {
                         "branches": [
                             {
-                                "condition": {"column": "is_discounted", "op": "eq", "value": True},
+                                "condition": {
+                                    "column": "is_discounted",
+                                    "op": "eq",
+                                    "value": True,
+                                },
                                 "then_column": "sale_price",
                             }
                         ],
@@ -96,7 +109,10 @@ class TestAnalyticalExpressiveness:
         compiler = QueryCompiler(spec, dialect="postgres")
         sql, params, _, _ = compiler.compile()
 
-        assert 'CASE WHEN "t1"."is_discounted" = %s THEN "t1"."sale_price" ELSE "t1"."retail_price" END AS "effective_price"' in sql
+        assert (
+            'CASE WHEN "t1"."is_discounted" = %s THEN "t1"."sale_price" ELSE "t1"."retail_price" END AS "effective_price"'
+            in sql
+        )
         assert params == [True, 50, 0]
 
     def test_case_when_in_and_between_operators(self):
@@ -107,11 +123,19 @@ class TestAnalyticalExpressiveness:
                     "case_when": {
                         "branches": [
                             {
-                                "condition": {"column": "category", "op": "in", "value": ["electronics", "gaming"]},
+                                "condition": {
+                                    "column": "category",
+                                    "op": "in",
+                                    "value": ["electronics", "gaming"],
+                                },
                                 "then_value": "High Tech",
                             },
                             {
-                                "condition": {"column": "price", "op": "between", "value": [10, 50]},
+                                "condition": {
+                                    "column": "price",
+                                    "op": "between",
+                                    "value": [10, 50],
+                                },
                                 "then_value": "Budget",
                             },
                         ],
@@ -126,7 +150,17 @@ class TestAnalyticalExpressiveness:
 
         assert 'WHEN "t1"."category" IN (%s, %s) THEN %s' in sql
         assert 'WHEN "t1"."price" BETWEEN %s AND %s THEN %s' in sql
-        assert params == ["electronics", "gaming", "High Tech", 10, 50, "Budget", "Standard", 50, 0]
+        assert params == [
+            "electronics",
+            "gaming",
+            "High Tech",
+            10,
+            50,
+            "Budget",
+            "Standard",
+            50,
+            0,
+        ]
 
     def test_case_when_validation_error_missing_condition(self):
         spec = {
@@ -139,7 +173,9 @@ class TestAnalyticalExpressiveness:
                 }
             ],
         }
-        with pytest.raises(ValidationError, match="Each branch in 'case_when' must have a 'condition'"):
+        with pytest.raises(
+            ValidationError, match="Each branch in 'case_when' must have a 'condition'"
+        ):
             QueryCompiler(spec)
 
     def test_set_operation_union(self):
@@ -247,7 +283,9 @@ class TestAnalyticalExpressiveness:
         compiler = QueryCompiler(spec, dialect="postgres")
         sql, _, _, _ = compiler.compile()
 
-        assert 'GROUP BY GROUPING SETS(("t1"."dept", "t1"."role"), ("t1"."dept"))' in sql
+        assert (
+            'GROUP BY GROUPING SETS(("t1"."dept", "t1"."role"), ("t1"."dept"))' in sql
+        )
 
     def test_ast_complexity_with_analytical_constructs(self):
         base_spec = {"table": "sales", "columns": ["id"]}
@@ -261,8 +299,14 @@ class TestAnalyticalExpressiveness:
                 {
                     "case_when": {
                         "branches": [
-                            {"condition": {"column": "x", "op": "eq", "value": 1}, "then_value": "A"},
-                            {"condition": {"column": "x", "op": "eq", "value": 2}, "then_value": "B"},
+                            {
+                                "condition": {"column": "x", "op": "eq", "value": 1},
+                                "then_value": "A",
+                            },
+                            {
+                                "condition": {"column": "x", "op": "eq", "value": 2},
+                                "then_value": "B",
+                            },
                         ]
                     }
                 },
@@ -276,7 +320,10 @@ class TestAnalyticalExpressiveness:
             "table": "sales",
             "columns": ["id"],
             "set_operations": [
-                {"operation": "UNION", "query": {"table": "sales_backup", "columns": ["id"]}}
+                {
+                    "operation": "UNION",
+                    "query": {"table": "sales_backup", "columns": ["id"]},
+                }
             ],
         }
         so_score = calculate_ast_complexity(so_spec)

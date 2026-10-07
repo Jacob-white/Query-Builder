@@ -14,7 +14,6 @@ Verifies:
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
 
 import pytest
 from fastapi import FastAPI, Request
@@ -119,7 +118,7 @@ def test_fastapi_endpoints_open_mode(sqlite_test_db):
     # 3. POST /qb/validate
     valid_res = client.post(
         "/qb/validate",
-        json={"sql": 'SELECT id, name FROM users WHERE id = 1'},
+        json={"sql": "SELECT id, name FROM users WHERE id = 1"},
     )
     assert valid_res.status_code == 200
     assert valid_res.json().get("valid") is True
@@ -183,6 +182,7 @@ def test_fastapi_endpoints_open_mode(sqlite_test_db):
 
 def test_fastapi_multi_tenant_isolation_sync(sqlite_test_db):
     """Verifies fail-closed multi-tenant RLS isolation with synchronous tenant_resolver."""
+
     def sync_tenant_resolver(request: Request) -> TenantContext | None:
         tenant_id = request.headers.get("X-Tenant-ID")
         if not tenant_id:
@@ -213,7 +213,10 @@ def test_fastapi_multi_tenant_isolation_sync(sqlite_test_db):
     t1_data = res_t1.json()
     assert t1_data["count"] == 2
     for row in t1_data["rows"]:
-        assert row.get("tenant_id") == "tenant-1" or row.get("users.tenant_id") == "tenant-1"
+        assert (
+            row.get("tenant_id") == "tenant-1"
+            or row.get("users.tenant_id") == "tenant-1"
+        )
 
     # 2. Execute query as tenant-2 -> only sees tenant-2 rows
     res_t2 = client.post(
@@ -230,7 +233,10 @@ def test_fastapi_multi_tenant_isolation_sync(sqlite_test_db):
     t2_data = res_t2.json()
     assert t2_data["count"] == 1
     row_t2 = t2_data["rows"][0]
-    assert row_t2.get("name") == "Charlie Beta" or row_t2.get("users.name") == "Charlie Beta"
+    assert (
+        row_t2.get("name") == "Charlie Beta"
+        or row_t2.get("users.name") == "Charlie Beta"
+    )
 
     # 3. Security Anti-Tampering: Client attempts to forge tenant_id in body
     # Header: tenant-1, Body: "tenant_id": "tenant-2"
@@ -290,6 +296,7 @@ def test_fastapi_multi_tenant_isolation_sync(sqlite_test_db):
 
 def test_fastapi_async_tenant_resolver(sqlite_test_db):
     """Verifies that an asynchronous coroutine tenant_resolver works seamlessly."""
+
     async def async_tenant_resolver(request: Request) -> TenantContext | None:
         auth_header = request.headers.get("Authorization")
         if auth_header == "Bearer token-tenant-1":
@@ -336,6 +343,7 @@ def test_fastapi_async_tenant_resolver(sqlite_test_db):
 
 def test_fastapi_compile_with_tenant_isolation(sqlite_test_db):
     """Verifies /compile injects tenant isolation filter into generated SQL."""
+
     def resolver(request: Request) -> str | None:
         return request.headers.get("X-Tenant")
 
@@ -389,6 +397,7 @@ def test_fastapi_validation_error_paths(sqlite_test_db):
 
 def test_fastapi_resolver_exception_fails_closed(sqlite_test_db):
     """Verifies that an unhandled exception in tenant_resolver fails closed with 401."""
+
     def buggy_resolver(request: Request):
         raise RuntimeError("Auth service connection timeout")
 
@@ -412,7 +421,9 @@ def test_fastapi_resolver_exception_fails_closed(sqlite_test_db):
 def test_fastapi_connector_string_and_factory(sqlite_test_db):
     """Verifies connector resolution from string name and factory callable."""
     # From string
-    router_str = create_query_builder_router("sqlite", security=SecurityPolicy(enforce_tenant_isolation=False))
+    router_str = create_query_builder_router(
+        "sqlite", security=SecurityPolicy(enforce_tenant_isolation=False)
+    )
     app_str = FastAPI()
     app_str.include_router(router_str)
     client_str = TestClient(app_str)
@@ -420,7 +431,9 @@ def test_fastapi_connector_string_and_factory(sqlite_test_db):
     assert res_str.status_code == 200
 
     # From factory callable
-    router_factory = create_query_builder_router(lambda: sqlite_test_db, security=SecurityPolicy(enforce_tenant_isolation=False))
+    router_factory = create_query_builder_router(
+        lambda: sqlite_test_db, security=SecurityPolicy(enforce_tenant_isolation=False)
+    )
     app_factory = FastAPI()
     app_factory.include_router(router_factory)
     client_factory = TestClient(app_factory)
@@ -430,20 +443,31 @@ def test_fastapi_connector_string_and_factory(sqlite_test_db):
 
 def test_django_integration_guards_without_django():
     """Verifies that Django integration functions raise clear ImportErrors when dependencies are missing."""
-    from query_builder.integrations.django import (
-        create_django_urls,
-        create_drf_views,
-        create_ninja_router,
-    )
+    from unittest.mock import patch
 
-    with pytest.raises(ImportError, match="Django is not installed"):
-        create_django_urls("sqlite")
+    from query_builder.integrations import django as django_mod
 
-    with pytest.raises(ImportError, match="Django REST Framework is not installed"):
-        create_drf_views("sqlite")
+    with (
+        patch.object(django_mod, "DJANGO_AVAILABLE", False),
+        pytest.raises(ImportError, match="Django is not installed"),
+    ):
+        django_mod.create_django_urls("sqlite")
 
-    with pytest.raises(ImportError, match="Django Ninja is not installed"):
-        create_ninja_router("sqlite")
+    with (
+        patch.object(
+            django_mod,
+            "_get_drf",
+            side_effect=ImportError("Django REST Framework is not installed"),
+        ),
+        pytest.raises(ImportError, match="Django REST Framework is not installed"),
+    ):
+        django_mod.create_drf_views("sqlite")
+
+    with (
+        patch.object(django_mod, "NINJA_AVAILABLE", False),
+        pytest.raises(ImportError, match="Django Ninja is not installed"),
+    ):
+        django_mod.create_ninja_router("sqlite")
 
 
 def test_fastapi_security_profile_production_enforces_isolation(sqlite_test_db):
@@ -493,6 +517,7 @@ def test_fastapi_security_profile_production_enforces_isolation(sqlite_test_db):
 
 def test_fastapi_tenant_resolver_extra_jwt_claims(sqlite_test_db):
     """Verifies tenant_resolver returning a dictionary with extra JWT claims is accepted and attributes preserved."""
+
     def jwt_resolver(request: Request):
         return {
             "tenant_id": "tenant-2",
@@ -518,7 +543,10 @@ def test_fastapi_tenant_resolver_extra_jwt_claims(sqlite_test_db):
     assert res.status_code == 200
     data = res.json()
     assert data["count"] == 1
-    assert data["rows"][0].get("name") == "Charlie Beta" or data["rows"][0].get("users.name") == "Charlie Beta"
+    assert (
+        data["rows"][0].get("name") == "Charlie Beta"
+        or data["rows"][0].get("users.name") == "Charlie Beta"
+    )
 
 
 def test_fastapi_schema_filtering_by_policy(sqlite_test_db):
@@ -546,16 +574,28 @@ def test_fastapi_schema_filtering_by_policy(sqlite_test_db):
 def test_fastapi_async_connector_methods():
     """Verifies that async connector methods (introspect_schema, execute, execute_raw) are cleanly awaited."""
     from unittest.mock import AsyncMock, MagicMock
-    from query_builder.models import SchemaSnapshot, TableMeta, ColumnMeta
+
+    from query_builder.models import ColumnMeta, SchemaSnapshot, TableMeta
 
     fake_schema = SchemaSnapshot(
-        tables={"items": TableMeta(name="items", columns=[ColumnMeta(name="id", data_type="INTEGER")])}
+        tables={
+            "items": TableMeta(
+                name="items", columns=[ColumnMeta(name="id", data_type="INTEGER")]
+            )
+        }
     )
 
     async_conn = MagicMock()
     async_conn.dialect_name = "postgres"
     async_conn.introspect_schema = AsyncMock(return_value=fake_schema)
-    async_conn.execute = AsyncMock(return_value={"columns": ["id"], "rows": [{"id": 1}], "count": 1, "sql": "SELECT 1"})
+    async_conn.execute = AsyncMock(
+        return_value={
+            "columns": ["id"],
+            "rows": [{"id": 1}],
+            "count": 1,
+            "sql": "SELECT 1",
+        }
+    )
     async_conn.execute_raw = AsyncMock(return_value=(["id"], [{"id": 1}], 1.5))
 
     router = create_query_builder_router(
@@ -572,7 +612,9 @@ def test_fastapi_async_connector_methods():
     assert "items" in schema_res.json()["tables"]
 
     # 2. /execute spec
-    exec_res = client.post("/execute", json={"spec": {"table": "items", "columns": ["items.id"]}})
+    exec_res = client.post(
+        "/execute", json={"spec": {"table": "items", "columns": ["items.id"]}}
+    )
     assert exec_res.status_code == 200
     assert exec_res.json()["rows"] == [{"id": 1}]
 
@@ -584,23 +626,28 @@ def test_fastapi_async_connector_methods():
 
 def test_django_helpers_simulation(sqlite_test_db):
     """Simulates internal Django integration helper functions without needing live Django installed."""
-    import asyncio
-    from query_builder.config import SecurityConfig, PrivacySecurityConfig
+    from query_builder.config import PrivacySecurityConfig, SecurityConfig
     from query_builder.integrations.django import (
-        _get_effective_policy,
-        _resolve_tenant_sync,
         _exec_conn_method,
         _filter_schema_tables,
+        _get_effective_policy,
+        _resolve_tenant_sync,
     )
 
     # 1. Policy normalization
-    sec_cfg = SecurityConfig(privacy=PrivacySecurityConfig(tenant_column="tenant_id", enforce_tenant_isolation=False))
+    sec_cfg = SecurityConfig(
+        privacy=PrivacySecurityConfig(
+            tenant_column="tenant_id", enforce_tenant_isolation=False
+        )
+    )
     norm_policy = _get_effective_policy(sec_cfg, has_tenant_resolver=True)
     assert norm_policy.enforce_tenant_isolation is True
     assert norm_policy.tenant_column == "tenant_id"
 
     # 2. Tenant resolver sync and async
-    ctx_sync = _resolve_tenant_sync(None, lambda r: {"tenant_id": "t1", "user_id": "u1", "extra_claim": "val"})
+    ctx_sync = _resolve_tenant_sync(
+        None, lambda r: {"tenant_id": "t1", "user_id": "u1", "extra_claim": "val"}
+    )
     assert ctx_sync.tenant_id == "t1"
     assert ctx_sync.attributes.get("extra_claim") == "val"
 
@@ -632,16 +679,19 @@ def test_django_helpers_simulation(sqlite_test_db):
     assert _exec_conn_method(mock_conn, "sync_m", 5) == 10
     assert _exec_conn_method(mock_conn, "async_m", 5) == 15
     # Statement timeout stripped safely if parameter not in signature
-    assert _exec_conn_method(mock_conn, "no_timeout", "ok", statement_timeout_ms=1000) == "ok"
+    assert (
+        _exec_conn_method(mock_conn, "no_timeout", "ok", statement_timeout_ms=1000)
+        == "ok"
+    )
 
     # 4. _filter_schema_tables
     raw_tables = {"users": {}, "internal_secrets": {}, "orders": {}}
     filtered = _filter_schema_tables(
         {"tables": dict(raw_tables)},
-        SecurityPolicy(allowed_tables=["users", "orders"], restricted_tables=["orders"]),
+        SecurityPolicy(
+            allowed_tables=["users", "orders"], restricted_tables=["orders"]
+        ),
     )
     assert "users" in filtered["tables"]
     assert "internal_secrets" not in filtered["tables"]
     assert "orders" not in filtered["tables"]
-
-

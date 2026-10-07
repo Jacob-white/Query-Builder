@@ -150,7 +150,9 @@ class MockNlqProvider(NlqProvider):
                 table = st
                 break
         else:
-            tbl_match = re.search(r"\b(?:from|in|table)\s+([a-zA-Z0-9_]+)", lower_prompt)
+            tbl_match = re.search(
+                r"\b(?:from|in|table)\s+([a-zA-Z0-9_]+)", lower_prompt
+            )
             if tbl_match:
                 table = tbl_match.group(1)
             elif schema_tables:
@@ -165,28 +167,38 @@ class MockNlqProvider(NlqProvider):
         elif "average" in lower_prompt or "avg" in lower_prompt:
             columns.append({"column": "score", "agg": "AVG", "alias": "avg_score"})
         else:
-            col_match = re.search(r"\b(?:show|select|find|get)\s+([a-zA-Z0-9_,\s]+?)\s+(?:from|where|order|limit|sorted|$)", lower_prompt)
+            col_match = re.search(
+                r"\b(?:show|select|find|get)\s+([a-zA-Z0-9_,\s]+?)\s+(?:from|where|order|limit|sorted|$)",
+                lower_prompt,
+            )
             if col_match:
                 raw_cols_str = col_match.group(1).strip()
                 if raw_cols_str and raw_cols_str != "all":
-                    extracted = [c.strip() for c in raw_cols_str.split(",") if c.strip()]
+                    extracted = [
+                        c.strip() for c in raw_cols_str.split(",") if c.strip()
+                    ]
                     columns.extend(extracted)
             if not columns:
                 columns = ["*"]
 
         # Joins
         joins: list[dict[str, Any]] = []
-        join_match = re.search(r"\b(?:joined\s+with|join)\s+([a-zA-Z0-9_]+)(?:\s+on\s+([a-zA-Z0-9_]+))?", lower_prompt)
+        join_match = re.search(
+            r"\b(?:joined\s+with|join)\s+([a-zA-Z0-9_]+)(?:\s+on\s+([a-zA-Z0-9_]+))?",
+            lower_prompt,
+        )
         if join_match:
             j_table = join_match.group(1)
             j_col = join_match.group(2) or "id"
-            joins.append({
-                "table": j_table,
-                "type": "LEFT" if "left join" in lower_prompt else "INNER",
-                "left_table": table,
-                "left_col": f"{j_table}_id",
-                "right_col": j_col,
-            })
+            joins.append(
+                {
+                    "table": j_table,
+                    "type": "LEFT" if "left join" in lower_prompt else "INNER",
+                    "left_table": table,
+                    "left_col": f"{j_table}_id",
+                    "right_col": j_col,
+                }
+            )
 
         # Filters
         filters: list[dict[str, Any]] = []
@@ -194,22 +206,51 @@ class MockNlqProvider(NlqProvider):
             filters.append({"column": "status", "op": "=", "value": "active"})
         if "pending" in lower_prompt:
             filters.append({"column": "status", "op": "=", "value": "pending"})
-        gt_match = re.search(r"([a-zA-Z0-9_]+)\s*(?:>|greater than|more than)\s*([0-9]+)", lower_prompt)
+        gt_match = re.search(
+            r"([a-zA-Z0-9_]+)\s*(?:>|greater than|more than)\s*([0-9]+)", lower_prompt
+        )
         if gt_match:
-            filters.append({"column": gt_match.group(1), "op": ">", "value": int(gt_match.group(2))})
-        lt_match = re.search(r"([a-zA-Z0-9_]+)\s*(?:<|less than)\s*([0-9]+)", lower_prompt)
+            filters.append(
+                {
+                    "column": gt_match.group(1),
+                    "op": ">",
+                    "value": int(gt_match.group(2)),
+                }
+            )
+        lt_match = re.search(
+            r"([a-zA-Z0-9_]+)\s*(?:<|less than)\s*([0-9]+)", lower_prompt
+        )
         if lt_match:
-            filters.append({"column": lt_match.group(1), "op": "<", "value": int(lt_match.group(2))})
-        eq_match = re.search(r"([a-zA-Z0-9_]+)\s*(?:=|equals)\s*['\"]?([a-zA-Z0-9_-]+)['\"]?", lower_prompt)
+            filters.append(
+                {
+                    "column": lt_match.group(1),
+                    "op": "<",
+                    "value": int(lt_match.group(2)),
+                }
+            )
+        eq_match = re.search(
+            r"([a-zA-Z0-9_]+)\s*(?:=|equals)\s*['\"]?([a-zA-Z0-9_-]+)['\"]?",
+            lower_prompt,
+        )
         if eq_match and eq_match.group(1) not in {"status"}:
-            filters.append({"column": eq_match.group(1), "op": "=", "value": eq_match.group(2)})
+            filters.append(
+                {"column": eq_match.group(1), "op": "=", "value": eq_match.group(2)}
+            )
 
         # Order By
         order_by: list[dict[str, Any]] = []
-        order_match = re.search(r"\b(?:order\s+by|sorted\s+by|sort\s+by)\s+([a-zA-Z0-9_]+)(?:\s+(asc|desc|ascending|descending))?", lower_prompt)
+        order_match = re.search(
+            r"\b(?:order\s+by|sorted\s+by|sort\s+by)\s+([a-zA-Z0-9_]+)(?:\s+(asc|desc|ascending|descending))?",
+            lower_prompt,
+        )
         if order_match:
             ob_col = order_match.group(1)
-            direction = "DESC" if order_match.group(2) in ("desc", "descending") or "descending" in lower_prompt else "ASC"
+            direction = (
+                "DESC"
+                if order_match.group(2) in ("desc", "descending")
+                or "descending" in lower_prompt
+                else "ASC"
+            )
             order_by.append({"column": ob_col, "direction": direction})
 
         # Limit
@@ -262,16 +303,25 @@ class MockNlqProvider(NlqProvider):
 
         steps: list[str] = [f"Select records from base table '{table}'."]
         for j in joins:
-            steps.append(f"Join with table '{j.get('table')}' on {j.get('left_col')} = {j.get('right_col')}.")
+            steps.append(
+                f"Join with table '{j.get('table')}' on {j.get('left_col')} = {j.get('right_col')}."
+            )
         for f in filters:
-            steps.append(f"Filter records where '{f.get('column')}' {f.get('op')} {f.get('value')}.")
+            steps.append(
+                f"Filter records where '{f.get('column')}' {f.get('op')} {f.get('value')}."
+            )
         if order_by:
-            ob_strs = [f"{o.get('column')} {o.get('direction', 'ASC')}" for o in order_by]
+            ob_strs = [
+                f"{o.get('column')} {o.get('direction', 'ASC')}" for o in order_by
+            ]
             steps.append(f"Sort results by {', '.join(ob_strs)}.")
         steps.append(f"Limit query output to {limit} rows.")
 
         summary = f"Queries {table} projecting {len(cols)} columns with {len(filters)} filters."
-        explanation = f"This query targets the '{table}' dataset in {dialect} SQL dialect. " + " ".join(steps)
+        explanation = (
+            f"This query targets the '{table}' dataset in {dialect} SQL dialect. "
+            + " ".join(steps)
+        )
         return {
             "summary": summary,
             "explanation": explanation,
@@ -321,7 +371,9 @@ class GeminiProvider(NlqProvider):
                 raise ValueError("Response root is not a JSON object")
             return ast, tokens
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Gemini JSON output: {exc}. Response text: {clean_text[:200]}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Gemini JSON output: {exc}. Response text: {clean_text[:200]}"
+            ) from exc
 
     def explain_query(
         self,
@@ -346,18 +398,26 @@ class GeminiProvider(NlqProvider):
         try:
             return json.loads(clean_text)
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Gemini explain JSON: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Gemini explain JSON: {exc}"
+            ) from exc
 
-    def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
+    def _execute_http(
+        self, url: str, payload: dict[str, Any]
+    ) -> tuple[str, int | None]:
         headers = {"Content-Type": "application/json"}
         try:
-            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw_bytes = self._safe_execute_http_request(
+                url, payload, headers, allow_private_networks=False
+            )
             raw = raw_bytes.decode("utf-8")
             res = json.loads(raw)
             candidates = res.get("candidates", [])
             if not candidates:
                 raise NlqProviderError("Gemini returned empty candidates list.")
-            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+            text = (
+                candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+            )
             usage = res.get("usageMetadata", {})
             tokens = usage.get("totalTokenCount")
             return text, tokens
@@ -379,7 +439,9 @@ class OpenAiProvider(NlqProvider):
         super().__init__(**kwargs)
         self.api_key = self.api_key or os.getenv("OPENAI_API_KEY")
         self.model = self.model or "gpt-4o-mini"
-        self.base_url = self.base_url or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.base_url = self.base_url or os.getenv(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        )
 
     def generate_ast(
         self,
@@ -411,7 +473,9 @@ class OpenAiProvider(NlqProvider):
         try:
             return json.loads(clean), tokens
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse OpenAI JSON output: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse OpenAI JSON output: {exc}"
+            ) from exc
 
     def explain_query(
         self,
@@ -438,15 +502,21 @@ class OpenAiProvider(NlqProvider):
         try:
             return json.loads(clean)
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse OpenAI explain JSON: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse OpenAI explain JSON: {exc}"
+            ) from exc
 
-    def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
+    def _execute_http(
+        self, url: str, payload: dict[str, Any]
+    ) -> tuple[str, int | None]:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
         try:
-            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw_bytes = self._safe_execute_http_request(
+                url, payload, headers, allow_private_networks=False
+            )
             raw = raw_bytes.decode("utf-8")
             res = json.loads(raw)
             choices = res.get("choices", [])
@@ -483,7 +553,9 @@ class AnthropicProvider(NlqProvider):
         **kwargs: Any,
     ) -> tuple[dict[str, Any], int | None]:
         if not self.api_key:
-            raise NlqProviderError("ANTHROPIC_API_KEY not configured for AnthropicProvider.")
+            raise NlqProviderError(
+                "ANTHROPIC_API_KEY not configured for AnthropicProvider."
+            )
 
         schema_str = serialize_schema_for_prompt(schema)
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
@@ -503,7 +575,9 @@ class AnthropicProvider(NlqProvider):
         try:
             return json.loads(clean), tokens
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Anthropic JSON output: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Anthropic JSON output: {exc}"
+            ) from exc
 
     def explain_query(
         self,
@@ -512,7 +586,9 @@ class AnthropicProvider(NlqProvider):
         **kwargs: Any,
     ) -> dict[str, Any]:
         if not self.api_key:
-            raise NlqProviderError("ANTHROPIC_API_KEY not configured for AnthropicProvider.")
+            raise NlqProviderError(
+                "ANTHROPIC_API_KEY not configured for AnthropicProvider."
+            )
 
         prompt = build_explain_prompt(query_dict, dialect=dialect)
         url = f"{self.base_url.rstrip('/')}/messages"
@@ -528,26 +604,38 @@ class AnthropicProvider(NlqProvider):
         try:
             return json.loads(clean)
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Anthropic explain JSON: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Anthropic explain JSON: {exc}"
+            ) from exc
 
-    def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
+    def _execute_http(
+        self, url: str, payload: dict[str, Any]
+    ) -> tuple[str, int | None]:
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key or "",
             "anthropic-version": "2023-06-01",
         }
         try:
-            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=False)
+            raw_bytes = self._safe_execute_http_request(
+                url, payload, headers, allow_private_networks=False
+            )
             raw = raw_bytes.decode("utf-8")
             res = json.loads(raw)
             content_blocks = res.get("content", [])
-            text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
+            text = "".join(
+                b.get("text", "") for b in content_blocks if b.get("type") == "text"
+            )
             usage = res.get("usage", {})
-            tokens = (usage.get("input_tokens", 0) + usage.get("output_tokens", 0)) or None
+            tokens = (
+                usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            ) or None
             return text, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
-            raise NlqProviderError(f"Anthropic HTTP {exc.code} error: {err_body}") from exc
+            raise NlqProviderError(
+                f"Anthropic HTTP {exc.code} error: {err_body}"
+            ) from exc
         except NlqProviderError:
             raise
         except Exception as exc:
@@ -562,7 +650,9 @@ class OllamaProvider(NlqProvider):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.model = self.model or "llama3.2"
-        self.base_url = self.base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.base_url = self.base_url or os.getenv(
+            "OLLAMA_BASE_URL", "http://localhost:11434"
+        )
 
     def generate_ast(
         self,
@@ -590,7 +680,9 @@ class OllamaProvider(NlqProvider):
         try:
             return json.loads(clean), tokens
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Ollama JSON output: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Ollama JSON output: {exc}"
+            ) from exc
 
     def explain_query(
         self,
@@ -613,18 +705,28 @@ class OllamaProvider(NlqProvider):
         try:
             return json.loads(clean)
         except Exception as exc:
-            raise NlqProviderError(f"Failed to parse Ollama explain JSON: {exc}") from exc
+            raise NlqProviderError(
+                f"Failed to parse Ollama explain JSON: {exc}"
+            ) from exc
 
-    def _execute_http(self, url: str, payload: dict[str, Any]) -> tuple[str, int | None]:
+    def _execute_http(
+        self, url: str, payload: dict[str, Any]
+    ) -> tuple[str, int | None]:
         headers = {"Content-Type": "application/json"}
         try:
-            raw_bytes = self._safe_execute_http_request(url, payload, headers, allow_private_networks=True)
+            raw_bytes = self._safe_execute_http_request(
+                url, payload, headers, allow_private_networks=True
+            )
             raw = raw_bytes.decode("utf-8")
             res = json.loads(raw)
             response_text = res.get("response", "{}")
             eval_count = res.get("eval_count")
             prompt_eval_count = res.get("prompt_eval_count")
-            tokens = (eval_count + prompt_eval_count) if (eval_count and prompt_eval_count) else eval_count
+            tokens = (
+                (eval_count + prompt_eval_count)
+                if (eval_count and prompt_eval_count)
+                else eval_count
+            )
             return response_text, tokens
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
@@ -654,7 +756,9 @@ def get_nlq_provider(name: str = "mock", **kwargs: Any) -> NlqProvider:
     """Factory creating an instance of the requested NLQ provider."""
     key = name.lower()
     if key not in PROVIDER_REGISTRY:
-        raise NlqProviderError(f"Unknown NLQ provider '{name}'. Available: {list(PROVIDER_REGISTRY.keys())}")
+        raise NlqProviderError(
+            f"Unknown NLQ provider '{name}'. Available: {list(PROVIDER_REGISTRY.keys())}"
+        )
     return PROVIDER_REGISTRY[key](**kwargs)
 
 

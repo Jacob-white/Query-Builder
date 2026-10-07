@@ -315,13 +315,15 @@ class ConnectionPoolManager:
             for cid in sorted(self._pools.keys()):
                 pool = self._pools[cid]
                 meta = self._metadata.get(cid, {})
-                items.append({
-                    "connection_id": cid,
-                    "size": pool.size,
-                    "available": pool.available_count,
-                    "in_use": pool.in_use_count,
-                    "metadata": mask_credentials(meta),
-                })
+                items.append(
+                    {
+                        "connection_id": cid,
+                        "size": pool.size,
+                        "available": pool.available_count,
+                        "in_use": pool.in_use_count,
+                        "metadata": mask_credentials(meta),
+                    }
+                )
             return items
 
     @contextlib.contextmanager
@@ -341,7 +343,9 @@ class ConnectionPoolManager:
             pool.close_all()
 
     # Query Execution & Cancellation Management
-    def create_execution(self, execution_id: str | None = None) -> tuple[str, CancellationToken]:
+    def create_execution(
+        self, execution_id: str | None = None
+    ) -> tuple[str, CancellationToken]:
         """Creates and tracks a CancellationToken for a query execution."""
         eid = execution_id or str(uuid.uuid4())
         with self._lock:
@@ -402,7 +406,9 @@ class ConnectionPoolManager:
                 from query_builder.connectors.registry import ConnectorRegistry
 
                 dialect_name = target.get("dialect", target.get("connector", "sqlite"))
-                clean_target = {k: v for k, v in target.items() if k not in ("dialect", "connector")}
+                clean_target = {
+                    k: v for k, v in target.items() if k not in ("dialect", "connector")
+                }
                 conn = ConnectorRegistry.get(dialect_name, **clean_target)
                 info = conn.test_connection()
                 return {
@@ -412,7 +418,9 @@ class ConnectionPoolManager:
                     "connection_id": None,
                 }
             else:
-                raise TypeError(f"Invalid target type for test_connection: {type(target).__name__}")
+                raise TypeError(
+                    f"Invalid target type for test_connection: {type(target).__name__}"
+                )
 
             latency_ms = (time.perf_counter() - start) * 1000.0
             return {
@@ -460,7 +468,11 @@ class ConnectionPoolManager:
             # Compile spec if input is QuerySpec dict
             effective_dialect = (
                 dialect
-                or (self._metadata.get(connection_id, {}).get("dialect") if connection_id else None)
+                or (
+                    self._metadata.get(connection_id, {}).get("dialect")
+                    if connection_id
+                    else None
+                )
                 or "sqlite"
             )
 
@@ -493,7 +505,9 @@ class ConnectionPoolManager:
                         else:
                             cur.execute(sql)
 
-                        col_names = [d[0] for d in cur.description] if cur.description else []
+                        col_names = (
+                            [d[0] for d in cur.description] if cur.description else []
+                        )
                         raw_rows = cur.fetchall()
                         token.throw_if_cancelled()
                     finally:
@@ -519,11 +533,15 @@ class ConnectionPoolManager:
             from query_builder.connectors.registry import ConnectorRegistry
 
             target_connector = effective_dialect
-            connector_instance = ConnectorRegistry.get(target_connector, **(config or {}))
+            connector_instance = ConnectorRegistry.get(
+                target_connector, **(config or {})
+            )
 
             token.throw_if_cancelled()
             if isinstance(sql_or_spec, dict):
-                result = connector_instance.execute(sql_or_spec, statement_timeout_ms=timeout_ms)
+                result = connector_instance.execute(
+                    sql_or_spec, statement_timeout_ms=timeout_ms
+                )
                 token.throw_if_cancelled()
                 result["execution_id"] = eid
                 return result

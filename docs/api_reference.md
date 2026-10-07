@@ -108,8 +108,12 @@ class QuerySpec:
     vector_search: VectorSearchSpec | dict[str, Any] | None = None
     hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
     ctes: list[CteSpec | dict[str, Any]] = field(default_factory=list)
-    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
-    set_operations: list[SetOperationSpec | dict[str, Any]] = field(default_factory=list)
+    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(
+        default_factory=list
+    )
+    set_operations: list[SetOperationSpec | dict[str, Any]] = field(
+        default_factory=list
+    )
     grouping_type: str | None = None  # "standard" | "rollup" | "cube" | "grouping_sets"
     grouping_sets: list[list[str]] | GroupingSetsSpec = field(default_factory=list)
     rollup: RollupSpec | None = None
@@ -125,7 +129,9 @@ Specification of an advanced window function with partition, order, and framing.
 ```python
 @dataclass
 class WindowFunctionSpec:
-    function: str  # e.g. "ROW_NUMBER", "RANK", "DENSE_RANK", "SUM", "AVG", "LAG", "LEAD"
+    function: (
+        str  # e.g. "ROW_NUMBER", "RANK", "DENSE_RANK", "SUM", "AVG", "LAG", "LEAD"
+    )
     arguments: list[Any] = field(default_factory=list)
     partition_by: list[str] = field(default_factory=list)
     order_by: list[dict[str, Any] | OrderBySpec] = field(default_factory=list)
@@ -143,8 +149,8 @@ Specification of window function frame bounds (ROWS, RANGE, GROUPS).
 class WindowFrameSpec:
     frame_type: str = "ROWS"  # "ROWS" | "RANGE" | "GROUPS"
     start: str = "UNBOUNDED PRECEDING"  # e.g. "UNBOUNDED PRECEDING", "1 PRECEDING", "CURRENT ROW"
-    end: str | None = None               # e.g. "CURRENT ROW", "1 FOLLOWING", "UNBOUNDED FOLLOWING"
-    exclusion: str | None = None         # e.g. "CURRENT ROW", "GROUP", "TIES", "NO OTHERS"
+    end: str | None = None  # e.g. "CURRENT ROW", "1 FOLLOWING", "UNBOUNDED FOLLOWING"
+    exclusion: str | None = None  # e.g. "CURRENT ROW", "GROUP", "TIES", "NO OTHERS"
 ```
 
 ---
@@ -157,13 +163,16 @@ Analytical grouping and cross-tabulation specifications:
 class RollupSpec:
     columns: list[str] = field(default_factory=list)
 
+
 @dataclass
 class CubeSpec:
     columns: list[str] = field(default_factory=list)
 
+
 @dataclass
 class GroupingSetsSpec:
     sets: list[list[str]] = field(default_factory=list)
+
 
 @dataclass
 class PivotSpec:
@@ -184,6 +193,7 @@ class CaseWhenBranch:
     condition: FilterSpec | dict[str, Any]
     then_value: Any = None
     then_column: str | None = None
+
 
 @dataclass
 class CaseWhenSpec:
@@ -382,7 +392,9 @@ class AsyncConnectionPool:
     async def initialize(self) -> None: ...
     async def acquire(self, token: AsyncCancellationToken | None = None) -> Any: ...
     async def release(self, conn: Any) -> None: ...
-    def connection(self, token: AsyncCancellationToken | None = None) -> AsyncIterator[Any]: ...
+    def connection(
+        self, token: AsyncCancellationToken | None = None
+    ) -> AsyncIterator[Any]: ...
     async def close(self) -> None: ...
 ```
 

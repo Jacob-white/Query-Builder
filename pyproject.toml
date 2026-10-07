@@ -217,3 +217,14 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "except ImportError:",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E402", "E741", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F811"]

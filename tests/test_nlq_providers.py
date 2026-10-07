@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import json
 import urllib.error
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,10 +28,10 @@ from query_builder.nlq.providers import (
 
 
 def test_strip_markdown_code_blocks() -> None:
-    raw1 = "```json\n{\"table\": \"users\"}\n```"
+    raw1 = '```json\n{"table": "users"}\n```'
     assert _strip_markdown_code_blocks(raw1) == '{"table": "users"}'
 
-    raw2 = "```\n{\"table\": \"orders\"}\n```"
+    raw2 = '```\n{"table": "orders"}\n```'
     assert _strip_markdown_code_blocks(raw2) == '{"table": "orders"}'
 
     raw3 = '{"table": "items"}'
@@ -49,10 +50,14 @@ def test_mock_nlq_provider_rich_intents() -> None:
 
     # 2. Sum and Average
     ast_sum, _ = prov.generate_ast("sum orders")
-    assert ast_sum["columns"] == [{"column": "amount", "agg": "SUM", "alias": "total_amount"}]
+    assert ast_sum["columns"] == [
+        {"column": "amount", "agg": "SUM", "alias": "total_amount"}
+    ]
 
     ast_avg, _ = prov.generate_ast("average score in products")
-    assert ast_avg["columns"] == [{"column": "score", "agg": "AVG", "alias": "avg_score"}]
+    assert ast_avg["columns"] == [
+        {"column": "score", "agg": "AVG", "alias": "avg_score"}
+    ]
 
     # 3. Specific columns + left join + filters + order by + limit + distinct + vector
     prompt = (
@@ -73,7 +78,9 @@ def test_mock_nlq_provider_rich_intents() -> None:
     assert ast_rich["vector_search"] is not None
 
     # 4. Filter join "OR" and table regex fallback
-    ast_or, _ = prov.generate_ast("find users where status = active or amount greater than 10")
+    ast_or, _ = prov.generate_ast(
+        "find users where status = active or amount greater than 10"
+    )
     assert ast_or["filter_join"] == "OR"
 
     # 5. Explain query
@@ -106,41 +113,59 @@ def test_gemini_provider() -> None:
 
     # Empty candidates error
     mock_empty = MagicMock()
-    mock_empty.__enter__.return_value = io.BytesIO(json.dumps({"candidates": []}).encode("utf-8"))
+    mock_empty.__enter__.return_value = io.BytesIO(
+        json.dumps({"candidates": []}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_empty):
         with pytest.raises(NlqProviderError, match="empty candidates"):
             prov.generate_ast("Get accounts")
 
     # Malformed JSON in response text
     mock_bad_json = MagicMock()
-    mock_bad_json.__enter__.return_value = io.BytesIO(json.dumps({
-        "candidates": [{"content": {"parts": [{"text": "not valid json"}]}}]
-    }).encode("utf-8"))
+    mock_bad_json.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": "not valid json"}]}}]}
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_bad_json):
-        with pytest.raises(NlqProviderError, match="Failed to parse Gemini JSON output"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Gemini JSON output"
+        ):
             prov.generate_ast("Get accounts")
 
     # HTTPError
-    err = urllib.error.HTTPError("http://test", 401, "Unauthorized", {}, io.BytesIO(b"bad auth"))  # type: ignore[arg-type]
+    err = urllib.error.HTTPError(
+        "http://test", 401, "Unauthorized", {}, io.BytesIO(b"bad auth")
+    )  # type: ignore[arg-type]
     with patch("urllib.request.urlopen", side_effect=err):
         with pytest.raises(NlqProviderError, match="Gemini HTTP 401 error"):
             prov.generate_ast("Get accounts")
 
     # Explain query success & fail
     mock_explain = MagicMock()
-    mock_explain.__enter__.return_value = io.BytesIO(json.dumps({
-        "candidates": [{"content": {"parts": [{"text": '{"summary": "Explanation"}'}]}}]
-    }).encode("utf-8"))
+    mock_explain.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {
+                "candidates": [
+                    {"content": {"parts": [{"text": '{"summary": "Explanation"}'}]}}
+                ]
+            }
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain):
         exp = prov.explain_query({"table": "users"})
         assert exp["summary"] == "Explanation"
 
     mock_explain_bad = MagicMock()
-    mock_explain_bad.__enter__.return_value = io.BytesIO(json.dumps({
-        "candidates": [{"content": {"parts": [{"text": "not json"}]}}]
-    }).encode("utf-8"))
+    mock_explain_bad.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": "not json"}]}}]}
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain_bad):
-        with pytest.raises(NlqProviderError, match="Failed to parse Gemini explain JSON"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Gemini explain JSON"
+        ):
             prov.explain_query({"table": "users"})
 
 
@@ -167,32 +192,40 @@ def test_openai_provider() -> None:
 
     # No choices error
     mock_empty = MagicMock()
-    mock_empty.__enter__.return_value = io.BytesIO(json.dumps({"choices": []}).encode("utf-8"))
+    mock_empty.__enter__.return_value = io.BytesIO(
+        json.dumps({"choices": []}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_empty):
         with pytest.raises(NlqProviderError, match="OpenAI returned no choices"):
             prov.generate_ast("Get invoices")
 
     # HTTPError
-    err = urllib.error.HTTPError("http://test", 429, "Rate Limited", {}, io.BytesIO(b"rate limit"))  # type: ignore[arg-type]
+    err = urllib.error.HTTPError(
+        "http://test", 429, "Rate Limited", {}, io.BytesIO(b"rate limit")
+    )  # type: ignore[arg-type]
     with patch("urllib.request.urlopen", side_effect=err):
         with pytest.raises(NlqProviderError, match="OpenAI HTTP 429 error"):
             prov.generate_ast("Get invoices")
 
     # Explain query success & fail
     mock_explain = MagicMock()
-    mock_explain.__enter__.return_value = io.BytesIO(json.dumps({
-        "choices": [{"message": {"content": '{"summary": "OpenAI summary"}'}}]
-    }).encode("utf-8"))
+    mock_explain.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {"choices": [{"message": {"content": '{"summary": "OpenAI summary"}'}}]}
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain):
         exp = prov.explain_query({"table": "invoices"})
         assert exp["summary"] == "OpenAI summary"
 
     mock_explain_bad = MagicMock()
-    mock_explain_bad.__enter__.return_value = io.BytesIO(json.dumps({
-        "choices": [{"message": {"content": "not json"}}]
-    }).encode("utf-8"))
+    mock_explain_bad.__enter__.return_value = io.BytesIO(
+        json.dumps({"choices": [{"message": {"content": "not json"}}]}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain_bad):
-        with pytest.raises(NlqProviderError, match="Failed to parse OpenAI explain JSON"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse OpenAI explain JSON"
+        ):
             prov.explain_query({"table": "invoices"})
 
 
@@ -217,26 +250,32 @@ def test_anthropic_provider() -> None:
         assert tokens == 75
 
     # HTTPError
-    err = urllib.error.HTTPError("http://test", 500, "Server Error", {}, io.BytesIO(b"anthropic error"))  # type: ignore[arg-type]
+    err = urllib.error.HTTPError(
+        "http://test", 500, "Server Error", {}, io.BytesIO(b"anthropic error")
+    )  # type: ignore[arg-type]
     with patch("urllib.request.urlopen", side_effect=err):
         with pytest.raises(NlqProviderError, match="Anthropic HTTP 500 error"):
             prov.generate_ast("Get members")
 
     # Explain query success & fail
     mock_explain = MagicMock()
-    mock_explain.__enter__.return_value = io.BytesIO(json.dumps({
-        "content": [{"type": "text", "text": '{"summary": "Claude summary"}'}]
-    }).encode("utf-8"))
+    mock_explain.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {"content": [{"type": "text", "text": '{"summary": "Claude summary"}'}]}
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain):
         exp = prov.explain_query({"table": "members"})
         assert exp["summary"] == "Claude summary"
 
     mock_explain_bad = MagicMock()
-    mock_explain_bad.__enter__.return_value = io.BytesIO(json.dumps({
-        "content": [{"type": "text", "text": "not json"}]
-    }).encode("utf-8"))
+    mock_explain_bad.__enter__.return_value = io.BytesIO(
+        json.dumps({"content": [{"type": "text", "text": "not json"}]}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain_bad):
-        with pytest.raises(NlqProviderError, match="Failed to parse Anthropic explain JSON"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Anthropic explain JSON"
+        ):
             prov.explain_query({"table": "members"})
 
 
@@ -256,26 +295,30 @@ def test_ollama_provider() -> None:
         assert tokens == 100
 
     # HTTPError
-    err = urllib.error.HTTPError("http://test", 503, "Unavailable", {}, io.BytesIO(b"ollama down"))  # type: ignore[arg-type]
+    err = urllib.error.HTTPError(
+        "http://test", 503, "Unavailable", {}, io.BytesIO(b"ollama down")
+    )  # type: ignore[arg-type]
     with patch("urllib.request.urlopen", side_effect=err):
         with pytest.raises(NlqProviderError, match="Ollama HTTP 503 error"):
             prov.generate_ast("Get devices")
 
     # Explain query success & fail
     mock_explain = MagicMock()
-    mock_explain.__enter__.return_value = io.BytesIO(json.dumps({
-        "response": '{"summary": "Ollama summary"}'
-    }).encode("utf-8"))
+    mock_explain.__enter__.return_value = io.BytesIO(
+        json.dumps({"response": '{"summary": "Ollama summary"}'}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain):
         exp = prov.explain_query({"table": "devices"})
         assert exp["summary"] == "Ollama summary"
 
     mock_explain_bad = MagicMock()
-    mock_explain_bad.__enter__.return_value = io.BytesIO(json.dumps({
-        "response": "not json"
-    }).encode("utf-8"))
+    mock_explain_bad.__enter__.return_value = io.BytesIO(
+        json.dumps({"response": "not json"}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_explain_bad):
-        with pytest.raises(NlqProviderError, match="Failed to parse Ollama explain JSON"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Ollama explain JSON"
+        ):
             prov.explain_query({"table": "devices"})
 
 
@@ -296,10 +339,14 @@ def test_provider_registry() -> None:
     class CustomProvider(NlqProvider):
         name = "custom"
 
-        def generate_ast(self, prompt: str, **kwargs: Any) -> tuple[dict[str, Any], int | None]:
+        def generate_ast(
+            self, prompt: str, **kwargs: Any
+        ) -> tuple[dict[str, Any], int | None]:
             return {"table": "custom_tbl"}, 1
 
-        def explain_query(self, query_dict: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        def explain_query(
+            self, query_dict: dict[str, Any], **kwargs: Any
+        ) -> dict[str, Any]:
             return {"summary": "custom"}
 
     register_nlq_provider("custom", CustomProvider)
@@ -326,7 +373,9 @@ def test_mock_nlq_provider_remaining_branches() -> None:
 
     # 4. Non-status eq filter (e.g. category = books) to hit line 159
     ast_cat, _ = prov.generate_ast("select id from products where category = books")
-    assert any(f["column"] == "category" and f["value"] == "books" for f in ast_cat["filters"])
+    assert any(
+        f["column"] == "category" and f["value"] == "books" for f in ast_cat["filters"]
+    )
 
     # 5. Empty schema tables dict so loop at line 95 has empty iterable
     ast_empty, _ = prov.generate_ast("select name", schema={"tables": {}})
@@ -337,11 +386,15 @@ def test_provider_network_and_malformed_json_exceptions() -> None:
     # 1. Gemini non-dict root object
     g_prov = GeminiProvider(api_key="test_key")
     mock_list_resp = MagicMock()
-    mock_list_resp.__enter__.return_value = io.BytesIO(json.dumps({
-        "candidates": [{"content": {"parts": [{"text": "[1, 2, 3]"}]}}]
-    }).encode("utf-8"))
+    mock_list_resp.__enter__.return_value = io.BytesIO(
+        json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": "[1, 2, 3]"}]}}]}
+        ).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_list_resp):
-        with pytest.raises(NlqProviderError, match="Response root is not a JSON object"):
+        with pytest.raises(
+            NlqProviderError, match="Response root is not a JSON object"
+        ):
             g_prov.generate_ast("Get accounts")
 
     # 2. Gemini generic network error
@@ -352,11 +405,13 @@ def test_provider_network_and_malformed_json_exceptions() -> None:
     # 3. OpenAI malformed JSON and generic network error
     o_prov = OpenAiProvider(api_key="test_key")
     mock_bad_openai = MagicMock()
-    mock_bad_openai.__enter__.return_value = io.BytesIO(json.dumps({
-        "choices": [{"message": {"content": "not json"}}]
-    }).encode("utf-8"))
+    mock_bad_openai.__enter__.return_value = io.BytesIO(
+        json.dumps({"choices": [{"message": {"content": "not json"}}]}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_bad_openai):
-        with pytest.raises(NlqProviderError, match="Failed to parse OpenAI JSON output"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse OpenAI JSON output"
+        ):
             o_prov.generate_ast("Get invoices")
 
     with patch("urllib.request.urlopen", side_effect=OSError("network reset")):
@@ -366,11 +421,13 @@ def test_provider_network_and_malformed_json_exceptions() -> None:
     # 4. Anthropic malformed JSON and generic network error
     a_prov = AnthropicProvider(api_key="test_key")
     mock_bad_anthropic = MagicMock()
-    mock_bad_anthropic.__enter__.return_value = io.BytesIO(json.dumps({
-        "content": [{"type": "text", "text": "not json"}]
-    }).encode("utf-8"))
+    mock_bad_anthropic.__enter__.return_value = io.BytesIO(
+        json.dumps({"content": [{"type": "text", "text": "not json"}]}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_bad_anthropic):
-        with pytest.raises(NlqProviderError, match="Failed to parse Anthropic JSON output"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Anthropic JSON output"
+        ):
             a_prov.generate_ast("Get members")
 
     with patch("urllib.request.urlopen", side_effect=OSError("ssl handshake error")):
@@ -380,14 +437,18 @@ def test_provider_network_and_malformed_json_exceptions() -> None:
     # 5. Ollama malformed JSON and generic network error
     ol_prov = OllamaProvider()
     mock_bad_ollama = MagicMock()
-    mock_bad_ollama.__enter__.return_value = io.BytesIO(json.dumps({
-        "response": "not json"
-    }).encode("utf-8"))
+    mock_bad_ollama.__enter__.return_value = io.BytesIO(
+        json.dumps({"response": "not json"}).encode("utf-8")
+    )
     with patch("urllib.request.urlopen", return_value=mock_bad_ollama):
-        with pytest.raises(NlqProviderError, match="Failed to parse Ollama JSON output"):
+        with pytest.raises(
+            NlqProviderError, match="Failed to parse Ollama JSON output"
+        ):
             ol_prov.generate_ast("Get devices")
 
-    with patch("urllib.request.urlopen", side_effect=OSError("timeout connecting to localhost")):
+    with patch(
+        "urllib.request.urlopen", side_effect=OSError("timeout connecting to localhost")
+    ):
         with pytest.raises(NlqProviderError, match="Ollama request failed"):
             ol_prov.generate_ast("Get devices")
 
@@ -429,16 +490,21 @@ def test_nlq_provider_security_scheme_and_ssrf() -> None:
 
     # 2. Reject cloud metadata SSRF on external providers
     g_prov = GeminiProvider(api_key="test_key")
-    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+    with pytest.raises(
+        NlqProviderError, match="Security validation blocked network request"
+    ):
         g_prov._execute_http("http://169.254.169.254/latest/meta-data/", {})
 
     # 3. Reject cloud metadata SSRF on Ollama even though allow_private_networks is True
     ol_prov = OllamaProvider(base_url="http://169.254.169.254")
-    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+    with pytest.raises(
+        NlqProviderError, match="Security validation blocked network request"
+    ):
         ol_prov.generate_ast("test query")
 
     # 4. Reject private network SSRF on AnthropicProvider
     a_prov = AnthropicProvider(api_key="test_key", base_url="http://192.168.1.100")
-    with pytest.raises(NlqProviderError, match="Security validation blocked network request"):
+    with pytest.raises(
+        NlqProviderError, match="Security validation blocked network request"
+    ):
         a_prov.generate_ast("test query")
-

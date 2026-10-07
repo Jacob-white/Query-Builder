@@ -54,7 +54,12 @@ class _MilvusCursorAdapter:
         elif hasattr(self.conn, "search") and (
             params is not None
             and len(params) > 0
-            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower() or "score" in clean_sql.lower())
+            and (
+                "distance" in clean_sql.lower()
+                or "vector" in clean_sql.lower()
+                or "search" in clean_sql.lower()
+                or "score" in clean_sql.lower()
+            )
         ):
             coll = "default"
             import re
@@ -79,8 +84,12 @@ class _MilvusCursorAdapter:
             self._rows = [
                 [
                     getattr(r, "id", r.get("id") if isinstance(r, dict) else None),
-                    getattr(r, "distance", r.get("distance") if isinstance(r, dict) else 0.0),
-                    getattr(r, "entity", r.get("entity") if isinstance(r, dict) else {}),
+                    getattr(
+                        r, "distance", r.get("distance") if isinstance(r, dict) else 0.0
+                    ),
+                    getattr(
+                        r, "entity", r.get("entity") if isinstance(r, dict) else {}
+                    ),
                 ]
                 for hits in (res if isinstance(res, list) else [res])
                 for r in (hits if isinstance(hits, list) else [hits])

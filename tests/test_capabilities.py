@@ -9,7 +9,6 @@ from query_builder import (
     DisabledFeatureError,
     QueryCompiler,
 )
-from query_builder.models import QuerySpec, WindowFunctionSpec, RollupSpec
 
 
 def test_capabilities_default_and_serialization():
@@ -63,7 +62,9 @@ def test_compiler_blocks_ctes_when_disabled():
     spec = {
         "table": "users",
         "columns": ["id"],
-        "ctes": [{"name": "active_users", "query": {"table": "users", "columns": ["id"]}}],
+        "ctes": [
+            {"name": "active_users", "query": {"table": "users", "columns": ["id"]}}
+        ],
     }
     with pytest.raises(DisabledFeatureError) as exc_info:
         QueryCompiler(spec, capabilities=caps)
@@ -200,4 +201,3 @@ def test_fastapi_capabilities_integration():
     )
     assert exec_raw.status_code == 403
     assert "raw_sql" in exec_raw.json()["detail"].lower()
-

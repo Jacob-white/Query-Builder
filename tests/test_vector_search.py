@@ -136,37 +136,79 @@ class TestDialectVectorFormatting:
     def test_postgres_pgvector_operators(self) -> None:
         pg = PostgresDialect()
         # Cosine distance
-        assert pg.format_vector_distance('t1."embedding"', metric="cosine") == '(t1."embedding" <=> %s)'
+        assert (
+            pg.format_vector_distance('t1."embedding"', metric="cosine")
+            == '(t1."embedding" <=> %s)'
+        )
         # Euclidean / L2
-        assert pg.format_vector_distance('t1."embedding"', metric="euclidean") == '(t1."embedding" <-> %s)'
-        assert pg.format_vector_distance('t1."embedding"', metric="l2") == '(t1."embedding" <-> %s)'
+        assert (
+            pg.format_vector_distance('t1."embedding"', metric="euclidean")
+            == '(t1."embedding" <-> %s)'
+        )
+        assert (
+            pg.format_vector_distance('t1."embedding"', metric="l2")
+            == '(t1."embedding" <-> %s)'
+        )
         # Dot product / Inner product
-        assert pg.format_vector_distance('t1."embedding"', metric="dot_product") == '(t1."embedding" <#> %s)'
-        assert pg.format_vector_distance('t1."embedding"', metric="inner_product") == '(t1."embedding" <#> %s)'
+        assert (
+            pg.format_vector_distance('t1."embedding"', metric="dot_product")
+            == '(t1."embedding" <#> %s)'
+        )
+        assert (
+            pg.format_vector_distance('t1."embedding"', metric="inner_product")
+            == '(t1."embedding" <#> %s)'
+        )
 
     def test_clickhouse_vector_functions(self) -> None:
         ch = ClickHouseDialect()
-        assert ch.format_vector_distance("`embedding`", metric="cosine") == "cosineDistance(`embedding`, %s)"
-        assert ch.format_vector_distance("`embedding`", metric="euclidean") == "L2Distance(`embedding`, %s)"
-        assert ch.format_vector_distance("`embedding`", metric="dot_product") == "dotProduct(`embedding`, %s)"
+        assert (
+            ch.format_vector_distance("`embedding`", metric="cosine")
+            == "cosineDistance(`embedding`, %s)"
+        )
+        assert (
+            ch.format_vector_distance("`embedding`", metric="euclidean")
+            == "L2Distance(`embedding`, %s)"
+        )
+        assert (
+            ch.format_vector_distance("`embedding`", metric="dot_product")
+            == "dotProduct(`embedding`, %s)"
+        )
 
     def test_snowflake_vector_functions(self) -> None:
         sf = SnowflakeDialect()
-        assert "VECTOR_COSINE_SIMILARITY" in sf.format_vector_distance('"embedding"', metric="cosine")
-        assert "VECTOR_L2_DISTANCE" in sf.format_vector_distance('"embedding"', metric="euclidean")
-        assert "VECTOR_INNER_PRODUCT" in sf.format_vector_distance('"embedding"', metric="dot_product")
+        assert "VECTOR_COSINE_SIMILARITY" in sf.format_vector_distance(
+            '"embedding"', metric="cosine"
+        )
+        assert "VECTOR_L2_DISTANCE" in sf.format_vector_distance(
+            '"embedding"', metric="euclidean"
+        )
+        assert "VECTOR_INNER_PRODUCT" in sf.format_vector_distance(
+            '"embedding"', metric="dot_product"
+        )
 
     def test_bigquery_vector_functions(self) -> None:
         bq = BigQueryDialect()
-        assert "COSINE_DISTANCE" in bq.format_vector_distance("`embedding`", metric="cosine")
-        assert "EUCLIDEAN_DISTANCE" in bq.format_vector_distance("`embedding`", metric="euclidean")
-        assert "DOT_PRODUCT" in bq.format_vector_distance("`embedding`", metric="dot_product")
+        assert "COSINE_DISTANCE" in bq.format_vector_distance(
+            "`embedding`", metric="cosine"
+        )
+        assert "EUCLIDEAN_DISTANCE" in bq.format_vector_distance(
+            "`embedding`", metric="euclidean"
+        )
+        assert "DOT_PRODUCT" in bq.format_vector_distance(
+            "`embedding`", metric="dot_product"
+        )
 
     def test_generic_sqlite_fallback(self) -> None:
         sq = SQLiteDialect()
         assert sq.placeholder == "?"
-        assert sq.format_vector_distance('"embedding"', metric="cosine") == 'COSINE_DISTANCE("embedding", ?)'
-        assert sq.format_vector_distance('"embedding"', metric="euclidean") == 'L2_DISTANCE("embedding", ?)'
+        assert (
+            sq.format_vector_distance('"embedding"', metric="cosine")
+            == 'COSINE_DISTANCE("embedding", ?)'
+        )
+        assert (
+            sq.format_vector_distance('"embedding"', metric="euclidean")
+            == 'L2_DISTANCE("embedding", ?)'
+        )
 
 
 class TestQueryCompilerVectorSearch:
@@ -305,13 +347,19 @@ class TestQueryCompilerVectorSearch:
         # Invalid metric
         with pytest.raises(ValidationError, match="Invalid vector_search 'metric'"):
             QueryCompiler(
-                {"table": "items", "vector_search": {"vector": [0.1], "metric": "invalid"}}
+                {
+                    "table": "items",
+                    "vector_search": {"vector": [0.1], "metric": "invalid"},
+                }
             ).compile()
 
         # Invalid min_score type
         with pytest.raises(ValidationError, match="must be a number"):
             QueryCompiler(
-                {"table": "items", "vector_search": {"vector": [0.1], "min_score": "high"}}
+                {
+                    "table": "items",
+                    "vector_search": {"vector": [0.1], "min_score": "high"},
+                }
             ).compile()
 
         # Unknown field in vector_search
@@ -456,10 +504,21 @@ class TestCLIAndOpenAPIIntegration:
         assert "metric" in vs_schema["properties"]
         assert "top_k" in vs_schema["properties"]
 
-    def test_cli_compile_with_vector_flag(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_cli_compile_with_vector_flag(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         spec_json = json.dumps({"table": "articles", "columns": ["id"]})
         exit_code = cli_main(
-            ["compile", "--spec", spec_json, "--vector", "0.1,0.2,0.3", "--top-k", "7", "--json"]
+            [
+                "compile",
+                "--spec",
+                spec_json,
+                "--vector",
+                "0.1,0.2,0.3",
+                "--top-k",
+                "7",
+                "--json",
+            ]
         )
         assert exit_code == 0
         captured = capsys.readouterr()

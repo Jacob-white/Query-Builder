@@ -18,7 +18,7 @@ import asyncio
 import inspect
 import json
 import re
-from typing import Any, Callable
+from typing import Any
 
 from query_builder.nlq.models import NlqProviderError
 from query_builder.nlq.prompt import (
@@ -57,7 +57,9 @@ class BringYourOwnAiProvider(NlqProvider):
         """Sets or replaces the underlying AI callable or client."""
         self.ai = ai
 
-    def _call_ai_sync(self, prompt: str, system_prompt: str) -> tuple[str | dict[str, Any], int | None]:
+    def _call_ai_sync(
+        self, prompt: str, system_prompt: str
+    ) -> tuple[str | dict[str, Any], int | None]:
         """Dispatches prompt and system prompt to the user's AI client."""
         ai = self.ai
         if ai is None:
@@ -69,7 +71,11 @@ class BringYourOwnAiProvider(NlqProvider):
         tokens_used: int | None = None
 
         # 1. OpenAI Client: client.chat.completions.create(...)
-        if hasattr(ai, "chat") and hasattr(ai.chat, "completions") and callable(getattr(ai.chat.completions, "create", None)):
+        if (
+            hasattr(ai, "chat")
+            and hasattr(ai.chat, "completions")
+            and callable(getattr(ai.chat.completions, "create", None))
+        ):
             model_name = self.model if self.model != "byo-ai-custom" else "gpt-4o"
             res = ai.chat.completions.create(
                 model=model_name,
@@ -86,7 +92,11 @@ class BringYourOwnAiProvider(NlqProvider):
 
         # 2. Anthropic Client: client.messages.create(...)
         if hasattr(ai, "messages") and callable(getattr(ai.messages, "create", None)):
-            model_name = self.model if self.model != "byo-ai-custom" else "claude-3-5-sonnet-20241022"
+            model_name = (
+                self.model
+                if self.model != "byo-ai-custom"
+                else "claude-3-5-sonnet-20241022"
+            )
             res = ai.messages.create(
                 model=model_name,
                 system=system_prompt,
@@ -99,12 +109,18 @@ class BringYourOwnAiProvider(NlqProvider):
                 if hasattr(block, "text"):
                     content += block.text
             if hasattr(res, "usage") and res.usage:
-                tokens_used = getattr(res.usage, "input_tokens", 0) + getattr(res.usage, "output_tokens", 0)
+                tokens_used = getattr(res.usage, "input_tokens", 0) + getattr(
+                    res.usage, "output_tokens", 0
+                )
             return content, tokens_used
 
         # 3. Google Gemini Client: client.models.generate_content(...)
-        if hasattr(ai, "models") and callable(getattr(ai.models, "generate_content", None)):
-            model_name = self.model if self.model != "byo-ai-custom" else "gemini-1.5-flash"
+        if hasattr(ai, "models") and callable(
+            getattr(ai.models, "generate_content", None)
+        ):
+            model_name = (
+                self.model if self.model != "byo-ai-custom" else "gemini-1.5-flash"
+            )
             full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
             res = ai.models.generate_content(
                 model=model_name,
@@ -116,7 +132,9 @@ class BringYourOwnAiProvider(NlqProvider):
             return content, tokens_used
 
         # 4. Gemini genai.GenerativeModel: model.generate_content(...)
-        if hasattr(ai, "generate_content") and callable(getattr(ai, "generate_content", None)):
+        if hasattr(ai, "generate_content") and callable(
+            getattr(ai, "generate_content", None)
+        ):
             full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
             res = ai.generate_content(full_prompt)
             content = getattr(res, "text", "{}")
@@ -127,7 +145,9 @@ class BringYourOwnAiProvider(NlqProvider):
             full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
             res = ai.invoke(full_prompt)
             content = getattr(res, "content", str(res))
-            if hasattr(res, "response_metadata") and isinstance(res.response_metadata, dict):
+            if hasattr(res, "response_metadata") and isinstance(
+                res.response_metadata, dict
+            ):
                 usage = res.response_metadata.get("token_usage", {})
                 tokens_used = usage.get("total_tokens")
             return content, tokens_used
@@ -154,6 +174,7 @@ class BringYourOwnAiProvider(NlqProvider):
                     resp = asyncio.run(resp)
                 except RuntimeError:
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                         resp = pool.submit(asyncio.run, resp).result()
 
@@ -204,7 +225,9 @@ class BringYourOwnAiProvider(NlqProvider):
                     f"BYO-AI returned unparseable JSON: {clean[:200]}"
                 ) from exc
 
-        raise NlqProviderError(f"BYO-AI returned invalid non-JSON output: {clean[:200]}")
+        raise NlqProviderError(
+            f"BYO-AI returned invalid non-JSON output: {clean[:200]}"
+        )
 
     def explain_query(
         self,
@@ -214,9 +237,7 @@ class BringYourOwnAiProvider(NlqProvider):
     ) -> dict[str, Any]:
         """Explains a visual query AST in plain, structured natural language."""
         explain_prompt = build_explain_prompt(query_dict, dialect=dialect)
-        system_prompt = (
-            "You are a SQL and database expert. Explain the following QuerySpec query in plain, accessible English."
-        )
+        system_prompt = "You are a SQL and database expert. Explain the following QuerySpec query in plain, accessible English."
 
         try:
             resp, _ = self._call_ai_sync(explain_prompt, system_prompt)

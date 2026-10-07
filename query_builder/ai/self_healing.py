@@ -9,17 +9,17 @@ relational pathfinding and schema alignment, or formats 1-shot repair prompts.
 from __future__ import annotations
 
 import difflib
-import re
 from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.join_solver import find_best_join_condition, find_join_path
-from query_builder.nlq.validator import NlqAstValidator
 
 
 def _extract_table_and_column(ref: str, default_table: str) -> tuple[str, str]:
     """Extracts (table, column) from a string reference like 'users.id' or 'id'."""
-    clean = ref.strip().replace('"', "").replace("`", "").replace("[", "").replace("]", "")
+    clean = (
+        ref.strip().replace('"', "").replace("`", "").replace("[", "").replace("]", "")
+    )
     if "." in clean:
         parts = clean.split(".", 1)
         return parts[0], parts[1]
@@ -57,7 +57,9 @@ class SelfHealingQueryEngine:
                 ref = c.get("column", "") if isinstance(c, dict) else str(c)
                 if "." in ref:
                     primary_table = ref.split(".", 1)[0]
-                    notes.append(f"Inferred primary table '{primary_table}' from projection '{ref}'.")
+                    notes.append(
+                        f"Inferred primary table '{primary_table}' from projection '{ref}'."
+                    )
                     break
 
             if not primary_table:
@@ -67,16 +69,24 @@ class SelfHealingQueryEngine:
                     prefix = f.get("tablePrefix")
                     if prefix:
                         primary_table = prefix
-                        notes.append(f"Inferred primary table '{primary_table}' from filter prefix.")
+                        notes.append(
+                            f"Inferred primary table '{primary_table}' from filter prefix."
+                        )
                         break
                     elif "." in col:
                         primary_table = col.split(".", 1)[0]
-                        notes.append(f"Inferred primary table '{primary_table}' from filter column '{col}'.")
+                        notes.append(
+                            f"Inferred primary table '{primary_table}' from filter column '{col}'."
+                        )
                         break
 
             if not primary_table:
                 # Fallback to first schema table or 'default_table'
-                schema_tables = list(self.schema.get("tables", self.schema).keys()) if isinstance(self.schema, dict) else []
+                schema_tables = (
+                    list(self.schema.get("tables", self.schema).keys())
+                    if isinstance(self.schema, dict)
+                    else []
+                )
                 primary_table = schema_tables[0] if schema_tables else "data"
                 notes.append(f"Assigned default primary table '{primary_table}'.")
 
@@ -124,7 +134,9 @@ class SelfHealingQueryEngine:
         for target_table in referenced_tables:
             if target_table not in active_tables and target_table != primary_table:
                 # Find shortest relational path
-                path = find_join_path(active_tables, target_table, schema_data=self.schema)
+                path = find_join_path(
+                    active_tables, target_table, schema_data=self.schema
+                )
                 if path:
                     for join_step in path:
                         if join_step["table"] not in active_tables:
@@ -136,7 +148,9 @@ class SelfHealingQueryEngine:
                             )
                 else:
                     # Direct condition fallback
-                    fallback = find_best_join_condition(primary_table, target_table, schema_data=self.schema)
+                    fallback = find_best_join_condition(
+                        primary_table, target_table, schema_data=self.schema
+                    )
                     join_obj = {
                         "type": "LEFT JOIN",
                         "table": target_table,
@@ -154,7 +168,11 @@ class SelfHealingQueryEngine:
         healed["joins"] = joins
 
         # 4. Fuzzy Column Healing against Schema
-        schema_tables = self.schema.get("tables", self.schema) if isinstance(self.schema, dict) else {}
+        schema_tables = (
+            self.schema.get("tables", self.schema)
+            if isinstance(self.schema, dict)
+            else {}
+        )
         if isinstance(schema_tables, dict):
             new_columns = []
             for c in healed.get("columns", []):
@@ -163,26 +181,46 @@ class SelfHealingQueryEngine:
                     tbl, col_name = _extract_table_and_column(raw_col, primary_table)
                     table_meta = schema_tables.get(tbl, {})
                     cols_list = self._get_column_names(table_meta)
-                    if cols_list and col_name not in cols_list and not c.get("raw_expression"):
-                        match = difflib.get_close_matches(col_name, cols_list, n=1, cutoff=0.7)
+                    if (
+                        cols_list
+                        and col_name not in cols_list
+                        and not c.get("raw_expression")
+                    ):
+                        match = difflib.get_close_matches(
+                            col_name, cols_list, n=1, cutoff=0.7
+                        )
                         if match:
                             fixed_col = match[0]
                             c = dict(c)
-                            c["column"] = f"{tbl}.{fixed_col}" if "." in raw_col else fixed_col
-                            notes.append(f"Fuzzy column healed: corrected '{raw_col}' to '{fixed_col}'.")
+                            c["column"] = (
+                                f"{tbl}.{fixed_col}" if "." in raw_col else fixed_col
+                            )
+                            notes.append(
+                                f"Fuzzy column healed: corrected '{raw_col}' to '{fixed_col}'."
+                            )
                     new_columns.append(c)
                 else:
                     col_str = str(c)
                     if col_str != "*":
-                        tbl, col_name = _extract_table_and_column(col_str, primary_table)
+                        tbl, col_name = _extract_table_and_column(
+                            col_str, primary_table
+                        )
                         table_meta = schema_tables.get(tbl, {})
                         cols_list = self._get_column_names(table_meta)
                         if cols_list and col_name not in cols_list:
-                            match = difflib.get_close_matches(col_name, cols_list, n=1, cutoff=0.7)
+                            match = difflib.get_close_matches(
+                                col_name, cols_list, n=1, cutoff=0.7
+                            )
                             if match:
                                 fixed_col = match[0]
-                                fixed_str = f"{tbl}.{fixed_col}" if "." in col_str else fixed_col
-                                notes.append(f"Fuzzy column healed: corrected '{col_str}' to '{fixed_str}'.")
+                                fixed_str = (
+                                    f"{tbl}.{fixed_col}"
+                                    if "." in col_str
+                                    else fixed_col
+                                )
+                                notes.append(
+                                    f"Fuzzy column healed: corrected '{col_str}' to '{fixed_str}'."
+                                )
                                 new_columns.append(fixed_str)
                                 continue
                     new_columns.append(col_str)
@@ -192,10 +230,15 @@ class SelfHealingQueryEngine:
         # 5. AST Security & Semantic Cleanliness
         try:
             from query_builder.compiler import QueryCompiler
-            sql_to_check = QueryCompiler(healed, schema=self.schema, dialect=dialect).compile()[0]
+
+            sql_to_check = QueryCompiler(
+                healed, schema=self.schema, dialect=dialect
+            ).compile()[0]
             sec_res = validate_sql_ast(sql_to_check)
             if not sec_res.get("valid"):
-                notes.append(f"Security sanitizer alert: {'; '.join(sec_res.get('violations', []))}")
+                notes.append(
+                    f"Security sanitizer alert: {'; '.join(sec_res.get('violations', []))}"
+                )
         except Exception as exc:
             notes.append(f"Compiler pre-check notice: {exc}")
 
@@ -236,7 +279,7 @@ class SelfHealingQueryEngine:
         return (
             "The query AST generated previously contains the following schema and syntax errors:\n"
             f"{err_list}\n\n"
-            f"Original Intent: \"{original_prompt}\"\n\n"
+            f'Original Intent: "{original_prompt}"\n\n'
             "Please return a corrected, schema-grounded JSON QuerySpec resolving all issues listed above. "
             "Output ONLY valid JSON."
         )

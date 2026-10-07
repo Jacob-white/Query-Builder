@@ -71,7 +71,9 @@ class TestModels:
             function="row_number",
             arguments=[],
             partition_by=["dept_id"],
-            order_by=[OrderBySpec(column="salary", direction="desc", table_prefix="emp")],
+            order_by=[
+                OrderBySpec(column="salary", direction="desc", table_prefix="emp")
+            ],
             frame={"frame_type": "ROWS", "start": "1 PRECEDING"},
             alias="rn",
         )
@@ -140,7 +142,11 @@ class TestModels:
         o1 = OrderBySpec(column="age", direction="asc")
         assert o1.to_dict() == {"column": "age", "direction": "asc"}
         o2 = OrderBySpec(column="score", direction="desc", table_prefix="users")
-        assert o2.to_dict() == {"column": "score", "direction": "desc", "table_prefix": "users"}
+        assert o2.to_dict() == {
+            "column": "score",
+            "direction": "desc",
+            "table_prefix": "users",
+        }
 
 
 class TestAstValidatorCteDag:
@@ -165,25 +171,27 @@ class TestAstValidatorCteDag:
         assert any("Invalid CTE identifier name" in v for v in res["violations"])
 
         # Duplicate name
-        res = validate_cte_dag([
-            {"name": "stage1", "query": {"table": "t"}},
-            {"name": "STAGE1", "query": {"table": "t"}},
-        ])
+        res = validate_cte_dag(
+            [
+                {"name": "stage1", "query": {"table": "t"}},
+                {"name": "STAGE1", "query": {"table": "t"}},
+            ]
+        )
         assert res["valid"] is False
         assert any("Duplicate CTE name detected" in v for v in res["violations"])
 
     def test_self_referencing_cte(self):
         # Self-referencing without recursive=True
-        res = validate_cte_dag([
-            {"name": "numbers", "query": {"table": "numbers"}, "recursive": False}
-        ])
+        res = validate_cte_dag(
+            [{"name": "numbers", "query": {"table": "numbers"}, "recursive": False}]
+        )
         assert res["valid"] is False
         assert any("must be marked as recursive" in v for v in res["violations"])
 
         # Self-referencing with recursive=True
-        res = validate_cte_dag([
-            {"name": "numbers", "query": {"table": "numbers"}, "recursive": True}
-        ])
+        res = validate_cte_dag(
+            [{"name": "numbers", "query": {"table": "numbers"}, "recursive": True}]
+        )
         assert res["valid"] is True
 
     def test_cyclic_dependency(self):
@@ -240,66 +248,82 @@ class TestAstValidatorWindowFunctions:
 
     def test_window_frame_validation(self):
         # Invalid frame type
-        res = validate_window_function_spec({
-            "function": "ROW_NUMBER",
-            "frame": {"frame_type": "INVALID"},
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "ROW_NUMBER",
+                "frame": {"frame_type": "INVALID"},
+            }
+        )
         assert res["valid"] is False
         assert any("Invalid frame_type" in v for v in res["violations"])
 
         # Start UNBOUNDED FOLLOWING
-        res = validate_window_function_spec({
-            "function": "SUM",
-            "frame": {"frame_type": "ROWS", "start": "UNBOUNDED FOLLOWING"},
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "SUM",
+                "frame": {"frame_type": "ROWS", "start": "UNBOUNDED FOLLOWING"},
+            }
+        )
         assert res["valid"] is False
-        assert any("start cannot be UNBOUNDED FOLLOWING" in v for v in res["violations"])
+        assert any(
+            "start cannot be UNBOUNDED FOLLOWING" in v for v in res["violations"]
+        )
 
         # End UNBOUNDED PRECEDING
-        res = validate_window_function_spec({
-            "function": "SUM",
-            "frame": {
-                "frame_type": "ROWS",
-                "start": "CURRENT ROW",
-                "end": "UNBOUNDED PRECEDING",
-            },
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "SUM",
+                "frame": {
+                    "frame_type": "ROWS",
+                    "start": "CURRENT ROW",
+                    "end": "UNBOUNDED PRECEDING",
+                },
+            }
+        )
         assert res["valid"] is False
         assert any("end cannot be UNBOUNDED PRECEDING" in v for v in res["violations"])
 
         # Start FOLLOWING before PRECEDING or CURRENT ROW
-        res = validate_window_function_spec({
-            "function": "AVG",
-            "frame": {
-                "frame_type": "ROWS",
-                "start": "1 FOLLOWING",
-                "end": "CURRENT ROW",
-            },
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "AVG",
+                "frame": {
+                    "frame_type": "ROWS",
+                    "start": "1 FOLLOWING",
+                    "end": "CURRENT ROW",
+                },
+            }
+        )
         assert res["valid"] is False
         assert any("FOLLOWING cannot precede" in v for v in res["violations"])
 
         # Start CURRENT ROW before PRECEDING
-        res = validate_window_function_spec({
-            "function": "AVG",
-            "frame": {
-                "frame_type": "ROWS",
-                "start": "CURRENT ROW",
-                "end": "1 PRECEDING",
-            },
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "AVG",
+                "frame": {
+                    "frame_type": "ROWS",
+                    "start": "CURRENT ROW",
+                    "end": "1 PRECEDING",
+                },
+            }
+        )
         assert res["valid"] is False
-        assert any("CURRENT ROW cannot precede end PRECEDING" in v for v in res["violations"])
+        assert any(
+            "CURRENT ROW cannot precede end PRECEDING" in v for v in res["violations"]
+        )
 
         # Valid frame
-        res = validate_window_function_spec({
-            "function": "AVG",
-            "frame": {
-                "frame_type": "ROWS",
-                "start": "1 PRECEDING",
-                "end": "1 FOLLOWING",
-            },
-        })
+        res = validate_window_function_spec(
+            {
+                "function": "AVG",
+                "frame": {
+                    "frame_type": "ROWS",
+                    "start": "1 PRECEDING",
+                    "end": "1 FOLLOWING",
+                },
+            }
+        )
         assert res["valid"] is True
 
 
@@ -342,24 +366,30 @@ class TestQueryCompilerCteAndWindow:
 
         # Invalid ctes content (cycle)
         with pytest.raises(ValidationError, match="Circular dependency detected"):
-            validate_query_spec({
-                "table": "t",
-                "ctes": [
-                    {"name": "a", "query": {"table": "b"}},
-                    {"name": "b", "query": {"table": "a"}},
-                ],
-            })
+            validate_query_spec(
+                {
+                    "table": "t",
+                    "ctes": [
+                        {"name": "a", "query": {"table": "b"}},
+                        {"name": "b", "query": {"table": "a"}},
+                    ],
+                }
+            )
 
         # Invalid window_functions type
-        with pytest.raises(ValidationError, match="Field 'window_functions' must be a list"):
+        with pytest.raises(
+            ValidationError, match="Field 'window_functions' must be a list"
+        ):
             validate_query_spec({"table": "t", "window_functions": "not_a_list"})
 
         # Invalid window_functions content
         with pytest.raises(ValidationError, match="Unsupported window function"):
-            validate_query_spec({
-                "table": "t",
-                "window_functions": [{"function": "BOGUS_WINDOW"}],
-            })
+            validate_query_spec(
+                {
+                    "table": "t",
+                    "window_functions": [{"function": "BOGUS_WINDOW"}],
+                }
+            )
 
     def test_compile_ctes_basic(self):
         spec = {
@@ -395,7 +425,10 @@ class TestQueryCompilerCteAndWindow:
 
         assert "WITH " in main_sql
         assert '"emp_filtered" AS (\nSELECT' in main_sql
-        assert '"summary" ("dept_id", "total_salary") AS MATERIALIZED (\nSELECT' in main_sql
+        assert (
+            '"summary" ("dept_id", "total_salary") AS MATERIALIZED (\nSELECT'
+            in main_sql
+        )
         assert 'FROM "summary"' in main_sql
         assert True in main_params
         assert "WITH " in count_sql
@@ -460,8 +493,14 @@ class TestQueryCompilerCteAndWindow:
         compiler = QueryCompiler(spec, dialect="postgres")
         main_sql, _, _, _ = compiler.compile()
 
-        assert 'ROW_NUMBER() OVER (PARTITION BY "t1"."region" ORDER BY "t1"."amount" DESC) AS "rep_rank"' in main_sql
-        assert 'SUM("t1"."amount") OVER (PARTITION BY "t1"."region" ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS "running_total"' in main_sql
+        assert (
+            'ROW_NUMBER() OVER (PARTITION BY "t1"."region" ORDER BY "t1"."amount" DESC) AS "rep_rank"'
+            in main_sql
+        )
+        assert (
+            'SUM("t1"."amount") OVER (PARTITION BY "t1"."region" ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS "running_total"'
+            in main_sql
+        )
         assert 'COUNT(*) OVER () AS "total_count"' in main_sql
 
     def test_compile_window_function_with_exclusion(self):
@@ -485,7 +524,9 @@ class TestQueryCompilerCteAndWindow:
         }
         compiler = QueryCompiler(spec, dialect="postgres")
         main_sql, _, _, _ = compiler.compile()
-        assert "ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW" in main_sql
+        assert (
+            "ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW" in main_sql
+        )
 
     def test_compile_window_groups_on_unsupported_dialect(self):
         spec = {
@@ -505,7 +546,9 @@ class TestQueryCompilerCteAndWindow:
         }
         # SQLite does not support GROUPS frame
         compiler = QueryCompiler(spec, dialect="sqlite")
-        with pytest.raises(CompilationError, match="does not support GROUPS window frame"):
+        with pytest.raises(
+            CompilationError, match="does not support GROUPS window frame"
+        ):
             compiler.compile()
 
     def test_compile_invalid_cte_types(self):
@@ -654,10 +697,10 @@ class TestQueryCompilerCteAndWindow:
                 }
             ],
         }
-        compiler = QueryCompiler(spec, schema=schema, dialect="postgres", validate_spec=False)
+        compiler = QueryCompiler(
+            spec, schema=schema, dialect="postgres", validate_spec=False
+        )
         sql, _, _, _ = compiler.compile()
         assert 'WITH "users_cte" AS' in sql
         assert 'LEAD("t1"."salary", 1)' in sql
-        assert 'ROWS CURRENT ROW' in sql
-
-
+        assert "ROWS CURRENT ROW" in sql

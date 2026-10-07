@@ -32,8 +32,18 @@ class TestEnterpriseGovernance:
             "table": "users",
             "columns": ["id", "name"],
             "joins": [
-                {"table": "orders", "type": "LEFT", "left_col": "id", "right_col": "user_id"},
-                {"table": "profiles", "type": "LEFT", "left_col": "id", "right_col": "user_id"},
+                {
+                    "table": "orders",
+                    "type": "LEFT",
+                    "left_col": "id",
+                    "right_col": "user_id",
+                },
+                {
+                    "table": "profiles",
+                    "type": "LEFT",
+                    "left_col": "id",
+                    "right_col": "user_id",
+                },
             ],
             "filters": [
                 {"column": "age", "op": "gte", "value": 18},
@@ -59,7 +69,10 @@ class TestEnterpriseGovernance:
             "table": "employees",
             "columns": ["id", "name", "salary"],
         }
-        with pytest.raises(SecurityError, match="Access to restricted column 'salary' on table 'employees' requires roles"):
+        with pytest.raises(
+            SecurityError,
+            match="Access to restricted column 'salary' on table 'employees' requires roles",
+        ):
             apply_security_policy(spec, context=context, policy=policy)
 
     def test_column_level_access_control_allowed(self):
@@ -86,7 +99,11 @@ class TestEnterpriseGovernance:
             row_level_filters={
                 "documents": [
                     {"column": "department", "op": "eq", "value": "$attr.dept"},
-                    {"column": "clearance", "op": "lte", "value": "$attr.clearance_level"},
+                    {
+                        "column": "clearance",
+                        "op": "lte",
+                        "value": "$attr.clearance_level",
+                    },
                 ]
             },
         )

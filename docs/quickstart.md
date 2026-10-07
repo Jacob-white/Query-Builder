@@ -131,7 +131,11 @@ spec = {
             "case_when": {
                 "branches": [
                     {
-                        "condition": {"column": "orders.amount", "op": "gte", "value": 500},
+                        "condition": {
+                            "column": "orders.amount",
+                            "op": "gte",
+                            "value": 500,
+                        },
                         "then_value": "Premium",
                     }
                 ],
@@ -226,9 +230,11 @@ from query_builder import SQLiteConnector, create_query_builder_router, TenantCo
 app = FastAPI()
 connector = SQLiteConnector("app.db")
 
+
 async def resolve_tenant(request: Request) -> TenantContext:
     tenant_id = request.headers.get("X-Tenant-ID", "tenant-1")
     return TenantContext(tenant_id=tenant_id)
+
 
 router = create_query_builder_router(
     connector=connector,
@@ -265,7 +271,12 @@ Manage high-concurrency database connection lifecycles and query streaming:
 
 ```python
 import asyncio
-from query_builder import AsyncConnectionPool, AsyncCancellationToken, AsyncStreamingExecutor
+from query_builder import (
+    AsyncConnectionPool,
+    AsyncCancellationToken,
+    AsyncStreamingExecutor,
+)
+
 
 async def run_analytics():
     # 1. Initialize pooled connections (with SQLite, Postgres, Snowflake, etc.)
@@ -289,6 +300,7 @@ async def run_analytics():
 
     await pool.close()
 
+
 asyncio.run(run_analytics())
 ```
 
@@ -307,15 +319,17 @@ from query_builder.schema_converters import (
 )
 
 # Ingest schema
-tables = from_json_schema({
-    "definitions": {
-        "users": {
-            "type": "object",
-            "properties": {"id": {"type": "integer"}, "email": {"type": "string"}},
-            "x-primary-keys": ["id"],
+tables = from_json_schema(
+    {
+        "definitions": {
+            "users": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "email": {"type": "string"}},
+                "x-primary-keys": ["id"],
+            }
         }
     }
-})
+)
 
 # Export to any ORM definition:
 prisma_code = to_prisma_schema(tables, provider="postgresql")

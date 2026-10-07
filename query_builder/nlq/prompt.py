@@ -25,7 +25,9 @@ def serialize_schema_for_prompt(schema: dict[str, Any] | None) -> str:
             if isinstance(columns, dict):
                 for col_name, col_meta in columns.items():
                     if isinstance(col_meta, dict):
-                        col_type = col_meta.get("data_type", col_meta.get("type", "TEXT"))
+                        col_type = col_meta.get(
+                            "data_type", col_meta.get("type", "TEXT")
+                        )
                         pk = " (PK)" if col_meta.get("primary_key") else ""
                         cols_info.append(f"{col_name}: {col_type}{pk}")
                     else:
@@ -106,7 +108,10 @@ def get_few_shot_exemplars() -> list[dict[str, Any]]:
             "prompt": "Count users grouped by country with count greater than 5",
             "spec": {
                 "table": "users",
-                "columns": ["country", {"column": "id", "agg": "COUNT", "alias": "user_count"}],
+                "columns": [
+                    "country",
+                    {"column": "id", "agg": "COUNT", "alias": "user_count"},
+                ],
                 "joins": [],
                 "filters": [],
                 "filter_join": "AND",
@@ -133,23 +138,23 @@ def build_system_prompt(schema_str: str, dialect: str = "postgres") -> str:
         "2. Do NOT wrap in markdown code blocks like ```json ... ```. Return raw JSON.\n"
         "3. Supported fields in QuerySpec:\n"
         "   - table: string (the primary base table)\n"
-        "   - columns: list of string column names or objects with {\"column\": str, \"agg\": str, \"alias\": str}\n"
-        "   - joins: list of objects with {\"table\": str, \"type\": \"INNER\"|\"LEFT\"|\"RIGHT\"|\"FULL\", \"left_table\": str, \"left_col\": str, \"right_col\": str}\n"
-        "   - filters: list of objects with {\"column\": str, \"op\": \"=\"|\"!=\"|\">\"|\"<\"|\">=\"|\"<=\"|\"LIKE\"|\"IN\"|\"IS NULL\"|\"IS NOT NULL\", \"value\": any}\n"
-        "   - filter_join: \"AND\" | \"OR\"\n"
-        "   - having: list of objects with {\"column\": str, \"op\": str, \"value\": any}\n"
-        "   - order_by: list of objects with {\"column\": str, \"direction\": \"ASC\"|\"DESC\"}\n"
+        '   - columns: list of string column names or objects with {"column": str, "agg": str, "alias": str}\n'
+        '   - joins: list of objects with {"table": str, "type": "INNER"|"LEFT"|"RIGHT"|"FULL", "left_table": str, "left_col": str, "right_col": str}\n'
+        '   - filters: list of objects with {"column": str, "op": "="|"!="|">"|"<"|">="|"<="|"LIKE"|"IN"|"IS NULL"|"IS NOT NULL", "value": any}\n'
+        '   - filter_join: "AND" | "OR"\n'
+        '   - having: list of objects with {"column": str, "op": str, "value": any}\n'
+        '   - order_by: list of objects with {"column": str, "direction": "ASC"|"DESC"}\n'
         "   - limit: integer\n"
         "   - offset: integer\n"
         "   - distinct: boolean\n"
-        "   - vector_search: optional object with {\"column\": str, \"query_vector\": list[float] | null, \"query_text\": str | null, \"top_k\": int, \"metric\": str}\n\n"
+        '   - vector_search: optional object with {"column": str, "query_vector": list[float] | null, "query_text": str | null, "top_k": int, "metric": str}\n\n'
         f"FEW-SHOT EXAMPLES:\n{exemplars}\n"
     )
 
 
 def build_user_prompt(prompt: str) -> str:
     """Builds user prompt asking for QuerySpec translation."""
-    return f"Translate this request into QuerySpec JSON:\n\"{prompt}\""
+    return f'Translate this request into QuerySpec JSON:\n"{prompt}"'
 
 
 def build_explain_prompt(query_spec: dict[str, Any], dialect: str = "postgres") -> str:

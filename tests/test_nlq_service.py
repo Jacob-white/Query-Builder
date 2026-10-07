@@ -4,7 +4,6 @@ Tests for NlqService facade and translation workflows.
 
 from __future__ import annotations
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -94,6 +93,9 @@ def test_nlq_service_list_available_providers(monkeypatch: pytest.MonkeyPatch) -
 
 def test_nlq_service_explain_empty_steps() -> None:
     svc = NlqService()
-    with patch("query_builder.nlq.providers.MockNlqProvider.explain_query", return_value={"summary": "sum", "explanation": "exp", "steps": []}):
+    with patch(
+        "query_builder.nlq.providers.MockNlqProvider.explain_query",
+        return_value={"summary": "sum", "explanation": "exp", "steps": []},
+    ):
         res = svc.explain({"table": "users"})
         assert res.steps == ["exp"]

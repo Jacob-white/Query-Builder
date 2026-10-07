@@ -7,14 +7,19 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from query_builder.models import FilterSpec, HavingSpec, JoinSpec, OrderBySpec, QuerySpec
+from query_builder.models import (
+    FilterSpec,
+    HavingSpec,
+    JoinSpec,
+    OrderBySpec,
+    QuerySpec,
+)
 from query_builder.nlq.models import (
     NlqExplainResult,
     NlqResult,
     NlqTranslateRequest,
 )
 from query_builder.nlq.providers import (
-    PROVIDER_REGISTRY,
     get_nlq_provider,
     list_nlq_providers,
 )
@@ -85,7 +90,10 @@ class NlqService:
 
         # Natural language explanation
         explanation_data = provider.explain_query(validated_ast, dialect=req.dialect)
-        explanation_text = explanation_data.get("explanation", explanation_data.get("summary", "Generated from user prompt."))
+        explanation_text = explanation_data.get(
+            "explanation",
+            explanation_data.get("summary", "Generated from user prompt."),
+        )
 
         return NlqResult(
             spec=validated_ast,
@@ -140,10 +148,16 @@ class NlqService:
                 "openai": "OPENAI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
             }.get(name)
-            is_configured = True if name in {"mock", "ollama"} else bool(env_var and os.getenv(env_var))
-            result.append({
-                "name": name,
-                "configured": is_configured,
-                "is_local": name in {"mock", "ollama"},
-            })
+            is_configured = (
+                True
+                if name in {"mock", "ollama"}
+                else bool(env_var and os.getenv(env_var))
+            )
+            result.append(
+                {
+                    "name": name,
+                    "configured": is_configured,
+                    "is_local": name in {"mock", "ollama"},
+                }
+            )
         return result

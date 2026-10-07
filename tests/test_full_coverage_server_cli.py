@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import argparse
-import importlib
 import io
 import json
-import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-from query_builder.ast_validator import validate_sql_ast
 from query_builder.cli import main
 from query_builder.compiler import QueryCompiler
 from query_builder.dialects import BaseDialect
@@ -21,25 +16,53 @@ from query_builder.server import QueryBuilderHandler
 def test_cli_vector_and_schema_explorer_edge_cases(tmp_path, capsys):
     # 1. CLI with vector as JSON string array and top_k
     spec_file = tmp_path / "spec.json"
-    spec_file.write_text(json.dumps({"table": "items", "columns": ["id"]}), encoding="utf-8")
+    spec_file.write_text(
+        json.dumps({"table": "items", "columns": ["id"]}), encoding="utf-8"
+    )
 
-    code = main(["compile", "--spec", str(spec_file), "--vector", "[0.1, 0.2, 0.3]", "--top-k", "15", "--dialect", "sqlite"])
+    code = main(
+        [
+            "compile",
+            "--spec",
+            str(spec_file),
+            "--vector",
+            "[0.1, 0.2, 0.3]",
+            "--top-k",
+            "15",
+            "--dialect",
+            "sqlite",
+        ]
+    )
     assert code == 0
     out = capsys.readouterr().out
     assert "SELECT" in out
 
     # 1b. CLI with vector without top-k
-    code = main(["compile", "--spec", str(spec_file), "--vector", "[0.1, 0.2, 0.3]", "--dialect", "sqlite"])
+    code = main(
+        [
+            "compile",
+            "--spec",
+            str(spec_file),
+            "--vector",
+            "[0.1, 0.2, 0.3]",
+            "--dialect",
+            "sqlite",
+        ]
+    )
     assert code == 0
     capsys.readouterr()
 
     # 2. CLI with top_k when vector_search already in spec_data
     spec_file_vs = tmp_path / "spec_vs.json"
     spec_file_vs.write_text(
-        json.dumps({"table": "items", "vector_search": {"vector": [0.5, 0.6], "top_k": 3}}),
+        json.dumps(
+            {"table": "items", "vector_search": {"vector": [0.5, 0.6], "top_k": 3}}
+        ),
         encoding="utf-8",
     )
-    code = main(["compile", "--spec", str(spec_file_vs), "--top-k", "20", "--dialect", "sqlite"])
+    code = main(
+        ["compile", "--spec", str(spec_file_vs), "--top-k", "20", "--dialect", "sqlite"]
+    )
     assert code == 0
     capsys.readouterr()
 
@@ -47,7 +70,9 @@ def test_cli_vector_and_schema_explorer_edge_cases(tmp_path, capsys):
     schema_file.write_text(json.dumps({"tables": {}}), encoding="utf-8")
 
     # 3. Schema explorer: table not found with --json
-    code = main(["schema", "--schema", str(schema_file), "--table", "nonexistent", "--json"])
+    code = main(
+        ["schema", "--schema", str(schema_file), "--table", "nonexistent", "--json"]
+    )
     assert code == 1
     out = capsys.readouterr().out
     data = json.loads(out)
@@ -68,19 +93,53 @@ def test_cli_vector_and_schema_explorer_edge_cases(tmp_path, capsys):
                 "comment": "Orders table description",
                 "column_count": 3,
                 "columns": [
-                    {"name": "id", "data_type": "int", "is_primary": True, "is_nullable": False},
-                    {"name": "user_id", "data_type": "int", "is_primary": False, "is_nullable": False},
-                    {"name": "total", "data_type": "float", "is_primary": False, "is_nullable": True},
+                    {
+                        "name": "id",
+                        "data_type": "int",
+                        "is_primary": True,
+                        "is_nullable": False,
+                    },
+                    {
+                        "name": "user_id",
+                        "data_type": "int",
+                        "is_primary": False,
+                        "is_nullable": False,
+                    },
+                    {
+                        "name": "total",
+                        "data_type": "float",
+                        "is_primary": False,
+                        "is_nullable": True,
+                    },
                 ],
-                "outgoing_fks": [{"column": "user_id", "foreign_table": "users", "foreign_column": "id"}],
-                "incoming_fks": [{"table": "order_items", "column": "order_id", "foreign_column": "id"}],
+                "outgoing_fks": [
+                    {
+                        "column": "user_id",
+                        "foreign_table": "users",
+                        "foreign_column": "id",
+                    }
+                ],
+                "incoming_fks": [
+                    {
+                        "table": "order_items",
+                        "column": "order_id",
+                        "foreign_column": "id",
+                    }
+                ],
             },
             "users": {
                 "name": "users",
                 "has_user_id": False,
                 "comment": None,
                 "column_count": 1,
-                "columns": [{"name": "id", "data_type": "int", "is_primary": True, "is_nullable": False}],
+                "columns": [
+                    {
+                        "name": "id",
+                        "data_type": "int",
+                        "is_primary": True,
+                        "is_nullable": False,
+                    }
+                ],
                 "outgoing_fks": [],
                 "incoming_fks": [],
             },
@@ -129,7 +188,9 @@ def test_cli_vector_and_schema_explorer_edge_cases(tmp_path, capsys):
             }
         },
     }
-    with patch("query_builder.schema.explore_schema", return_value=mock_exploration_simple):
+    with patch(
+        "query_builder.schema.explore_schema", return_value=mock_exploration_simple
+    ):
         code = main(["schema", "--schema", str(schema_file)])
         assert code == 0
         out = capsys.readouterr().out
@@ -138,7 +199,10 @@ def test_cli_vector_and_schema_explorer_edge_cases(tmp_path, capsys):
         assert "User-Isolated Tables:" not in out
 
     # 5. Schema explorer exception handling
-    with patch("query_builder.schema.explore_schema", side_effect=RuntimeError("Introspection crash")):
+    with patch(
+        "query_builder.schema.explore_schema",
+        side_effect=RuntimeError("Introspection crash"),
+    ):
         code = main(["schema", "--schema", str(schema_file), "--json"])
         assert code == 1
         out = capsys.readouterr().out
@@ -178,40 +242,55 @@ def test_server_streaming_and_explain_edge_cases():
     assert "event: done" in response_body
 
     # 3. Streaming with tenant_id and policy
-    h_tenant = make_handler({
-        "spec": {"table": "items", "columns": ["id"]},
-        "tenant_id": "tenant_abc",
-        "policy": {"tenant_column": "tenant_id", "strict_mode": False},
-        "connector": "sqlite",
-    })
+    h_tenant = make_handler(
+        {
+            "spec": {"table": "items", "columns": ["id"]},
+            "tenant_id": "tenant_abc",
+            "policy": {"tenant_column": "tenant_id", "strict_mode": False},
+            "connector": "sqlite",
+        }
+    )
     h_tenant.do_POST()
     assert h_tenant.send_response.called
 
     # 4. Streaming SecurityError -> 403
-    with patch("query_builder.server.get_connector", side_effect=SecurityError("Blocked by security")):
+    with patch(
+        "query_builder.server.get_connector",
+        side_effect=SecurityError("Blocked by security"),
+    ):
         h_sec = make_handler({"spec": {"table": "items"}, "connector": "sqlite"})
         h_sec.do_POST()
         assert "FORBIDDEN" in h_sec.wfile.getvalue().decode("utf-8")
 
     # 5. Streaming general Exception -> 400
-    with patch("query_builder.server.get_connector", side_effect=RuntimeError("Connector down")):
+    with patch(
+        "query_builder.server.get_connector", side_effect=RuntimeError("Connector down")
+    ):
         h_err = make_handler({"spec": {"table": "items"}, "connector": "sqlite"})
         h_err.do_POST()
         assert "STREAM_ERROR" in h_err.wfile.getvalue().decode("utf-8")
 
     # 6. Explain with raw_explain
-    h_exp_raw = make_handler({"raw_explain": [{"id": 1, "detail": "SCAN TABLE items"}], "dialect": "sqlite"}, path="/api/v1/explain")
+    h_exp_raw = make_handler(
+        {"raw_explain": [{"id": 1, "detail": "SCAN TABLE items"}], "dialect": "sqlite"},
+        path="/api/v1/explain",
+    )
     h_exp_raw.do_POST()
     assert h_exp_raw.send_response.called
 
     # 7. Explain with raw sql (calling connector successfully)
-    h_exp_sql = make_handler({"sql": "SELECT 1 AS num", "connector": "sqlite"}, path="/api/v1/explain")
+    h_exp_sql = make_handler(
+        {"sql": "SELECT 1 AS num", "connector": "sqlite"}, path="/api/v1/explain"
+    )
     h_exp_sql.do_POST()
     assert h_exp_sql.send_response.called
 
     # 8. Explain with raw sql where connector fails (fallback to estimate_plan_from_spec)
     with patch("query_builder.server.get_connector", side_effect=RuntimeError("No DB")):
-        h_exp_sql_fallback = make_handler({"sql": "SELECT * FROM items", "connector": "sqlite"}, path="/api/v1/explain")
+        h_exp_sql_fallback = make_handler(
+            {"sql": "SELECT * FROM items", "connector": "sqlite"},
+            path="/api/v1/explain",
+        )
         h_exp_sql_fallback.do_POST()
         assert h_exp_sql_fallback.send_response.called
 
@@ -221,7 +300,10 @@ def test_server_streaming_and_explain_edge_cases():
     assert "BAD_REQUEST" in h_exp_empty.wfile.getvalue().decode("utf-8")
 
     # 10. Explain general exception -> 400
-    with patch("query_builder.server.estimate_plan_from_spec", side_effect=RuntimeError("Explain planner error")):
+    with patch(
+        "query_builder.server.estimate_plan_from_spec",
+        side_effect=RuntimeError("Explain planner error"),
+    ):
         h_exp_crash = make_handler({"spec": {"table": "items"}}, path="/api/v1/explain")
         h_exp_crash.do_POST()
         assert "EXPLAIN_ERROR" in h_exp_crash.wfile.getvalue().decode("utf-8")
@@ -249,7 +331,10 @@ def test_dialects_format_text_search_branches():
 
 def test_compiler_edge_branches():
     # 523->537: vector_search with allow_unknown_keys=True
-    vs_spec = {"table": "items", "vector_search": {"vector": [0.1, 0.2], "some_custom_key": "val"}}
+    vs_spec = {
+        "table": "items",
+        "vector_search": {"vector": [0.1, 0.2], "some_custom_key": "val"},
+    }
     c1 = QueryCompiler(vs_spec, allow_unknown_keys=True)
     sql1, params1, _, _ = c1.compile()
     assert "SELECT" in sql1
@@ -298,7 +383,10 @@ def test_compiler_edge_branches():
     class CustomVecWithoutTopK:
         vector = [0.1, 0.2]
 
-    c3 = QueryCompiler({"table": "items", "vector_search": CustomVecWithoutTopK()}, allow_unknown_keys=True)
+    c3 = QueryCompiler(
+        {"table": "items", "vector_search": CustomVecWithoutTopK()},
+        allow_unknown_keys=True,
+    )
     sql3, params3, _, _ = c3.compile()
     assert "SELECT" in sql3
 
@@ -332,11 +420,15 @@ def test_vector_connectors_param_fallback_branches():
         assert hasattr(cur, "fetchall")
 
         # 2. Str param that parses to non-list JSON
-        cur.execute("SELECT * FROM items WHERE vector_search = 1", ['{"not": "a_list"}'])
+        cur.execute(
+            "SELECT * FROM items WHERE vector_search = 1", ['{"not": "a_list"}']
+        )
         assert hasattr(cur, "fetchall")
 
         # 3. Str param with valid JSON list
-        cur.execute("SELECT * FROM items WHERE vector_search = 1 LIMIT 5", ['[0.1, 0.2]'])
+        cur.execute(
+            "SELECT * FROM items WHERE vector_search = 1 LIMIT 5", ["[0.1, 0.2]"]
+        )
         assert hasattr(cur, "fetchall")
 
         # 4. Without FROM clause
@@ -367,4 +459,3 @@ def test_vector_connectors_param_fallback_branches():
     # 77->79: json.loads returns non-list
     with patch("json.loads", return_value={"not": "list"}):
         pc_cur.execute("SELECT * FROM items WHERE distance = 1", ["[something]"])
-

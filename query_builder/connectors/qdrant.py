@@ -57,7 +57,12 @@ class _QdrantCursorAdapter:
         elif hasattr(self.conn, "search") and (
             params is not None
             and len(params) > 0
-            and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower() or "search" in clean_sql.lower() or "score" in clean_sql.lower())
+            and (
+                "distance" in clean_sql.lower()
+                or "vector" in clean_sql.lower()
+                or "search" in clean_sql.lower()
+                or "score" in clean_sql.lower()
+            )
         ):
             coll = "default"
             import re
@@ -85,7 +90,9 @@ class _QdrantCursorAdapter:
                 [
                     getattr(p, "id", p.get("id") if isinstance(p, dict) else None),
                     getattr(p, "score", p.get("score") if isinstance(p, dict) else 0.0),
-                    getattr(p, "payload", p.get("payload") if isinstance(p, dict) else {}),
+                    getattr(
+                        p, "payload", p.get("payload") if isinstance(p, dict) else {}
+                    ),
                 ]
                 for p in res
             ]

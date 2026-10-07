@@ -8,7 +8,6 @@ metrics, calculated virtual dimensions, and temporal grain aggregations.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,6 @@ from typing import Any
 
 class SemanticError(Exception):
     """Base exception for semantic model validation and expansion errors."""
-    pass
 
 
 SUPPORTED_AGGREGATIONS: set[str] = {
@@ -119,9 +117,13 @@ class MetricDefinition:
         if not name:
             raise SemanticError("Metric definition requires a 'name'.")
         title = data.get("title") or name.replace("_", " ").title()
-        sql_expr = data.get("sql_expression") or data.get("sql") or data.get("expression")
+        sql_expr = (
+            data.get("sql_expression") or data.get("sql") or data.get("expression")
+        )
         if not sql_expr:
-            raise SemanticError(f"Metric '{name}' requires an 'sql_expression' or 'sql'.")
+            raise SemanticError(
+                f"Metric '{name}' requires an 'sql_expression' or 'sql'."
+            )
 
         filters_data = data.get("filters", [])
         filters = [MetricFilter.from_dict(f) for f in filters_data]
@@ -175,9 +177,13 @@ class DimensionDefinition:
         if not name:
             raise SemanticError("Dimension definition requires a 'name'.")
         title = data.get("title") or name.replace("_", " ").title()
-        sql_expr = data.get("sql_expression") or data.get("sql") or data.get("expression")
+        sql_expr = (
+            data.get("sql_expression") or data.get("sql") or data.get("expression")
+        )
         if not sql_expr:
-            raise SemanticError(f"Dimension '{name}' requires an 'sql_expression' or 'sql'.")
+            raise SemanticError(
+                f"Dimension '{name}' requires an 'sql_expression' or 'sql'."
+            )
 
         return cls(
             name=str(name),
@@ -301,7 +307,7 @@ def parse_simple_yaml_or_json(content: str) -> dict[str, Any]:
     without requiring third-party PyYAML if absent.
     """
     stripped = content.strip()
-    if stripped.startswith("{") or stripped.startswith("["):
+    if stripped.startswith(("{", "[")):
         try:
             return json.loads(stripped)
         except json.JSONDecodeError as exc:
@@ -339,7 +345,9 @@ def parse_simple_yaml_or_json(content: str) -> dict[str, Any]:
             current_section = "models"
             continue
 
-        if stripped_line.startswith("- name:") and (current_section == "models" or indent <= 2):
+        if stripped_line.startswith("- name:") and (
+            current_section == "models" or indent <= 2
+        ):
             val = stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
             current_model = {"name": val, "dimensions": [], "metrics": []}
             result["models"].append(current_model)
@@ -347,17 +355,24 @@ def parse_simple_yaml_or_json(content: str) -> dict[str, Any]:
             continue
 
         if current_model is not None:
-            if stripped_line.startswith("table:") or stripped_line.startswith("table_name:"):
-                current_model["table_name"] = stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
+            if stripped_line.startswith(("table:", "table_name:")):
+                current_model["table_name"] = (
+                    stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
+                )
             elif stripped_line.startswith("description:"):
-                current_model["description"] = stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
+                current_model["description"] = (
+                    stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
+                )
             elif stripped_line.startswith("metrics:"):
                 current_section = "metrics"
                 continue
             elif stripped_line.startswith("dimensions:"):
                 current_section = "dimensions"
                 continue
-            elif stripped_line.startswith("- name:") and current_section in ("metrics", "dimensions"):
+            elif stripped_line.startswith("- name:") and current_section in (
+                "metrics",
+                "dimensions",
+            ):
                 item_name = stripped_line.split(":", 1)[1].strip().strip('"').strip("'")
                 current_item = {"name": item_name}
                 current_model[current_section].append(current_item)
@@ -388,11 +403,17 @@ def load_semantic_models_from_yaml(content_or_path: str | Path) -> list[Semantic
     """Loads semantic models from a YAML string or file path."""
     content: str
     if isinstance(content_or_path, Path) or (
-        isinstance(content_or_path, str) and (Path(content_or_path).is_file() or content_or_path.endswith((".yml", ".yaml", ".json")))
+        isinstance(content_or_path, str)
+        and (
+            Path(content_or_path).is_file()
+            or content_or_path.endswith((".yml", ".yaml", ".json"))
+        )
     ):
         p = Path(content_or_path)
         if not p.is_file():
-            raise SemanticError(f"Semantic configuration file not found: {content_or_path}")
+            raise SemanticError(
+                f"Semantic configuration file not found: {content_or_path}"
+            )
         content = p.read_text(encoding="utf-8")
     else:
         content = str(content_or_path)
@@ -427,12 +448,16 @@ def _format_filter_sql(f: MetricFilter, dialect: str) -> str:
         return f"{field_expr} <= {val}"
     elif op in ("in",):
         if isinstance(val, (list, tuple, set)):
-            formatted = ", ".join(f"'{v}'" if isinstance(v, str) else str(v) for v in val)
+            formatted = ", ".join(
+                f"'{v}'" if isinstance(v, str) else str(v) for v in val
+            )
             return f"{field_expr} IN ({formatted})"
         return f"{field_expr} IN ({val})"
     elif op in ("not_in", "not in"):
         if isinstance(val, (list, tuple, set)):
-            formatted = ", ".join(f"'{v}'" if isinstance(v, str) else str(v) for v in val)
+            formatted = ", ".join(
+                f"'{v}'" if isinstance(v, str) else str(v) for v in val
+            )
             return f"{field_expr} NOT IN ({formatted})"
         return f"{field_expr} NOT IN ({val})"
     elif op == "is_null":
@@ -454,9 +479,7 @@ def expand_metric_sql(metric: MetricDefinition, dialect: str = "postgres") -> st
     agg = metric.aggregation.lower()
     dialect_low = dialect.lower()
 
-    filter_conditions = [
-        _format_filter_sql(f, dialect_low) for f in metric.filters
-    ]
+    filter_conditions = [_format_filter_sql(f, dialect_low) for f in metric.filters]
     combined_filter = " AND ".join(filter_conditions) if filter_conditions else None
 
     # Handle custom expressions
@@ -466,7 +489,14 @@ def expand_metric_sql(metric: MetricDefinition, dialect: str = "postgres") -> st
         return f"({expr})"
 
     # Dialects supporting standard FILTER (WHERE ...) clause
-    filter_clause_dialects = {"postgres", "postgresql", "duckdb", "sqlite", "cockroach", "cockroachdb"}
+    filter_clause_dialects = {
+        "postgres",
+        "postgresql",
+        "duckdb",
+        "sqlite",
+        "cockroach",
+        "cockroachdb",
+    }
 
     agg_func_map = {
         "sum": "SUM",

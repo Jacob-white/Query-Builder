@@ -253,7 +253,8 @@ export function validateSchema(
     const seenCols = new Set<string>();
     let hasPk = false;
 
-    for (const col of table.columns) {
+    for (const rawCol of table.columns) {
+      const col: ColumnMeta = typeof rawCol === "string" ? { name: rawCol, data_type: "text", is_nullable: true, is_primary: false } : rawCol;
       // Duplicate column check
       if (seenCols.has(col.name)) {
         diagnostics.push({

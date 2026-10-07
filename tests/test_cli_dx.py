@@ -969,21 +969,33 @@ def test_cli_doctor_with_failing_connector(capsys):
 
 
 def test_cli_join_path_with_inline_schema(capsys):
-    inline_schema = json.dumps({
-        "tables": {
-            "users": {"columns": [{"name": "id"}]},
-            "orders": {"columns": [{"name": "id"}, {"name": "user_id"}]},
-        },
-        "foreign_keys": [
-            {
-                "table": "orders",
-                "column": "user_id",
-                "foreign_table": "users",
-                "foreign_column": "id",
-            }
-        ],
-    })
-    ret = main(["join-path", "--active", "users", "--target", "orders", "--schema", inline_schema])
+    inline_schema = json.dumps(
+        {
+            "tables": {
+                "users": {"columns": [{"name": "id"}]},
+                "orders": {"columns": [{"name": "id"}, {"name": "user_id"}]},
+            },
+            "foreign_keys": [
+                {
+                    "table": "orders",
+                    "column": "user_id",
+                    "foreign_table": "users",
+                    "foreign_column": "id",
+                }
+            ],
+        }
+    )
+    ret = main(
+        [
+            "join-path",
+            "--active",
+            "users",
+            "--target",
+            "orders",
+            "--schema",
+            inline_schema,
+        ]
+    )
     assert ret == 0
     captured = capsys.readouterr()
     path = json.loads(captured.out)
@@ -1009,9 +1021,17 @@ def test_cli_init_with_dialects(tmp_path, capsys):
 
     # 3. Minimal template with postgres dialect
     min_target = tmp_path / "min_pg_app"
-    ret_min = main(["init", str(min_target), "--template", "minimal", "--dialect", "postgres", "--json"])
+    ret_min = main(
+        [
+            "init",
+            str(min_target),
+            "--template",
+            "minimal",
+            "--dialect",
+            "postgres",
+            "--json",
+        ]
+    )
     assert ret_min == 0
     min_main = (min_target / "main.py").read_text()
     assert 'dialect="postgres"' in min_main
-
-

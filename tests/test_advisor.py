@@ -6,7 +6,6 @@ Covers 100% of statements, branches, and functions in query_builder/advisor.py.
 
 from __future__ import annotations
 
-import pytest
 
 from query_builder.advisor import (
     analyze_query_performance,
@@ -79,8 +78,12 @@ class TestIndexRecommendations:
             ],
             filters=[
                 FilterSpec(column="status", op="=", value="complete"),
-                FilterSpec(column="id", op="=", value=1),  # Skipped because id is in existing_indexes
-                FilterSpec(column="EXISTS (sub)", op="RAW", value=""),  # Skipped because RAW
+                FilterSpec(
+                    column="id", op="=", value=1
+                ),  # Skipped because id is in existing_indexes
+                FilterSpec(
+                    column="EXISTS (sub)", op="RAW", value=""
+                ),  # Skipped because RAW
             ],
             order_by=[OrderBySpec(column="created_at", direction="desc")],
         )
@@ -116,7 +119,9 @@ class TestIndexRecommendations:
         recs = recommend_indexes(spec_dict)
         assert len(recs) == 2
 
-    def test_recommend_indexes_skips_existing_join_index_and_same_col_composite(self) -> None:
+    def test_recommend_indexes_skips_existing_join_index_and_same_col_composite(
+        self,
+    ) -> None:
         spec = QuerySpec(
             table="orders",
             columns=["id"],

@@ -56,16 +56,17 @@ export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult 
     async (file: File, tableName?: string): Promise<DuckDBTableMeta> => {
       setIsLoading(true);
       setError(null);
+      let meta: DuckDBTableMeta;
       try {
-        const meta = await ingestLocalFile(file, engine, tableName);
+        meta = await ingestLocalFile(file, engine, tableName);
         syncState();
-        return meta;
       } catch (err: any) {
         setError(err instanceof Error ? err : new Error(String(err)));
         throw err;
       } finally {
         setIsLoading(false);
       }
+      return meta;
     },
     [engine, syncState],
   );
@@ -74,16 +75,17 @@ export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult 
     async (tableName: string, csvContent: string): Promise<DuckDBTableMeta> => {
       setIsLoading(true);
       setError(null);
+      let meta: DuckDBTableMeta;
       try {
-        const meta = await engine.ingestCsv(tableName, csvContent);
+        meta = await engine.ingestCsv(tableName, csvContent);
         syncState();
-        return meta;
       } catch (err: any) {
         setError(err instanceof Error ? err : new Error(String(err)));
         throw err;
       } finally {
         setIsLoading(false);
       }
+      return meta;
     },
     [engine, syncState],
   );
@@ -92,16 +94,17 @@ export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult 
     async (tableName: string, rows: Record<string, any>[]): Promise<DuckDBTableMeta> => {
       setIsLoading(true);
       setError(null);
+      let meta: DuckDBTableMeta;
       try {
-        const meta = await engine.ingestJson(tableName, rows);
+        meta = await engine.ingestJson(tableName, rows);
         syncState();
-        return meta;
       } catch (err: any) {
         setError(err instanceof Error ? err : new Error(String(err)));
         throw err;
       } finally {
         setIsLoading(false);
       }
+      return meta;
     },
     [engine, syncState],
   );
@@ -110,16 +113,17 @@ export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult 
     async (tableName: string, rows: Record<string, any>[]): Promise<DuckDBTableMeta> => {
       setIsLoading(true);
       setError(null);
+      let meta: DuckDBTableMeta;
       try {
-        const meta = await engine.registerBackendResults(tableName, rows);
+        meta = await engine.registerBackendResults(tableName, rows);
         syncState();
-        return meta;
       } catch (err: any) {
         setError(err instanceof Error ? err : new Error(String(err)));
         throw err;
       } finally {
         setIsLoading(false);
       }
+      return meta;
     },
     [engine, syncState],
   );
@@ -128,14 +132,16 @@ export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult 
     async (sql: string): Promise<DuckDBQueryResult> => {
       setIsLoading(true);
       setError(null);
+      let result: DuckDBQueryResult;
       try {
-        return await engine.query(sql);
+        result = await engine.query(sql);
       } catch (err: any) {
         setError(err instanceof Error ? err : new Error(String(err)));
         throw err;
       } finally {
         setIsLoading(false);
       }
+      return result;
     },
     [engine],
   );

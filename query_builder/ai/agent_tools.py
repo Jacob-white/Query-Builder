@@ -16,8 +16,6 @@ from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import QueryCompiler
-from query_builder.join_solver import find_join_path
-from query_builder.models import FilterSpec, HavingSpec, JoinSpec, OrderBySpec, QuerySpec
 from query_builder.nlq.prompt import serialize_schema_for_prompt
 from query_builder.nlq.service import NlqService
 from query_builder.nlq.validator import NlqAstValidator
@@ -52,8 +50,14 @@ TOOL_SCHEMAS_BASE = [
                     "type": "object",
                     "description": "Optional translation and styling parameters.",
                     "properties": {
-                        "distinct": {"type": "boolean", "description": "Whether to enforce SELECT DISTINCT."},
-                        "explain": {"type": "boolean", "description": "Whether to return plain-English explanation."},
+                        "distinct": {
+                            "type": "boolean",
+                            "description": "Whether to enforce SELECT DISTINCT.",
+                        },
+                        "explain": {
+                            "type": "boolean",
+                            "description": "Whether to return plain-English explanation.",
+                        },
                     },
                 },
             },
@@ -240,7 +244,10 @@ def execute_agent_tool_call(
     elif isinstance(arguments, dict):
         args = dict(arguments)
     else:
-        return {"success": False, "error": "Arguments must be a valid JSON string or dictionary."}
+        return {
+            "success": False,
+            "error": "Arguments must be a valid JSON string or dictionary.",
+        }
 
     if name == "build_query":
         intent = str(args.get("intent", "")).strip()
@@ -254,11 +261,13 @@ def execute_agent_tool_call(
             limit = 50
         svc = nlq_service or NlqService(default_provider="mock")
 
-        res = svc.translate({
-            "prompt": intent,
-            "schema": schema,
-            "dialect": target_dialect,
-        })
+        res = svc.translate(
+            {
+                "prompt": intent,
+                "schema": schema,
+                "dialect": target_dialect,
+            }
+        )
 
         spec = dict(res.spec)
         spec["limit"] = limit
@@ -360,8 +369,14 @@ def execute_agent_tool_call(
         active_schema = schema or {}
         tables_dict = active_schema.get("tables", active_schema)
 
-        if filter_tables and isinstance(filter_tables, list) and isinstance(tables_dict, dict):
-            filtered_tables = {k: v for k, v in tables_dict.items() if k in filter_tables}
+        if (
+            filter_tables
+            and isinstance(filter_tables, list)
+            and isinstance(tables_dict, dict)
+        ):
+            filtered_tables = {
+                k: v for k, v in tables_dict.items() if k in filter_tables
+            }
             schema_to_serialize = {"tables": filtered_tables}
         else:
             schema_to_serialize = active_schema
@@ -393,7 +408,10 @@ def execute_agent_tool_call(
             spec = parse_sql_to_dict(raw_sql)
 
         if not spec:
-            return {"success": False, "error": "Query or spec to explain was not provided or could not be parsed."}
+            return {
+                "success": False,
+                "error": "Query or spec to explain was not provided or could not be parsed.",
+            }
 
         tbl = spec.get("table", "unknown")
         cols = spec.get("columns", ["*"])
@@ -412,11 +430,19 @@ def execute_agent_tool_call(
             f"Queries from table `{tbl}` selecting {len(cols)} column(s): {', '.join(col_names)}."
         ]
         if joins:
-            join_descs = [f"{j.get('type', 'JOIN')} `{j.get('table')}` on {j.get('left_col')}={j.get('right_col')}" for j in joins]
+            join_descs = [
+                f"{j.get('type', 'JOIN')} `{j.get('table')}` on {j.get('left_col')}={j.get('right_col')}"
+                for j in joins
+            ]
             explanation_parts.append(f"Joins: {'; '.join(join_descs)}.")
         if filters:
-            filter_descs = [f"{f.get('column')} {f.get('op', '=')} {f.get('value')}" for f in filters]
-            explanation_parts.append(f"Filtered where {spec.get('filter_join', 'AND').join(' (' + d + ')' for d in filter_descs)}.")
+            filter_descs = [
+                f"{f.get('column')} {f.get('op', '=')} {f.get('value')}"
+                for f in filters
+            ]
+            explanation_parts.append(
+                f"Filtered where {spec.get('filter_join', 'AND').join(' (' + d + ')' for d in filter_descs)}."
+            )
         if limit:
             explanation_parts.append(f"Limits results to top {limit} rows.")
 

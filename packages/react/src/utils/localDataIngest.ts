@@ -136,12 +136,9 @@ export async function ingestLocalFile(
     return meta;
   }
 
-  if (format === "parquet") {
-    const buffer = await readFileAsArrayBuffer(file);
-    const meta = await engine.ingestParquet(tableName, new Uint8Array(buffer));
-    meta.fileSource = file.name;
-    return meta;
-  }
-
-  throw new Error(`Unhandled file format: ${format}`);
+  const buffer = await readFileAsArrayBuffer(file);
+  const meta = await engine.ingestParquet(tableName, new Uint8Array(buffer));
+  meta.fileSource = file.name;
+  return meta;
 }
+
