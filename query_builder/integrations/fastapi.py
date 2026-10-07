@@ -22,8 +22,22 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+try:
+    from fastapi import APIRouter, HTTPException, Request, Response
+    from pydantic import BaseModel, ConfigDict, Field
+
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+    APIRouter = object  # type: ignore[misc, assignment]
+    HTTPException = Exception  # type: ignore[misc, assignment]
+    Request = Any  # type: ignore[misc, assignment]
+    Response = Any  # type: ignore[misc, assignment]
+    BaseModel = object  # type: ignore[misc, assignment]
+    ConfigDict = dict  # type: ignore[misc, assignment]
+
+    def Field(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc, assignment]
+        return None
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
@@ -169,6 +183,11 @@ def create_query_builder_router(
     -------
     fastapi.APIRouter
     """
+    if not FASTAPI_AVAILABLE:
+        raise ImportError(
+            "FastAPI is not installed. Install via 'pip install fastapi pydantic' to use create_query_builder_router."
+        )
+
     router = APIRouter(prefix=prefix, tags=tags or ["Query Builder"])
 
     async def get_tenant_context(request: Request) -> TenantContext | None:
