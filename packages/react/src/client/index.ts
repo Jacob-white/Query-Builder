@@ -261,6 +261,11 @@ export interface QueryBuilderClient {
    * Starts a fluent query builder bound to this client.
    */
   query(table?: string): FluentQuery;
+
+  /**
+   * Directly executes an HTTP request via the client's configured transport and credentials.
+   */
+  request?<T = any>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
 }
 
 /**
@@ -510,6 +515,10 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
 
     query(table?: string): FluentQuery {
       return createQuery(table, client);
+    },
+
+    request<T = any>(path: string, init: RequestInit = { method: "GET" }, options?: RequestOptions): Promise<T> {
+      return makeRequest<T>(path, init, options);
     },
   };
 

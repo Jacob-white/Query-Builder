@@ -23,6 +23,7 @@ from query_builder.security import calculate_ast_complexity, scrub_secrets
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
+
 def _run_coroutine_safely(coro: Any) -> Any:
     """Executes a coroutine safely whether or not an event loop is already running."""
     import asyncio
@@ -272,7 +273,9 @@ class McpServer:
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
-                        "content": [{"type": "text", "text": json.dumps(content, indent=2)}],
+                        "content": [
+                            {"type": "text", "text": json.dumps(content, indent=2)}
+                        ],
                         "isError": False,
                     },
                 }
@@ -282,7 +285,10 @@ class McpServer:
                     "id": req_id,
                     "result": {
                         "content": [
-                            {"type": "text", "text": f"Error: {type(e).__name__}: {e!s}"}
+                            {
+                                "type": "text",
+                                "text": f"Error: {type(e).__name__}: {e!s}",
+                            }
                         ],
                         "isError": True,
                     },
@@ -466,7 +472,9 @@ class McpServer:
             if isinstance(schema_data, str):
                 schema_data = json.loads(schema_data)
             if isinstance(active_tables, str):
-                active_tables = [t.strip() for t in active_tables.split(",") if t.strip()]
+                active_tables = [
+                    t.strip() for t in active_tables.split(",") if t.strip()
+                ]
 
             if not active_tables or not target_table:
                 raise QueryBuilderError(

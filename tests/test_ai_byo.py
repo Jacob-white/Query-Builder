@@ -96,7 +96,11 @@ def test_execute_agent_tool_build_query():
     # Valid
     res = execute_agent_tool_call(
         "build_query",
-        {"intent": "Show all users with status active", "dialect": "postgres", "limit": 10},
+        {
+            "intent": "Show all users with status active",
+            "dialect": "postgres",
+            "limit": 10,
+        },
         schema=SAMPLE_SCHEMA,
     )
     assert res["success"] is True
@@ -147,7 +151,10 @@ def test_execute_agent_tool_validate_and_compile():
     # With SQL string
     sql_res = execute_agent_tool_call(
         "validate_and_compile_query",
-        {"sql": "SELECT id, username FROM users WHERE status = 'active';", "dialect": "postgres"},
+        {
+            "sql": "SELECT id, username FROM users WHERE status = 'active';",
+            "dialect": "postgres",
+        },
         schema=SAMPLE_SCHEMA,
     )
     assert sql_res["success"] is True
@@ -159,7 +166,9 @@ def test_execute_agent_tool_validate_and_compile():
     assert "Either 'spec'" in missing_res["error"]
 
     # Unparseable SQL (valid SELECT token but missing FROM/projections)
-    unparse_res = execute_agent_tool_call("validate_and_compile_query", {"sql": "SELECT;"})
+    unparse_res = execute_agent_tool_call(
+        "validate_and_compile_query", {"sql": "SELECT;"}
+    )
     assert unparse_res["success"] is False
     assert "Failed to parse SQL" in unparse_res["error"]
 
@@ -171,7 +180,9 @@ def test_execute_agent_tool_validate_and_compile():
     assert "validation failed" in sec_res["error"]
 
     # Security violation (mutation statement)
-    drop_res = execute_agent_tool_call("validate_and_compile_query", {"sql": "DROP TABLE users;"})
+    drop_res = execute_agent_tool_call(
+        "validate_and_compile_query", {"sql": "DROP TABLE users;"}
+    )
     assert drop_res["success"] is False
     assert "Security validation failed" in drop_res["error"]
 
@@ -179,7 +190,9 @@ def test_execute_agent_tool_validate_and_compile():
 def test_execute_agent_tool_get_schema_catalog():
     """Tests get_schema_catalog in markdown and json formats, with table filtering."""
     # Markdown
-    md_res = execute_agent_tool_call("get_schema_catalog", {"format": "markdown"}, schema=SAMPLE_SCHEMA)
+    md_res = execute_agent_tool_call(
+        "get_schema_catalog", {"format": "markdown"}, schema=SAMPLE_SCHEMA
+    )
     assert md_res["success"] is True
     assert "users" in md_res["catalog"]
 
@@ -193,7 +206,9 @@ def test_execute_agent_tool_get_schema_catalog():
     assert "- Table `users`:" not in filtered_md["catalog"]
 
     # JSON format
-    json_res = execute_agent_tool_call("get_schema_catalog", {"format": "json"}, schema=SAMPLE_SCHEMA)
+    json_res = execute_agent_tool_call(
+        "get_schema_catalog", {"format": "json"}, schema=SAMPLE_SCHEMA
+    )
     assert json_res["success"] is True
     assert "tables" in json_res["schema"]
 
@@ -204,7 +219,14 @@ def test_execute_agent_tool_explain_and_unknown():
     spec = {
         "table": "users",
         "columns": ["id", {"column": "username", "alias": "name"}],
-        "joins": [{"type": "LEFT JOIN", "table": "orders", "left_col": "id", "right_col": "user_id"}],
+        "joins": [
+            {
+                "type": "LEFT JOIN",
+                "table": "orders",
+                "left_col": "id",
+                "right_col": "user_id",
+            }
+        ],
         "filters": [{"column": "status", "op": "=", "value": "active"}],
         "filter_join": "AND",
         "limit": 25,
@@ -216,7 +238,9 @@ def test_execute_agent_tool_explain_and_unknown():
     assert exp_res["filters_count"] == 1
 
     # Explain with SQL
-    exp_sql = execute_agent_tool_call("explain_query", {"sql": "SELECT id FROM users LIMIT 10;"})
+    exp_sql = execute_agent_tool_call(
+        "explain_query", {"sql": "SELECT id FROM users LIMIT 10;"}
+    )
     assert exp_sql["success"] is True
     assert exp_sql["limit"] == 10
 
@@ -246,7 +270,9 @@ def test_execute_agent_tool_explain_and_unknown():
     assert "Arguments must be a valid JSON string or dictionary" in bad_type["error"]
 
     # 4. Non-integer limit fallback
-    fallback_lim = execute_agent_tool_call("build_query", {"intent": "users", "limit": "not_an_int"})
+    fallback_lim = execute_agent_tool_call(
+        "build_query", {"intent": "users", "limit": "not_an_int"}
+    )
     assert fallback_lim["success"] is True
     assert fallback_lim["spec"]["limit"] == 50
 
@@ -265,22 +291,25 @@ def test_byo_provider_missing_ai():
 
 def test_byo_provider_callable_sync_and_async():
     """Tests sync callable (2-arg and 1-arg) and async coroutine."""
+
     # 2-arg sync callable
     def my_ai_2(prompt, system_prompt):
-        return json.dumps({
-            "table": "users",
-            "columns": ["id", "username"],
-            "joins": [],
-            "filters": [],
-            "filter_join": "AND",
-            "having": [],
-            "order_by": [],
-            "limit": 10,
-            "offset": None,
-            "distinct": False,
-            "vector_search": None,
-            "hybrid_search": None,
-        })
+        return json.dumps(
+            {
+                "table": "users",
+                "columns": ["id", "username"],
+                "joins": [],
+                "filters": [],
+                "filter_join": "AND",
+                "having": [],
+                "order_by": [],
+                "limit": 10,
+                "offset": None,
+                "distinct": False,
+                "vector_search": None,
+                "hybrid_search": None,
+            }
+        )
 
     provider = BringYourOwnAiProvider(ai=my_ai_2)
     ast, tokens = provider.generate_ast("Show users", schema=SAMPLE_SCHEMA)
@@ -362,7 +391,9 @@ def test_byo_provider_client_adapters():
 
     # Mock Gemini genai.GenerativeModel (model.generate_content)
     mock_model = MagicMock(spec=["generate_content"])
-    mock_model.generate_content.return_value = MagicMock(text=json.dumps({"table": "users"}))
+    mock_model.generate_content.return_value = MagicMock(
+        text=json.dumps({"table": "users"})
+    )
     prov_model = BringYourOwnAiProvider(ai=mock_model)
     ast_m, _ = prov_model.generate_ast("users")
     assert ast_m["table"] == "users"
@@ -405,9 +436,10 @@ def test_byo_provider_client_adapters():
 
 def test_byo_provider_json_parsing_and_explain():
     """Tests JSON extraction from embedded text and query explanation."""
+
     # AI returns conversational text containing JSON
     def conversational_ai(prompt, system_prompt):
-        return "Sure, here is your query:\n\n```json\n{\"table\": \"users\", \"columns\": [\"id\"]}\n```\nHope that helps!"
+        return 'Sure, here is your query:\n\n```json\n{"table": "users", "columns": ["id"]}\n```\nHope that helps!'
 
     prov = BringYourOwnAiProvider(ai=conversational_ai)
     ast, _ = prov.generate_ast("get users")
@@ -462,12 +494,20 @@ def test_self_healing_table_inference():
     assert any("Inferred primary table 'users'" in n for n in notes1)
 
     # Inferred from filter tablePrefix
-    spec2 = {"table": "", "columns": ["id"], "filters": [{"tablePrefix": "orders", "column": "amount"}]}
+    spec2 = {
+        "table": "",
+        "columns": ["id"],
+        "filters": [{"tablePrefix": "orders", "column": "amount"}],
+    }
     h2, notes2 = healer.auto_heal(spec2)
     assert h2["table"] == "orders"
 
     # Inferred from filter dotted column
-    spec3 = {"table": "", "columns": ["id"], "filters": [{"column": "users.status", "op": "=", "value": "active"}]}
+    spec3 = {
+        "table": "",
+        "columns": ["id"],
+        "filters": [{"column": "users.status", "op": "=", "value": "active"}],
+    }
     h3, notes3 = healer.auto_heal(spec3)
     assert h3["table"] == "users"
 
@@ -525,19 +565,24 @@ def test_self_healing_repair_prompt():
 
 def test_ask_ai_with_callable_and_mock():
     """Tests high-level ask_ai() function."""
-    def mock_ai(prompt, system_prompt):
-        return json.dumps({
-            "table": "users",
-            "columns": ["id", "username"],
-            "joins": [],
-            "filters": [{"column": "status", "op": "=", "value": "active"}],
-            "filter_join": "AND",
-            "having": [],
-            "order_by": [{"column": "id", "direction": "DESC"}],
-            "limit": 10,
-        })
 
-    result = ask_ai("Find active users", ai=mock_ai, schema=SAMPLE_SCHEMA, dialect="postgres")
+    def mock_ai(prompt, system_prompt):
+        return json.dumps(
+            {
+                "table": "users",
+                "columns": ["id", "username"],
+                "joins": [],
+                "filters": [{"column": "status", "op": "=", "value": "active"}],
+                "filter_join": "AND",
+                "having": [],
+                "order_by": [{"column": "id", "direction": "DESC"}],
+                "limit": 10,
+            }
+        )
+
+    result = ask_ai(
+        "Find active users", ai=mock_ai, schema=SAMPLE_SCHEMA, dialect="postgres"
+    )
     assert isinstance(result, AiQueryResult)
     assert "SELECT" in result.sql
     assert result.spec["table"] == "users"
@@ -592,7 +637,9 @@ def test_ai_byo_comprehensive_edge_branches():
         "order_by": [],
         "limit": 10,
     }
-    sec_res = execute_agent_tool_call("validate_and_compile_query", {"spec": restricted_spec})
+    sec_res = execute_agent_tool_call(
+        "validate_and_compile_query", {"spec": restricted_spec}
+    )
     assert sec_res["success"] is False
     assert "Security validation failed" in sec_res["error"]
 
@@ -625,6 +672,7 @@ def test_ai_byo_comprehensive_edge_branches():
 
     # 4b. SelfHealing with existing joins and fallback join synthesis
     from unittest.mock import patch
+
     disconnected_spec = {
         "table": "users",
         "joins": [{"table": "pre_joined_table"}],
@@ -660,10 +708,12 @@ def test_ai_byo_comprehensive_edge_branches():
         },
     }
     healer_meta = SelfHealingQueryEngine(schema=custom_schema)
-    res_meta, _ = healer_meta.auto_heal({
-        "table": "products",
-        "columns": ["prce", "descriptin"],
-    })
+    res_meta, _ = healer_meta.auto_heal(
+        {
+            "table": "products",
+            "columns": ["prce", "descriptin"],
+        }
+    )
     assert res_meta["columns"][0] == "price"
     assert res_meta["columns"][1] == "description"
 
@@ -672,7 +722,10 @@ def test_ai_byo_comprehensive_edge_branches():
     healer_meta.auto_heal({"table": "bad_cols", "columns": ["col"]})
 
     # 5c. Security sanitizer alert
-    with patch("query_builder.ai.self_healing.validate_sql_ast", return_value={"valid": False, "violations": ["Blocked"]}):
+    with patch(
+        "query_builder.ai.self_healing.validate_sql_ast",
+        return_value={"valid": False, "violations": ["Blocked"]},
+    ):
         _, sec_notes = healer_meta.auto_heal({"table": "products", "columns": ["id"]})
         assert any("Security sanitizer alert" in n for n in sec_notes)
 
@@ -687,11 +740,13 @@ def test_ai_byo_comprehensive_edge_branches():
 
     # 6. ask_ai with auto_heal triggering healing_notes in combined_warnings
     def ai_needing_healing(prompt, system_prompt):
-        return json.dumps({
-            "table": "users",
-            "columns": ["usernam"],  # typo will be healed
-            "joins": [],
-        })
+        return json.dumps(
+            {
+                "table": "users",
+                "columns": ["usernam"],  # typo will be healed
+                "joins": [],
+            }
+        )
 
     healed_result = ask_ai("users", ai=ai_needing_healing, schema=SAMPLE_SCHEMA)
     assert len(healed_result.healing_notes) > 0
@@ -700,7 +755,9 @@ def test_ai_byo_comprehensive_edge_branches():
 
 def test_byo_ai_branch_coverage_completion():
     # 1. agent_tools: explain_query with no limit (covers 405->408)
-    res_no_lim = execute_agent_tool_call("explain_query", {"spec": {"table": "users", "columns": ["id"]}})
+    res_no_lim = execute_agent_tool_call(
+        "explain_query", {"spec": {"table": "users", "columns": ["id"]}}
+    )
     assert "Limits results" not in res_no_lim["summary"]
 
     # 2. byo_provider:
@@ -765,33 +822,63 @@ def test_byo_ai_branch_coverage_completion():
     assert tok_lc is None
 
     # 2e. JSON regex match that parses to a list (not a dict) (covers 200->207)
-    prov_list = BringYourOwnAiProvider(ai=lambda p, s: "Here is the result: [1, 2, 3] end")
+    prov_list = BringYourOwnAiProvider(
+        ai=lambda p, s: "Here is the result: [1, 2, 3] end"
+    )
     with pytest.raises(NlqProviderError, match="invalid non-JSON"):
         prov_list.generate_ast("users")
 
     # 3. client.py: ask_ai with auto_heal=False (covers 100->105)
-    res_no_heal = ask_ai("users", ai=lambda p, s: '{"table": "users", "columns": ["id"]}', auto_heal=False)
+    res_no_heal = ask_ai(
+        "users",
+        ai=lambda p, s: '{"table": "users", "columns": ["id"]}',
+        auto_heal=False,
+    )
     assert len(res_no_heal.healing_notes) == 0
 
     # 4. self_healing.py branches:
     # 4a. Filter without prefix and without dot (covers 72->65)
     healer = SelfHealingQueryEngine(schema=SAMPLE_SCHEMA)
-    h_f, _ = healer.auto_heal({"columns": ["*"], "filters": [{"column": "status", "op": "=", "value": "active"}]})
+    h_f, _ = healer.auto_heal(
+        {
+            "columns": ["*"],
+            "filters": [{"column": "status", "op": "=", "value": "active"}],
+        }
+    )
     assert h_f["table"] == "users"
 
     # 4b. Table already in active_tables in joins loop (covers 91->89)
-    h_dup_join, _ = healer.auto_heal({
-        "table": "users",
-        "joins": [
-            {"table": "users", "type": "LEFT JOIN", "left_col": "id", "right_col": "id"},
-            {"table": "users", "type": "LEFT JOIN", "left_col": "id", "right_col": "id"},
-        ]
-    })
+    h_dup_join, _ = healer.auto_heal(
+        {
+            "table": "users",
+            "joins": [
+                {
+                    "table": "users",
+                    "type": "LEFT JOIN",
+                    "left_col": "id",
+                    "right_col": "id",
+                },
+                {
+                    "table": "users",
+                    "type": "LEFT JOIN",
+                    "left_col": "id",
+                    "right_col": "id",
+                },
+            ],
+        }
+    )
     assert h_dup_join["table"] == "users"
 
     # 4c. Dijkstra path where join_step table is already in active_tables (covers 130->129)
-    with patch("query_builder.ai.self_healing.find_join_path", return_value=[{"table": "users", "type": "LEFT JOIN", "left_col": "id", "right_col": "id"}]):
-        h_dup_path, _ = healer.auto_heal({"table": "users", "columns": ["orders.amount"]})
+    with patch(
+        "query_builder.ai.self_healing.find_join_path",
+        return_value=[
+            {"table": "users", "type": "LEFT JOIN", "left_col": "id", "right_col": "id"}
+        ],
+    ):
+        h_dup_path, _ = healer.auto_heal(
+            {"table": "users", "columns": ["orders.amount"]}
+        )
         assert h_dup_path["table"] == "users"
 
     # 4d. schema_tables is not a dict (covers 158->193)
@@ -800,24 +887,27 @@ def test_byo_ai_branch_coverage_completion():
     assert h_nd["table"] == "users"
 
     # 4e. Dict column with raw_expression and dict column with typo but NO close match (covers 166->173, 168->173)
-    h_col, _ = healer.auto_heal({
-        "table": "users",
-        "columns": [
-            {"column": "id", "raw_expression": "COUNT(id)"},
-            {"column": "zzzzzz_unmatchable"},
-        ]
-    })
+    h_col, _ = healer.auto_heal(
+        {
+            "table": "users",
+            "columns": [
+                {"column": "id", "raw_expression": "COUNT(id)"},
+                {"column": "zzzzzz_unmatchable"},
+            ],
+        }
+    )
     assert len(h_col["columns"]) == 2
 
     # 4f. String column with typo but NO close match (covers 182->188)
-    h_str, _ = healer.auto_heal({
-        "table": "users",
-        "columns": ["zzzzzz_unmatchable_string"]
-    })
+    h_str, _ = healer.auto_heal(
+        {"table": "users", "columns": ["zzzzzz_unmatchable_string"]}
+    )
     assert h_str["columns"][0] == "zzzzzz_unmatchable_string"
 
     # 4g. byo_provider: non-dict returned from regex json parse (covers 200->207)
-    with patch("json.loads", side_effect=[json.JSONDecodeError("err", "doc", 0), "non_dict"]):
+    with patch(
+        "json.loads", side_effect=[json.JSONDecodeError("err", "doc", 0), "non_dict"]
+    ):
         prov_non_dict = BringYourOwnAiProvider(ai=lambda p, s: "{ some match }")
         with pytest.raises(NlqProviderError, match="invalid non-JSON"):
             prov_non_dict.generate_ast("users")
@@ -826,5 +916,3 @@ def test_byo_ai_branch_coverage_completion():
     healer_list_tables = SelfHealingQueryEngine(schema={"tables": ["users", "orders"]})
     h_lt, _ = healer_list_tables.auto_heal({"table": "users", "columns": ["id"]})
     assert h_lt["table"] == "users"
-
-

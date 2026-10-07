@@ -18,10 +18,8 @@ from typing import Any
 
 from query_builder.pool import (
     PoolClosedError,
-    PoolError,
     PoolTimeoutError,
     QueryCancelledError,
-    mask_credentials,
 )
 
 
@@ -98,12 +96,16 @@ class AsyncConnectionPool:
         if factory is not None:
             self.factory = factory
         elif connector is not None:
-            self.factory = lambda: connector.connect() if hasattr(connector, "connect") else connector
+            self.factory = lambda: (
+                connector.connect() if hasattr(connector, "connect") else connector
+            )
         elif connector_name is not None:
             clean_name = connector_name.lower().strip()
             if clean_name == "sqlite":
                 db_name = connection_kwargs.get("database", ":memory:")
-                clean_kw = {k: v for k, v in connection_kwargs.items() if k != "database"}
+                clean_kw = {
+                    k: v for k, v in connection_kwargs.items() if k != "database"
+                }
                 import sqlite3
 
                 self.factory = lambda: sqlite3.connect(db_name, **clean_kw)
@@ -111,7 +113,9 @@ class AsyncConnectionPool:
                 from query_builder.connectors.registry import ConnectorRegistry
 
                 inst = ConnectorRegistry.get(clean_name, **connection_kwargs)
-                self.factory = lambda: inst.connect() if hasattr(inst, "connect") else inst
+                self.factory = lambda: (
+                    inst.connect() if hasattr(inst, "connect") else inst
+                )
         else:
             raise ValueError(
                 "AsyncConnectionPool requires a 'factory' callable, 'connector' instance, or 'connector_name' string."
@@ -369,5 +373,3 @@ class AsyncStreamingExecutor:
 
         result = await self.execute_stream(connector, spec, **kwargs)
         return stream_export_dataset(result, format=format, chunk_size=chunk_size)
-
-

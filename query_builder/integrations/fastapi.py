@@ -39,11 +39,11 @@ except ImportError:
     def Field(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc, assignment]
         return None
 
+
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.capabilities import (
     DisabledFeatureError,
     EngineCapabilities,
-    FeatureTier,
 )
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig
@@ -62,7 +62,8 @@ class CompileRequest(BaseModel):
         default=None, alias="schema", description="Optional schema snapshot override"
     )
     dialect: str | None = Field(
-        default=None, description="Target SQL dialect override (e.g. postgres, snowflake)"
+        default=None,
+        description="Target SQL dialect override (e.g. postgres, snowflake)",
     )
     policy: dict[str, Any] | None = Field(
         default=None, description="Optional ad-hoc security policy parameters"
@@ -88,11 +89,10 @@ class ExecuteRequest(BaseModel):
     spec: dict[str, Any] | None = Field(
         default=None, description="Declarative QuerySpec dictionary"
     )
-    query: dict[str, Any] | None = Field(
-        default=None, description="Alias for spec"
-    )
+    query: dict[str, Any] | None = Field(default=None, description="Alias for spec")
     sql: str | None = Field(
-        default=None, description="Raw SQL statement (disallowed in strict multi-tenant mode)"
+        default=None,
+        description="Raw SQL statement (disallowed in strict multi-tenant mode)",
     )
     params: list[Any] | dict[str, Any] | None = Field(
         default=None, description="Bind parameters for raw SQL execution"
@@ -100,12 +100,8 @@ class ExecuteRequest(BaseModel):
     timeout_ms: int | float | None = Field(
         default=None, description="Statement timeout isolation in milliseconds"
     )
-    limit: int | None = Field(
-        default=None, description="Row limit ceiling"
-    )
-    offset: int | None = Field(
-        default=None, description="Row offset pagination"
-    )
+    limit: int | None = Field(default=None, description="Row limit ceiling")
+    offset: int | None = Field(default=None, description="Row offset pagination")
 
     model_config = ConfigDict(extra="allow")
 
@@ -126,9 +122,7 @@ class ExportRequest(BaseModel):
     columns: list[str] | None = Field(
         default=None, description="Column names corresponding to rows"
     )
-    sql: str | None = Field(
-        default=None, description="Raw SQL to execute and export"
-    )
+    sql: str | None = Field(default=None, description="Raw SQL to execute and export")
     params: list[Any] | None = Field(
         default=None, description="Parameters for raw SQL execution"
     )
@@ -140,7 +134,11 @@ async def _resolve_conn(connector: Any) -> Any:
     """Resolves connector from instance, factory callable, or registry name."""
     if isinstance(connector, str):
         return get_connector(connector)
-    if callable(connector) and not hasattr(connector, "execute") and not isinstance(connector, BaseConnector):
+    if (
+        callable(connector)
+        and not hasattr(connector, "execute")
+        and not isinstance(connector, BaseConnector)
+    ):
         res = connector()
         if inspect.isawaitable(res):
             return await res
@@ -148,7 +146,9 @@ async def _resolve_conn(connector: Any) -> Any:
     return connector
 
 
-async def _exec_conn_method(conn: Any, method_name: str, *args: Any, **kwargs: Any) -> Any:
+async def _exec_conn_method(
+    conn: Any, method_name: str, *args: Any, **kwargs: Any
+) -> Any:
     """Executes a connector method supporting both synchronous and asynchronous connectors."""
     method = getattr(conn, method_name)
     if inspect.iscoroutinefunction(method):
@@ -162,7 +162,11 @@ async def _exec_conn_method(conn: Any, method_name: str, *args: Any, **kwargs: A
 def create_query_builder_router(
     connector: Any,
     security: SecurityPolicy | SecurityConfig | dict[str, Any] | None = None,
-    tenant_resolver: Callable[[Request], TenantContext | Awaitable[TenantContext] | dict[str, Any] | str | None] | None = None,
+    tenant_resolver: Callable[
+        [Request],
+        TenantContext | Awaitable[TenantContext] | dict[str, Any] | str | None,
+    ]
+    | None = None,
     capabilities: EngineCapabilities | dict[str, Any] | None = None,
     prefix: str = "",
     tags: list[str] | None = None,
@@ -201,7 +205,11 @@ def create_query_builder_router(
     effective_capabilities: EngineCapabilities = (
         capabilities
         if isinstance(capabilities, EngineCapabilities)
-        else (EngineCapabilities.from_dict(capabilities) if isinstance(capabilities, dict) else EngineCapabilities.default())
+        else (
+            EngineCapabilities.from_dict(capabilities)
+            if isinstance(capabilities, dict)
+            else EngineCapabilities.default()
+        )
     )
 
     async def get_tenant_context(request: Request) -> TenantContext | None:
@@ -275,13 +283,27 @@ def create_query_builder_router(
         if hasattr(security, "privacy"):
             # SecurityConfig instance
             pol = SecurityPolicy(
-                allowed_tables=getattr(getattr(security, "privacy", None), "allowed_tables", None),
-                restricted_tables=getattr(getattr(security, "privacy", None), "restricted_tables", []),
+                allowed_tables=getattr(
+                    getattr(security, "privacy", None), "allowed_tables", None
+                ),
+                restricted_tables=getattr(
+                    getattr(security, "privacy", None), "restricted_tables", []
+                ),
                 tenant_column=getattr(security.privacy, "tenant_column", "tenant_id"),
-                enforce_tenant_isolation=True if tenant_resolver is not None else getattr(security.privacy, "enforce_tenant_isolation", False),
-                sensitive_column_patterns=getattr(security.privacy, "sensitive_column_patterns", []),
-                masking_strategy=getattr(security.privacy, "masking_strategy", "redact"),
-                max_complexity_score=getattr(security.execution, "max_complexity_score", None) if hasattr(security, "execution") else None,
+                enforce_tenant_isolation=True
+                if tenant_resolver is not None
+                else getattr(security.privacy, "enforce_tenant_isolation", False),
+                sensitive_column_patterns=getattr(
+                    security.privacy, "sensitive_column_patterns", []
+                ),
+                masking_strategy=getattr(
+                    security.privacy, "masking_strategy", "redact"
+                ),
+                max_complexity_score=getattr(
+                    security.execution, "max_complexity_score", None
+                )
+                if hasattr(security, "execution")
+                else None,
             )
             return pol
         return security
@@ -292,7 +314,11 @@ def create_query_builder_router(
         return {"capabilities": effective_capabilities.to_dict()}
 
     @router.get("/schema", summary="Introspect Database Schema")
-    @router.get("/introspect", summary="Introspect Database Schema (Alias)", include_in_schema=False)
+    @router.get(
+        "/introspect",
+        summary="Introspect Database Schema (Alias)",
+        include_in_schema=False,
+    )
     async def get_schema() -> dict[str, Any]:
         """Introspects tables, columns, and foreign keys from the configured connector."""
         conn = await _resolve_conn(connector)
@@ -314,7 +340,11 @@ def create_query_builder_router(
 
             policy = get_effective_policy()
             if policy and "tables" in data and isinstance(data["tables"], dict):
-                allowed = set(policy.allowed_tables) if policy.allowed_tables is not None else None
+                allowed = (
+                    set(policy.allowed_tables)
+                    if policy.allowed_tables is not None
+                    else None
+                )
                 restricted = set(policy.restricted_tables or [])
                 data["tables"] = {
                     tname: tmeta
@@ -328,9 +358,15 @@ def create_query_builder_router(
             ) from exc
 
     @router.post("/compile", summary="Compile Query Specification to SQL")
-    async def compile_query(payload: CompileRequest, request: Request) -> dict[str, Any]:
+    async def compile_query(
+        payload: CompileRequest, request: Request
+    ) -> dict[str, Any]:
         """Compiles declarative QuerySpec into dialect-specific SQL with security policies applied."""
-        if not payload.spec or not isinstance(payload.spec, dict) or not payload.spec.get("table"):
+        if (
+            not payload.spec
+            or not isinstance(payload.spec, dict)
+            or not payload.spec.get("table")
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Missing required 'table' in query specification 'spec'.",
@@ -370,19 +406,27 @@ def create_query_builder_router(
         except (SecurityError, DisabledFeatureError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (CompilationError, Exception) as exc:
-            raise HTTPException(status_code=400, detail=f"Compilation error: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=f"Compilation error: {exc}"
+            ) from exc
 
     @router.post("/validate", summary="Validate SQL AST Safety")
     async def validate_query(payload: ValidateRequest) -> dict[str, Any]:
         """Validates arbitrary SQL AST safety, mutation restrictions, and table allowlists."""
         try:
-            result = validate_sql_ast(payload.sql, allowed_schemas=payload.allowed_schemas)
+            result = validate_sql_ast(
+                payload.sql, allowed_schemas=payload.allowed_schemas
+            )
             return result
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Validation error: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=f"Validation error: {exc}"
+            ) from exc
 
     @router.post("/execute", summary="Execute Query Specification or SQL")
-    async def execute_query(payload: ExecuteRequest, request: Request) -> dict[str, Any]:
+    async def execute_query(
+        payload: ExecuteRequest, request: Request
+    ) -> dict[str, Any]:
         """Executes a declarative QuerySpec or SQL query against the database connector."""
         conn = await _resolve_conn(connector)
         tenant_ctx = await get_tenant_context(request)
@@ -396,7 +440,9 @@ def create_query_builder_router(
                 detail="Either 'spec', 'query', or 'sql' must be provided in request body.",
             )
 
-        if target_spec is not None and (not isinstance(target_spec, dict) or not target_spec.get("table")):
+        if target_spec is not None and (
+            not isinstance(target_spec, dict) or not target_spec.get("table")
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Missing required 'table' in query specification.",
@@ -414,20 +460,19 @@ def create_query_builder_router(
                 else:
                     active_spec = target_spec
 
-                if effective_capabilities:
-                    if target_spec.get("ctes"):
-                        effective_capabilities.require_feature("ctes")
-                    if target_spec.get("window_functions"):
-                        effective_capabilities.require_feature("window_functions")
-                    if (
-                        target_spec.get("rollup")
-                        or target_spec.get("cube")
-                        or target_spec.get("grouping_sets")
-                        or target_spec.get("pivot")
-                    ):
-                        effective_capabilities.require_feature("analytical_grouping")
-                    if target_spec.get("vector_search") or target_spec.get("hybrid_search"):
-                        effective_capabilities.require_feature("vector_search")
+                if target_spec.get("ctes"):
+                    effective_capabilities.require_feature("ctes")
+                if target_spec.get("window_functions"):
+                    effective_capabilities.require_feature("window_functions")
+                if (
+                    target_spec.get("rollup")
+                    or target_spec.get("cube")
+                    or target_spec.get("grouping_sets")
+                    or target_spec.get("pivot")
+                ):
+                    effective_capabilities.require_feature("analytical_grouping")
+                if target_spec.get("vector_search") or target_spec.get("hybrid_search"):
+                    effective_capabilities.require_feature("vector_search")
 
                 exec_kwargs: dict[str, Any] = {}
                 if payload.timeout_ms is not None:
@@ -467,7 +512,9 @@ def create_query_builder_router(
 
             val_res = validate_sql_ast(payload.sql)
             if not val_res.get("valid") or not val_res.get("is_read_only"):
-                violations = val_res.get("violations", ["Query failed AST safety validation."])
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
                 raise HTTPException(
                     status_code=403,
                     detail=f"Security violation: {'; '.join(violations)}",
@@ -491,7 +538,9 @@ def create_query_builder_router(
         except (SecurityError, DisabledFeatureError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Query execution error: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=f"Query execution error: {exc}"
+            ) from exc
 
     @router.post("/export", summary="Export Dataset in Multiple Formats")
     async def export_query(payload: ExportRequest, request: Request) -> Response:
@@ -540,7 +589,9 @@ def create_query_builder_router(
                     )
                 val_res = validate_sql_ast(payload.sql)
                 if not val_res.get("valid") or not val_res.get("is_read_only"):
-                    violations = val_res.get("violations", ["Query failed AST safety validation."])
+                    violations = val_res.get(
+                        "violations", ["Query failed AST safety validation."]
+                    )
                     raise HTTPException(
                         status_code=403,
                         detail=f"Security violation: {'; '.join(violations)}",

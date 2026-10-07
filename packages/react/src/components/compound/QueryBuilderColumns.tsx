@@ -216,29 +216,27 @@ export const QueryBuilderColumns: React.FC<QueryBuilderColumnsProps> = ({
                     }
               }
             >
-              {idx > 0 && (
-                <button
-                  type="button"
-                  aria-label={`Move ${key} left`}
-                  data-qb="projection-move-left"
-                  onClick={() => handleMoveProjection(idx, -1)}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "transparent",
-                          border: "none",
-                          color: "#94a3b8",
-                          cursor: "pointer",
-                          padding: "1px 3px",
-                          fontSize: "0.7rem",
-                        }
-                  }
-                  title="Move left"
-                >
-                  ◀
-                </button>
-              )}
+              <button
+                type="button"
+                aria-label={`Move ${key} left`}
+                data-qb="projection-move-left"
+                onClick={() => handleMoveProjection(idx, -1)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "transparent",
+                        border: "none",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        padding: "1px 3px",
+                        fontSize: "0.7rem",
+                      }
+                }
+                title="Move left"
+              >
+                ◀
+              </button>
 
               <span style={{ fontWeight: 600 }}>
                 {item.table}.{item.name}
@@ -357,29 +355,27 @@ export const QueryBuilderColumns: React.FC<QueryBuilderColumnsProps> = ({
                 </select>
               )}
 
-              {idx < orderedProjectionKeys.length - 1 && (
-                <button
-                  type="button"
-                  aria-label={`Move ${key} right`}
-                  data-qb="projection-move-right"
-                  onClick={() => handleMoveProjection(idx, 1)}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "transparent",
-                          border: "none",
-                          color: "#94a3b8",
-                          cursor: "pointer",
-                          padding: "1px 3px",
-                          fontSize: "0.7rem",
-                        }
-                  }
-                  title="Move right"
-                >
-                  ▶
-                </button>
-              )}
+              <button
+                type="button"
+                aria-label={`Move ${key} right`}
+                data-qb="projection-move-right"
+                onClick={() => handleMoveProjection(idx, 1)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "transparent",
+                        border: "none",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        padding: "1px 3px",
+                        fontSize: "0.7rem",
+                      }
+                }
+                title="Move right"
+              >
+                ▶
+              </button>
 
               <button
                 type="button"

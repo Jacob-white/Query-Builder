@@ -83,9 +83,7 @@ class _PineconeCursorAdapter:
             lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
             if lm:
                 k = int(lm.group(1))
-            res = self.conn.query(
-                vector=v, top_k=k, include_metadata=True
-            )
+            res = self.conn.query(vector=v, top_k=k, include_metadata=True)
             matches = (
                 res.get("matches", [])
                 if isinstance(res, dict)

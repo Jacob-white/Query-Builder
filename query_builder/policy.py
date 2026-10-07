@@ -98,7 +98,6 @@ class SecurityPolicy:
 SecurityGovernor = SecurityPolicy
 
 
-
 def apply_security_policy(
     spec: dict[str, Any] | QuerySpec,
     schema: dict[str, Any] | SchemaSnapshot | None = None,
@@ -147,7 +146,9 @@ def apply_security_policy(
                 policy.execution,
                 "max_complexity_score",
                 getattr(policy.execution, "max_ast_complexity", None),
-            ) if hasattr(policy, "execution") else None,
+            )
+            if hasattr(policy, "execution")
+            else None,
         )
     elif hasattr(policy, "sensitive_column_patterns") and hasattr(
         policy, "tenant_column"
@@ -384,28 +385,38 @@ def apply_security_policy(
     # 4.5. Column-Level Access Control (CLAC)
     col_perms = getattr(active_policy, "column_permissions", None)
     if col_perms:
-        user_roles = set(r.lower() for r in (context.roles if context else []) if isinstance(r, str))
+        user_roles = {
+            r.lower() for r in (context.roles if context else []) if isinstance(r, str)
+        }
         for tbl in referenced_tables:
             clean_tbl = tbl.split(".")[-1].lower()
-            perm = (
-                col_perms.get(tbl)
-                or col_perms.get(clean_tbl)
-                or col_perms.get("*")
-            )
+            perm = col_perms.get(tbl) or col_perms.get(clean_tbl) or col_perms.get("*")
             if perm:
-                allowed_roles = set(r.lower() for r in perm.get("allowed_roles", []))
-                restricted_cols = set(c.lower() for c in perm.get("restricted_columns", []))
+                allowed_roles = {r.lower() for r in perm.get("allowed_roles", [])}
+                restricted_cols = {
+                    c.lower() for c in perm.get("restricted_columns", [])
+                }
                 if restricted_cols and not (user_roles & allowed_roles):
                     for c in spec_dict.get("columns", []):
                         if isinstance(c, str):
                             col_name = c.split(".")[-1].lower()
-                            col_tbl = c.split(".")[0].lower() if "." in c else clean_base_table
+                            col_tbl = (
+                                c.split(".")[0].lower()
+                                if "." in c
+                                else clean_base_table
+                            )
                         elif isinstance(c, dict):
                             col_name = str(c.get("column") or c.get("name", "")).lower()
-                            col_tbl = str(c.get("table") or clean_base_table).split(".")[-1].lower()
+                            col_tbl = (
+                                str(c.get("table") or clean_base_table)
+                                .split(".")[-1]
+                                .lower()
+                            )
                         else:
                             continue
-                        if (col_tbl == clean_tbl or col_tbl == "*") and col_name in restricted_cols:
+                        if (
+                            col_tbl == clean_tbl or col_tbl == "*"
+                        ) and col_name in restricted_cols:
                             raise SecurityError(
                                 f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
                             )

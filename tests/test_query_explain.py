@@ -114,8 +114,16 @@ def test_estimate_plan_with_joins():
         "table": "orders",
         "columns": ["id", "customer_name"],
         "joins": [
-            {"table": "customers", "type": "INNER", "on": ["orders.customer_id", "customers.id"]},
-            {"table": "shipments", "type": "LEFT", "on": ["orders.id", "shipments.order_id"]},
+            {
+                "table": "customers",
+                "type": "INNER",
+                "on": ["orders.customer_id", "customers.id"],
+            },
+            {
+                "table": "shipments",
+                "type": "LEFT",
+                "on": ["orders.id", "shipments.order_id"],
+            },
         ],
         "limit": 50,
     }
@@ -205,11 +213,13 @@ def test_estimate_plan_edge_cases():
     assert node_str.node_type == "Limit"
 
     # Join without dict attributes and dict filters
-    node_joins = estimate_plan_from_spec({
-        "table": "a",
-        "joins": [{"table": "b"}],
-        "filters": [{"column": "age", "op": ">", "value": 18}],
-    })
+    node_joins = estimate_plan_from_spec(
+        {
+            "table": "a",
+            "joins": [{"table": "b"}],
+            "filters": [{"column": "age", "op": ">", "value": 18}],
+        }
+    )
     assert len(node_joins.children[0].children[0].children) == 2
 
     # QuerySpec dataclass instance & object join
@@ -242,15 +252,17 @@ def test_server_explain_endpoint():
 
     base_url = f"http://{host}:{port}"
     try:
-        payload = json.dumps({
-            "spec": {
-                "table": "users",
-                "columns": ["id", "username", "email"],
-                "filters": [["status", "eq", "active"]],
-                "limit": 25,
-            },
-            "dialect": "postgres",
-        }).encode()
+        payload = json.dumps(
+            {
+                "spec": {
+                    "table": "users",
+                    "columns": ["id", "username", "email"],
+                    "filters": [["status", "eq", "active"]],
+                    "limit": 25,
+                },
+                "dialect": "postgres",
+            }
+        ).encode()
 
         req = urllib.request.Request(
             f"{base_url}/api/v1/explain",

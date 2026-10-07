@@ -354,10 +354,7 @@ class CsvStreamExporter:
             if isinstance(row, dict):
                 row_cols = cols if cols is not None else list(row.keys())
                 writer.writerow(
-                    [
-                        row.get(c, "") if row.get(c) is not None else ""
-                        for c in row_cols
-                    ]
+                    [row.get(c, "") if row.get(c) is not None else "" for c in row_cols]
                 )
             elif isinstance(row, (list, tuple)):
                 writer.writerow([val if val is not None else "" for val in row])
@@ -570,17 +567,10 @@ def stream_export_dataset(
     elif fmt == "json":
         exporter = JsonStreamExporter(chunk_size=chunk_size)
     elif fmt == "parquet":
-        exporter = ParquetStreamExporter(
-            columns=resolved_cols, chunk_size=chunk_size
-        )
+        exporter = ParquetStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
     elif fmt == "arrow":
-        exporter = ArrowStreamExporter(
-            columns=resolved_cols, chunk_size=chunk_size
-        )
+        exporter = ArrowStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
     else:  # excel, xlsx
-        exporter = ExcelStreamExporter(
-            columns=resolved_cols, chunk_size=chunk_size
-        )
+        exporter = ExcelStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
 
     return exporter.export_stream(row_iter), mime_type, ext
-

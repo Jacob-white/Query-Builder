@@ -7,13 +7,14 @@ presets, and validation exceptions.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 
 
 class FeatureTier(str, Enum):
     """Classification tier for a query builder engine feature."""
+
     STANDARD = "standard"
     ADVANCED = "advanced"
     DISABLED = "disabled"
@@ -41,6 +42,7 @@ class EngineCapabilities:
     Defines the availability and tier classification of features supported by
     the Query Builder engine.
     """
+
     projections: FeatureTier = FeatureTier.STANDARD
     filters: FeatureTier = FeatureTier.STANDARD
     sorts: FeatureTier = FeatureTier.STANDARD
@@ -121,9 +123,20 @@ class EngineCapabilities:
             return FeatureTier.STANDARD
 
         known_fields = {
-            "projections", "filters", "sorts", "joins", "distinct_limit",
-            "visual_chart", "ctes", "window_functions", "analytical_grouping",
-            "vector_search", "raw_sql", "query_plan", "calculated_fields", "schema_tools"
+            "projections",
+            "filters",
+            "sorts",
+            "joins",
+            "distinct_limit",
+            "visual_chart",
+            "ctes",
+            "window_functions",
+            "analytical_grouping",
+            "vector_search",
+            "raw_sql",
+            "query_plan",
+            "calculated_fields",
+            "schema_tools",
         }
 
         for k, v in data.items():

@@ -154,7 +154,10 @@ def test_prompt_builders_and_exemplars() -> None:
     assert "FEW-SHOT EXAMPLES" in sys_p
 
     user_p = build_user_prompt("Find all active products")
-    assert 'Translate this request into QuerySpec JSON:\n"Find all active products"' == user_p
+    assert (
+        'Translate this request into QuerySpec JSON:\n"Find all active products"'
+        == user_p
+    )
 
     explain_p = build_explain_prompt({"table": "orders", "limit": 10}, dialect="sqlite")
     assert "Target Dialect: sqlite" in explain_p

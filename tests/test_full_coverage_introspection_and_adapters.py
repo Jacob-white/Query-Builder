@@ -9,7 +9,11 @@ from query_builder.adapters.drizzle import from_drizzle
 from query_builder.adapters.json_schema import from_json_schema
 from query_builder.adapters.prisma import from_prisma
 from query_builder.adapters.sqlalchemy import from_sqlalchemy
-from query_builder.adapters.utils import normalize_type_name, read_source, to_schema_snapshot
+from query_builder.adapters.utils import (
+    normalize_type_name,
+    read_source,
+    to_schema_snapshot,
+)
 from query_builder.connectors.introspection import (
     introspect_bigtable,
     introspect_chroma,
@@ -52,13 +56,15 @@ def test_introspection_all_connectors_unwrap_close_and_fallbacks():
 
     # 1. Kusto: execute with JSON schema string with OrderedColumns, and finally cur.close()
     kusto_cur = make_cur()
-    json_schema_str = json.dumps({
-        "OrderedColumns": [
-            {"Name": "id", "CslType": "int"},
-            {"Name": "metric", "CslType": "string"},
-            {"Name": "user_id", "CslType": "string"},
-        ]
-    })
+    json_schema_str = json.dumps(
+        {
+            "OrderedColumns": [
+                {"Name": "id", "CslType": "int"},
+                {"Name": "metric", "CslType": "string"},
+                {"Name": "user_id", "CslType": "string"},
+            ]
+        }
+    )
     kusto_cur.fetchall.side_effect = [[["MetricsTable"]], [[json_schema_str]]]
     conn_kusto = DummyConnWithCursor(kusto_cur)
     res_kusto = introspect_kusto(conn_kusto, database="mydb")
@@ -94,7 +100,9 @@ def test_introspection_all_connectors_unwrap_close_and_fallbacks():
     # 4. Timestream: list_tables and fallback columns and close()
     ts_cur = make_cur()
     del ts_cur.execute
-    ts_cur.list_tables = MagicMock(return_value={"Tables": [{"TableName": "IoTTelemetry"}]})
+    ts_cur.list_tables = MagicMock(
+        return_value={"Tables": [{"TableName": "IoTTelemetry"}]}
+    )
     conn_ts = DummyConnWithCursor(ts_cur)
     res_ts = introspect_timestream(conn_ts, database_name="iot_db")
     assert any(k.lower() == "iottelemetry" for k in res_ts["tables"])
@@ -274,6 +282,7 @@ def test_sqlalchemy_adapter_full_branches():
 
     # None branch for live reflection
     from query_builder.adapters.sqlalchemy import _reflect_live_sqlalchemy
+
     assert _reflect_live_sqlalchemy(object()) is None
 
     # 2. AST parsing: Column literal name, default=var, comment, type annotations, ForeignKey edge cases
@@ -323,9 +332,7 @@ class Item(Base):
 def test_prisma_adapter_full_branches():
     # 1. from_prisma structured with string enums, model-level primaryKey, object relations
     schema_dict = {
-        "enums": [
-            {"name": "Role", "values": ["ADMIN", "USER"]}
-        ],
+        "enums": [{"name": "Role", "values": ["ADMIN", "USER"]}],
         "models": [
             {
                 "name": "User",
@@ -399,20 +406,24 @@ model Post {
 
 def test_drizzle_adapter_full_branches():
     # 1. from_drizzle with dict source of TableSchema and ColumnSchema
-    c_id = ColumnSchema(name="id", data_type="integer", is_primary=True, is_nullable=False)
+    c_id = ColumnSchema(
+        name="id", data_type="integer", is_primary=True, is_nullable=False
+    )
     t_obj = TableSchema(name="orders", columns=[c_id], primary_keys=["id"])
     res_dict = from_drizzle({"orders": t_obj})
     assert "orders" in res_dict
 
     # Dict of dicts with ColumnSchema and invalid items
-    res_dict2 = from_drizzle({
-        "order_items": {
-            "columns": [c_id, 123],
-            "primary_keys": ["id"],
-            "comment": "Line items",
-        },
-        "bad_table": 456,
-    })
+    res_dict2 = from_drizzle(
+        {
+            "order_items": {
+                "columns": [c_id, 123],
+                "primary_keys": ["id"],
+                "comment": "Line items",
+            },
+            "bad_table": 456,
+        }
+    )
     assert "order_items" in res_dict2
 
     # 2. Text parsing: unquoted default, positional primaryKey, case-insensitive FK match
@@ -570,10 +581,18 @@ def test_adapters_utils_full_branches(tmp_path):
     assert read_source(None) == "None"
 
     # 3. to_schema_snapshot single TableSchema, list of TableSchemas, and invalid type
-    col = ColumnSchema(name="id", data_type="integer", is_primary=True, is_nullable=False)
-    fk1 = ForeignKey(table="orders", column="user_id", foreign_table="users", foreign_column="id")
-    fk_dup = ForeignKey(table="orders", column="user_id", foreign_table="users", foreign_column="id")
-    tbl = TableSchema(name="orders", columns=[col], primary_keys=["id"], foreign_keys=[fk1, fk_dup])
+    col = ColumnSchema(
+        name="id", data_type="integer", is_primary=True, is_nullable=False
+    )
+    fk1 = ForeignKey(
+        table="orders", column="user_id", foreign_table="users", foreign_column="id"
+    )
+    fk_dup = ForeignKey(
+        table="orders", column="user_id", foreign_table="users", foreign_column="id"
+    )
+    tbl = TableSchema(
+        name="orders", columns=[col], primary_keys=["id"], foreign_keys=[fk1, fk_dup]
+    )
 
     # Single TableSchema
     snap1 = to_schema_snapshot(tbl)
@@ -640,7 +659,13 @@ def test_adapters_and_introspection_remaining_branches():
     from query_builder.connectors.base import IntrospectionError
 
     # 1. to_schema_snapshot with dict
-    res_snap = to_schema_snapshot({"users": TableSchema(name="users", columns=[ColumnSchema(name="id", data_type="int")])})
+    res_snap = to_schema_snapshot(
+        {
+            "users": TableSchema(
+                name="users", columns=[ColumnSchema(name="id", data_type="int")]
+            )
+        }
+    )
     assert "users" in res_snap.tables
 
     # 2. Drizzle full branches
@@ -673,16 +698,18 @@ def test_adapters_and_introspection_remaining_branches():
     assert res_drizzle["users"].columns[1].enums == ["admin", "customer", "guest"]
 
     # Drizzle with dictionary input having ColumnSchema and dict column
-    res_drizzle_dict = from_drizzle({
-        "products": {
-            "columns": [
-                ColumnSchema(name="id", data_type="integer", is_primary=True),
-                {"name": "title", "data_type": "text"},
-            ],
-            "primary_keys": ["id"],
-            "comment": "products table",
+    res_drizzle_dict = from_drizzle(
+        {
+            "products": {
+                "columns": [
+                    ColumnSchema(name="id", data_type="integer", is_primary=True),
+                    {"name": "title", "data_type": "text"},
+                ],
+                "primary_keys": ["id"],
+                "comment": "products table",
+            }
         }
-    })
+    )
     assert "products" in res_drizzle_dict
 
     # 3. JSON Schema full branches
@@ -711,7 +738,9 @@ def test_adapters_and_introspection_remaining_branches():
     assert len(res_js["Account"].foreign_keys) == 2
 
     # 3c. JSON Schema fallback to single 'id' column
-    res_js_id = from_json_schema({"title": "Device", "properties": {"id": {"type": "integer"}}})
+    res_js_id = from_json_schema(
+        {"title": "Device", "properties": {"id": {"type": "integer"}}}
+    )
     assert "Device" in res_js_id
     assert res_js_id["Device"].columns[0].is_primary is True
 
@@ -781,7 +810,10 @@ def test_adapters_and_introspection_remaining_branches():
     # 6. Introspection edge cases:
     # 6a. Kusto non-JSON schema col_rows
     cur_kusto_raw = MagicMock()
-    cur_kusto_raw.fetchall.side_effect = [[["RawTable"]], [["id", "int"], ["name", "string"]]]
+    cur_kusto_raw.fetchall.side_effect = [
+        [["RawTable"]],
+        [["id", "int"], ["name", "string"]],
+    ]
     res_k_raw = introspect_kusto(cur_kusto_raw)
     assert "RawTable" in res_k_raw["tables"]
 
@@ -829,7 +861,10 @@ def test_adapters_and_introspection_remaining_branches():
 
     # 6e. Timestream execute path & error
     cur_ts_exec = MagicMock()
-    cur_ts_exec.fetchall.side_effect = [[["TSMetrics"]], [["time", "timestamp"], ["sensor_val", "double"]]]
+    cur_ts_exec.fetchall.side_effect = [
+        [["TSMetrics"]],
+        [["time", "timestamp"], ["sensor_val", "double"]],
+    ]
     res_ts_exec = introspect_timestream(cur_ts_exec)
     assert any(k.lower() == "tsmetrics" for k in res_ts_exec["tables"])
 
@@ -900,6 +935,7 @@ def test_edge_cases_all_adapters_and_introspection():
 
     # 3. SQLAlchemy AST edge branches:
     import textwrap
+
     sa_edge = textwrap.dedent("""
     from sqlalchemy import Column, Integer, String, Enum, PrimaryKeyConstraint
     from sqlalchemy.orm import declarative_base
@@ -923,7 +959,9 @@ def test_edge_cases_all_adapters_and_introspection():
     assert "dynamic_table" in res_sa
 
     # 4. JSON Schema: table without id column (exhausts for loop)
-    res_js_noid = from_json_schema({"title": "NoId", "properties": {"description": {"type": "string"}}})
+    res_js_noid = from_json_schema(
+        {"title": "NoId", "properties": {"description": {"type": "string"}}}
+    )
     assert "NoId" in res_js_noid
     assert len(res_js_noid["NoId"].primary_keys) == 0
 
@@ -1003,5 +1041,3 @@ def test_edge_cases_all_adapters_and_introspection():
         fail_cur.execute.side_effect = RuntimeError("Introspection database error")
         with pytest.raises(IntrospectionError):
             fn(fail_cur)
-
-

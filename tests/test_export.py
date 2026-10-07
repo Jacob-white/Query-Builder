@@ -320,7 +320,9 @@ def test_export_arrow():
     assert len(df_tuples) == 2
 
     # Empty rows with columns
-    payload_empty_cols, _, _ = export_dataset({"columns": ["c1"], "rows": []}, format="arrow")
+    payload_empty_cols, _, _ = export_dataset(
+        {"columns": ["c1"], "rows": []}, format="arrow"
+    )
     df_empty = pl.read_ipc_stream(io.BytesIO(payload_empty_cols))
     assert df_empty.columns == ["c1"]
     assert len(df_empty) == 0
@@ -339,7 +341,11 @@ def test_stream_export_dataset_csv():
         sql="SELECT id, name FROM users",
         params=[],
         columns=["id", "name"],
-        rows=[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}, {"id": 3, "name": "Charlie"}],
+        rows=[
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Bob"},
+            {"id": 3, "name": "Charlie"},
+        ],
         count=3,
         limit=50,
         offset=0,
@@ -359,7 +365,9 @@ def test_stream_export_dataset_csv():
         yield [10, "ten"]
         yield [20, "twenty"]
 
-    stream_iter2, _, _ = stream_export_dataset(gen_rows(), format="csv", columns=["num", "word"], chunk_size=1)
+    stream_iter2, _, _ = stream_export_dataset(
+        gen_rows(), format="csv", columns=["num", "word"], chunk_size=1
+    )
     full_csv2 = b"".join(list(stream_iter2)).decode("utf-8")
     assert full_csv2 == "num,word\n10,ten\n20,twenty\n"
 
@@ -368,7 +376,9 @@ def test_stream_export_dataset_csv():
         yield 100
         yield None
 
-    stream_iter3, _, _ = stream_export_dataset(gen_scalars(), format="csv", chunk_size=1)
+    stream_iter3, _, _ = stream_export_dataset(
+        gen_scalars(), format="csv", chunk_size=1
+    )
     full_csv3 = b"".join(list(stream_iter3)).decode("utf-8")
     assert "100\n" in full_csv3
 
@@ -377,7 +387,9 @@ def test_stream_export_dataset_csv():
     assert b"".join(list(stream_empty)) == b""
 
     # Empty list with columns
-    stream_empty_cols, _, _ = stream_export_dataset([], format="csv", columns=["col1", "col2"])
+    stream_empty_cols, _, _ = stream_export_dataset(
+        [], format="csv", columns=["col1", "col2"]
+    )
     assert b"".join(list(stream_empty_cols)).decode("utf-8") == "col1,col2\n"
 
     # List of non-dict rows without columns
@@ -391,7 +403,9 @@ def test_stream_export_dataset_json_and_jsonl():
     data = [{"id": 1, "tag": "prod"}, {"id": 2, "tag": "dev"}]
 
     # JSONL
-    stream_jsonl, mime_jl, ext_jl = stream_export_dataset(data, format="jsonl", chunk_size=1)
+    stream_jsonl, mime_jl, ext_jl = stream_export_dataset(
+        data, format="jsonl", chunk_size=1
+    )
     assert mime_jl == "application/x-ndjson"
     assert ext_jl == "jsonl"
     chunks_jl = list(stream_jsonl)
@@ -408,7 +422,9 @@ def test_stream_export_dataset_json_and_jsonl():
     assert b"".join(list(stream_ndjson)) == full_jl.encode("utf-8")
 
     # JSON array streaming
-    stream_json, mime_j, ext_j = stream_export_dataset(data, format="json", chunk_size=1)
+    stream_json, mime_j, ext_j = stream_export_dataset(
+        data, format="json", chunk_size=1
+    )
     assert mime_j == "application/json"
     assert ext_j == "json"
     full_json = b"".join(list(stream_json)).decode("utf-8")
@@ -427,7 +443,9 @@ def test_stream_export_dataset_arrow_and_parquet():
     data = [{"a": 1, "b": 1.5}, {"a": 2, "b": 2.5}]
 
     # Arrow
-    stream_arrow, mime_ar, ext_ar = stream_export_dataset(data, format="arrow", chunk_size=1)
+    stream_arrow, mime_ar, ext_ar = stream_export_dataset(
+        data, format="arrow", chunk_size=1
+    )
     assert mime_ar == "application/vnd.apache.arrow.stream"
     assert ext_ar == "arrow"
     full_arrow = b"".join(list(stream_arrow))
@@ -448,7 +466,9 @@ def test_stream_export_dataset_arrow_and_parquet():
     assert len(df_ar_empty) == 0
 
     # Parquet
-    stream_parq, mime_pq, ext_pq = stream_export_dataset(data, format="parquet", chunk_size=1)
+    stream_parq, mime_pq, ext_pq = stream_export_dataset(
+        data, format="parquet", chunk_size=1
+    )
     assert mime_pq == "application/vnd.apache.parquet"
     assert ext_pq == "parquet"
     full_parq = b"".join(list(stream_parq))
@@ -472,7 +492,9 @@ def test_stream_export_dataset_excel():
     from query_builder.export import stream_export_dataset
 
     data = [{"title": "Doc1", "count": 10}, {"title": "Doc2", "count": 20}]
-    stream_excel, mime_xl, ext_xl = stream_export_dataset(data, format="excel", chunk_size=1)
+    stream_excel, mime_xl, ext_xl = stream_export_dataset(
+        data, format="excel", chunk_size=1
+    )
     assert mime_xl == MIME_TYPES["excel"]
     assert ext_xl == "xlsx"
     full_xl = b"".join(list(stream_excel))
@@ -483,7 +505,9 @@ def test_stream_export_dataset_excel():
     assert "Doc2" in xml_content
 
     # xlsx format alias with explicit columns
-    stream_xlsx, _, ext_xx = stream_export_dataset(data, format="xlsx", columns=["title", "count"])
+    stream_xlsx, _, ext_xx = stream_export_dataset(
+        data, format="xlsx", columns=["title", "count"]
+    )
     assert ext_xx == "xlsx"
     zf2 = zipfile.ZipFile(io.BytesIO(b"".join(list(stream_xlsx))))
     assert "xl/workbook.xml" in zf2.namelist()
@@ -517,7 +541,9 @@ def test_stream_export_dataset_validations_and_errors():
     assert b"".join(list(stream_empty_dict)) == b""
 
     # Dict without columns with non-empty rows infers columns
-    stream_dict_infers, _, _ = stream_export_dataset({"rows": [{"inferred": 123}]}, format="csv")
+    stream_dict_infers, _, _ = stream_export_dataset(
+        {"rows": [{"inferred": 123}]}, format="csv"
+    )
     assert "inferred\n123\n" in b"".join(list(stream_dict_infers)).decode("utf-8")
 
 
@@ -576,5 +602,3 @@ def test_export_edge_cases_and_exporter_direct():
     xdata = b"".join(list(excel_exp.export_stream([{"title": "test"}])))
     zf = zipfile.ZipFile(io.BytesIO(xdata))
     assert "xl/workbook.xml" in zf.namelist()
-
-

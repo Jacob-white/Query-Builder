@@ -56,7 +56,11 @@ def _raw_chunked_post(
     parsed = urllib.parse.urlparse(base_url)
     conn = http.client.HTTPConnection(parsed.hostname, parsed.port)
 
-    body = json.dumps(data).encode("utf-8") if isinstance(data, dict) else data.encode("utf-8")
+    body = (
+        json.dumps(data).encode("utf-8")
+        if isinstance(data, dict)
+        else data.encode("utf-8")
+    )
     headers = {"Content-Type": "application/json"}
     conn.request("POST", path, body=body, headers=headers)
     resp = conn.getresponse()
@@ -79,10 +83,16 @@ def test_stream_export_csv_with_rows(running_export_server):
     payload = {
         "format": "csv",
         "chunk_size": 2,
-        "rows": [{"id": 1, "name": "Alpha"}, {"id": 2, "name": "Beta"}, {"id": 3, "name": "Gamma"}],
+        "rows": [
+            {"id": 1, "name": "Alpha"},
+            {"id": 2, "name": "Beta"},
+            {"id": 3, "name": "Gamma"},
+        ],
         "columns": ["id", "name"],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert "text/csv" in headers.get("content-type", "")
     assert headers.get("transfer-encoding") == "chunked"
@@ -99,7 +109,9 @@ def test_stream_export_jsonl(running_export_server):
         "format": "jsonl",
         "rows": [{"val": 100}, {"val": 200}],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert headers.get("content-type") == "application/x-ndjson"
     lines = [json.loads(line) for line in body.decode("utf-8").strip().split("\n")]
@@ -114,7 +126,9 @@ def test_stream_export_json(running_export_server):
         "chunk_size": 1,
         "rows": [{"x": 1}, {"x": 2}],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert headers.get("content-type") == "application/json"
     data = json.loads(body.decode("utf-8"))
@@ -127,7 +141,9 @@ def test_stream_export_parquet(running_export_server):
         "format": "parquet",
         "rows": [{"col_a": "hello", "col_b": 42}],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert headers.get("content-type") == "application/vnd.apache.parquet"
     assert 'filename="export.parquet"' in headers.get("content-disposition", "")
@@ -142,7 +158,9 @@ def test_stream_export_arrow(running_export_server):
         "format": "arrow",
         "rows": [{"metric": 9.99}],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert headers.get("content-type") == "application/vnd.apache.arrow.stream"
     assert 'filename="export.arrow"' in headers.get("content-disposition", "")
@@ -159,7 +177,9 @@ def test_stream_export_excel(running_export_server):
         "format": "excel",
         "rows": [{"sheet_item": "Row 1"}],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     assert "spreadsheetml.sheet" in headers.get("content-type", "")
     assert 'filename="export.xlsx"' in headers.get("content-disposition", "")
@@ -184,7 +204,9 @@ def test_stream_export_with_spec_execution(running_export_server):
             "limit": 10,
         },
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     text = body.decode("utf-8")
     assert "id,item,qty\n" in text
@@ -200,7 +222,9 @@ def test_stream_export_with_sql_execution(running_export_server):
         "sql": "SELECT item, qty FROM inventory WHERE qty > ? ORDER BY qty ASC",
         "params": [60],
     }
-    status, headers, body = _raw_chunked_post(base_url, "/api/v1/export/stream", payload)
+    status, headers, body = _raw_chunked_post(
+        base_url, "/api/v1/export/stream", payload
+    )
     assert status == 200
     lines = [json.loads(line) for line in body.decode("utf-8").strip().split("\n")]
     assert len(lines) == 2

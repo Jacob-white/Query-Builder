@@ -17,7 +17,13 @@ from query_builder.ai.agent_tools import (
 from query_builder.ai.byo_provider import BringYourOwnAiProvider
 from query_builder.ai.self_healing import SelfHealingQueryEngine
 from query_builder.compiler import QueryCompiler
-from query_builder.models import FilterSpec, HavingSpec, JoinSpec, OrderBySpec, QuerySpec
+from query_builder.models import (
+    FilterSpec,
+    HavingSpec,
+    JoinSpec,
+    OrderBySpec,
+    QuerySpec,
+)
 from query_builder.nlq.service import NlqService
 
 
@@ -84,15 +90,19 @@ def ask_ai(
     # Translate using NLQ service
     service = NlqService(default_provider=provider_name)
     if byo_provider is not None:
-        service.translate = lambda req: _translate_with_byo(req, byo_provider, schema, dialect)  # type: ignore
+        service.translate = lambda req: _translate_with_byo(
+            req, byo_provider, schema, dialect
+        )  # type: ignore
 
-    res = service.translate({
-        "prompt": prompt,
-        "schema": schema,
-        "provider": provider_name,
-        "dialect": dialect,
-        "options": opts,
-    })
+    res = service.translate(
+        {
+            "prompt": prompt,
+            "schema": schema,
+            "provider": provider_name,
+            "dialect": dialect,
+            "options": opts,
+        }
+    )
 
     raw_spec = dict(res.spec)
     healing_notes: list[str] = []
@@ -150,13 +160,17 @@ def _translate_with_byo(
     raw_ast, tokens = byo_provider.generate_ast(prompt, schema=schema, dialect=dialect)
 
     from query_builder.nlq.validator import NlqAstValidator
+
     validator = NlqAstValidator(schema=schema)
     validated_ast, warnings = validator.validate(raw_ast)
 
     explanation_data = byo_provider.explain_query(validated_ast, dialect=dialect)
-    explanation = explanation_data.get("explanation", explanation_data.get("summary", "Generated from user prompt."))
+    explanation = explanation_data.get(
+        "explanation", explanation_data.get("summary", "Generated from user prompt.")
+    )
 
     from query_builder.nlq.models import NlqResult
+
     return NlqResult(
         spec=validated_ast,
         query_spec=None,  # type: ignore
@@ -201,7 +215,9 @@ class QueryBuilderAiAgent:
         """Returns standard tool definitions for this agent's schema and dialect."""
         return get_agent_tool_definitions(format=format, schema=self.schema)
 
-    def handle_tool_call(self, tool_name: str, arguments: dict[str, Any] | str) -> dict[str, Any]:
+    def handle_tool_call(
+        self, tool_name: str, arguments: dict[str, Any] | str
+    ) -> dict[str, Any]:
         """Handles an execution request for a tool call emitted by an LLM."""
         return execute_agent_tool_call(
             tool_name=tool_name,

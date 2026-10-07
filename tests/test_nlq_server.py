@@ -9,11 +9,10 @@ import threading
 import urllib.error
 import urllib.request
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from query_builder.nlq.models import NlqValidationError
 from query_builder.server import create_server
 
 
@@ -61,7 +60,9 @@ def test_server_nlq_translate_success(nlq_server_url: str) -> None:
         "provider": "mock",
         "dialect": "postgres",
     }
-    status, data = _request(f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body=payload)
+    status, data = _request(
+        f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body=payload
+    )
     assert status == 200
     assert data["spec"]["table"] == "users"
     assert data["confidence"] > 0.0
@@ -69,23 +70,39 @@ def test_server_nlq_translate_success(nlq_server_url: str) -> None:
 
 
 def test_server_nlq_translate_missing_prompt(nlq_server_url: str) -> None:
-    status, data = _request(f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body={"prompt": "  "})
+    status, data = _request(
+        f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body={"prompt": "  "}
+    )
     assert status == 400
     assert data["error"]["code"] == "BAD_REQUEST"
 
 
 def test_server_nlq_translate_validation_error(nlq_server_url: str) -> None:
     # Patch mock provider to return empty table triggering NlqValidationError
-    with patch("query_builder.nlq.providers.MockNlqProvider.generate_ast", return_value=({"table": ""}, 10)):
-        status, data = _request(f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body={"prompt": "test"})
+    with patch(
+        "query_builder.nlq.providers.MockNlqProvider.generate_ast",
+        return_value=({"table": ""}, 10),
+    ):
+        status, data = _request(
+            f"{nlq_server_url}/api/v1/nlq/translate",
+            method="POST",
+            body={"prompt": "test"},
+        )
         assert status == 400
         assert data["error"]["code"] == "NLQ_ERROR"
 
 
 def test_server_nlq_translate_internal_error(nlq_server_url: str) -> None:
     # Patch translate to raise unexpected runtime error
-    with patch("query_builder.nlq.service.NlqService.translate", side_effect=RuntimeError("unexpected explosion")):
-        status, data = _request(f"{nlq_server_url}/api/v1/nlq/translate", method="POST", body={"prompt": "test"})
+    with patch(
+        "query_builder.nlq.service.NlqService.translate",
+        side_effect=RuntimeError("unexpected explosion"),
+    ):
+        status, data = _request(
+            f"{nlq_server_url}/api/v1/nlq/translate",
+            method="POST",
+            body={"prompt": "test"},
+        )
         assert status == 500
         assert data["error"]["code"] == "INTERNAL_ERROR"
 
@@ -96,7 +113,9 @@ def test_server_nlq_explain_success(nlq_server_url: str) -> None:
         "dialect": "duckdb",
         "provider": "mock",
     }
-    status, data = _request(f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body=payload)
+    status, data = _request(
+        f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body=payload
+    )
     assert status == 200
     assert "summary" in data
     assert "explanation" in data
@@ -104,15 +123,22 @@ def test_server_nlq_explain_success(nlq_server_url: str) -> None:
 
 
 def test_server_nlq_explain_missing_query(nlq_server_url: str) -> None:
-    status, data = _request(f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body={})
+    status, data = _request(
+        f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body={}
+    )
     assert status == 400
     assert data["error"]["code"] == "BAD_REQUEST"
 
 
 def test_server_nlq_explain_error(nlq_server_url: str) -> None:
-    with patch("query_builder.nlq.service.NlqService.explain", side_effect=RuntimeError("explain failure")):
+    with patch(
+        "query_builder.nlq.service.NlqService.explain",
+        side_effect=RuntimeError("explain failure"),
+    ):
         payload = {"query": {"table": "orders"}}
-        status, data = _request(f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body=payload)
+        status, data = _request(
+            f"{nlq_server_url}/api/v1/nlq/explain", method="POST", body=payload
+        )
         assert status == 400
         assert data["error"]["code"] == "NLQ_ERROR"
 

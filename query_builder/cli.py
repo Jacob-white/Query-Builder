@@ -856,19 +856,59 @@ def main(argv: list[str] | None = None) -> int:
                     "users": {
                         "name": "users",
                         "columns": [
-                            {"name": "id", "data_type": "integer", "is_primary": True, "is_nullable": False},
-                            {"name": "email", "data_type": "text", "is_primary": False, "is_nullable": False},
-                            {"name": "full_name", "data_type": "text", "is_primary": False, "is_nullable": True},
-                            {"name": "created_at", "data_type": "timestamp", "is_primary": False, "is_nullable": False},
+                            {
+                                "name": "id",
+                                "data_type": "integer",
+                                "is_primary": True,
+                                "is_nullable": False,
+                            },
+                            {
+                                "name": "email",
+                                "data_type": "text",
+                                "is_primary": False,
+                                "is_nullable": False,
+                            },
+                            {
+                                "name": "full_name",
+                                "data_type": "text",
+                                "is_primary": False,
+                                "is_nullable": True,
+                            },
+                            {
+                                "name": "created_at",
+                                "data_type": "timestamp",
+                                "is_primary": False,
+                                "is_nullable": False,
+                            },
                         ],
                     },
                     "orders": {
                         "name": "orders",
                         "columns": [
-                            {"name": "id", "data_type": "integer", "is_primary": True, "is_nullable": False},
-                            {"name": "user_id", "data_type": "integer", "is_primary": False, "is_nullable": False},
-                            {"name": "total_amount", "data_type": "decimal", "is_primary": False, "is_nullable": False},
-                            {"name": "status", "data_type": "text", "is_primary": False, "is_nullable": False},
+                            {
+                                "name": "id",
+                                "data_type": "integer",
+                                "is_primary": True,
+                                "is_nullable": False,
+                            },
+                            {
+                                "name": "user_id",
+                                "data_type": "integer",
+                                "is_primary": False,
+                                "is_nullable": False,
+                            },
+                            {
+                                "name": "total_amount",
+                                "data_type": "decimal",
+                                "is_primary": False,
+                                "is_nullable": False,
+                            },
+                            {
+                                "name": "status",
+                                "data_type": "text",
+                                "is_primary": False,
+                                "is_nullable": False,
+                            },
                         ],
                     },
                 },
@@ -925,49 +965,49 @@ def main(argv: list[str] | None = None) -> int:
                     conn_import = "from query_builder import SQLiteConnector, create_query_builder_router"
                     conn_setup = 'connector = SQLiteConnector(database="starter.db")'
                     seed_snippet = (
-                        '# Auto-seed starter tables on launch if using SQLite\n'
-                        'import sqlite3\n'
+                        "# Auto-seed starter tables on launch if using SQLite\n"
+                        "import sqlite3\n"
                         '_conn = sqlite3.connect("starter.db")\n'
                         '_conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);")\n'
                         '_conn.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);")\n'
                         'if _conn.execute("SELECT COUNT(*) FROM users;").fetchone()[0] == 0:\n'
-                        '    _conn.execute("INSERT INTO users (id, email, full_name, created_at) VALUES (1, \'alice@example.com\', \'Alice Smith\', \'2026-01-01\');")\n'
-                        '    _conn.execute("INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, \'COMPLETED\');")\n'
-                        '    _conn.commit()\n'
-                        '_conn.close()\n\n'
+                        "    _conn.execute(\"INSERT INTO users (id, email, full_name, created_at) VALUES (1, 'alice@example.com', 'Alice Smith', '2026-01-01');\")\n"
+                        "    _conn.execute(\"INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, 'COMPLETED');\")\n"
+                        "    _conn.commit()\n"
+                        "_conn.close()\n\n"
                     )
 
                 main_py_content = (
                     '"""\n'
-                    'Query-Builder Starter Backend API.\n'
+                    "Query-Builder Starter Backend API.\n"
                     '"""\n\n'
-                    'from fastapi import FastAPI\n'
-                    f'{conn_import}\n\n'
+                    "from fastapi import FastAPI\n"
+                    f"{conn_import}\n\n"
                     'app = FastAPI(title="Query-Builder Starter API")\n\n'
-                    f'{seed_snippet}'
-                    f'{conn_setup}\n'
+                    f"{seed_snippet}"
+                    f"{conn_setup}\n"
                     'router = create_query_builder_router(connector=connector, prefix="/api")\n'
-                    'app.include_router(router)\n\n'
+                    "app.include_router(router)\n\n"
                     '@app.get("/health")\n'
-                    'def health():\n'
+                    "def health():\n"
                     '    return {"status": "healthy"}\n\n'
                     'if __name__ == "__main__":\n'
-                    '    import uvicorn\n'
+                    "    import uvicorn\n"
                     '    uvicorn.run(app, host="127.0.0.1", port=8000)\n'
                 )
             else:  # minimal
                 main_py_content = (
                     '"""\n'
-                    'Query-Builder Minimal Starter.\n'
+                    "Query-Builder Minimal Starter.\n"
                     '"""\n\n'
-                    'import json\n'
-                    'from query_builder import QueryCompiler, validate_sql_ast\n\n'
+                    "import json\n"
+                    "from query_builder import QueryCompiler, validate_sql_ast\n\n"
                     'with open("spec.json", "r") as f:\n'
-                    '    spec = json.load(f)\n'
+                    "    spec = json.load(f)\n"
                     'with open("schema.json", "r") as f:\n'
-                    '    schema = json.load(f)\n\n'
+                    "    schema = json.load(f)\n\n"
                     f'compiler = QueryCompiler(spec, schema=schema, dialect="{dialect}")\n'
-                    'sql, params, count_sql, count_params = compiler.compile()\n\n'
+                    "sql, params, count_sql, count_params = compiler.compile()\n\n"
                     'print("Compiled SQL:\\n", sql)\n'
                     'print("Params:", params)\n'
                     'print("AST Validation:", validate_sql_ast(sql))\n'
@@ -1036,7 +1076,9 @@ def main(argv: list[str] | None = None) -> int:
                 for cf in created_files:
                     print(f"  + Created {cf}")
                 for sf in skipped_files:
-                    print(f"  - Skipped {sf} (already exists, use --force to overwrite)")
+                    print(
+                        f"  - Skipped {sf} (already exists, use --force to overwrite)"
+                    )
                 print("\nNext steps:")
                 print(f"  cd {args.directory}")
                 print("  query-builder doctor")
@@ -1069,20 +1111,40 @@ def main(argv: list[str] | None = None) -> int:
             # 2. Driver availability checks
             driver_candidates = [
                 ("sqlite3", "sqlite3", "SQLite standard library driver", False),
-                ("sqlparse", "sqlparse", "SQL AST parsing and security validator engine", False),
+                (
+                    "sqlparse",
+                    "sqlparse",
+                    "SQL AST parsing and security validator engine",
+                    False,
+                ),
                 ("duckdb", "duckdb", "DuckDB analytical engine", True),
-                ("psycopg", "psycopg", "PostgreSQL modern binary driver (psycopg 3)", True),
+                (
+                    "psycopg",
+                    "psycopg",
+                    "PostgreSQL modern binary driver (psycopg 3)",
+                    True,
+                ),
                 ("psycopg2", "psycopg2", "PostgreSQL legacy driver (psycopg2)", True),
                 ("asyncpg", "asyncpg", "Async PostgreSQL driver", True),
                 ("mysql.connector", "mysql.connector", "Official MySQL driver", True),
                 ("pymysql", "pymysql", "Pure-Python MySQL driver", True),
                 ("pymssql", "pymssql", "Microsoft SQL Server driver", True),
                 ("pyodbc", "pyodbc", "ODBC universal driver", True),
-                ("snowflake.connector", "snowflake.connector", "Snowflake connector", True),
+                (
+                    "snowflake.connector",
+                    "snowflake.connector",
+                    "Snowflake connector",
+                    True,
+                ),
                 ("pyarrow", "pyarrow", "Apache Arrow / Parquet columnar engine", True),
                 ("fastapi", "fastapi", "FastAPI HTTP API framework", True),
                 ("pydantic", "pydantic", "Pydantic data validation", True),
-                ("sqlalchemy", "sqlalchemy", "SQLAlchemy ORM & schema introspection", True),
+                (
+                    "sqlalchemy",
+                    "sqlalchemy",
+                    "SQLAlchemy ORM & schema introspection",
+                    True,
+                ),
             ]
 
             drivers_status = {}
@@ -1144,9 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
                 for r in connectivity_status.values()
             )
             required_drivers_ok = all(
-                d["available"]
-                for d in drivers_status.values()
-                if not d["optional"]
+                d["available"] for d in drivers_status.values() if not d["optional"]
             )
             overall_healthy = py_supported and conn_healthy and required_drivers_ok
 
@@ -1189,7 +1249,9 @@ def main(argv: list[str] | None = None) -> int:
                 if overall_healthy:
                     print("\n[PASS] All core Query-Builder diagnostic checks passed!")
                 else:
-                    print("\n[FAIL] Some diagnostic checks failed or warnings were reported.")
+                    print(
+                        "\n[FAIL] Some diagnostic checks failed or warnings were reported."
+                    )
 
             return 0 if overall_healthy else 1
         except Exception as e:  # noqa: BLE001

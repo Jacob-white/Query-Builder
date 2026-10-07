@@ -81,7 +81,9 @@ class _LanceDBCursorAdapter:
                     lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
                     if lm:
                         limit_val = int(lm.group(1))
-                    search_builder = tbl.search(vector) if vector is not None else tbl.search()
+                    search_builder = (
+                        tbl.search(vector) if vector is not None else tbl.search()
+                    )
                     arrow_tbl = search_builder.limit(limit_val).to_arrow()
                     self.description = [(f.name,) for f in arrow_tbl.schema]
                     pylist = arrow_tbl.to_pylist()

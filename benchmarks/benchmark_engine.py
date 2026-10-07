@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from query_builder import QueryCompiler, QuerySpec, validate_sql_ast, scrub_secrets
+from query_builder import QueryCompiler, validate_sql_ast, scrub_secrets
 from query_builder.join_solver import find_join_path
 
 
@@ -25,8 +25,22 @@ def run_compiler_benchmark(iterations: int = 5000) -> dict[str, float]:
             {
                 "case_when": {
                     "branches": [
-                        {"condition": {"column": "status", "op": "eq", "value": "paid"}, "then_value": "Completed"},
-                        {"condition": {"column": "status", "op": "eq", "value": "pending"}, "then_value": "In Flight"},
+                        {
+                            "condition": {
+                                "column": "status",
+                                "op": "eq",
+                                "value": "paid",
+                            },
+                            "then_value": "Completed",
+                        },
+                        {
+                            "condition": {
+                                "column": "status",
+                                "op": "eq",
+                                "value": "pending",
+                            },
+                            "then_value": "In Flight",
+                        },
                     ],
                     "else_value": "Cancelled",
                 },
@@ -70,7 +84,7 @@ def run_ast_validator_benchmark(iterations: int = 5000) -> dict[str, float]:
         'WHERE "t1"."created_at" >= %s AND "t1"."is_test" = %s '
         'GROUP BY "t1"."id" '
         'ORDER BY "revenue" DESC '
-        'LIMIT %s OFFSET %s'
+        "LIMIT %s OFFSET %s"
     )
 
     start = time.perf_counter()
@@ -87,21 +101,25 @@ def run_ast_validator_benchmark(iterations: int = 5000) -> dict[str, float]:
     }
 
 
-def run_join_solver_benchmark(num_tables: int = 200, iterations: int = 100) -> dict[str, float]:
+def run_join_solver_benchmark(
+    num_tables: int = 200, iterations: int = 100
+) -> dict[str, float]:
     # Build a linear & star synthetic foreign key graph
     foreign_keys = []
     for i in range(1, num_tables):
-        foreign_keys.append({
-            "table": f"table_{i}",
-            "column": f"table_{i-1}_id",
-            "foreign_table": f"table_{i-1}",
-            "foreign_column": "id",
-        })
+        foreign_keys.append(
+            {
+                "table": f"table_{i}",
+                "column": f"table_{i - 1}_id",
+                "foreign_table": f"table_{i - 1}",
+                "foreign_column": "id",
+            }
+        )
 
     start = time.perf_counter()
     for _ in range(iterations):
         # Solve multi-hop path from table_50 to table_0
-        find_join_path(f"table_{min(50, num_tables-1)}", "table_0", foreign_keys)
+        find_join_path(f"table_{min(50, num_tables - 1)}", "table_0", foreign_keys)
     duration = time.perf_counter() - start
     ops_per_sec = iterations / duration
 
@@ -155,7 +173,9 @@ def main():
     print("\n2. Benchmarking AST Safety Validator Throughput...")
     ast_res = run_ast_validator_benchmark(iterations=1000)
     print(f"   -> Throughput: {ast_res['throughput_vps']:.1f} validations/sec")
-    print(f"   -> Average Latency: {ast_res['latency_us_per_validation']:.2f} µs/validation")
+    print(
+        f"   -> Average Latency: {ast_res['latency_us_per_validation']:.2f} µs/validation"
+    )
 
     print("\n3. Benchmarking BFS Multi-Hop Join Solver (200 Tables)...")
     join_res = run_join_solver_benchmark(num_tables=200, iterations=200)

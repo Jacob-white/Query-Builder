@@ -202,6 +202,7 @@ def test_redis_query_cache_miss_and_delete_error():
     assert cache.delete("key") is False
 
     import sys
+
     fake_redis = MagicMock()
     sys.modules["redis"] = fake_redis
     try:
@@ -213,6 +214,7 @@ def test_redis_query_cache_miss_and_delete_error():
 
 def test_global_cache_singleton_management():
     import query_builder.cache
+
     query_builder.cache._global_cache_instance = None
     c_init = query_builder.cache.get_global_cache()
     assert isinstance(c_init, InMemoryLRUCache)
@@ -280,20 +282,24 @@ def test_server_execute_caching_and_sse_streaming(tmp_path):
     server = create_server("127.0.0.1", 0)
     host, port = server.server_address
     import threading
+
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
     import urllib.request
+
     base_url = f"http://{host}:{port}"
 
     try:
         # 1. Test Cached Execute
-        payload = json.dumps({
-            "connector": "sqlite",
-            "config": {"database": str(db_file)},
-            "spec": {"table": "products", "columns": ["id", "name"], "limit": 10},
-            "use_cache": True,
-        }).encode()
+        payload = json.dumps(
+            {
+                "connector": "sqlite",
+                "config": {"database": str(db_file)},
+                "spec": {"table": "products", "columns": ["id", "name"], "limit": 10},
+                "use_cache": True,
+            }
+        ).encode()
 
         req = urllib.request.Request(
             f"{base_url}/api/v1/execute",
@@ -317,12 +323,14 @@ def test_server_execute_caching_and_sse_streaming(tmp_path):
             assert len(data2["rows"]) == 10
 
         # 2. Test SSE Streaming
-        stream_payload = json.dumps({
-            "connector": "sqlite",
-            "config": {"database": str(db_file)},
-            "spec": {"table": "products", "columns": ["id", "name"], "limit": 15},
-            "batch_size": 5,
-        }).encode()
+        stream_payload = json.dumps(
+            {
+                "connector": "sqlite",
+                "config": {"database": str(db_file)},
+                "spec": {"table": "products", "columns": ["id", "name"], "limit": 15},
+                "batch_size": 5,
+            }
+        ).encode()
 
         stream_req = urllib.request.Request(
             f"{base_url}/api/v1/stream",

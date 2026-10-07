@@ -26,7 +26,6 @@ from query_builder.policy import SecurityPolicy, TenantContext, apply_security_p
 from query_builder.pool import (
     ConnectionPool,
     ConnectionPoolManager,
-    PoolError,
     QueryCancelledError,
     get_connection_pool_manager,
     mask_credentials,
@@ -224,7 +223,9 @@ def generate_openapi_spec() -> dict[str, Any]:
             "/api/v1/nlq/providers": {
                 "get": {
                     "summary": "List Available NLQ Providers",
-                    "responses": {"200": {"description": "List of available NLQ providers"}},
+                    "responses": {
+                        "200": {"description": "List of available NLQ providers"}
+                    },
                 }
             },
         },
@@ -653,7 +654,11 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
             cache = get_global_cache()
             cache_key = None
             if use_cache:
-                target = spec if spec is not None else {"sql": sql, "params": body.get("params", [])}
+                target = (
+                    spec
+                    if spec is not None
+                    else {"sql": sql, "params": body.get("params", [])}
+                )
                 cache_key = compute_cache_key(
                     target, dialect=connector_name, tenant_id=tenant_id
                 )
@@ -669,7 +674,9 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 token.throw_if_cancelled()
 
                 # If connection_id is provided and registered in connection_pool_manager
-                if connection_id and self.connection_pool_manager.has_pool(connection_id):
+                if connection_id and self.connection_pool_manager.has_pool(
+                    connection_id
+                ):
                     result_data = self.connection_pool_manager.execute_query(
                         sql_or_spec=spec if spec is not None else sql,
                         connection_id=connection_id,
@@ -690,7 +697,11 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     if spec is not None:
                         active_spec = spec
                         if tenant_id or policy is not None:
-                            ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
+                            ctx = (
+                                TenantContext(tenant_id=tenant_id)
+                                if tenant_id
+                                else None
+                            )
                             active_spec = apply_security_policy(
                                 spec,
                                 context=ctx,
@@ -705,9 +716,6 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                         token.throw_if_cancelled()
                         executed_sql = result_data.get("sql", "")
                     else:
-                        if sql is None:
-                            self.send_error_response("SQL statement must not be null.", code="BAD_REQUEST", status=400)
-                            return
                         params = body.get("params", [])
                         token.throw_if_cancelled()
                         cols, rows, latency = conn.execute_raw(sql, params)
@@ -765,7 +773,9 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/connections":
             conn_id = body.get("connection_id")
             if not conn_id or not isinstance(conn_id, str):
-                self.send_error_response("Missing required 'connection_id'.", code="BAD_REQUEST", status=400)
+                self.send_error_response(
+                    "Missing required 'connection_id'.", code="BAD_REQUEST", status=400
+                )
                 return
 
             connector_name = body.get("connector", "sqlite")
@@ -778,8 +788,11 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
             metadata["dialect"] = body.get("dialect", connector_name)
 
             try:
+
                 def factory():
-                    c = get_connector(connector_name, **(config if isinstance(config, dict) else {}))
+                    c = get_connector(
+                        connector_name, **(config if isinstance(config, dict) else {})
+                    )
                     return c.connect()
 
                 pool = ConnectionPool(
@@ -788,14 +801,23 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                     min_size=int(min_size),
                     timeout=float(timeout),
                 )
-                self.connection_pool_manager.register_pool(conn_id, pool, metadata=metadata)
-                self.send_json_response({
-                    "status": "registered",
-                    "connection_id": conn_id,
-                    "metadata": mask_credentials(metadata),
-                }, status=201)
+                self.connection_pool_manager.register_pool(
+                    conn_id, pool, metadata=metadata
+                )
+                self.send_json_response(
+                    {
+                        "status": "registered",
+                        "connection_id": conn_id,
+                        "metadata": mask_credentials(metadata),
+                    },
+                    status=201,
+                )
             except Exception as exc:  # noqa: BLE001
-                self.send_error_response(f"Failed to register connection pool: {exc}", code="POOL_ERROR", status=400)
+                self.send_error_response(
+                    f"Failed to register connection pool: {exc}",
+                    code="POOL_ERROR",
+                    status=400,
+                )
             return
 
         if path == "/api/v1/connections/test":
@@ -804,20 +826,30 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                 res = self.connection_pool_manager.test_connection(target)
                 self.send_json_response(res)
             except Exception as exc:  # noqa: BLE001
-                self.send_error_response(f"Connection test failed: {exc}", code="CONNECTION_TEST_ERROR", status=400)
+                self.send_error_response(
+                    f"Connection test failed: {exc}",
+                    code="CONNECTION_TEST_ERROR",
+                    status=400,
+                )
             return
 
         if path == "/api/v1/connections/cancel":
             exec_id = body.get("execution_id")
             if not exec_id or not isinstance(exec_id, str):
-                self.send_error_response("Missing required 'execution_id'.", code="BAD_REQUEST", status=400)
+                self.send_error_response(
+                    "Missing required 'execution_id'.", code="BAD_REQUEST", status=400
+                )
                 return
             cancelled = self.connection_pool_manager.cancel_execution(exec_id)
-            self.send_json_response({
-                "cancelled": cancelled,
-                "execution_id": exec_id,
-                "message": "Execution cancelled" if cancelled else "Execution not found or already completed",
-            })
+            self.send_json_response(
+                {
+                    "cancelled": cancelled,
+                    "execution_id": exec_id,
+                    "message": "Execution cancelled"
+                    if cancelled
+                    else "Execution not found or already completed",
+                }
+            )
             return
 
         if path in ("/api/v1/stream", "/api/query/stream"):
@@ -860,9 +892,6 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
                         active_spec, statement_timeout_ms=timeout_ms
                     )
                 else:
-                    if sql is None:
-                        self.send_error_response("SQL statement must not be null.", code="BAD_REQUEST", status=400)
-                        return
                     params = body.get("params", [])
                     cols, rows, latency = conn.execute_raw(sql, params)
                     result_data = {
@@ -1071,9 +1100,7 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
 
                 for chunk in stream_iter:
                     self.wfile.write(
-                        f"{len(chunk):X}\r\n".encode("ascii")
-                        + chunk
-                        + b"\r\n"
+                        f"{len(chunk):X}\r\n".encode("ascii") + chunk + b"\r\n"
                     )
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")

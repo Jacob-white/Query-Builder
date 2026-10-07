@@ -519,7 +519,7 @@ export function toDrizzle(
     const colLines: string[] = [];
     for (const col of columns) {
       const cName = col.name;
-      const cType = (col.data_type || "text").toLowerCase();
+      const cType = col.data_type.toLowerCase();
       const isPk = Boolean(col.is_primary);
       const isNullable = Boolean(col.is_nullable);
       const colVar = toCamelCase(cName);

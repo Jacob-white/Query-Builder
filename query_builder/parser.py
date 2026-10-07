@@ -54,7 +54,9 @@ def clean_identifier(ident: str) -> str:
         parts = clean.split(".")
         return ".".join(clean_identifier(p) for p in parts)
 
-    while clean and clean[0] in ('"', "'", "`", "[") and clean[-1] in ('"', "'", "`", "]"):
+    while (
+        clean and clean[0] in ('"', "'", "`", "[") and clean[-1] in ('"', "'", "`", "]")
+    ):
         clean = clean[1:-1].strip()
 
     return clean
@@ -145,7 +147,9 @@ def find_top_level_clauses(sql: str) -> list[ClauseToken]:
                 if upper.startswith(kw, i):
                     prev_char = sql[i - 1] if i > 0 else " "
                     next_char = sql[i + len(kw)] if i + len(kw) < sql_len else " "
-                    if re.match(r"[\s(),]", prev_char) and re.match(r"[\s(),]", next_char):
+                    if re.match(r"[\s(),]", prev_char) and re.match(
+                        r"[\s(),]", next_char
+                    ):
                         tokens.append(ClauseToken(keyword=kw, index=i, length=len(kw)))
                         i += len(kw)
                         matched = True
@@ -201,10 +205,12 @@ def split_top_level(text: str, delimiter_regex: str) -> list[dict[str, str]]:
             rest = text[i:]
             match = pattern.match(rest)
             if match and match.start() == 0:
-                parts.append({
-                    "value": text[last_index:i].strip(),
-                    "delimiter": match.group(0).strip(),
-                })
+                parts.append(
+                    {
+                        "value": text[last_index:i].strip(),
+                        "delimiter": match.group(0).strip(),
+                    }
+                )
                 i += match.end()
                 last_index = i
                 continue
@@ -273,10 +279,12 @@ def split_where_conditions(text: str) -> list[dict[str, str]]:
                     i += len(match.group(0))
                     continue
 
-                parts.append({
-                    "value": text[last_index:i].strip(),
-                    "delimiter": delim,
-                })
+                parts.append(
+                    {
+                        "value": text[last_index:i].strip(),
+                        "delimiter": delim,
+                    }
+                )
                 i += len(match.group(0))
                 last_index = i
                 in_between = False
@@ -346,7 +354,9 @@ def find_top_level_operator(cond_str: str) -> tuple[str, int, int] | None:
                         matched = True
                 else:
                     escaped_op = re.sub(r"\s+", r"\\s+", op)
-                    match = re.match(r"^\s+(" + escaped_op + r")(\s+|$)", rest, re.IGNORECASE)
+                    match = re.match(
+                        r"^\s+(" + escaped_op + r")(\s+|$)", rest, re.IGNORECASE
+                    )
                     if match and match.start() == 0:
                         match_offset = match.start(1)
                         match_len = len(match.group(1))
@@ -393,7 +403,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
     ctes: list[CteSpec] = []
     if re.match(r"^WITH\b", clean_sql, re.IGNORECASE):
         is_recursive = bool(re.match(r"^WITH\s+RECURSIVE\b", clean_sql, re.IGNORECASE))
-        with_prefix_match = re.match(r"^WITH(?:\s+RECURSIVE)?\s+", clean_sql, re.IGNORECASE)
+        with_prefix_match = re.match(
+            r"^WITH(?:\s+RECURSIVE)?\s+", clean_sql, re.IGNORECASE
+        )
         idx = with_prefix_match.end() if with_prefix_match else 4
 
         paren_depth = 0
@@ -448,7 +460,10 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 if as_match:
                     name = clean_identifier(as_match.group(1))
                     cols = (
-                        [clean_identifier(c.strip()) for c in as_match.group(2).split(",")]
+                        [
+                            clean_identifier(c.strip())
+                            for c in as_match.group(2).split(",")
+                        ]
                         if as_match.group(2)
                         else []
                     )
@@ -460,7 +475,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     query_sql = as_match.group(4).strip()
                     # Recursively parse the inner query if possible, or create minimal wrapper
                     sub_spec = parse_sql_to_spec(query_sql, dialect=dialect)
-                    inner_query: Any = sub_spec if sub_spec is not None else QuerySpec(table=name)
+                    inner_query: Any = (
+                        sub_spec if sub_spec is not None else QuerySpec(table=name)
+                    )
                     ctes.append(
                         CteSpec(
                             name=name,
@@ -471,7 +488,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                         )
                     )
                 else:
-                    first_token = clean_identifier(text.split()[0]) if text.split() else "cte"
+                    first_token = (
+                        clean_identifier(text.split()[0]) if text.split() else "cte"
+                    )
                     ctes.append(
                         CteSpec(
                             name=first_token,
@@ -517,7 +536,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
     is_distinct = False
     if re.match(r"^DISTINCT\s+", select_content, re.IGNORECASE):
         is_distinct = True
-        select_content = re.sub(r"^DISTINCT\s+", "", select_content, flags=re.IGNORECASE).strip()
+        select_content = re.sub(
+            r"^DISTINCT\s+", "", select_content, flags=re.IGNORECASE
+        ).strip()
 
     columns: list[str | dict[str, Any]] = []
     window_functions: list[WindowFunctionSpec] = []
@@ -609,7 +630,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     if date_trunc_match.group(3)
                     else f"{inner_col}_{grain}"
                 )
-                columns.append({"column": inner_col, "time_grain": grain, "alias": alias})
+                columns.append(
+                    {"column": inner_col, "time_grain": grain, "alias": alias}
+                )
                 continue
 
             # DATETRUNC(day, last_login) [AS alias]
@@ -626,7 +649,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     if datetrunc_mssql_match.group(3)
                     else f"{inner_col}_{grain}"
                 )
-                columns.append({"column": inner_col, "time_grain": grain, "alias": alias})
+                columns.append(
+                    {"column": inner_col, "time_grain": grain, "alias": alias}
+                )
                 continue
 
             # Aggregate with FILTER: SUM(orders.amount) FILTER (WHERE orders.status = 'complete') [AS alias]
@@ -643,12 +668,14 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     if filter_agg_match.group(4)
                     else f"{agg_name.lower()}_{inner_col}"
                 )
-                columns.append({
-                    "column": inner_col,
-                    "agg": agg_name,
-                    "metric": alias,
-                    "alias": alias,
-                })
+                columns.append(
+                    {
+                        "column": inner_col,
+                        "agg": agg_name,
+                        "metric": alias,
+                        "alias": alias,
+                    }
+                )
                 continue
 
             # Standard aggregate: COUNT(id) AS cnt or COUNT(DISTINCT id)
@@ -660,7 +687,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if agg_match:
                 agg_name = agg_match.group(1).upper()
                 inner_col = clean_identifier(agg_match.group(2))
-                alias = clean_identifier(agg_match.group(3)) if agg_match.group(3) else None
+                alias = (
+                    clean_identifier(agg_match.group(3)) if agg_match.group(3) else None
+                )
                 col_obj: dict[str, Any] = {"column": inner_col, "agg": agg_name}
                 if alias:
                     col_obj["alias"] = alias
@@ -692,17 +721,21 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if as_idx != -1:
                 expr = col_expr[:as_idx].strip()
                 alias = clean_identifier(col_expr[as_idx + 4 :].strip())
-                columns.append({
-                    "column": expr,
-                    "raw_expression": expr,
-                    "alias": alias,
-                })
+                columns.append(
+                    {
+                        "column": expr,
+                        "raw_expression": expr,
+                        "alias": alias,
+                    }
+                )
             else:
-                columns.append({
-                    "column": col_expr,
-                    "raw_expression": col_expr,
-                    "alias": clean_identifier(col_expr),
-                })
+                columns.append(
+                    {
+                        "column": col_expr,
+                        "raw_expression": col_expr,
+                        "alias": clean_identifier(col_expr),
+                    }
+                )
 
     # 3. Joins
     joins: list[JoinSpec] = []
@@ -751,7 +784,12 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 left_table=left_table,
                 left_col=left_col,
                 right_col=right_col,
-                on=[{"left": f"{left_table}.{left_col}", "right": f"{target_table}.{right_col}"}],
+                on=[
+                    {
+                        "left": f"{left_table}.{left_col}",
+                        "right": f"{target_table}.{right_col}",
+                    }
+                ],
             )
         )
 

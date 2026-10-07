@@ -335,7 +335,7 @@ export function toSqlAlchemy(
 
     // Map FK columns for this table
     const fkMap: Record<string, (typeof foreignKeys)[0]> = {};
-    for (const fk of fksByTable[tableName] || []) {
+    for (const fk of fksByTable[tableName]) {
       fkMap[fk.column] = fk;
     }
 
@@ -350,7 +350,7 @@ const PYTHON_KEYWORDS = new Set([
 
     for (const col of columns) {
       const cName = col.name;
-      const cType = (col.data_type || "text").toLowerCase();
+      const cType = col.data_type.toLowerCase();
       const isPk = Boolean(col.is_primary);
       const isNullable = Boolean(col.is_nullable);
 
@@ -395,7 +395,7 @@ const PYTHON_KEYWORDS = new Set([
     }
 
     // Generate relationships for outgoing FKs where target table is present in snapshot
-    for (const fk of fksByTable[tableName] || []) {
+    for (const fk of fksByTable[tableName]) {
       if (!tables[fk.foreign_table]) continue;
 
       const srcCol = fk.column;

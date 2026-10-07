@@ -495,7 +495,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                         return (
                           <div>
                             <div style={{ fontSize: "2.2rem", fontWeight: 700, color: kpi.color }}>
-                              {typeof kpi.value === "number" ? kpi.value.toLocaleString() : kpi.value}
+                              {kpi.value.toLocaleString()}
                             </div>
                             <div style={{ fontSize: "0.85rem", color: "#a6adc8", marginTop: "0.25rem" }}>
                               {kpi.title}

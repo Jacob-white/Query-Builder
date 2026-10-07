@@ -232,6 +232,16 @@ class FilterSpec:
     value: Any = None
     table_prefix: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "column": self.column,
+            "op": self.op,
+            "value": self.value,
+        }
+        if self.table_prefix is not None:
+            d["table_prefix"] = self.table_prefix
+        return d
+
 
 @dataclass
 class HavingSpec:
@@ -274,7 +284,9 @@ class VectorSearchSpec:
 
     def __post_init__(self) -> None:
         if not isinstance(self.vector, (list, tuple)):
-            raise TypeError("VectorSearchSpec 'vector' must be a list or tuple of numbers.")
+            raise TypeError(
+                "VectorSearchSpec 'vector' must be a list or tuple of numbers."
+            )
         if len(self.vector) == 0:
             raise ValueError("VectorSearchSpec 'vector' cannot be empty.")
         self.vector = [float(v) for v in self.vector]
@@ -316,7 +328,9 @@ class HybridSearchSpec:
 
     def __post_init__(self) -> None:
         if not isinstance(self.vector, (list, tuple)):
-            raise TypeError("HybridSearchSpec 'vector' must be a list or tuple of numbers.")
+            raise TypeError(
+                "HybridSearchSpec 'vector' must be a list or tuple of numbers."
+            )
         if len(self.vector) == 0:
             raise ValueError("HybridSearchSpec 'vector' cannot be empty.")
         self.vector = [float(v) for v in self.vector]
@@ -325,11 +339,15 @@ class HybridSearchSpec:
             raise TypeError("HybridSearchSpec 'query_text' must be a string.")
 
         if not isinstance(self.text_columns, (list, tuple)):
-            raise TypeError("HybridSearchSpec 'text_columns' must be a list of column names.")
+            raise TypeError(
+                "HybridSearchSpec 'text_columns' must be a list of column names."
+            )
         self.text_columns = list(self.text_columns)
 
         if not (0.0 <= self.alpha <= 1.0):
-            raise ValueError(f"HybridSearchSpec 'alpha' must be between 0.0 and 1.0, got {self.alpha}.")
+            raise ValueError(
+                f"HybridSearchSpec 'alpha' must be between 0.0 and 1.0, got {self.alpha}."
+            )
 
         valid_fusions = {"rrf", "linear"}
         if self.fusion.lower() not in valid_fusions:
@@ -378,7 +396,9 @@ class WindowFrameSpec:
     def __post_init__(self) -> None:
         self.frame_type = (self.frame_type or "ROWS").upper().strip()
         if self.frame_type not in {"ROWS", "RANGE", "GROUPS"}:
-            raise ValueError(f"Invalid frame_type: '{self.frame_type}'. Must be ROWS, RANGE, or GROUPS.")
+            raise ValueError(
+                f"Invalid frame_type: '{self.frame_type}'. Must be ROWS, RANGE, or GROUPS."
+            )
         self.start = (self.start or "UNBOUNDED PRECEDING").upper().strip()
         if self.end is not None:
             self.end = self.end.upper().strip()
@@ -421,12 +441,16 @@ class WindowFunctionSpec:
             "arguments": list(self.arguments),
             "partition_by": list(self.partition_by),
             "order_by": [
-                o.to_dict() if hasattr(o, "to_dict") else (o.__dict__ if hasattr(o, "__dict__") else o)
+                o.to_dict()
+                if hasattr(o, "to_dict")
+                else (o.__dict__ if hasattr(o, "__dict__") else o)
                 for o in self.order_by
             ],
         }
         if self.frame is not None:
-            d["frame"] = self.frame.to_dict() if hasattr(self.frame, "to_dict") else self.frame
+            d["frame"] = (
+                self.frame.to_dict() if hasattr(self.frame, "to_dict") else self.frame
+            )
         if self.alias is not None:
             d["alias"] = self.alias
         return d
@@ -462,7 +486,10 @@ class GroupingSetsSpec:
     sets: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"grouping_type": "grouping_sets", "grouping_sets": [list(s) for s in self.sets]}
+        return {
+            "grouping_type": "grouping_sets",
+            "grouping_sets": [list(s) for s in self.sets],
+        }
 
 
 @dataclass
@@ -504,7 +531,9 @@ class CteSpec:
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "name": self.name,
-            "query": self.query.to_dict() if hasattr(self.query, "to_dict") else self.query,
+            "query": self.query.to_dict()
+            if hasattr(self.query, "to_dict")
+            else self.query,
             "columns": list(self.columns),
             "recursive": self.recursive,
         }
@@ -523,11 +552,18 @@ class CaseWhenBranch:
 
     def __post_init__(self) -> None:
         if isinstance(self.condition, dict):
-            self.condition = FilterSpec(**self.condition)
+            c_dict = dict(self.condition)
+            if "field" in c_dict and "column" not in c_dict:
+                c_dict["column"] = c_dict.pop("field")
+            if "operator" in c_dict and "op" not in c_dict:
+                c_dict["op"] = c_dict.pop("operator")
+            self.condition = FilterSpec(**c_dict)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
-            "condition": self.condition.to_dict() if hasattr(self.condition, "to_dict") else self.condition,
+            "condition": self.condition.to_dict()
+            if hasattr(self.condition, "to_dict")
+            else self.condition,
         }
         if self.then_value is not None:
             d["then_value"] = self.then_value
@@ -548,14 +584,15 @@ class CaseWhenSpec:
     def __post_init__(self) -> None:
         if self.branches:
             self.branches = [
-                CaseWhenBranch(**b) if isinstance(b, dict) else b
-                for b in self.branches
+                CaseWhenBranch(**b) if isinstance(b, dict) else b for b in self.branches
             ]
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "branches": [
-                b.to_dict() if hasattr(b, "to_dict") else (b.__dict__ if hasattr(b, "__dict__") else b)
+                b.to_dict()
+                if hasattr(b, "to_dict")
+                else (b.__dict__ if hasattr(b, "__dict__") else b)
                 for b in self.branches
             ],
         }
@@ -579,14 +616,18 @@ class SetOperationSpec:
         self.operation = (self.operation or "UNION").upper().strip()
         valid_ops = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
         if self.operation not in valid_ops:
-            raise ValueError(f"Invalid SetOperationSpec operation: '{self.operation}'. Must be one of {sorted(valid_ops)}.")
+            raise ValueError(
+                f"Invalid SetOperationSpec operation: '{self.operation}'. Must be one of {sorted(valid_ops)}."
+            )
         if isinstance(self.query, dict):
             self.query = QuerySpec(**self.query)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "operation": self.operation,
-            "query": self.query.to_dict() if hasattr(self.query, "to_dict") else self.query,
+            "query": self.query.to_dict()
+            if hasattr(self.query, "to_dict")
+            else self.query,
         }
 
 
@@ -608,8 +649,12 @@ class QuerySpec:
     vector_search: VectorSearchSpec | dict[str, Any] | None = None
     hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
     ctes: list[CteSpec | dict[str, Any]] = field(default_factory=list)
-    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
-    set_operations: list[SetOperationSpec | dict[str, Any]] = field(default_factory=list)
+    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(
+        default_factory=list
+    )
+    set_operations: list[SetOperationSpec | dict[str, Any]] = field(
+        default_factory=list
+    )
     grouping_type: str | None = None  # standard, rollup, cube, grouping_sets
     grouping_sets: list[list[str]] | GroupingSetsSpec = field(default_factory=list)
     rollup: RollupSpec | None = None
@@ -622,10 +667,7 @@ class QuerySpec:
         if isinstance(self.hybrid_search, dict):
             self.hybrid_search = HybridSearchSpec(**self.hybrid_search)
         if self.ctes:
-            self.ctes = [
-                CteSpec(**c) if isinstance(c, dict) else c
-                for c in self.ctes
-            ]
+            self.ctes = [CteSpec(**c) if isinstance(c, dict) else c for c in self.ctes]
         if self.window_functions:
             self.window_functions = [
                 WindowFunctionSpec(**w) if isinstance(w, dict) else w
@@ -653,20 +695,28 @@ class QuerySpec:
             "table": self.table,
             "columns": list(self.columns),
             "joins": [
-                j.to_dict() if hasattr(j, "to_dict") else (j.__dict__ if hasattr(j, "__dict__") else j)
+                j.to_dict()
+                if hasattr(j, "to_dict")
+                else (j.__dict__ if hasattr(j, "__dict__") else j)
                 for j in self.joins
             ],
             "filters": [
-                f.to_dict() if hasattr(f, "to_dict") else (f.__dict__ if hasattr(f, "__dict__") else f)
+                f.to_dict()
+                if hasattr(f, "to_dict")
+                else (f.__dict__ if hasattr(f, "__dict__") else f)
                 for f in self.filters
             ],
             "filter_join": self.filter_join,
             "having": [
-                h.to_dict() if hasattr(h, "to_dict") else (h.__dict__ if hasattr(h, "__dict__") else h)
+                h.to_dict()
+                if hasattr(h, "to_dict")
+                else (h.__dict__ if hasattr(h, "__dict__") else h)
                 for h in self.having
             ],
             "order_by": [
-                o.to_dict() if hasattr(o, "to_dict") else (o.__dict__ if hasattr(o, "__dict__") else o)
+                o.to_dict()
+                if hasattr(o, "to_dict")
+                else (o.__dict__ if hasattr(o, "__dict__") else o)
                 for o in self.order_by
             ],
             "limit": self.limit,
@@ -689,17 +739,23 @@ class QuerySpec:
             )
         if self.ctes:
             res["ctes"] = [
-                c.to_dict() if hasattr(c, "to_dict") else (c.__dict__ if hasattr(c, "__dict__") else c)
+                c.to_dict()
+                if hasattr(c, "to_dict")
+                else (c.__dict__ if hasattr(c, "__dict__") else c)
                 for c in self.ctes
             ]
         if self.window_functions:
             res["window_functions"] = [
-                w.to_dict() if hasattr(w, "to_dict") else (w.__dict__ if hasattr(w, "__dict__") else w)
+                w.to_dict()
+                if hasattr(w, "to_dict")
+                else (w.__dict__ if hasattr(w, "__dict__") else w)
                 for w in self.window_functions
             ]
         if self.set_operations:
             res["set_operations"] = [
-                s.to_dict() if hasattr(s, "to_dict") else (s.__dict__ if hasattr(s, "__dict__") else s)
+                s.to_dict()
+                if hasattr(s, "to_dict")
+                else (s.__dict__ if hasattr(s, "__dict__") else s)
                 for s in self.set_operations
             ]
         if self.grouping_type is not None:
@@ -711,7 +767,11 @@ class QuerySpec:
         if self.cube is not None:
             res["cube"] = self.cube.to_dict()
         if self.pivot is not None:
-            res["pivot"] = self.pivot.to_dict() if hasattr(self.pivot, "to_dict") else dict(self.pivot)
+            res["pivot"] = (
+                self.pivot.to_dict()
+                if hasattr(self.pivot, "to_dict")
+                else dict(self.pivot)
+            )
         return res
 
 

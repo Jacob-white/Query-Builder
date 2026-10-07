@@ -103,7 +103,7 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
       }
       if (propTheme === "light") return lightTheme;
       if (propTheme === "dark") return darkTheme;
-      return contextTheme || darkTheme;
+      return contextTheme;
     }, [propTheme, contextTheme]);
 
     const cssVars = useMemo(
@@ -348,7 +348,7 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
         overrideSpec?: Record<string, unknown>,
       ): Promise<QueryResultData | void> => {
         const targetSql = overrideSql ?? (isRawMode ? rawSql : compiled.sql);
-        const targetSpec = overrideSpec ?? (spec as unknown as Record<string, unknown>);
+        const targetSpec = overrideSpec ?? (isRawMode ? undefined : (spec as unknown as Record<string, unknown>));
 
         if (!effectiveOnExecuteQuery) {
           console.warn(

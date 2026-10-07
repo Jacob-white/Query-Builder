@@ -268,7 +268,9 @@ def test_cancellation_token_lifecycle():
 
     called = []
     token.register_callback(lambda: called.append("hook1"))
-    token.register_callback(lambda: (_ for _ in ()).throw(RuntimeError("hook error")))  # Error resilient
+    token.register_callback(
+        lambda: (_ for _ in ()).throw(RuntimeError("hook error"))
+    )  # Error resilient
 
     token.cancel()
     assert token.is_cancelled is True
@@ -279,7 +281,9 @@ def test_cancellation_token_lifecycle():
 
     # Registering callback after cancel runs immediately (including error resilience)
     token.register_callback(lambda: called.append("hook2"))
-    token.register_callback(lambda: (_ for _ in ()).throw(ValueError("post-cancel hook error")))
+    token.register_callback(
+        lambda: (_ for _ in ()).throw(ValueError("post-cancel hook error"))
+    )
     assert "hook2" in called
 
     # Immediate throw when cancelled
@@ -334,7 +338,9 @@ def test_connection_pool_manager_lifecycle():
 
     # Invalid connection_id
     with pytest.raises(ValueError, match="non-empty string"):
-        mgr.register_pool("", ConnectionPool(factory=lambda: sqlite3.connect(":memory:")))
+        mgr.register_pool(
+            "", ConnectionPool(factory=lambda: sqlite3.connect(":memory:"))
+        )
 
     # Invalid pool type
     with pytest.raises(TypeError, match="instance of ConnectionPool"):
@@ -464,16 +470,27 @@ def test_connection_pool_manager_execution_and_cancellation():
     class MockCancelConnection:
         def __init__(self):
             self.cancelled = False
+
         def cancel(self):
             self.cancelled = True
+
         def cursor(self):
             class MockCursor:
                 description = [("col",)]
-                def execute(self, sql, params=None): pass
-                def fetchall(self): return [(42,)]
-                def close(self): pass
+
+                def execute(self, sql, params=None):
+                    pass
+
+                def fetchall(self):
+                    return [(42,)]
+
+                def close(self):
+                    pass
+
             return MockCursor()
-        def close(self): pass
+
+        def close(self):
+            pass
 
     cancel_pool = ConnectionPool(factory=MockCancelConnection)
     mgr.register_pool("cancel_db", cancel_pool, metadata={"dialect": "custom"})
@@ -591,5 +608,3 @@ def test_connection_pool_manager_singleton():
     mgr3 = get_connection_pool_manager()
     assert mgr3 is not mgr1
     reset_connection_pool_manager()
-
-

@@ -81,7 +81,7 @@ const ALLOWED_OPERATORS = new Set([
 
 const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
 
-const sanitizeIdent = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, "");
+const sanitizeIdent = (s: string = "") => (s || "").replace(/[\x00-\x1f\x7f]/g, "");
 
 const cleanTableName = (tbl: string) => {
   const clean = sanitizeIdent(tbl);

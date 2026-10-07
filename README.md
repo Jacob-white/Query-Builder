@@ -119,11 +119,19 @@ spec = {
             "case_when": {
                 "branches": [
                     {
-                        "condition": {"column": "orders.amount", "op": "gte", "value": 1000},
+                        "condition": {
+                            "column": "orders.amount",
+                            "op": "gte",
+                            "value": 1000,
+                        },
                         "then_value": "VIP",
                     },
                     {
-                        "condition": {"column": "orders.amount", "op": "gte", "value": 200},
+                        "condition": {
+                            "column": "orders.amount",
+                            "op": "gte",
+                            "value": 200,
+                        },
                         "then_value": "Regular",
                     },
                 ],
@@ -214,9 +222,11 @@ from query_builder import SQLiteConnector, create_query_builder_router, TenantCo
 app = FastAPI()
 connector = SQLiteConnector("app.db")
 
+
 async def get_tenant(request: Request) -> TenantContext:
     tenant_id = request.headers.get("X-Tenant-ID", "default")
     return TenantContext(tenant_id=tenant_id)
+
 
 router = create_query_builder_router(
     connector=connector,
@@ -246,6 +256,7 @@ api.add_router("/qb", router)
 import asyncio
 from query_builder import AsyncConnectionPool, AsyncCancellationToken
 
+
 async def run_queries():
     # Initialize connection pool with driver or connector name
     pool = AsyncConnectionPool(
@@ -268,6 +279,7 @@ async def run_queries():
     # Or acquire manually: conn = await pool.acquire(); await pool.release(conn)
 
     await pool.close()
+
 
 asyncio.run(run_queries())
 ```

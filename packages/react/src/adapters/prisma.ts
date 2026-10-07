@@ -433,7 +433,7 @@ export function toPrisma(
     // 1. Scalar column definitions
     for (const col of columns) {
       const cName = col.name;
-      const cType = (col.data_type || "text").toLowerCase();
+      const cType = col.data_type.toLowerCase();
       const isPk = Boolean(col.is_primary);
       const isNullable = Boolean(col.is_nullable);
 
@@ -485,7 +485,7 @@ export function toPrisma(
     }
 
     // 2. Outgoing relation fields
-    for (const fk of outgoingFks[tableName] || []) {
+    for (const fk of outgoingFks[tableName]) {
       const srcCol = fk.column;
       const tgtTbl = fk.foreign_table;
       const tgtCol = fk.foreign_column;
@@ -517,7 +517,7 @@ export function toPrisma(
 
       const pairKey = `${tableName}->${tgtTbl}`;
       const isSelf = tableName === tgtTbl;
-      const isMulti = (relCounts[pairKey] || 0) > 1 || isSelf;
+      const isMulti = relCounts[pairKey] > 1 || isSelf;
       const relNameTag = isMulti ? `"${targetModel}_${srcField}", ` : "";
 
       lines.push(
@@ -526,7 +526,7 @@ export function toPrisma(
     }
 
     // 3. Incoming back-relations
-    for (const fk of incomingFks[tableName] || []) {
+    for (const fk of incomingFks[tableName]) {
       const srcTbl = fk.table;
       const srcCol = fk.column;
       const sourceModel = toPascalCase(srcTbl);
@@ -534,7 +534,7 @@ export function toPrisma(
 
       const pairKey = `${srcTbl}->${tableName}`;
       const isSelf = srcTbl === tableName;
-      const isMulti = (relCounts[pairKey] || 0) > 1 || isSelf;
+      const isMulti = relCounts[pairKey] > 1 || isSelf;
 
       let backField: string;
       let relTag: string;

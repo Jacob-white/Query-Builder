@@ -138,9 +138,7 @@ class TestMcpServer:
             "method": "tools/call",
             "params": {
                 "name": "query_builder_get_complexity",
-                "arguments": {
-                    "spec": {"table": "logs", "columns": ["id", "msg"]}
-                },
+                "arguments": {"spec": {"table": "logs", "columns": ["id", "msg"]}},
             },
         }
         resp = server.handle_request(req)
@@ -153,7 +151,9 @@ class TestMcpServer:
 
         db_path = str(tmp_path / "test_mcp.db")
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);")
+        conn.execute(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);"
+        )
         conn.close()
 
         server = McpServer()
@@ -307,8 +307,10 @@ class TestMcpServer:
 
     def test_run_stdio_stream(self):
         input_lines = (
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
-            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "initialize"}) + "\n"
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+            + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "initialize"})
+            + "\n"
         )
         stdin = io.StringIO(input_lines)
         stdout = io.StringIO()
@@ -366,7 +368,9 @@ class TestMcpServer:
             "params": {
                 "name": "query_builder_execute",
                 "arguments": {
-                    "spec": json.dumps({"table": "metrics", "columns": ["id", "score"]}),
+                    "spec": json.dumps(
+                        {"table": "metrics", "columns": ["id", "score"]}
+                    ),
                     "connector": "sqlite",
                     "config": json.dumps({"database": db_path}),
                 },
@@ -402,4 +406,3 @@ class TestMcpServer:
         # Run inside active event loop
         resp = server.handle_request(req)
         assert not resp["result"]["isError"]
-
