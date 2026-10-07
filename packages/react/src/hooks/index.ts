@@ -74,3 +74,12 @@ export {
   type UseBringYourOwnAiOptions,
   type UseBringYourOwnAiResult,
 } from "./useBringYourOwnAi";
+
+export type {
+  QuerySpec,
+  SchemaSnapshot,
+  QueryResultData,
+  SqlDialect,
+  SqlSafetyValidation,
+} from "../types";
+

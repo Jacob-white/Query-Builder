@@ -432,6 +432,59 @@ class WindowFunctionSpec:
         return d
 
 
+WindowSpec = WindowFunctionSpec
+
+
+@dataclass
+class RollupSpec:
+    """Analytical specification for GROUP BY ROLLUP hierarchical aggregation."""
+
+    columns: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"grouping_type": "rollup", "columns": list(self.columns)}
+
+
+@dataclass
+class CubeSpec:
+    """Analytical specification for GROUP BY CUBE multi-dimensional aggregation."""
+
+    columns: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"grouping_type": "cube", "columns": list(self.columns)}
+
+
+@dataclass
+class GroupingSetsSpec:
+    """Analytical specification for explicit GROUP BY GROUPING SETS aggregation."""
+
+    sets: list[list[str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"grouping_type": "grouping_sets", "grouping_sets": [list(s) for s in self.sets]}
+
+
+@dataclass
+class PivotSpec:
+    """Analytical specification for table pivoting / cross-tabulation."""
+
+    aggregate: str
+    column: str
+    values: list[Any] = field(default_factory=list)
+    alias: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "aggregate": self.aggregate,
+            "column": self.column,
+            "values": list(self.values),
+        }
+        if self.alias:
+            d["alias"] = self.alias
+        return d
+
+
 @dataclass
 class CteSpec:
     """Specification of a Common Table Expression (WITH stage) in a DAG pipeline."""
@@ -558,7 +611,10 @@ class QuerySpec:
     window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
     set_operations: list[SetOperationSpec | dict[str, Any]] = field(default_factory=list)
     grouping_type: str | None = None  # standard, rollup, cube, grouping_sets
-    grouping_sets: list[list[str]] = field(default_factory=list)
+    grouping_sets: list[list[str]] | GroupingSetsSpec = field(default_factory=list)
+    rollup: RollupSpec | None = None
+    cube: CubeSpec | None = None
+    pivot: PivotSpec | dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.vector_search, dict):
@@ -580,6 +636,15 @@ class QuerySpec:
                 SetOperationSpec(**s) if isinstance(s, dict) else s
                 for s in self.set_operations
             ]
+        if self.rollup is not None:
+            self.grouping_type = "rollup"
+        if self.cube is not None:
+            self.grouping_type = "cube"
+        if isinstance(self.grouping_sets, GroupingSetsSpec):
+            self.grouping_type = "grouping_sets"
+            self.grouping_sets = list(self.grouping_sets.sets)
+        if isinstance(self.pivot, dict):
+            self.pivot = PivotSpec(**self.pivot)
         if self.grouping_type is not None:
             self.grouping_type = self.grouping_type.lower().strip()
 
@@ -641,6 +706,12 @@ class QuerySpec:
             res["grouping_type"] = self.grouping_type
         if self.grouping_sets:
             res["grouping_sets"] = [list(gs) for gs in self.grouping_sets]
+        if self.rollup is not None:
+            res["rollup"] = self.rollup.to_dict()
+        if self.cube is not None:
+            res["cube"] = self.cube.to_dict()
+        if self.pivot is not None:
+            res["pivot"] = self.pivot.to_dict() if hasattr(self.pivot, "to_dict") else dict(self.pivot)
         return res
 
 

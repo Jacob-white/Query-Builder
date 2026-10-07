@@ -61,20 +61,53 @@ export function readFileAsArrayBuffer(file: Blob): Promise<ArrayBuffer> {
   });
 }
 
+export interface LocalFileIngestOptions {
+  tableName?: string;
+}
+
 /**
  * Coordinates reading and ingesting a local file into the client OLAP engine.
+ * Supports both `(file, engine, options?)` and `(engine, file, options?)` invocation patterns.
  */
-export async function ingestLocalFile(
+export function ingestLocalFile(
   file: File,
   engine: ClientOlapEngine,
-  customTableName?: string,
+  customTableName?: string | LocalFileIngestOptions,
+): Promise<DuckDBTableMeta>;
+export function ingestLocalFile(
+  engine: ClientOlapEngine,
+  file: File,
+  options?: string | LocalFileIngestOptions,
+): Promise<DuckDBTableMeta>;
+export async function ingestLocalFile(
+  first: File | ClientOlapEngine,
+  second: File | ClientOlapEngine,
+  third?: string | LocalFileIngestOptions,
 ): Promise<DuckDBTableMeta> {
+  let file: File;
+  let engine: ClientOlapEngine;
+
+  if (typeof (first as any)?.query === "function" && typeof (first as any)?.ingestCsv === "function") {
+    engine = first as ClientOlapEngine;
+    file = second as File;
+  } else {
+    file = first as File;
+    engine = second as ClientOlapEngine;
+  }
+
+  let rawTableName: string | undefined;
+  if (typeof third === "string") {
+    rawTableName = third;
+  } else if (third && typeof third === "object" && "tableName" in third) {
+    rawTableName = third.tableName;
+  }
+
   const format = detectFileFormat(file);
   if (format === "unknown") {
     throw new Error(`Unsupported file format for '${file.name}'. Supported formats: CSV, TSV, JSON, Parquet.`);
   }
 
-  const tableName = customTableName ? sanitizeTableName(customTableName) : sanitizeTableName(file.name);
+  const tableName = rawTableName ? sanitizeTableName(rawTableName) : sanitizeTableName(file.name);
 
   if (format === "csv" || format === "tsv") {
     const text = await readFileAsText(file);

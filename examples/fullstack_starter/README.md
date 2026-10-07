@@ -13,12 +13,15 @@ A complete, runnable, turnkey fullstack application demonstrating end-to-end int
   - `orders` (PK `id`, FK `user_id`, enum `status`, `total_amount`, `shipping_address`)
   - `order_items` (PK `id`, FK `order_id`, FK `product_id`, `quantity`, `unit_price`, `discount`)
 - **FastAPI Backend Server (`backend/main.py`)**:
+  - Uses `create_query_builder_router(connector=connector, prefix="/api")` for turnkey REST routing.
   - `GET /health`: Engine status, available dialects, active security profile.
-  - `GET /api/schema`: Relational schema snapshot for the visual query builder.
+  - `GET /api/schema` (and alias `/api/introspect`): Relational schema snapshot for the visual query builder.
   - `POST /api/compile`: Compiles JSON query spec to safe parameterized SQL.
-  - `POST /api/execute`: Validates AST safety and executes queries via `SQLiteConnector`.
+  - `POST /api/validate`: Performs AST safety validation against SQL injection and mutation keywords.
+  - `POST /api/execute`: Compiles and executes queries via `SQLiteConnector` with statement timeouts.
+  - `POST /api/export`: Exports tabular results into CSV, JSON, Parquet, or Excel files.
 - **React 18 + Vite Frontend (`frontend/`)**:
-  - **Tab 1: Visual Studio Mode**: Plug-and-play `<VisualQueryBuilder>` with dark theming, automatic relational joins, interactive filters, and live results.
+  - **Tab 1: Visual Studio Mode**: Plug-and-play `<VisualQueryBuilder>` with dark container-scoped theming, automatic relational joins, interactive filters, and live results.
   - **Tab 2: Headless Mode**: Unstyled custom UI using `useQueryBuilder` and `useQueryExecution`.
   - **Tab 3: ORM Adapters Demo**: Live conversion of Prisma, Drizzle, and SQLAlchemy schemas into Query-Builder ASTs in the browser.
   - **Custom Extensions**: Custom filter operator (`TAX_EXEMPT`) and custom price currency badge renderer.
@@ -128,5 +131,17 @@ Response:
   "dialect": "sqlite",
   "limit": 5,
   "offset": 0
+}
+```
+
+### `POST /api/export`
+Exports query dataset into downloadable binary/text formats (`csv`, `json`, `parquet`, `excel`):
+```json
+{
+  "spec": {
+    "table": "products",
+    "columns": ["products.id", "products.name", "products.price"]
+  },
+  "format": "csv"
 }
 ```

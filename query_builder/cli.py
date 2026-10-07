@@ -129,7 +129,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3. Test-connection subcommand
     test_p = subparsers.add_parser(
-        "test-connection", help="Test database reachability and latency."
+        "test-connection",
+        aliases=["test"],
+        help="Test database reachability and latency.",
     )
     test_p.add_argument(
         "--connector",
@@ -178,7 +180,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # 5. Export-schema subcommand
     export_p = subparsers.add_parser(
-        "export-schema", help="Convert schema snapshot into ORM schema definitions."
+        "export-schema",
+        aliases=["export"],
+        help="Convert schema snapshot into ORM schema definitions.",
     )
     export_p.add_argument(
         "--schema",
@@ -210,7 +214,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # 6. Join path subcommand
     join_p = subparsers.add_parser(
-        "join-path", help="Find the shortest join path between tables."
+        "join-path",
+        aliases=["join"],
+        help="Find the shortest join path between tables.",
     )
     join_p.add_argument(
         "--active",
@@ -552,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return 0 if is_valid else 1
 
-    elif args.command == "test-connection":
+    elif args.command in ("test-connection", "test"):
         try:
             config: dict[str, Any] = {}
             if args.config:
@@ -659,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(f"Introspection error: {e}\n")
             return 1
 
-    elif args.command == "export-schema":
+    elif args.command in ("export-schema", "export"):
         try:
             if args.schema.startswith("{"):
                 schema_data = json.loads(args.schema)
@@ -722,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(f"Export error: {e}\n")
             return 1
 
-    elif args.command == "join-path":
+    elif args.command in ("join-path", "join"):
         try:
             active = [t.strip() for t in args.active.split(",") if t.strip()]
             schema_data = None

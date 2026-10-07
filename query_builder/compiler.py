@@ -55,6 +55,9 @@ ALLOWED_SPEC_KEYS = {
     "set_operations",
     "grouping_type",
     "grouping_sets",
+    "rollup",
+    "cube",
+    "pivot",
 }
 
 ALLOWED_COLUMN_KEYS = {
@@ -768,8 +771,23 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
 
     if "grouping_sets" in spec and spec["grouping_sets"] is not None:
         gs_val = spec["grouping_sets"]
-        if not isinstance(gs_val, (list, tuple)):
+        if not isinstance(gs_val, (list, tuple)) and not hasattr(gs_val, "sets"):
             raise ValidationError("Field 'grouping_sets' must be a list of column lists.")
+
+    if "rollup" in spec and spec["rollup"] is not None:
+        r_val = spec["rollup"]
+        if not isinstance(r_val, (dict, list, tuple)) and not hasattr(r_val, "columns"):
+            raise ValidationError("Field 'rollup' must be a RollupSpec or dict.")
+
+    if "cube" in spec and spec["cube"] is not None:
+        c_val = spec["cube"]
+        if not isinstance(c_val, (dict, list, tuple)) and not hasattr(c_val, "columns"):
+            raise ValidationError("Field 'cube' must be a CubeSpec or dict.")
+
+    if "pivot" in spec and spec["pivot"] is not None:
+        p_val = spec["pivot"]
+        if not isinstance(p_val, dict) and not hasattr(p_val, "column"):
+            raise ValidationError("Field 'pivot' must be a PivotSpec or dict.")
 
 
 
@@ -2001,23 +2019,48 @@ class QueryCompiler:
         )
 
         group_by_str = ""
-        if (self.has_aggregation or self.spec.get("grouping_type") or self.spec.get("grouping_sets")) and self.group_by_items:
+        has_grouping = bool(
+            self.has_aggregation
+            or self.spec.get("grouping_type")
+            or self.spec.get("grouping_sets")
+            or self.spec.get("rollup")
+            or self.spec.get("cube")
+        )
+        if has_grouping and (self.group_by_items or self.spec.get("rollup") or self.spec.get("cube")):
             g_type = (self.spec.get("grouping_type") or "").lower()
-            if g_type == "rollup":
-                group_by_str = f"GROUP BY ROLLUP({', '.join(self.group_by_items)})"
-            elif g_type == "cube":
-                group_by_str = f"GROUP BY CUBE({', '.join(self.group_by_items)})"
+            if g_type == "rollup" or self.spec.get("rollup"):
+                rollup_spec = self.spec.get("rollup")
+                r_cols = getattr(rollup_spec, "columns", None) if rollup_spec else None
+                if r_cols is None and isinstance(rollup_spec, dict):
+                    r_cols = rollup_spec.get("columns")
+                if r_cols:
+                    quoted_r = [self._resolve_column_ref(c, clean_base_table)[2] for c in r_cols]
+                    group_by_str = f"GROUP BY ROLLUP({', '.join(quoted_r)})"
+                elif self.group_by_items:
+                    group_by_str = f"GROUP BY ROLLUP({', '.join(self.group_by_items)})"
+            elif g_type == "cube" or self.spec.get("cube"):
+                cube_spec = self.spec.get("cube")
+                c_cols = getattr(cube_spec, "columns", None) if cube_spec else None
+                if c_cols is None and isinstance(cube_spec, dict):
+                    c_cols = cube_spec.get("columns")
+                if c_cols:
+                    quoted_c = [self._resolve_column_ref(c, clean_base_table)[2] for c in c_cols]
+                    group_by_str = f"GROUP BY CUBE({', '.join(quoted_c)})"
+                elif self.group_by_items:
+                    group_by_str = f"GROUP BY CUBE({', '.join(self.group_by_items)})"
             elif g_type == "grouping_sets" or self.spec.get("grouping_sets"):
                 g_sets = self.spec.get("grouping_sets") or []
+                if hasattr(g_sets, "sets"):
+                    g_sets = g_sets.sets
                 formatted_sets = []
                 for s in g_sets:
                     quoted_s = [self._resolve_column_ref(c, clean_base_table)[2] for c in s]
                     formatted_sets.append(f"({', '.join(quoted_s)})")
                 if formatted_sets:
                     group_by_str = f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
-                else:
+                elif self.group_by_items:
                     group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
-            else:
+            elif self.group_by_items:
                 group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
 
         having_str = (
@@ -2218,3 +2261,7 @@ class QueryCompiler:
             )
 
         return main_sql, main_params, count_sql, count_params
+
+
+AnalyticalCompiler = QueryCompiler
+
