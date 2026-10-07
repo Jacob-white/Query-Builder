@@ -22,7 +22,8 @@ export function generateSdkSnippet(spec: QuerySpec | Partial<QuerySpec>): string
   );
   const colsStr = cols.length > 0 ? JSON.stringify(cols) : "[]";
 
-  let code = `import { createQuery } from "@jacob-white/query-builder";\n\n`;
+  let code = `import { createQuery, createQueryBuilderClient } from "@jacob-white/query-builder-react/client";\n\n`;
+  code += `const client = createQueryBuilderClient({ baseUrl: "/api/qb" });\n\n`;
   code += `const query = createQuery()\n  .from("${tbl}")\n  .select(${colsStr})`;
 
   if (spec.joins && spec.joins.length > 0) {
@@ -51,7 +52,7 @@ export function generateSdkSnippet(spec: QuerySpec | Partial<QuerySpec>): string
     code += `\n  .limit(${spec.limit})`;
   }
 
-  code += `;\n\nconst result = await query.execute();`;
+  code += `;\n\n// Compile SQL or execute\nconst { sql, params } = await client.compile(query.toSpec());\nconst result = await client.execute(query.toSpec());\n// or: const result = await query.execute(client);`;
   return code;
 }
 

@@ -17,6 +17,7 @@ import urllib.parse
 from dataclasses import asdict
 from typing import Any
 
+from query_builder.config import SecurityProfile
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect
 from query_builder.exceptions import SecurityError
 from query_builder.models import QuerySpec
@@ -713,6 +714,31 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     # Hybrid search
     if spec_dict.get("hybrid_search"):
         score += 8
+
+    # Set Operations
+    set_ops = spec_dict.get("set_operations") or []
+    for so in set_ops:
+        score += 10
+        if isinstance(so, dict):
+            q = so.get("query")
+            if isinstance(q, (dict, QuerySpec)):
+                score += calculate_ast_complexity(q)
+        elif hasattr(so, "query"):
+            q = getattr(so, "query")
+            if isinstance(q, (dict, QuerySpec)):
+                score += calculate_ast_complexity(q)
+
+    # Case When columns
+    cols = spec_dict.get("columns") or []
+    for c in cols:
+        if isinstance(c, dict) and "case_when" in c:
+            cw = c["case_when"]
+            branches = cw.get("branches", []) if isinstance(cw, dict) else getattr(cw, "branches", [])
+            score += 2 * max(1, len(branches))
+
+    # Grouping Type
+    if spec_dict.get("grouping_type"):
+        score += 4
 
     return score
 

@@ -52,6 +52,9 @@ ALLOWED_SPEC_KEYS = {
     "metrics",
     "semantic_model",
     "semantic_models",
+    "set_operations",
+    "grouping_type",
+    "grouping_sets",
 }
 
 ALLOWED_COLUMN_KEYS = {
@@ -65,6 +68,8 @@ ALLOWED_COLUMN_KEYS = {
     "grain",
     "metric",
     "format",
+    "case_when",
+    "expression",
 }
 ALLOWED_JOIN_KEYS = {
     "table",
@@ -280,17 +285,42 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                         f"Unexpected field(s) in column specification: {', '.join(sorted(unknown_col))}"
                     )
             raw_col = col.get("column", col.get("name"))
-            if raw_col is None:
-                continue
-            if isinstance(raw_col, str):
-                if raw_col == "*":
-                    pass
-                elif raw_col.endswith(".*"):
-                    _check_ident(raw_col[:-2], "column table prefix")
+            case_when = col.get("case_when")
+            if case_when is not None:
+                if hasattr(case_when, "__dict__"):
+                    cw_dict = {k: v for k, v in case_when.__dict__.items() if not k.startswith("_")}
+                elif isinstance(case_when, dict):
+                    cw_dict = case_when
                 else:
-                    _check_ident(raw_col, "column")
+                    raise ValidationError("Field 'case_when' must be a dictionary or CaseWhenSpec.")
+                branches = cw_dict.get("branches", [])
+                if not isinstance(branches, (list, tuple)) or len(branches) == 0:
+                    raise ValidationError("'case_when' must contain a non-empty list of 'branches'.")
+                for b in branches:
+                    if hasattr(b, "__dict__"):
+                        b_dict = {k: v for k, v in b.__dict__.items() if not k.startswith("_")}
+                    elif isinstance(b, dict):
+                        b_dict = b
+                    else:
+                        raise ValidationError("Each branch in 'case_when' must be a dict or CaseWhenBranch.")
+                    if not b_dict.get("condition"):
+                        raise ValidationError("Each branch in 'case_when' must have a 'condition'.")
+
+            if raw_col is None:
+                if case_when is not None or col.get("expression") is not None:
+                    pass
+                else:
+                    continue
             else:
-                raise ValidationError("Column name must be a string.")
+                if isinstance(raw_col, str):
+                    if raw_col == "*":
+                        pass
+                    elif raw_col.endswith(".*"):
+                        _check_ident(raw_col[:-2], "column table prefix")
+                    else:
+                        _check_ident(raw_col, "column")
+                else:
+                    raise ValidationError("Column name must be a string.")
             agg = col.get("agg") or col.get("aggregate")
             if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
                 raise ValidationError(f"Unsupported aggregate function: '{agg}'")
@@ -706,6 +736,41 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             if not wf_res.get("valid", True):
                 raise ValidationError(wf_res["violations"][0])
 
+    if "set_operations" in spec and spec["set_operations"] is not None:
+        so_val = spec["set_operations"]
+        if not isinstance(so_val, (list, tuple)):
+            raise ValidationError("Field 'set_operations' must be a list.")
+        for so in so_val:
+            if hasattr(so, "__dict__"):
+                so_dict = {k: v for k, v in so.__dict__.items() if not k.startswith("_")}
+            elif isinstance(so, dict):
+                so_dict = so
+            else:
+                raise ValidationError("Each set operation must be a dict or SetOperationSpec.")
+            op = str(so_dict.get("operation", "UNION")).upper().strip()
+            valid_ops = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
+            if op not in valid_ops:
+                raise ValidationError(f"Invalid set operation: '{op}'. Must be one of {sorted(valid_ops)}.")
+            q = so_dict.get("query")
+            if not q:
+                raise ValidationError("Set operation must include a 'query' sub-specification.")
+            if isinstance(q, dict):
+                validate_query_spec(q, allow_unknown_keys=allow_unknown_keys)
+            elif hasattr(q, "__dict__"):
+                validate_query_spec(q.__dict__, allow_unknown_keys=allow_unknown_keys)
+
+    if "grouping_type" in spec and spec["grouping_type"] is not None:
+        gt = str(spec["grouping_type"]).lower().strip()
+        if gt not in {"standard", "rollup", "cube", "grouping_sets"}:
+            raise ValidationError(
+                f"Invalid 'grouping_type': '{gt}'. Must be one of 'standard', 'rollup', 'cube', 'grouping_sets'."
+            )
+
+    if "grouping_sets" in spec and spec["grouping_sets"] is not None:
+        gs_val = spec["grouping_sets"]
+        if not isinstance(gs_val, (list, tuple)):
+            raise ValidationError("Field 'grouping_sets' must be a list of column lists.")
+
 
 
 class QueryCompiler:
@@ -924,6 +989,89 @@ class QueryCompiler:
         else:
             quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(clean_col)}"
         return alias, clean_col, quoted_ref
+
+    def _compile_case_when(
+        self,
+        cw_spec: dict[str, Any] | Any,
+        clean_base_table: str,
+    ) -> str:
+        """Compiles declarative CASE WHEN branches into SQL conditional expression."""
+        if hasattr(cw_spec, "__dict__"):
+            cw_dict = {k: v for k, v in cw_spec.__dict__.items() if not k.startswith("_")}
+        elif isinstance(cw_spec, dict):
+            cw_dict = cw_spec
+        else:
+            raise CompilationError("Invalid case_when specification type.")
+
+        branches = cw_dict.get("branches", [])
+        when_tokens: list[str] = []
+        for b in branches:
+            if hasattr(b, "__dict__"):
+                b_dict = {k: v for k, v in b.__dict__.items() if not k.startswith("_")}
+            elif isinstance(b, dict):
+                b_dict = b
+            else:
+                continue
+            cond = b_dict.get("condition")
+            if hasattr(cond, "__dict__"):
+                cond = {k: v for k, v in cond.__dict__.items() if not k.startswith("_")}
+            elif not isinstance(cond, dict):
+                continue
+
+            col_ref = cond.get("column")
+            op = str(cond.get("op", cond.get("operator", "eq"))).strip().lower()
+            val = cond.get("value")
+            pfx = cond.get("table_prefix") or cond.get("tablePrefix") or cond.get("table") or clean_base_table
+            _, _, quoted_cond_ref = self._resolve_column_ref(col_ref, pfx)
+
+            if op in ("is_null", "is null"):
+                cond_expr = f"{quoted_cond_ref} IS NULL"
+            elif op in ("is_not_null", "is not null"):
+                cond_expr = f"{quoted_cond_ref} IS NOT NULL"
+            elif op in ("in", "not_in", "not in"):
+                neg = "NOT " if "not" in op else ""
+                in_vals = val if isinstance(val, (list, tuple, set)) else [val]
+                placeholders = ", ".join(self.dialect.placeholder for _ in in_vals)
+                cond_expr = f"{quoted_cond_ref} {neg}IN ({placeholders})"
+                self.params.extend(in_vals)
+            elif op in ("between", "not_between", "not between"):
+                neg = "NOT " if "not" in op else ""
+                if isinstance(val, (list, tuple)) and len(val) >= 2:
+                    v1, v2 = val[0], val[1]
+                else:
+                    v1 = v2 = val
+                cond_expr = f"{quoted_cond_ref} {neg}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
+                self.params.extend([v1, v2])
+            elif op in OPERATOR_MAP:
+                sql_op = OPERATOR_MAP[op]
+                cond_expr = f"{quoted_cond_ref} {sql_op} {self.dialect.placeholder}"
+                self.params.append(val)
+            else:
+                cond_expr = f"{quoted_cond_ref} = {self.dialect.placeholder}"
+                self.params.append(val)
+
+            then_col = b_dict.get("then_column")
+            if then_col:
+                _, _, quoted_then = self._resolve_column_ref(then_col, clean_base_table)
+                then_expr = quoted_then
+            else:
+                then_val = b_dict.get("then_value")
+                then_expr = self.dialect.placeholder
+                self.params.append(then_val)
+
+            when_tokens.append(f"WHEN {cond_expr} THEN {then_expr}")
+
+        else_col = cw_dict.get("else_column")
+        if else_col:
+            _, _, quoted_else = self._resolve_column_ref(else_col, clean_base_table)
+            else_expr = quoted_else
+        elif "else_value" in cw_dict and cw_dict.get("else_value") is not None:
+            else_expr = self.dialect.placeholder
+            self.params.append(cw_dict.get("else_value"))
+        else:
+            else_expr = "NULL"
+
+        return f"CASE {' '.join(when_tokens)} ELSE {else_expr} END"
 
     def compile(
         self, context: dict[str, Any] | None = None
@@ -1193,6 +1341,17 @@ class QueryCompiler:
                 self.select_column_names.append(col_item)
                 self.group_by_items.append(quoted_ref)
             else:
+                case_when = col_item.get("case_when")
+                if case_when is not None:
+                    case_body = self._compile_case_when(case_when, clean_base_table)
+                    alias_label = col_item.get("alias") or f"case_{len(self.select_clause_items) + 1}"
+                    self.select_clause_items.append(
+                        f"{case_body} AS {self.dialect.quote_alias(alias_label)}"
+                    )
+                    self.select_column_names.append(alias_label)
+                    self.group_by_items.append(case_body)
+                    continue
+
                 raw_col_ref = col_item.get("column", col_item.get("name"))
                 if not raw_col_ref or not isinstance(raw_col_ref, str):
                     continue
@@ -1842,8 +2001,24 @@ class QueryCompiler:
         )
 
         group_by_str = ""
-        if self.has_aggregation and self.group_by_items:
-            group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
+        if (self.has_aggregation or self.spec.get("grouping_type") or self.spec.get("grouping_sets")) and self.group_by_items:
+            g_type = (self.spec.get("grouping_type") or "").lower()
+            if g_type == "rollup":
+                group_by_str = f"GROUP BY ROLLUP({', '.join(self.group_by_items)})"
+            elif g_type == "cube":
+                group_by_str = f"GROUP BY CUBE({', '.join(self.group_by_items)})"
+            elif g_type == "grouping_sets" or self.spec.get("grouping_sets"):
+                g_sets = self.spec.get("grouping_sets") or []
+                formatted_sets = []
+                for s in g_sets:
+                    quoted_s = [self._resolve_column_ref(c, clean_base_table)[2] for c in s]
+                    formatted_sets.append(f"({', '.join(quoted_s)})")
+                if formatted_sets:
+                    group_by_str = f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
+                else:
+                    group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
+            else:
+                group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
 
         having_str = (
             f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
@@ -2000,6 +2175,32 @@ class QueryCompiler:
             main_params = cte_params + main_params
             count_sql = f"{cte_sql_prefix}{count_sql}"
             count_params = cte_params + count_params
+
+        # Process Set Operations (UNION, UNION ALL, INTERSECT, EXCEPT, MINUS)
+        set_ops_spec = self.spec.get("set_operations") or []
+        if set_ops_spec:
+            for so in set_ops_spec:
+                if hasattr(so, "__dict__"):
+                    so_dict = {k: v for k, v in so.__dict__.items() if not k.startswith("_")}
+                elif isinstance(so, dict):
+                    so_dict = so
+                else:
+                    raise CompilationError(f"Invalid set operation item type: {type(so).__name__}")
+                op = str(so_dict.get("operation") or "UNION").upper().strip()
+                sub_query = so_dict.get("query")
+                if not sub_query:
+                    raise CompilationError(f"Set operation '{op}' is missing 'query'.")
+                sub_compiler = QueryCompiler(
+                    sub_query,
+                    schema=self.schema,
+                    dialect=self.dialect,
+                    allow_unknown_keys=True,
+                )
+                sub_sql, sub_params, _, _ = sub_compiler.compile()
+                main_sql = f"{main_sql}\n{op}\n{sub_sql}"
+                main_params = main_params + sub_params
+            count_sql = f"SELECT COUNT(*) FROM (\n{main_sql}\n) AS set_op_count"
+            count_params = list(main_params)
 
         if self.middleware is not None:
             compilation = {

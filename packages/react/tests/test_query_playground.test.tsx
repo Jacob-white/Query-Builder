@@ -176,7 +176,7 @@ describe("QueryPlayground Interactive Component", () => {
     });
 
     // Default target: TypeScript SDK
-    expect(screen.getByText(/import \{ createQuery \} from "@jacob-white\/query-builder"/)).toBeDefined();
+    expect(screen.getByText(/import \{ createQuery, createQueryBuilderClient \} from "@jacob-white\/query-builder-react\/client"/)).toBeDefined();
 
     // Copy TypeScript SDK snippet
     const copyBtn = screen.getByText("📋 Copy Snippet");
@@ -239,7 +239,7 @@ describe("QueryPlayground Interactive Component", () => {
     act(() => {
       fireEvent.click(sdkTab);
     });
-    expect(screen.getByText(/import \{ createQuery \}/)).toBeDefined();
+    expect(screen.getByText(/import \{ createQuery, createQueryBuilderClient \} from "@jacob-white\/query-builder-react\/client"/)).toBeDefined();
 
     // Advance timer to clear copied state (line 100)
     vi.useFakeTimers();

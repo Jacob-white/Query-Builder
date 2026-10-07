@@ -354,9 +354,51 @@ export interface StreamingQueryState {
   error: string | null;
 }
 
+export interface CaseWhenBranch {
+  condition: {
+    column: string;
+    op: string;
+    value?: any;
+    tablePrefix?: string;
+  };
+  then_value?: any;
+  then_column?: string;
+}
+
+export interface CaseWhenSpec {
+  branches: CaseWhenBranch[];
+  else_value?: any;
+  else_column?: string;
+  alias?: string;
+}
+
+export interface SetOperationSpec<Schema = any> {
+  operation: "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT" | "MINUS";
+  query: QuerySpec<Schema>;
+}
+
+export interface CalculatedFieldSpec {
+  id: string;
+  name: string;
+  alias: string;
+  type: "case_when" | "expression";
+  case_when?: CaseWhenSpec;
+  expression?: string;
+  dataType?: string;
+}
+
 export interface QuerySpec<Schema = any> {
   table: SchemaTableNames<Schema>;
-  columns: (string | { column: string; agg?: string; alias?: string })[];
+  columns: (
+    | string
+    | {
+        column?: string;
+        agg?: string;
+        alias?: string;
+        case_when?: CaseWhenSpec;
+        expression?: string;
+      }
+  )[];
   joins: {
     table: SchemaTableNames<Schema>;
     type: string;
@@ -384,6 +426,11 @@ export interface QuerySpec<Schema = any> {
   hybrid_search?: HybridSearchSpec;
   ctes?: CteSpec[];
   window_functions?: WindowFunctionSpec[];
+  set_operations?: SetOperationSpec<Schema>[];
+  group_by?: string[];
+  having?: { column: string; op: string; value: any }[];
+  grouping_type?: "standard" | "rollup" | "cube" | "grouping_sets";
+  grouping_sets?: string[][];
 }
 
 export interface WindowFrameSpec {
@@ -571,17 +618,93 @@ export type SqlDialect =
   | "informix"
   | "ibm_informix";
 
+export interface VisualQueryBuilderRef {
+  /** Gets the active serialized QuerySpec AST */
+  getSpec(): QuerySpec;
+  /** Gets the current compiled or raw SQL string */
+  getSql(): string;
+  /** Sets and synchronizes a new QuerySpec AST into the visual state */
+  setSpec(spec: QuerySpec): void;
+  /** Resets visual canvas back to initial state */
+  reset(): void;
+  /** Imperatively triggers query execution */
+  execute(): Promise<QueryResultData | void>;
+  /** Undoes last state change */
+  undo(): void;
+  /** Redoes previously undone state change */
+  redo(): void;
+  /** Whether an undo action is available */
+  canUndo(): boolean;
+  /** Whether a redo action is available */
+  canRedo(): boolean;
+}
+
+// ==========================================
+// Slotted Styling & Compound Component Types
+// ==========================================
+
+export type QueryBuilderSlot =
+  | "root"
+  | "header"
+  | "title"
+  | "tabs"
+  | "tab"
+  | "tabActive"
+  | "canvas"
+  | "canvasTables"
+  | "canvasEmpty"
+  | "tableCard"
+  | "tableCardHeader"
+  | "tableCardTitle"
+  | "tableCardBadge"
+  | "columnList"
+  | "columnItem"
+  | "columnCheckbox"
+  | "columnName"
+  | "columnType"
+  | "columns"
+  | "columnsHeader"
+  | "projectionItem"
+  | "projectionSelect"
+  | "projectionAlias"
+  | "joins"
+  | "joinItem"
+  | "filters"
+  | "filterItem"
+  | "filterAddButton"
+  | "sorts"
+  | "sortItem"
+  | "sortAddButton"
+  | "sqlEditor"
+  | "sqlTextarea"
+  | "sqlSyncBadge"
+  | "results"
+  | "resultsHeader"
+  | "resultsTable"
+  | "resultsRow"
+  | "resultsCell"
+  | "resultsEmpty"
+  | "resultsLoading";
+
+export type QueryBuilderClassNames = Partial<Record<QueryBuilderSlot, string>>;
+
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   presets?: SqlPreset[];
   initialTable?: SchemaTableNames<Schema>;
   dialect?: SqlDialect;
+  value?: QuerySpec<Schema>;
+  onChange?: (spec: QuerySpec<Schema>, sql: string) => void;
+  initialSpec?: QuerySpec<Schema>;
+  client?: import("./client").QueryBuilderClient;
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
   onSaveQuery?: (title: string, sql: string, spec: Record<string, unknown>) => void;
   theme?: "dark" | "light" | "auto";
   readOnly?: boolean;
   unstyled?: boolean;
   mode?: "styled" | "unstyled";
+  className?: string;
+  classNames?: QueryBuilderClassNames;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;

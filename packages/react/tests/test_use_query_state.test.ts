@@ -492,6 +492,20 @@ describe("useQueryState Standalone Hook & State History", () => {
     });
     expect(result.current.state.primaryTable).toBe("orders");
     expect(result.current.state.activeTables).toEqual(["orders"]);
+
+    // loadSpec with a full new query specification replaces table and resets joins, filters, and sorts
+    act(() => {
+      result.current.actions.loadSpec({
+        table: "products",
+        columns: ["products.name"],
+      });
+    });
+    expect(result.current.state.primaryTable).toBe("products");
+    expect(result.current.state.activeTables).toEqual(["products"]);
+    expect(result.current.state.joins).toEqual([]);
+    expect(result.current.state.filters).toEqual([]);
+    expect(result.current.state.sorts).toEqual([]);
+    expect(result.current.state.selectedColumns["products.name"]).toBeDefined();
   });
 
   it("handles initial state without primary table and isDistinct fallback in spec parser", () => {

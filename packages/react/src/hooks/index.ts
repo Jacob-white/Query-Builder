@@ -14,6 +14,7 @@ export {
   type UseQueryStateReturn,
   stateToSpec,
   specToState,
+  createInitialState,
   MAX_HISTORY_LENGTH,
 } from "./useQueryState";
 

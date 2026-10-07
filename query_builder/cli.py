@@ -22,6 +22,21 @@ from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.join_solver import find_join_path
 
 
+def _run_coroutine_safely(coro: Any) -> Any:
+    """Executes a coroutine safely whether or not an event loop is already running."""
+    import concurrent.futures
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="query-builder",
@@ -269,6 +284,67 @@ def main(argv: list[str] | None = None) -> int:
         help="Output schema exploration metrics as structured JSON.",
     )
 
+    subparsers.add_parser(
+        "mcp",
+        help="Run the Query-Builder Model Context Protocol (MCP) server over standard I/O.",
+    )
+
+    # 10. Init subcommand
+    init_p = subparsers.add_parser(
+        "init",
+        help="Scaffold a turnkey Query-Builder starter project.",
+    )
+    init_p.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="Target directory to scaffold starter setup into (default: current directory).",
+    )
+    init_p.add_argument(
+        "--template",
+        "-t",
+        choices=["fullstack", "fastapi", "minimal"],
+        default="fullstack",
+        help="Starter template variant (fullstack, fastapi, minimal). Default: fullstack.",
+    )
+    init_p.add_argument(
+        "--dialect",
+        "-d",
+        default="sqlite",
+        help="Target SQL dialect for starter setup (default: sqlite).",
+    )
+    init_p.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Overwrite existing files in target directory.",
+    )
+    init_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output scaffolding result as structured JSON.",
+    )
+
+    # 11. Doctor subcommand
+    doctor_p = subparsers.add_parser(
+        "doctor",
+        help="Check environment health, database connectivity, and driver availability.",
+    )
+    doctor_p.add_argument(
+        "--connector",
+        "-c",
+        help="Optional database connector to test (e.g. sqlite, postgres, duckdb).",
+    )
+    doctor_p.add_argument(
+        "--config",
+        help="Optional connection configuration JSON string or file path.",
+    )
+    doctor_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output diagnostics as structured JSON.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "compile":
@@ -491,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
             connector = ConnectorRegistry.get(args.connector, **config)
 
             if isinstance(connector, AsyncBaseConnector):
-                result = asyncio.run(connector.test_connection())
+                result = _run_coroutine_safely(connector.test_connection())
             else:
                 result = connector.test_connection()
 
@@ -540,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
             filter_sensitive = bool(getattr(args, "filter_sensitive", True))
 
             if isinstance(connector, AsyncBaseConnector):
-                snapshot = asyncio.run(
+                snapshot = _run_coroutine_safely(
                     connector.introspect_schema(filter_sensitive=filter_sensitive)
                 )
             else:
@@ -651,8 +727,11 @@ def main(argv: list[str] | None = None) -> int:
             active = [t.strip() for t in args.active.split(",") if t.strip()]
             schema_data = None
             if args.schema:
-                with open(args.schema, "r", encoding="utf-8") as f:
-                    schema_data = json.load(f)
+                if args.schema.startswith("{"):
+                    schema_data = json.loads(args.schema)
+                else:
+                    with open(args.schema, "r", encoding="utf-8") as f:
+                        schema_data = json.load(f)
 
             path = find_join_path(active, args.target, schema_data)
             print(json.dumps(path, indent=2))
@@ -747,6 +826,371 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"success": False, "error": str(e)}, indent=2))
             else:
                 sys.stderr.write(f"Schema Explorer error: {e}\n")
+            return 1
+
+    elif args.command == "mcp":
+        from query_builder.mcp_server import McpServer
+
+        server = McpServer()
+        server.run_stdio()
+        return 0
+
+    elif args.command == "init":
+        try:
+            target_dir = os.path.abspath(args.directory)
+            os.makedirs(target_dir, exist_ok=True)
+
+            template = getattr(args, "template", "fullstack")
+            dialect = getattr(args, "dialect", "sqlite")
+            force = getattr(args, "force", False)
+
+            # 1. schema.json
+            schema_content = {
+                "tables": {
+                    "users": {
+                        "name": "users",
+                        "columns": [
+                            {"name": "id", "data_type": "integer", "is_primary": True, "is_nullable": False},
+                            {"name": "email", "data_type": "text", "is_primary": False, "is_nullable": False},
+                            {"name": "full_name", "data_type": "text", "is_primary": False, "is_nullable": True},
+                            {"name": "created_at", "data_type": "timestamp", "is_primary": False, "is_nullable": False},
+                        ],
+                    },
+                    "orders": {
+                        "name": "orders",
+                        "columns": [
+                            {"name": "id", "data_type": "integer", "is_primary": True, "is_nullable": False},
+                            {"name": "user_id", "data_type": "integer", "is_primary": False, "is_nullable": False},
+                            {"name": "total_amount", "data_type": "decimal", "is_primary": False, "is_nullable": False},
+                            {"name": "status", "data_type": "text", "is_primary": False, "is_nullable": False},
+                        ],
+                    },
+                },
+                "foreign_keys": [
+                    {
+                        "table": "orders",
+                        "column": "user_id",
+                        "foreign_table": "users",
+                        "foreign_column": "id",
+                    }
+                ],
+                "relationships": [
+                    {
+                        "source_table": "orders",
+                        "source_column": "user_id",
+                        "target_table": "users",
+                        "target_column": "id",
+                    }
+                ],
+            }
+
+            # 2. spec.json
+            spec_content = {
+                "table": "orders",
+                "columns": ["orders.id", "orders.total_amount", "users.email"],
+                "joins": [
+                    {
+                        "table": "users",
+                        "type": "INNER JOIN",
+                        "on": [{"left": "orders.user_id", "right": "users.id"}],
+                    }
+                ],
+                "filters": [
+                    {"column": "orders.status", "op": "eq", "value": "COMPLETED"}
+                ],
+                "limit": 25,
+            }
+
+            # 3. main.py
+            if template in ("fullstack", "fastapi"):
+                if dialect in ("postgres", "postgresql"):
+                    conn_import = "from query_builder import ConnectorRegistry, create_query_builder_router"
+                    conn_setup = 'connector = ConnectorRegistry.get("postgres", database="starter", user="postgres", host="localhost")'
+                    seed_snippet = ""
+                elif dialect == "duckdb":
+                    conn_import = "from query_builder import ConnectorRegistry, create_query_builder_router"
+                    conn_setup = 'connector = ConnectorRegistry.get("duckdb", database="starter.duckdb")'
+                    seed_snippet = ""
+                elif dialect == "mysql":
+                    conn_import = "from query_builder import ConnectorRegistry, create_query_builder_router"
+                    conn_setup = 'connector = ConnectorRegistry.get("mysql", database="starter", user="root", host="localhost")'
+                    seed_snippet = ""
+                else:
+                    conn_import = "from query_builder import SQLiteConnector, create_query_builder_router"
+                    conn_setup = 'connector = SQLiteConnector(database="starter.db")'
+                    seed_snippet = (
+                        '# Auto-seed starter tables on launch if using SQLite\n'
+                        'import sqlite3\n'
+                        '_conn = sqlite3.connect("starter.db")\n'
+                        '_conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);")\n'
+                        '_conn.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);")\n'
+                        'if _conn.execute("SELECT COUNT(*) FROM users;").fetchone()[0] == 0:\n'
+                        '    _conn.execute("INSERT INTO users (id, email, full_name, created_at) VALUES (1, \'alice@example.com\', \'Alice Smith\', \'2026-01-01\');")\n'
+                        '    _conn.execute("INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, \'COMPLETED\');")\n'
+                        '    _conn.commit()\n'
+                        '_conn.close()\n\n'
+                    )
+
+                main_py_content = (
+                    '"""\n'
+                    'Query-Builder Starter Backend API.\n'
+                    '"""\n\n'
+                    'from fastapi import FastAPI\n'
+                    f'{conn_import}\n\n'
+                    'app = FastAPI(title="Query-Builder Starter API")\n\n'
+                    f'{seed_snippet}'
+                    f'{conn_setup}\n'
+                    'router = create_query_builder_router(connector=connector, prefix="/api")\n'
+                    'app.include_router(router)\n\n'
+                    '@app.get("/health")\n'
+                    'def health():\n'
+                    '    return {"status": "healthy"}\n\n'
+                    'if __name__ == "__main__":\n'
+                    '    import uvicorn\n'
+                    '    uvicorn.run(app, host="127.0.0.1", port=8000)\n'
+                )
+            else:  # minimal
+                main_py_content = (
+                    '"""\n'
+                    'Query-Builder Minimal Starter.\n'
+                    '"""\n\n'
+                    'import json\n'
+                    'from query_builder import QueryCompiler, validate_sql_ast\n\n'
+                    'with open("spec.json", "r") as f:\n'
+                    '    spec = json.load(f)\n'
+                    'with open("schema.json", "r") as f:\n'
+                    '    schema = json.load(f)\n\n'
+                    f'compiler = QueryCompiler(spec, schema=schema, dialect="{dialect}")\n'
+                    'sql, params, count_sql, count_params = compiler.compile()\n\n'
+                    'print("Compiled SQL:\\n", sql)\n'
+                    'print("Params:", params)\n'
+                    'print("AST Validation:", validate_sql_ast(sql))\n'
+                )
+
+            # 4. README.md
+            readme_content = (
+                f"# Query-Builder Starter ({template.capitalize()})\n\n"
+                f"Scaffolded with default dialect: `{dialect}`.\n\n"
+                "## Quickstart Commands\n\n"
+                "- **Validate Environment & Drivers:**\n"
+                "  ```bash\n"
+                "  query-builder doctor\n"
+                "  ```\n"
+                "- **Compile QuerySpec to SQL:**\n"
+                "  ```bash\n"
+                f"  query-builder compile --spec spec.json --schema schema.json --dialect {dialect}\n"
+                "  ```\n"
+                "- **Validate SQL AST Safety:**\n"
+                "  ```bash\n"
+                '  query-builder validate "SELECT * FROM users;"\n'
+                "  ```\n"
+                "- **Start API Server:**\n"
+                "  ```bash\n"
+                "  python main.py\n"
+                "  ```\n"
+            )
+
+            files_to_create = {
+                "schema.json": json.dumps(schema_content, indent=2),
+                "spec.json": json.dumps(spec_content, indent=2),
+                "main.py": main_py_content,
+                "README.md": readme_content,
+            }
+
+            created_files: list[str] = []
+            skipped_files: list[str] = []
+
+            for filename, content in files_to_create.items():
+                file_path = os.path.join(target_dir, filename)
+                if os.path.exists(file_path) and not force:
+                    skipped_files.append(filename)
+                    continue
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                created_files.append(filename)
+
+            if getattr(args, "json", False):
+                print(
+                    json.dumps(
+                        {
+                            "success": True,
+                            "directory": target_dir,
+                            "template": template,
+                            "dialect": dialect,
+                            "created_files": created_files,
+                            "skipped_files": skipped_files,
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(
+                    f"[OK] Scaffolded Query-Builder '{template}' starter project in: {target_dir}"
+                )
+                for cf in created_files:
+                    print(f"  + Created {cf}")
+                for sf in skipped_files:
+                    print(f"  - Skipped {sf} (already exists, use --force to overwrite)")
+                print("\nNext steps:")
+                print(f"  cd {args.directory}")
+                print("  query-builder doctor")
+                print("  query-builder compile --spec spec.json")
+            return 0
+        except Exception as e:  # noqa: BLE001
+            if getattr(args, "json", False):
+                print(json.dumps({"success": False, "error": str(e)}, indent=2))
+            else:
+                sys.stderr.write(f"Scaffolding error: {e}\n")
+            return 1
+
+    elif args.command == "doctor":
+        try:
+            import importlib
+            import platform
+
+            # 1. Environment checks
+            py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            py_supported = sys.version_info >= (3, 10)
+            os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
+
+            env_checks = {
+                "python_version": py_ver,
+                "python_supported": py_supported,
+                "platform": os_info,
+                "query_builder_version": __version__,
+            }
+
+            # 2. Driver availability checks
+            driver_candidates = [
+                ("sqlite3", "sqlite3", "SQLite standard library driver", False),
+                ("sqlparse", "sqlparse", "SQL AST parsing and security validator engine", False),
+                ("duckdb", "duckdb", "DuckDB analytical engine", True),
+                ("psycopg", "psycopg", "PostgreSQL modern binary driver (psycopg 3)", True),
+                ("psycopg2", "psycopg2", "PostgreSQL legacy driver (psycopg2)", True),
+                ("asyncpg", "asyncpg", "Async PostgreSQL driver", True),
+                ("mysql.connector", "mysql.connector", "Official MySQL driver", True),
+                ("pymysql", "pymysql", "Pure-Python MySQL driver", True),
+                ("pymssql", "pymssql", "Microsoft SQL Server driver", True),
+                ("pyodbc", "pyodbc", "ODBC universal driver", True),
+                ("snowflake.connector", "snowflake.connector", "Snowflake connector", True),
+                ("pyarrow", "pyarrow", "Apache Arrow / Parquet columnar engine", True),
+                ("fastapi", "fastapi", "FastAPI HTTP API framework", True),
+                ("pydantic", "pydantic", "Pydantic data validation", True),
+                ("sqlalchemy", "sqlalchemy", "SQLAlchemy ORM & schema introspection", True),
+            ]
+
+            drivers_status = {}
+            for name, mod_name, desc, optional in driver_candidates:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    if hasattr(mod, "__version__"):
+                        ver = mod.__version__
+                    elif hasattr(mod, "sqlite_version"):
+                        ver = mod.sqlite_version
+                    else:
+                        ver = "available"
+                    drivers_status[name] = {
+                        "available": True,
+                        "version": str(ver),
+                        "description": desc,
+                        "optional": optional,
+                    }
+                except ImportError:
+                    drivers_status[name] = {
+                        "available": False,
+                        "version": None,
+                        "description": desc,
+                        "optional": optional,
+                    }
+
+            # 3. Connector registry
+            from query_builder.connectors.registry import ConnectorRegistry
+
+            registered_connectors = ConnectorRegistry.list_available()
+
+            # 4. Connectivity check
+            target_connector = getattr(args, "connector", None)
+            conn_config = {}
+            if getattr(args, "config", None):
+                if os.path.isfile(args.config):
+                    with open(args.config, "r", encoding="utf-8") as f:
+                        conn_config = json.load(f)
+                else:
+                    conn_config = json.loads(args.config)
+
+            connectivity_status = {}
+            if target_connector:
+                from query_builder.connectors import AsyncBaseConnector
+
+                conn = ConnectorRegistry.get(target_connector, **conn_config)
+                if isinstance(conn, AsyncBaseConnector):
+                    test_res = _run_coroutine_safely(conn.test_connection())
+                else:
+                    test_res = conn.test_connection()
+                connectivity_status[target_connector] = test_res
+            else:
+                conn = ConnectorRegistry.get("sqlite", database=":memory:")
+                test_res = conn.test_connection()
+                connectivity_status["sqlite (in-memory)"] = test_res
+
+            conn_healthy = all(
+                r.get("status") == "healthy" or r.get("success") is True
+                for r in connectivity_status.values()
+            )
+            required_drivers_ok = all(
+                d["available"]
+                for d in drivers_status.values()
+                if not d["optional"]
+            )
+            overall_healthy = py_supported and conn_healthy and required_drivers_ok
+
+            if getattr(args, "json", False):
+                payload = {
+                    "status": "healthy" if overall_healthy else "degraded",
+                    "environment": env_checks,
+                    "drivers": drivers_status,
+                    "registered_connectors": registered_connectors,
+                    "connectivity": connectivity_status,
+                }
+                print(json.dumps(payload, indent=2))
+            else:
+                print("Query-Builder Doctor Diagnostics")
+                print("=================================")
+                py_tag = "[OK]" if py_supported else "[ERROR]"
+                print(f"{py_tag} Python: {py_ver} on {os_info}")
+                print(f"[OK] Query-Builder: v{__version__}")
+
+                print("\nDatabase Drivers & Dependencies:")
+                for name, d_info in drivers_status.items():
+                    if d_info["available"]:
+                        print(f"  • {name}: Installed (v{d_info['version']})")
+                    else:
+                        opt_tag = "(optional)" if d_info["optional"] else "(required)"
+                        print(f"  • {name}: Not installed {opt_tag}")
+
+                print("\nRegistered Connectors:")
+                print(f"  {', '.join(registered_connectors)}")
+
+                print("\nDatabase Connectivity:")
+                for c_name, res in connectivity_status.items():
+                    c_ok = res.get("status") == "healthy" or res.get("success") is True
+                    c_tag = "[OK]" if c_ok else "[ERROR]"
+                    lat = res.get("latency_ms", "N/A")
+                    print(
+                        f"  {c_tag} {c_name}: {res.get('status', 'unknown')} (latency: {lat}ms)"
+                    )
+
+                if overall_healthy:
+                    print("\n[PASS] All core Query-Builder diagnostic checks passed!")
+                else:
+                    print("\n[FAIL] Some diagnostic checks failed or warnings were reported.")
+
+            return 0 if overall_healthy else 1
+        except Exception as e:  # noqa: BLE001
+            if getattr(args, "json", False):
+                print(json.dumps({"status": "error", "error": str(e)}, indent=2))
+            else:
+                sys.stderr.write(f"Doctor error: {e}\n")
             return 1
 
     else:

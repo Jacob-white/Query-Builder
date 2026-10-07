@@ -7,9 +7,15 @@ export default defineConfig({
     emptyOutDir: false,
     sourcemap: true,
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: {
+        index: resolve(__dirname, 'src/index.ts'),
+        adapters: resolve(__dirname, 'src/adapters/index.ts'),
+        hooks: resolve(__dirname, 'src/hooks/index.ts'),
+        client: resolve(__dirname, 'src/client/index.ts'),
+        olap: resolve(__dirname, 'src/olap/index.ts'),
+      },
       formats: ['es', 'cjs'],
-      fileName: (format) => (format === 'es' ? 'index.mjs' : 'index.cjs'),
+      fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'mjs' : 'cjs'}`,
     },
     rollupOptions: {
       external: ['react', 'react-dom', 'react/jsx-runtime'],
@@ -17,6 +23,12 @@ export default defineConfig({
         globals: {
           react: 'React',
           'react-dom': 'ReactDOM',
+        },
+        banner: (chunk) => {
+          if (chunk.isEntry && chunk.name === 'index') {
+            return '"use client";\n';
+          }
+          return '';
         },
       },
     },

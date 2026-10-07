@@ -9,4 +9,15 @@ export interface AdapterOptions {
   defaultSchema?: string;
 }
 
+export interface ToPrismaOptions {
+  /** Prisma database provider: postgresql, mysql, sqlite, sqlserver, cockroachdb, mongodb */
+  provider?: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "cockroachdb" | "mongodb" | string;
+}
+
+export interface ToDrizzleOptions {
+  /** Drizzle dialect: postgres, mysql, sqlite */
+  dialect?: "postgres" | "mysql" | "sqlite" | string;
+}
+
 export type { TableSchema, ColumnSchema, ForeignKey } from "../types";
+

@@ -1,5 +1,6 @@
 import React from "react";
-import type { TableMeta, VisualColumnSelect, CustomFieldRenderer } from "../types";
+import type { TableMeta, VisualColumnSelect, CustomFieldRenderer, QueryBuilderClassNames } from "../types";
+import { cx } from "../utils/classNames";
 
 export interface TableCardProps {
   table: TableMeta;
@@ -10,6 +11,8 @@ export interface TableCardProps {
   onAddJoin?: () => void;
   unstyled?: boolean;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
 }
 
 export const TableCard: React.FC<TableCardProps> = ({
@@ -21,6 +24,8 @@ export const TableCard: React.FC<TableCardProps> = ({
   onAddJoin,
   unstyled = false,
   fieldRenderers,
+  className,
+  classNames,
 }) => {
   return (
     <div
@@ -29,6 +34,7 @@ export const TableCard: React.FC<TableCardProps> = ({
       data-qb="table-card"
       data-qb-table={table.name}
       data-qb-selected={isSelected ? "true" : "false"}
+      className={cx(className, classNames?.tableCard)}
       style={
         unstyled
           ? undefined
@@ -50,6 +56,7 @@ export const TableCard: React.FC<TableCardProps> = ({
       {/* Header */}
       <div
         data-qb="table-card-header"
+        className={cx(classNames?.tableCardHeader)}
         style={
           unstyled
             ? undefined
@@ -67,6 +74,7 @@ export const TableCard: React.FC<TableCardProps> = ({
           <span style={unstyled ? undefined : { fontSize: "1rem" }}>🗄️</span>
           <span
             data-qb="table-card-title"
+            className={cx(classNames?.tableCardTitle)}
             style={unstyled ? undefined : { fontWeight: 600, fontSize: "0.88rem" }}
             title={table.name}
           >
@@ -128,6 +136,7 @@ export const TableCard: React.FC<TableCardProps> = ({
       {/* Columns list */}
       <div
         data-qb="table-card-columns-list"
+        className={cx(classNames?.columnList)}
         style={
           unstyled
             ? undefined
@@ -154,6 +163,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                 data-qb="table-card-column-row"
                 data-qb-column={col.name}
                 data-qb-selected={isColChecked ? "true" : "false"}
+                className={cx(classNames?.columnItem)}
               >
                 {customRenderer({
                   column: col,
@@ -173,6 +183,7 @@ export const TableCard: React.FC<TableCardProps> = ({
               data-qb-column={col.name}
               data-qb-selected={isColChecked ? "true" : "false"}
               onClick={() => onToggleColumn(col.name)}
+              className={cx(classNames?.columnItem)}
               style={
                 unstyled
                   ? undefined
@@ -202,10 +213,12 @@ export const TableCard: React.FC<TableCardProps> = ({
                   onClick={(e) => e.stopPropagation()}
                   onChange={() => onToggleColumn(col.name)}
                   aria-label={`Select column ${table.name}.${col.name}`}
+                  className={cx(classNames?.columnCheckbox)}
                   style={unstyled ? undefined : { cursor: "pointer" }}
                 />
                 <span
                   data-qb="table-card-column-name"
+                  className={cx(classNames?.columnName)}
                   style={
                     unstyled
                       ? undefined
@@ -227,6 +240,8 @@ export const TableCard: React.FC<TableCardProps> = ({
               >
                 {col.is_primary && (
                   <span
+                    data-qb="table-card-badge-pk"
+                    className={cx(classNames?.tableCardBadge)}
                     style={
                       unstyled
                         ? undefined
@@ -245,6 +260,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                 )}
                 <span
                   data-qb="table-card-column-type"
+                  className={cx(classNames?.columnType)}
                   style={
                     unstyled
                       ? undefined
@@ -352,6 +368,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                 </div>
                 <span
                   data-qb="table-card-metric-badge"
+                  className={cx(classNames?.tableCardBadge)}
                   style={
                     unstyled
                       ? undefined

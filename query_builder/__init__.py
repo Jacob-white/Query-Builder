@@ -458,7 +458,10 @@ from query_builder.middleware import (
     QueryCancelledError,
 )
 from query_builder.models import (
+    CaseWhenBranch,
+    CaseWhenSpec,
     ColumnMeta,
+    CteSpec,
     FilterSpec,
     ForeignKeyMeta,
     HavingSpec,
@@ -468,9 +471,12 @@ from query_builder.models import (
     QueryResult,
     QuerySpec,
     SchemaSnapshot,
+    SetOperationSpec,
     TableMeta,
     ValidationResult,
     VectorSearchSpec,
+    WindowFrameSpec,
+    WindowFunctionSpec,
 )
 from query_builder.nlq import (
     AnthropicProvider,
@@ -528,6 +534,13 @@ from query_builder.pool import (
     mask_credentials,
     reset_connection_pool_manager,
 )
+from query_builder.async_pool import (
+    AsyncCancellationToken,
+    AsyncConnectionPool,
+    AsyncConnectionPoolManager,
+    get_async_connection_pool_manager,
+    reset_async_connection_pool_manager,
+)
 from query_builder.semantic import (
     DimensionDefinition,
     MetricDefinition,
@@ -561,6 +574,9 @@ from query_builder.security import (
     scrub_secrets,
     validate_network_target,
 )
+from query_builder.mcp_server import (
+    McpServer,
+)
 from query_builder.server import (
     create_server,
     generate_openapi_spec,
@@ -578,6 +594,12 @@ from query_builder.templates import (
     TemplateNotFoundError,
     TemplateStore,
     TemplateValidationError,
+)
+from query_builder.integrations import (
+    create_django_urls,
+    create_drf_views,
+    create_ninja_router,
+    create_query_builder_router,
 )
 
 __all__ = [
@@ -621,6 +643,9 @@ __all__ = [
     "AsyncArangoDBConnector",
     "AsyncAzureCosmosDBConnector",
     "AsyncBaseConnector",
+    "AsyncCancellationToken",
+    "AsyncConnectionPool",
+    "AsyncConnectionPoolManager",
     "AsyncBigtableConnector",
     "AsyncCassandraConnector",
     "AsyncChDBConnector",
@@ -693,6 +718,8 @@ __all__ = [
     "BigtableConnector",
     "BigtableDialect",
     "CancellationToken",
+    "CaseWhenBranch",
+    "CaseWhenSpec",
     "CassandraConnector",
     "CassandraDialect",
     "ChDBConnector",
@@ -707,6 +734,11 @@ __all__ = [
     "CloudflareD1Connector",
     "CockroachConnector",
     "CockroachDialect",
+    "CteSpec",
+    "create_django_urls",
+    "create_drf_views",
+    "create_ninja_router",
+    "create_query_builder_router",
     "ColumnMeta",
     "ColumnSchema",
     "CompilationError",
@@ -805,6 +837,7 @@ __all__ = [
     "MSSQLDialect",
     "MaterializeConnector",
     "MaterializeDialect",
+    "McpServer",
     "MemSQLConnector",
     "MemgraphConnector",
     "MemgraphDialect",
@@ -903,6 +936,7 @@ __all__ = [
     "SemanticError",
     "SemanticModel",
     "SemanticRegistry",
+    "SetOperationSpec",
     "SingleStoreConnector",
     "SingleStoreDialect",
     "SnowflakeConnector",
@@ -950,6 +984,8 @@ __all__ = [
     "VictoriaMetricsDialect",
     "WeaviateConnector",
     "WeaviateDialect",
+    "WindowFrameSpec",
+    "WindowFunctionSpec",
     "YugabyteConnector",
     "YugabyteDBConnector",
     "YugabyteDBDialect",
@@ -989,6 +1025,7 @@ __all__ = [
     "from_prisma",
     "from_sqlalchemy",
     "generate_openapi_spec",
+    "get_async_connection_pool_manager",
     "get_connection_pool_manager",
     "get_connector",
     "get_dialect",
@@ -1072,6 +1109,7 @@ __all__ = [
     "register_dialect",
     "register_filter_operator",
     "register_nlq_provider",
+    "reset_async_connection_pool_manager",
     "reset_connection_pool_manager",
     "reset_global_cache",
     "reset_global_semantic_registry",

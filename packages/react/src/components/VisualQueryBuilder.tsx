@@ -1,6 +1,14 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useImperativeHandle,
+  useCallback,
+} from "react";
 import type {
   VisualQueryBuilderProps,
+  VisualQueryBuilderRef,
   TableMeta,
   ColumnMeta,
   VisualColumnSelect,
@@ -12,6 +20,9 @@ import type {
   DatabaseSchemaDefinition,
   VectorSearchSpec,
   HybridSearchSpec,
+  QuerySpec,
+  SchemaSnapshot,
+  QueryBuilderClassNames,
 } from "../types";
 import { QueryCanvas } from "./QueryCanvas";
 import { QueryResultsTable } from "./QueryResultsTable";
@@ -28,15 +39,18 @@ import { AiAssistantWidget } from "./AiAssistantWidget";
 import { useLiveExecution, type LiveExecutionResult } from "../hooks/useLiveExecution";
 import { compileVisualState, estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
-import { normalizeSchema } from "../utils/schemaUtils";
+import { normalizeSchema, validateSchema } from "../utils/schemaUtils";
 import { parseSqlToSpec } from "../utils/sqlParser";
-import { specToState } from "../hooks/useQueryState";
+import { useQueryState, specToState, createInitialState } from "../hooks/useQueryState";
 import { findBestJoinCondition } from "../utils/joinUtils";
+import { cx } from "../utils/classNames";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { attachSemanticModelsToTables } from "../adapters/semantic";
 import type { QueryPlanNode, CteSpec, WindowFunctionSpec, SemanticModel } from "../types";
+
+export type { VisualQueryBuilderRef };
 
 export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
   VisualQueryBuilderProps<Schema>,
@@ -60,36 +74,62 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   semanticModels?: SemanticModel[];
 };
 
-export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
-  schema,
-  presets = [],
-  initialTable,
-  dialect = "postgres",
-  queryPlan,
-  showPlanTab = false,
-  showNlqBar = false,
-  nlqApiUrl,
-  nlqDefaultProvider,
-  showLiveExecutionBar = false,
-  liveExecutionApiUrl,
-  liveExecutionConnectionId,
-  onLiveExecutionSuccess,
-  onLiveExecutionError,
-  initialCtes = [],
-  initialWindowFunctions = [],
-  showPipelineTab = false,
-  semanticModels,
-  onExecuteQuery: propExecuteQuery,
-  onSaveQuery,
-  theme: propTheme,
-  readOnly = false,
-  unstyled: propUnstyled = false,
-  mode: propMode,
-  customOperators: propCustomOperators,
-  fieldRenderers: propFieldRenderers,
-  cellRenderers: propCellRenderers,
-  ai,
-}) => {
+/**
+ * Serializes a QuerySpec or object canonically, sorting all keys recursively
+ * so equivalent specifications compare identically regardless of key ordering.
+ */
+export function fastCanonicalSpec(obj: any): string {
+  if (obj === null || obj === undefined) return "";
+  if (typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) {
+    return "[" + obj.map(fastCanonicalSpec).join(",") + "]";
+  }
+  const keys = Object.keys(obj).sort().filter((k) => obj[k] !== undefined);
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + fastCanonicalSpec(obj[k])).join(",") + "}";
+}
+
+export const VisualQueryBuilder = React.forwardRef<
+  VisualQueryBuilderRef,
+  ExtendedVisualQueryBuilderProps
+>(function VisualQueryBuilder(
+  {
+    schema: propSchema,
+    presets = [],
+    initialTable,
+    dialect = "postgres",
+    value,
+    onChange,
+    initialSpec,
+    client,
+    queryPlan,
+    showPlanTab = false,
+    showNlqBar = false,
+    nlqApiUrl,
+    nlqDefaultProvider,
+    showLiveExecutionBar = false,
+    liveExecutionApiUrl,
+    liveExecutionConnectionId,
+    onLiveExecutionSuccess,
+    onLiveExecutionError,
+    initialCtes = [],
+    initialWindowFunctions = [],
+    showPipelineTab = false,
+    semanticModels,
+    onExecuteQuery: propExecuteQuery,
+    onSaveQuery,
+    theme: propTheme,
+    readOnly = false,
+    unstyled: propUnstyled = false,
+    mode: propMode,
+    className,
+    classNames,
+    customOperators: propCustomOperators,
+    fieldRenderers: propFieldRenderers,
+    cellRenderers: propCellRenderers,
+    ai,
+  },
+  ref,
+) {
   const { theme: contextTheme } = useTheme();
   const qbContext = useQueryBuilderContext();
 
@@ -99,7 +139,16 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const customOperators = propCustomOperators ?? qbContext?.customOperators;
   const fieldRenderers = propFieldRenderers ?? qbContext?.fieldRenderers;
   const cellRenderers = propCellRenderers ?? qbContext?.cellRenderers;
-  const onExecuteQuery = propExecuteQuery ?? qbContext?.onExecuteQuery;
+
+  // Auto-wire client query execution if client is provided and handler is not
+  const effectiveOnExecuteQuery =
+    propExecuteQuery ??
+    qbContext?.onExecuteQuery ??
+    (client
+      ? async (sql: string, spec?: Record<string, unknown>) => {
+          return client.execute(spec ? (spec as unknown as QuerySpec) : { sql });
+        }
+      : undefined);
 
   const activeTheme: QueryBuilderTheme = useMemo(() => {
     if (propTheme && typeof propTheme === "object" && "colors" in propTheme) {
@@ -119,12 +168,76 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     [activeTheme, unstyled],
   );
 
-  const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
+  // Auto-wire schema from client if client is provided without schema
+  const [clientSchema, setClientSchema] = useState<SchemaSnapshot | null>(null);
 
-  const [ctes, setCtes] = useState<CteSpec[]>(initialCtes);
+  useEffect(() => {
+    if (!propSchema && client && !clientSchema) {
+      client
+        .getSchema()
+        .then((s) => {
+          if (s) setClientSchema(s);
+        })
+        .catch((err) => {
+          console.warn("[Query-Builder] Failed to auto-fetch schema from client:", err);
+        });
+    }
+  }, [propSchema, client, clientSchema]);
+
+  const effectiveSchema = propSchema || clientSchema;
+  const normalizedSchema = useMemo(() => normalizeSchema(effectiveSchema), [effectiveSchema]);
+
+  // Schema Diagnostics: Non-blocking developer feedback
+  useEffect(() => {
+    if (normalizedSchema) {
+      const result = validateSchema(normalizedSchema);
+      if (!result.valid || result.warnings.length > 0) {
+        if (
+          typeof globalThis !== "undefined" &&
+          (globalThis as any).process?.env?.NODE_ENV !== "production"
+        ) {
+          result.errors.forEach((e) => {
+            console.warn(`[Query-Builder Schema Error] ${e.code}: ${e.message}`, e.suggestion);
+          });
+          result.warnings.forEach((w) => {
+            console.warn(`[Query-Builder Schema Warning] ${w.code}: ${w.message}`, w.suggestion);
+          });
+        }
+      }
+    }
+  }, [normalizedSchema]);
+
+  // Unified Query State Management (50-step undo/redo & dual controlled/uncontrolled)
+  const initialQuery = useMemo(() => {
+    if (value) return value;
+    if (initialSpec) return initialSpec;
+    const base: Record<string, any> = {};
+    const defaultT =
+      initialTable || (propSchema?.tables ? Object.keys(propSchema.tables)[0] : undefined);
+    if (defaultT) {
+      base.table = defaultT;
+      base.activeTables = [defaultT];
+    }
+    if (initialCtes.length > 0) base.ctes = initialCtes;
+    if (initialWindowFunctions.length > 0) base.window_functions = initialWindowFunctions;
+    return Object.keys(base).length > 0 ? base : undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const queryState = useQueryState(initialQuery);
+  const { state, actions, history } = queryState;
+
   const [activeStageName, setActiveStageName] = useState<string | null>(null);
-  const [windowFunctions, setWindowFunctions] = useState<WindowFunctionSpec[]>(initialWindowFunctions);
   const [isWfBuilderOpen, setIsWfBuilderOpen] = useState<boolean>(false);
+
+  const ctes = state.ctes || [];
+  const windowFunctions = state.windowFunctions || [];
+  const vectorSearch = state.vectorSearch || null;
+  const hybridSearch = state.hybridSearch || null;
+  const setCtes = actions.setCtes;
+  const setWindowFunctions = actions.setWindowFunctions;
+  const setVectorSearch = actions.setVectorSearch;
+  const setHybridSearch = actions.setHybridSearch;
 
   // Dynamic Schema Augmentation: expose upstream CTEs as virtual tables & attach semantic models
   const augmentedSchema = useMemo(() => {
@@ -139,13 +252,24 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             if (typeof col === "string") {
               cols.push({ name: col, data_type: "text", is_nullable: true, is_primary: false });
             } else if (col && typeof col === "object") {
-              cols.push({ name: col.alias || col.column || "col", data_type: "text", is_nullable: true, is_primary: false });
+              cols.push({
+                name: col.alias || col.column || "col",
+                data_type: "text",
+                is_nullable: true,
+                is_primary: false,
+              });
             }
           });
         }
         if (cte.query?.window_functions) {
           cte.query.window_functions.forEach((wf: any) => {
-            if (wf.alias) cols.push({ name: wf.alias, data_type: "numeric", is_nullable: true, is_primary: false });
+            if (wf.alias)
+              cols.push({
+                name: wf.alias,
+                data_type: "numeric",
+                is_nullable: true,
+                is_primary: false,
+              });
           });
         }
         if (cols.length === 0) {
@@ -166,26 +290,51 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     return { ...normalizedSchema, tables: copyTables };
   }, [normalizedSchema, ctes, activeStageName, semanticModels]);
 
-  const allTables = useMemo(() => Object.values(augmentedSchema?.tables || {}), [augmentedSchema]);
-  const defaultTable = initialTable || allTables[0]?.name || "";
-
-  const [activeTab, setActiveTab] = useState<"visual" | "sql" | "results" | "chart" | "plan" | "pipeline">("visual");
-  const [primaryTable, setPrimaryTable] = useState<string>(defaultTable);
-  const [activeTableNames, setActiveTableNames] = useState<string[]>(
-    defaultTable ? [defaultTable] : [],
+  const allTables = useMemo(
+    () => Object.values(augmentedSchema?.tables || {}),
+    [augmentedSchema],
   );
 
-  const [selectedColumns, setSelectedColumns] = useState<
-    Record<string, VisualColumnSelect>
-  >({});
-  const [orderedProjectionKeys, setOrderedProjectionKeys] = useState<string[]>([]);
-  const [joins, setJoins] = useState<VisualJoin[]>([]);
-  const [filters, setFilters] = useState<VisualFilter[]>([]);
-  const [sorts, setSorts] = useState<VisualSort[]>([]);
-  const [isDistinct, setIsDistinct] = useState<boolean>(false);
-  const [limit, setLimit] = useState<number>(50);
-  const [vectorSearch, setVectorSearch] = useState<VectorSearchSpec | null>(null);
-  const [hybridSearch, setHybridSearch] = useState<HybridSearchSpec | null>(null);
+  // Auto-select primary table on initial mount if schema was loaded asynchronously (e.g. via client)
+  const hasAutoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !hasAutoSelectedRef.current &&
+      !state.primaryTable &&
+      state.activeTables.length === 0 &&
+      allTables.length > 0 &&
+      !value &&
+      !initialSpec &&
+      !initialTable
+    ) {
+      hasAutoSelectedRef.current = true;
+      actions.setPrimaryTable(allTables[0].name);
+    }
+  }, [state.primaryTable, state.activeTables.length, allTables, value, initialSpec, initialTable, actions]);
+
+  const primaryTable = state.primaryTable;
+  const activeTableNames = state.activeTables;
+  const selectedColumns = state.selectedColumns;
+  const orderedProjectionKeys = state.orderedProjectionKeys;
+  const joins = state.joins;
+  const filters = state.filters;
+  const sorts = state.sorts;
+  const isDistinct = state.isDistinct;
+  const limit = state.limit;
+
+  const setLimit = actions.setLimit;
+  const setIsDistinct = actions.setDistinct;
+  const setSorts = actions.setSorts;
+  const setFilters = actions.setFilters;
+  const setJoins = actions.setJoins;
+  const setPrimaryTable = actions.setPrimaryTable;
+  const setActiveTableNames = actions.setTables;
+  const setSelectedColumns = actions.setSelectedColumns;
+  const setOrderedProjectionKeys = actions.setOrderedProjectionKeys;
+
+  const [activeTab, setActiveTab] = useState<
+    "visual" | "sql" | "results" | "chart" | "plan" | "pipeline"
+  >("visual");
 
   const [rawSql, setRawSql] = useState<string>("");
   const [isRawMode, setIsRawMode] = useState<boolean>(false);
@@ -207,6 +356,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     pipeline: useRef<HTMLButtonElement | null>(null),
   };
 
+  // Keyboard Shortcuts: Escape modal close & Cmd+Z / Cmd+Shift+Z / Cmd+Y Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -214,12 +364,40 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         if (isSchemaExplorerOpen) setIsSchemaExplorerOpen(false);
         if (isTemplateManagerOpen) setIsTemplateManagerOpen(false);
       }
+
+      const isTargetInput =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        Boolean((e.target as HTMLElement)?.isContentEditable);
+
+      if (!isTargetInput) {
+        const isModifier = e.metaKey || e.ctrlKey;
+        if (isModifier && e.key.toLowerCase() === "z") {
+          if (e.shiftKey) {
+            e.preventDefault();
+            if (history.canRedo) actions.redo();
+          } else {
+            e.preventDefault();
+            if (history.canUndo) actions.undo();
+          }
+        } else if (isModifier && e.key.toLowerCase() === "y") {
+          e.preventDefault();
+          if (history.canRedo) actions.redo();
+        }
+      }
     };
     if (typeof window !== "undefined") {
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
     }
-  }, [isErdOpen, isSchemaExplorerOpen, isTemplateManagerOpen]);
+  }, [
+    isErdOpen,
+    isSchemaExplorerOpen,
+    isTemplateManagerOpen,
+    history.canUndo,
+    history.canRedo,
+    actions,
+  ]);
 
   // Active table metadata
   const activeTables: TableMeta[] = useMemo(() => {
@@ -271,75 +449,117 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   const currentSql = isRawMode ? rawSql : compiled.sql;
   const safety = useMemo(() => validateSqlSafety(currentSql), [currentSql]);
 
+  const getActiveSpec = useCallback((): any => {
+    const base = isRawMode
+      ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
+      : compiled.spec;
+    if (!base) return base;
+    const merged = { ...base };
+    if (ctes.length > 0) merged.ctes = ctes;
+    if (windowFunctions.length > 0) merged.window_functions = windowFunctions;
+    if (vectorSearch) merged.vector_search = vectorSearch;
+    if (hybridSearch) merged.hybrid_search = hybridSearch;
+    return merged;
+  }, [
+    isRawMode,
+    currentSql,
+    normalizedSchema,
+    compiled.spec,
+    ctes,
+    windowFunctions,
+    vectorSearch,
+    hybridSearch,
+  ]);
+
+  // Synchronize controlled `value` prop into useQueryState
+  const initialCanonical = useMemo(
+    () => (value ? fastCanonicalSpec(createInitialState(value)) : ""),
+    [],
+  );
+  const lastControlledValueRef = useRef<string>(initialCanonical);
+  const lastReportedSpecRef = useRef<string>(initialCanonical);
+  const isFirstRenderRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    if (value !== undefined) {
+      const canonical = fastCanonicalSpec(createInitialState(value));
+      if (canonical !== lastControlledValueRef.current) {
+        lastControlledValueRef.current = canonical;
+        lastReportedSpecRef.current = canonical;
+        actions.loadSpec(value);
+      }
+    }
+  }, [value, actions]);
+
+  // Propagate state changes to `onChange` callback
+  useEffect(() => {
+    const currentActiveSpec = getActiveSpec();
+    const canonicalActive = fastCanonicalSpec(createInitialState(currentActiveSpec));
+
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      lastReportedSpecRef.current = canonicalActive;
+      lastControlledValueRef.current = canonicalActive;
+      return;
+    }
+
+    if (canonicalActive !== lastReportedSpecRef.current) {
+      lastReportedSpecRef.current = canonicalActive;
+      lastControlledValueRef.current = canonicalActive;
+      if (onChange) {
+        onChange(currentActiveSpec, currentSql);
+      }
+    }
+  }, [onChange, getActiveSpec, currentSql]);
+
   // Handle column selection toggle
   const handleToggleColumn = (tableName: string, colName: string) => {
     const key = `${tableName}.${colName}`;
-    setSelectedColumns((prev) => {
-      const next = { ...prev };
-      if (next[key]) {
-        delete next[key];
-        setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
-      } else {
-        const tblMeta = augmentedSchema?.tables?.[tableName];
-        const isMetric = tblMeta?.metrics?.find((m) => m.name === colName);
-        next[key] = {
-          table: tableName,
-          name: colName,
-          metric: isMetric || undefined,
-        };
-        setOrderedProjectionKeys((keys) => [...keys, key]);
+    const nextSelected = { ...state.selectedColumns };
+    let nextKeys = [...state.orderedProjectionKeys];
+    if (nextSelected[key]) {
+      delete nextSelected[key];
+      nextKeys = nextKeys.filter((k) => k !== key);
+    } else {
+      const tblMeta = augmentedSchema?.tables?.[tableName];
+      const isMetric = tblMeta?.metrics?.find((m: any) => m.name === colName);
+      nextSelected[key] = {
+        table: tableName,
+        name: colName,
+        metric: isMetric || undefined,
+      };
+      if (!nextKeys.includes(key)) {
+        nextKeys.push(key);
       }
-      return next;
-    });
+    }
+    actions.setSelectedColumns(nextSelected, nextKeys);
   };
 
   // Add table to canvas
   const handleAddTableToCanvas = (tableName: string) => {
     if (!tableName) return;
-    if (!activeTableNames.includes(tableName)) {
-      setActiveTableNames((prev) => [...prev, tableName]);
-    }
-    if (!primaryTable) {
-      setPrimaryTable(tableName);
-    }
+    actions.addTable(tableName);
   };
 
   // Remove table from canvas
   const handleRemoveTable = (tableName: string) => {
-    setActiveTableNames((prev) => {
-      const next = prev.filter((t) => t !== tableName);
-      if (primaryTable === tableName) {
-        setPrimaryTable(next[0] || "");
-      }
-      return next;
-    });
-    setJoins((prev) => prev.filter((j) => j.table !== tableName && j.left_table !== tableName));
-    setSelectedColumns((prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach((k) => {
-        if (next[k].table === tableName) delete next[k];
-      });
-      return next;
-    });
-    setOrderedProjectionKeys((prev) => prev.filter((k) => !k.startsWith(`${tableName}.`)));
+    actions.removeTable(tableName);
   };
 
   // Synchronize Joins and active table names
   const handleJoinsChange = (newJoins: VisualJoin[]) => {
-    setJoins(newJoins);
-    setActiveTableNames((prev) => {
-      const set = new Set(prev);
-      for (const j of newJoins) {
-        if (j.table) set.add(j.table);
-        if (j.left_table) set.add(j.left_table);
-      }
-      return Array.from(set);
-    });
+    actions.setJoins(newJoins);
+    const set = new Set(state.activeTables);
+    for (const j of newJoins) {
+      if (j.table) set.add(j.table);
+      if (j.left_table) set.add(j.left_table);
+    }
+    actions.setTables(Array.from(set));
   };
 
   const handleAddJoinToTable = (tableName: string) => {
     const allTableNames = normalizedSchema?.tables ? Object.keys(normalizedSchema.tables) : [];
-    const candidate = allTableNames.find((t) => t !== tableName && !activeTableNames.includes(t));
+    const candidate = allTableNames.find((t) => t !== tableName && !state.activeTables.includes(t));
     if (candidate) {
       const cond = findBestJoinCondition(tableName, candidate, normalizedSchema);
       const newJoin: VisualJoin = {
@@ -350,7 +570,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
         table: cond.rightTable,
         right_col: cond.rightCol,
       };
-      handleJoinsChange([...joins, newJoin]);
+      handleJoinsChange([...state.joins, newJoin]);
     }
   };
 
@@ -361,40 +581,14 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
 
     const parsed = parseSqlToSpec(newSql, normalizedSchema);
     if (parsed && parsed.table) {
-      const converted = specToState(parsed);
-      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
-      if (converted.activeTables && converted.activeTables.length > 0) {
-        setActiveTableNames(converted.activeTables);
-      }
-      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
-      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
-      if (converted.joins) setJoins(converted.joins);
-      if (converted.filters) setFilters(converted.filters);
-      if (converted.sorts) setSorts(converted.sorts);
-      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
-      if (converted.limit !== undefined) setLimit(converted.limit);
-      if ((parsed as any).ctes) setCtes((parsed as any).ctes);
-      if ((parsed as any).window_functions) setWindowFunctions((parsed as any).window_functions);
+      actions.loadSpec(parsed);
     }
   };
 
   const handleSyncWithVisualCanvas = () => {
     const parsed = parseSqlToSpec(rawSql, normalizedSchema);
     if (parsed && parsed.table) {
-      const converted = specToState(parsed);
-      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
-      if (converted.activeTables && converted.activeTables.length > 0) {
-        setActiveTableNames(converted.activeTables);
-      }
-      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
-      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
-      if (converted.joins) setJoins(converted.joins);
-      if (converted.filters) setFilters(converted.filters);
-      if (converted.sorts) setSorts(converted.sorts);
-      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
-      if (converted.limit !== undefined) setLimit(converted.limit);
-      if ((parsed as any).ctes) setCtes((parsed as any).ctes);
-      if ((parsed as any).window_functions) setWindowFunctions((parsed as any).window_functions);
+      actions.loadSpec(parsed);
     }
     setRawSql(compiled.sql);
     setIsRawMode(false);
@@ -402,20 +596,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
 
   const handleApplyNlqSpec = (appliedSpec: any) => {
     if (appliedSpec && appliedSpec.table) {
-      const converted = specToState(appliedSpec);
-      if (converted.primaryTable) setPrimaryTable(converted.primaryTable);
-      if (converted.activeTables && converted.activeTables.length > 0) {
-        setActiveTableNames(converted.activeTables);
-      }
-      if (converted.selectedColumns) setSelectedColumns(converted.selectedColumns);
-      if (converted.orderedProjectionKeys) setOrderedProjectionKeys(converted.orderedProjectionKeys);
-      if (converted.joins) setJoins(converted.joins);
-      if (converted.filters) setFilters(converted.filters);
-      if (converted.sorts) setSorts(converted.sorts);
-      if (converted.isDistinct !== undefined) setIsDistinct(converted.isDistinct);
-      if (converted.limit !== undefined) setLimit(converted.limit);
-      if (appliedSpec.vector_search) setVectorSearch(appliedSpec.vector_search);
-      if (appliedSpec.hybrid_search) setHybridSearch(appliedSpec.hybrid_search);
+      actions.loadSpec(appliedSpec);
       setIsRawMode(false);
     }
   };
@@ -437,35 +618,53 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
     onError: onLiveExecutionError,
   });
 
-  const getActiveSpec = (): any => {
-    const base = isRawMode
-      ? (parseSqlToSpec(currentSql, normalizedSchema) as any) || compiled.spec
-      : compiled.spec;
-    if (!base) return base;
-    const merged = { ...base };
-    if (ctes.length > 0) merged.ctes = ctes;
-    if (windowFunctions.length > 0) merged.window_functions = windowFunctions;
-    return merged;
-  };
-
   // Execute current query
   const handleRunQuery = async () => {
-    if (!onExecuteQuery) return;
+    if (!effectiveOnExecuteQuery) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
       const parsedSpec = getActiveSpec();
-      const result = await onExecuteQuery(currentSql, parsedSpec);
+      const result = await effectiveOnExecuteQuery(currentSql, parsedSpec);
       if (result) {
         setQueryResults(result);
         setActiveTab("results");
       }
+      return result;
     } catch (err: unknown) {
-      setExecutionError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setExecutionError(msg);
     } finally {
       setIsRunning(false);
     }
   };
+
+  // Expose imperative VisualQueryBuilderRef methods
+  useImperativeHandle(
+    ref,
+    () => ({
+      getSpec: () => getActiveSpec(),
+      getSql: () => currentSql,
+      setSpec: (newSpec: QuerySpec) => {
+        actions.loadSpec(newSpec);
+      },
+      reset: () => {
+        actions.reset();
+      },
+      execute: async () => {
+        return handleRunQuery();
+      },
+      undo: () => {
+        actions.undo();
+      },
+      redo: () => {
+        actions.redo();
+      },
+      canUndo: () => history.canUndo,
+      canRedo: () => history.canRedo,
+    }),
+    [getActiveSpec, currentSql, actions, history.canUndo, history.canRedo],
+  );
 
   // Save template handler
   const handleSaveTemplate = (template: QueryTemplate) => {
@@ -481,138 +680,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
   // Load template handler
   const handleLoadTemplate = (template: QueryTemplate) => {
     if (template.spec && Object.keys(template.spec).length > 0) {
-      const s = template.spec as any;
-      const pTable = s.table || s.primaryTable || "";
-      if (pTable) {
-        setPrimaryTable(pTable);
-      }
-      if (Array.isArray(s.activeTables)) {
-        setActiveTableNames(s.activeTables);
-      } else if (pTable) {
-        setActiveTableNames([pTable]);
-      }
-
-      if (s.selectedColumns && typeof s.selectedColumns === "object") {
-        setSelectedColumns(s.selectedColumns);
-        if (Array.isArray(s.orderedProjectionKeys)) {
-          setOrderedProjectionKeys(s.orderedProjectionKeys);
-        }
-      } else if (Array.isArray(s.columns)) {
-        const newSelected: Record<string, VisualColumnSelect> = {};
-        const newKeys: string[] = [];
-        s.columns.forEach((colItem: any) => {
-          if (!colItem || colItem === "*") return;
-          if (typeof colItem === "string") {
-            let tbl = pTable;
-            let col = colItem;
-            if (colItem.includes(".")) {
-              const lastDot = colItem.lastIndexOf(".");
-              tbl = colItem.substring(0, lastDot);
-              col = colItem.substring(lastDot + 1);
-            }
-            const key = `${tbl}.${col}`;
-            newSelected[key] = { table: tbl, name: col };
-            newKeys.push(key);
-          } else if (typeof colItem === "object" && colItem.column) {
-            let tbl = pTable;
-            let col = colItem.column;
-            if (col.includes(".")) {
-              const lastDot = col.lastIndexOf(".");
-              tbl = col.substring(0, lastDot);
-              col = col.substring(lastDot + 1);
-            }
-            const key = `${tbl}.${col}`;
-            newSelected[key] = {
-              table: tbl,
-              name: col,
-              aggregate: colItem.agg ? colItem.agg.toUpperCase() : undefined,
-              alias: colItem.alias,
-            };
-            newKeys.push(key);
-          }
-        });
-        setSelectedColumns(newSelected);
-        setOrderedProjectionKeys(newKeys);
-      }
-
-      if (Array.isArray(s.joins)) {
-        const mappedJoins: VisualJoin[] = s.joins.map((j: any, idx: number) => {
-          const jType = (j.type || "LEFT").toUpperCase();
-          const fullType = jType.endsWith(" JOIN") ? jType : `${jType} JOIN`;
-          let leftTbl = j.left_table;
-          let leftC = j.left_col;
-          if (!leftC && j.on?.[0]?.left) {
-            const lStr = j.on[0].left;
-            if (lStr.includes(".")) {
-              const lastDot = lStr.lastIndexOf(".");
-              if (!leftTbl) leftTbl = lStr.substring(0, lastDot);
-              leftC = lStr.substring(lastDot + 1);
-            } else {
-              leftC = lStr;
-            }
-          }
-          let rightC = j.right_col;
-          if (!rightC && j.on?.[0]?.right) {
-            const rStr = j.on[0].right;
-            rightC = rStr.includes(".") ? rStr.substring(rStr.lastIndexOf(".") + 1) : rStr;
-          }
-          return {
-            id: j.id || `join_${idx + 1}`,
-            table: j.table,
-            type: fullType as any,
-            left_table: leftTbl,
-            left_col: leftC || "id",
-            right_col: rightC || "id",
-          };
-        });
-        setJoins(mappedJoins);
-        setActiveTableNames((prev) => {
-          const joinTables = mappedJoins.map((j) => j.table);
-          return Array.from(new Set([...prev, ...joinTables]));
-        });
-      }
-
-      if (Array.isArray(s.filters)) {
-        const mappedFilters: VisualFilter[] = s.filters.map((f: any, idx: number) => {
-          let op = f.operator || f.op || "=";
-          op = op.toUpperCase().replace(/_/g, " ");
-          return {
-            id: f.id || `filter_${idx + 1}`,
-            tablePrefix: f.tablePrefix || f.table || pTable,
-            column: f.column || "",
-            operator: op as any,
-            value: f.value ?? "",
-            combiner: f.combiner || "AND",
-          };
-        });
-        setFilters(mappedFilters);
-      }
-
-      if (Array.isArray(s.sorts)) {
-        setSorts(s.sorts);
-      } else if (Array.isArray(s.order_by)) {
-        const mappedSorts: VisualSort[] = s.order_by.map((ord: any, idx: number) => {
-          let col = ord.column || "";
-          let prefix = ord.tablePrefix;
-          if (!prefix && col.includes(".")) {
-            const lastDot = col.lastIndexOf(".");
-            prefix = col.substring(0, lastDot);
-            col = col.substring(lastDot + 1);
-          }
-          return {
-            id: `sort_${idx + 1}`,
-            tablePrefix: prefix || pTable,
-            column: col,
-            direction: ord.direction || "ASC",
-          };
-        });
-        setSorts(mappedSorts);
-      }
-
-      if (typeof s.distinct === "boolean") setIsDistinct(s.distinct);
-      else if (typeof s.isDistinct === "boolean") setIsDistinct(s.isDistinct);
-
-      if (typeof s.limit === "number") setLimit(s.limit);
+      actions.loadSpec(template.spec);
       setIsRawMode(false);
     } else if (template.sql) {
       setRawSql(template.sql);
@@ -669,6 +737,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       data-qb="root"
       data-qb-mode={activeTab}
       data-qb-unstyled={unstyled ? "true" : undefined}
+      className={cx(className, classNames?.root)}
       style={
         unstyled
           ? undefined
@@ -689,6 +758,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       {/* Top Controls Bar */}
       <div
         data-qb="top-bar"
+        className={cx(classNames?.header)}
         style={
           unstyled
             ? undefined
@@ -709,6 +779,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             role="tablist"
             aria-label="Query builder tabs"
             data-qb="tab-list"
+            className={cx(classNames?.tabs)}
             style={
               unstyled
                 ? undefined
@@ -733,6 +804,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               onClick={() => setActiveTab("visual")}
               data-qb="tab"
               data-qb-tab="visual"
+              className={cx(classNames?.tab, activeTab === "visual" && classNames?.tabActive)}
               style={
                 unstyled
                   ? undefined
@@ -765,6 +837,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               }}
               data-qb="tab"
               data-qb-tab="sql"
+              className={cx(classNames?.tab, activeTab === "sql" && classNames?.tabActive)}
               style={
                 unstyled
                   ? undefined
@@ -794,6 +867,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               onClick={() => setActiveTab("results")}
               data-qb="tab"
               data-qb-tab="results"
+              className={cx(classNames?.tab, activeTab === "results" && classNames?.tabActive)}
               style={
                 unstyled
                   ? undefined
@@ -823,6 +897,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               onClick={() => setActiveTab("chart")}
               data-qb="tab"
               data-qb-tab="chart"
+              className={cx(classNames?.tab, activeTab === "chart" && classNames?.tabActive)}
               style={
                 unstyled
                   ? undefined
@@ -853,6 +928,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
                 onClick={() => setActiveTab("pipeline")}
                 data-qb="tab"
                 data-qb-tab="pipeline"
+                className={cx(classNames?.tab, activeTab === "pipeline" && classNames?.tabActive)}
                 style={
                   unstyled
                     ? undefined
@@ -884,6 +960,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
                 onClick={() => setActiveTab("plan")}
                 data-qb="tab"
                 data-qb-tab="plan"
+                className={cx(classNames?.tab, activeTab === "plan" && classNames?.tabActive)}
                 style={
                   unstyled
                     ? undefined
@@ -983,6 +1060,55 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           data-qb="actions-bar"
           style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "10px" }}
         >
+          {/* Undo / Redo Controls */}
+          <button
+            type="button"
+            onClick={() => actions.undo()}
+            disabled={!history.canUndo}
+            aria-label="Undo query changes (Cmd+Z)"
+            title="Undo (Cmd+Z)"
+            data-qb="btn-undo"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: history.canUndo ? activeTheme.colors.surface : "rgba(30, 41, 59, 0.2)",
+                    color: history.canUndo ? activeTheme.colors.text : activeTheme.colors.textMuted,
+                    border: `1px solid ${history.canUndo ? activeTheme.colors.border : "transparent"}`,
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 10px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    cursor: history.canUndo ? "pointer" : "not-allowed",
+                    opacity: history.canUndo ? 1 : 0.4,
+                  }
+            }
+          >
+            ↶ Undo
+          </button>
+          <button
+            type="button"
+            onClick={() => actions.redo()}
+            disabled={!history.canRedo}
+            aria-label="Redo query changes (Cmd+Shift+Z)"
+            title="Redo (Cmd+Shift+Z)"
+            data-qb="btn-redo"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: history.canRedo ? activeTheme.colors.surface : "rgba(30, 41, 59, 0.2)",
+                    color: history.canRedo ? activeTheme.colors.text : activeTheme.colors.textMuted,
+                    border: `1px solid ${history.canRedo ? activeTheme.colors.border : "transparent"}`,
+                    borderRadius: activeTheme.radii.sm,
+                    padding: "6px 10px",
+                    fontSize: activeTheme.typography.fontSizeSm,
+                    cursor: history.canRedo ? "pointer" : "not-allowed",
+                    opacity: history.canRedo ? 1 : 0.4,
+                  }
+            }
+          >
+            ↷ Redo
+          </button>
           <span
             data-testid="dialect-badge"
             style={
@@ -1237,20 +1363,8 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             onToggleColumn={handleToggleColumn}
             onRemoveTable={handleRemoveTable}
             onAddTableToCanvas={handleAddTableToCanvas}
-            onUpdateColumnSelect={(key, updates) =>
-              setSelectedColumns((prev) => ({
-                ...prev,
-                [key]: { ...prev[key], ...updates },
-              }))
-            }
-            onRemoveColumnProjection={(key) => {
-              setSelectedColumns((prev) => {
-                const next = { ...prev };
-                delete next[key];
-                return next;
-              });
-              setOrderedProjectionKeys((keys) => keys.filter((k) => k !== key));
-            }}
+            onUpdateColumnSelect={actions.updateColumnSelect}
+            onRemoveColumnProjection={actions.removeColumnProjection}
             onJoinsChange={handleJoinsChange}
             onAddJoin={handleAddJoinToTable}
             onReorderProjections={setOrderedProjectionKeys}
@@ -1263,6 +1377,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             onVectorChange={setVectorSearch}
             onHybridChange={setHybridSearch}
             unstyled={unstyled}
+            classNames={classNames}
             customOperators={customOperators}
             fieldRenderers={fieldRenderers}
           />
@@ -1277,6 +1392,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           tabIndex={0}
           data-qb="tab-panel"
           data-qb-panel="sql"
+          className={cx(classNames?.sqlEditor)}
           style={
             unstyled
               ? undefined
@@ -1291,6 +1407,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             }
           >
             <span
+              className={cx(classNames?.title)}
               style={
                 unstyled
                   ? undefined
@@ -1307,6 +1424,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               {isRawMode && (
                 <span
                   data-qb="sql-sync-badge"
+                  className={cx(classNames?.sqlSyncBadge)}
                   style={
                     unstyled
                       ? undefined
@@ -1358,6 +1476,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
             value={currentSql}
             onChange={(e) => handleRawSqlChange(e.target.value)}
             rows={12}
+            className={cx(classNames?.sqlTextarea)}
             style={
               unstyled
                 ? undefined
@@ -1389,7 +1508,13 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
           data-qb="tab-panel"
           data-qb-panel="results"
         >
-          <QueryResultsTable results={queryResults} isLoading={isRunning} unstyled={unstyled} cellRenderers={cellRenderers} />
+          <QueryResultsTable
+            results={queryResults}
+            isLoading={isRunning}
+            unstyled={unstyled}
+            cellRenderers={cellRenderers}
+            classNames={classNames}
+          />
         </div>
       )}
 
@@ -1439,7 +1564,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
               if (stage) {
                 setPrimaryTable(stage);
                 if (!activeTableNames.includes(stage)) {
-                  setActiveTableNames((prev) => [...prev, stage]);
+                  actions.addTable(stage);
                 }
               }
               setActiveTab("visual");
@@ -1454,7 +1579,7 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       <WindowFunctionBuilder
         isOpen={isWfBuilderOpen}
         onClose={() => setIsWfBuilderOpen(false)}
-        onSave={(wf) => setWindowFunctions((prev) => [...prev, wf])}
+        onSave={(wf) => setWindowFunctions([...windowFunctions, wf])}
         availableColumns={Object.values(augmentedSchema?.tables || {}).flatMap((t) =>
           (t.columns || []).map((c) => ({
             table: t.name,
@@ -1520,4 +1645,6 @@ export const VisualQueryBuilder: React.FC<ExtendedVisualQueryBuilderProps> = ({
       )}
     </div>
   );
-};
+}) as <Schema extends DatabaseSchemaDefinition = any>(
+  props: ExtendedVisualQueryBuilderProps<Schema> & { ref?: React.Ref<VisualQueryBuilderRef> },
+) => React.ReactElement | null;

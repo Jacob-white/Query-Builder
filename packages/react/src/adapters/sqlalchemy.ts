@@ -3,9 +3,15 @@
  * Converts SQLAlchemy Python model source code or serialized metadata into TableSchema[].
  */
 
-import type { ColumnSchema, ForeignKey, TableSchema } from "../types";
+import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../types";
 import type { AdapterOptions } from "./types";
-import { normalizeDataType } from "./utils";
+import {
+  extractSnapshotData,
+  normalizeDataType,
+  toPascalCase,
+  toSnakeCase,
+} from "./utils";
+
 
 const SQLALCHEMY_TYPE_MAP: Record<string, string> = {
   integer: "integer",
@@ -257,3 +263,173 @@ export function fromSqlAlchemy(
 
   return tables;
 }
+
+/**
+ * Converts a TableSchema array, SchemaSnapshot, or metadata dictionary to SQLAlchemy Declarative Base models (.py).
+ *
+ * Generates:
+ * - Base = declarative_base() definition
+ * - Model classes inheriting from Base with __tablename__
+ * - Column declarations with standard SQLAlchemy types
+ * - ForeignKey constraints and relationship() definitions
+ */
+export function toSqlAlchemy(
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+): string {
+  const { tables, foreignKeys } = extractSnapshotData(snapshot);
+
+  const header =
+    "from __future__ import annotations\n\n" +
+    "from sqlalchemy import (\n" +
+    "    Boolean,\n" +
+    "    Column,\n" +
+    "    DateTime,\n" +
+    "    Float,\n" +
+    "    ForeignKey,\n" +
+    "    Integer,\n" +
+    "    Numeric,\n" +
+    "    String,\n" +
+    "    Text,\n" +
+    ")\n" +
+    "from sqlalchemy.orm import declarative_base, relationship\n\n" +
+    "Base = declarative_base()";
+
+  const tableEntries = Object.entries(tables);
+  if (tableEntries.length === 0) {
+    return header;
+  }
+
+  // Build FK index: table -> list of fks
+  const fksByTable: Record<string, typeof foreignKeys> = {};
+  for (const tName of Object.keys(tables)) {
+    fksByTable[tName] = [];
+  }
+  for (const fk of foreignKeys) {
+    if (tables[fk.table]) {
+      fksByTable[fk.table].push(fk);
+    }
+  }
+
+  const modelBlocks: string[] = [];
+
+  for (const [tableName, tableInfo] of tableEntries) {
+    const modelName = toPascalCase(tableName);
+    const columns = tableInfo.columns;
+    const tableComment = tableInfo.comment;
+
+    const docstring = tableComment
+      ? tableComment
+      : `Declarative model for table '${tableName}'.`;
+
+    const lines: string[] = [
+      `class ${modelName}(Base):`,
+      `    """${docstring}"""`,
+      `    __tablename__ = "${tableName}"`,
+    ];
+
+    if (!columns || columns.length === 0) {
+      lines.push("    pass");
+      modelBlocks.push(lines.join("\n"));
+      continue;
+    }
+
+    // Map FK columns for this table
+    const fkMap: Record<string, (typeof foreignKeys)[0]> = {};
+    for (const fk of fksByTable[tableName] || []) {
+      fkMap[fk.column] = fk;
+    }
+
+const PYTHON_KEYWORDS = new Set([
+  "False", "None", "True", "and", "as", "assert", "async", "await", "break",
+  "class", "continue", "def", "del", "elif", "else", "except", "finally",
+  "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+  "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+]);
+
+    const colVarNames = new Set<string>();
+
+    for (const col of columns) {
+      const cName = col.name;
+      const cType = (col.data_type || "text").toLowerCase();
+      const isPk = Boolean(col.is_primary);
+      const isNullable = Boolean(col.is_nullable);
+
+      const baseVar = toSnakeCase(cName);
+      const isKeyword = PYTHON_KEYWORDS.has(baseVar);
+      const colVar = isKeyword ? `${baseVar}_` : baseVar;
+      colVarNames.add(colVar);
+
+      // Map to SQLAlchemy type
+      let saType = "String";
+      if (
+        ["bigint", "bigserial", "int", "serial", "smallint", "tinyint"].some((t) =>
+          cType.includes(t),
+        )
+      ) {
+        saType = "Integer";
+      } else if (["bool", "boolean"].some((t) => cType.includes(t))) {
+        saType = "Boolean";
+      } else if (["float", "double", "real"].some((t) => cType.includes(t))) {
+        saType = "Float";
+      } else if (["decimal", "numeric", "money"].some((t) => cType.includes(t))) {
+        saType = "Numeric";
+      } else if (["datetime", "timestamp", "date", "time"].some((t) => cType.includes(t))) {
+        saType = "DateTime";
+      } else if (["text", "clob", "json", "jsonb"].some((t) => cType.includes(t))) {
+        saType = "Text";
+      } else {
+        saType = "String";
+      }
+
+      // Check for FK
+      let fkClause = "";
+      if (fkMap[cName]) {
+        const fk = fkMap[cName];
+        fkClause = `ForeignKey("${fk.foreign_table}.${fk.foreign_column}"), `;
+      }
+
+      const colNameArg = isKeyword || colVar !== cName ? `"${cName}", ` : "";
+      lines.push(
+        `    ${colVar} = Column(${colNameArg}${saType}, ${fkClause}primary_key=${isPk ? "True" : "False"}, nullable=${isNullable ? "True" : "False"})`,
+      );
+    }
+
+    // Generate relationships for outgoing FKs where target table is present in snapshot
+    for (const fk of fksByTable[tableName] || []) {
+      if (!tables[fk.foreign_table]) continue;
+
+      const srcCol = fk.column;
+      const tgtTbl = fk.foreign_table;
+      const baseSrc = toSnakeCase(srcCol);
+      const srcVar = PYTHON_KEYWORDS.has(baseSrc) ? `${baseSrc}_` : baseSrc;
+      const targetModel = toPascalCase(tgtTbl);
+
+      let relName: string;
+      if (baseSrc.endsWith("_id")) {
+        relName = baseSrc.slice(0, -3);
+      } else if (baseSrc.endsWith("id") && baseSrc.length > 2) {
+        relName = baseSrc.slice(0, -2);
+      } else {
+        relName = toSnakeCase(tgtTbl);
+      }
+
+      if (PYTHON_KEYWORDS.has(relName)) {
+        relName = `${relName}_rel`;
+      } else if (colVarNames.has(relName)) {
+        relName = `${relName}_rel`;
+      }
+
+      lines.push(
+        `    ${relName} = relationship("${targetModel}", foreign_keys=[${srcVar}])`,
+      );
+    }
+
+    modelBlocks.push(lines.join("\n"));
+  }
+
+  const modelsContent = modelBlocks.join("\n\n\n");
+  return `${header}\n\n\n${modelsContent}`;
+}
+
+export const toSqlAlchemyModels = toSqlAlchemy;
+

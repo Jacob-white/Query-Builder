@@ -638,7 +638,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
       expect(snippetCode).not.toBeNull();
       const text = snippetCode?.textContent || "";
 
-      expect(text).toContain('import { createQuery } from "@jacob-white/query-builder";');
+      expect(text).toContain('import { createQuery, createQueryBuilderClient } from "@jacob-white/query-builder-react/client";');
       expect(text).toContain('.from("customers")');
       expect(text).toContain('.select(["customers.id","customers.email","orders.total AS total_revenue"])');
       expect(text).toContain('.join("orders", "id", "=", "customer_id")');
@@ -647,7 +647,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
       expect(text).toContain('.orderBy("orders.total", "DESC")');
       expect(text).toContain('.distinct()');
       expect(text).toContain('.limit(25)');
-      expect(text).toContain("const result = await query.execute();");
+      expect(text).toContain("const result = await client.execute(query.toSpec());");
     });
 
     it("verifies compiled SQL with distinct dialect quoting across PostgreSQL, MySQL, SQLite, Snowflake, BigQuery, DuckDB, MSSQL", () => {

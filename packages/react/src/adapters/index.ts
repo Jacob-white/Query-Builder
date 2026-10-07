@@ -7,8 +7,9 @@
 
 export * from "./types";
 export * from "./utils";
-export { fromPrisma } from "./prisma";
-export { fromDrizzle } from "./drizzle";
-export { fromSqlAlchemy } from "./sqlalchemy";
+export { fromPrisma, toPrisma, toPrismaSchema } from "./prisma";
+export { fromDrizzle, toDrizzle, toDrizzleSchema } from "./drizzle";
+export { fromSqlAlchemy, toSqlAlchemy, toSqlAlchemyModels } from "./sqlalchemy";
 export { fromJsonSchema } from "./jsonSchema";
 export * from "./semantic";
+

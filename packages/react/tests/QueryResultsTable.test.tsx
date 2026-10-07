@@ -222,4 +222,52 @@ describe("QueryResultsTable", () => {
     expect(screen.getAllByRole("columnheader").length).toBe(2);
     expect(screen.getAllByRole("cell").length).toBe(2);
   });
+
+  it("paginates results according to pageSize and supports Next/Previous navigation", () => {
+    const results: QueryResultData = {
+      columns: ["id", "name"],
+      rows: [
+        { id: 1, name: "Item 1" },
+        { id: 2, name: "Item 2" },
+        { id: 3, name: "Item 3" },
+        { id: 4, name: "Item 4" },
+        { id: 5, name: "Item 5" },
+      ],
+      count: 5,
+    };
+
+    render(<QueryResultsTable results={results} pageSize={2} />);
+
+    // Page 1 should show Item 1 and Item 2
+    expect(screen.getByText("Item 1")).toBeTruthy();
+    expect(screen.getByText("Item 2")).toBeTruthy();
+    expect(screen.queryByText("Item 3")).toBeNull();
+    const paginationControls = document.querySelector('[data-qb="results-pagination-controls"]');
+    expect(paginationControls?.textContent).toContain("Page 1 of 3");
+
+    const nextBtn = screen.getByRole("button", { name: "Next page" });
+    const prevBtn = screen.getByRole("button", { name: "Previous page" });
+
+    expect((prevBtn as HTMLButtonElement).disabled).toBe(true);
+    expect((nextBtn as HTMLButtonElement).disabled).toBe(false);
+
+    // Navigate to Page 2
+    fireEvent.click(nextBtn);
+    expect(screen.queryByText("Item 1")).toBeNull();
+    expect(screen.getByText("Item 3")).toBeTruthy();
+    expect(screen.getByText("Item 4")).toBeTruthy();
+    expect(paginationControls?.textContent).toContain("Page 2 of 3");
+    expect((prevBtn as HTMLButtonElement).disabled).toBe(false);
+
+    // Navigate to Page 3
+    fireEvent.click(nextBtn);
+    expect(screen.getByText("Item 5")).toBeTruthy();
+    expect(paginationControls?.textContent).toContain("Page 3 of 3");
+    expect((nextBtn as HTMLButtonElement).disabled).toBe(true);
+
+    // Navigate back to Page 2
+    fireEvent.click(prevBtn);
+    expect(screen.getByText("Item 3")).toBeTruthy();
+    expect(paginationControls?.textContent).toContain("Page 2 of 3");
+  });
 });
