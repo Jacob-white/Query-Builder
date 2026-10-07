@@ -8,7 +8,12 @@ import type {
   CustomFilterOperator,
   CustomFieldRenderer,
   QueryResultData,
+  FeatureConfig,
+  FeaturePreset,
+  FeatureKey,
+  ResolvedFeatureMap,
 } from "../types";
+import { resolveFeatureConfig, isFeatureVisible as checkFeatureVisible } from "../utils/featureUtils";
 
 export interface QueryBuilderContextValue {
   mode: "styled" | "unstyled";
@@ -16,6 +21,10 @@ export interface QueryBuilderContextValue {
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
+  isAdvancedMode?: boolean;
+  setIsAdvancedMode?: (isAdvanced: boolean) => void;
+  features?: ResolvedFeatureMap;
+  isFeatureVisible?: (feature: FeatureKey) => boolean;
 }
 
 export const QueryBuilderContext = createContext<QueryBuilderContextValue | null>(null);
@@ -33,6 +42,11 @@ export interface QueryBuilderProviderProps {
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
   onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
+  features?: FeatureConfig;
+  featurePreset?: FeaturePreset;
+  isAdvancedMode?: boolean;
+  defaultAdvancedMode?: boolean;
+  onAdvancedModeChange?: (isAdvanced: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -45,9 +59,32 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
   fieldRenderers,
   cellRenderers,
   onExecuteQuery,
+  features,
+  featurePreset,
+  isAdvancedMode: propAdvancedMode,
+  defaultAdvancedMode,
+  onAdvancedModeChange,
   children,
 }) => {
   const parentContext = useContext(QueryBuilderContext);
+  const [internalAdvanced, setInternalAdvanced] = React.useState<boolean>(() => {
+    if (propAdvancedMode !== undefined) return propAdvancedMode;
+    if (defaultAdvancedMode !== undefined) return defaultAdvancedMode;
+    return false;
+  });
+
+  const effectiveAdvanced =
+    propAdvancedMode !== undefined ? propAdvancedMode : (parentContext?.isAdvancedMode ?? internalAdvanced);
+
+  const handleSetAdvanced = (val: boolean) => {
+    setInternalAdvanced(val);
+    onAdvancedModeChange?.(val);
+    parentContext?.setIsAdvancedMode?.(val);
+  };
+
+  const resolvedFeatures = useMemo(() => {
+    return resolveFeatureConfig(features, featurePreset, parentContext?.features as any);
+  }, [features, featurePreset, parentContext?.features]);
 
   const value = useMemo<QueryBuilderContextValue>(
     () => ({
@@ -65,6 +102,10 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
         ...(cellRenderers || {}),
       },
       onExecuteQuery: onExecuteQuery ?? parentContext?.onExecuteQuery,
+      isAdvancedMode: effectiveAdvanced,
+      setIsAdvancedMode: handleSetAdvanced,
+      features: resolvedFeatures,
+      isFeatureVisible: (feat: FeatureKey) => checkFeatureVisible(feat, resolvedFeatures, effectiveAdvanced),
     }),
     [
       mode,
@@ -73,6 +114,8 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
       fieldRenderers,
       cellRenderers,
       onExecuteQuery,
+      effectiveAdvanced,
+      resolvedFeatures,
     ],
   );
 

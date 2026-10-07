@@ -688,6 +688,34 @@ export type QueryBuilderSlot =
 
 export type QueryBuilderClassNames = Partial<Record<QueryBuilderSlot, string>>;
 
+// ==========================================
+// Feature Flags & Engine Capabilities Types
+// ==========================================
+
+export type FeatureTier = "standard" | "advanced" | "disabled";
+
+export type FeatureKey =
+  | "projections"
+  | "filters"
+  | "sorts"
+  | "joins"
+  | "distinct_limit"
+  | "visual_chart"
+  | "ctes"
+  | "window_functions"
+  | "analytical_grouping"
+  | "vector_search"
+  | "raw_sql"
+  | "query_plan"
+  | "calculated_fields"
+  | "schema_tools";
+
+export type FeatureConfig = Partial<Record<FeatureKey, FeatureTier | boolean>>;
+
+export type FeaturePreset = "simple" | "standard" | "power_user" | "all";
+
+export type ResolvedFeatureMap = Record<FeatureKey, FeatureTier>;
+
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   presets?: SqlPreset[];
@@ -709,6 +737,15 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
   ai?: import("./ai/types").ByoAiConfig;
+
+  // Advanced Feature Controls
+  features?: FeatureConfig;
+  featurePreset?: FeaturePreset;
+  allowToggleAdvanced?: boolean;
+  advancedMode?: boolean;
+  defaultAdvancedMode?: boolean;
+  onAdvancedModeChange?: (isAdvanced: boolean) => void;
+  storageKey?: string | null;
 }
 
 // ==========================================

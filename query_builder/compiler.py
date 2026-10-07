@@ -812,7 +812,19 @@ class QueryCompiler:
         allow_unknown_keys: bool = False,
         middleware: Any = None,
         semantic_models: Any = None,
+        capabilities: Any = None,
     ) -> None:
+        if capabilities is not None:
+            from query_builder.capabilities import EngineCapabilities
+            if isinstance(capabilities, EngineCapabilities):
+                self.capabilities: EngineCapabilities | None = capabilities
+            elif isinstance(capabilities, dict):
+                self.capabilities = EngineCapabilities.from_dict(capabilities)
+            else:
+                self.capabilities = None
+        else:
+            self.capabilities = None
+
         if middleware is not None:
             from query_builder.middleware import MiddlewarePipeline
 
@@ -831,6 +843,9 @@ class QueryCompiler:
 
         if validate_spec:
             validate_query_spec(self.spec, allow_unknown_keys=allow_unknown_keys)
+
+        if self.capabilities:
+            self._validate_capabilities()
 
         self.user_id = user_id
         self.force_user_filter = force_user_filter
@@ -914,6 +929,41 @@ class QueryCompiler:
 
         self.has_aggregation = False
         self._ownership_alias_counter = AliasCounter()
+
+    def _validate_capabilities(self) -> None:
+        """Validates that all query features used in self.spec are enabled in self.capabilities."""
+        if not self.capabilities:
+            return
+        if self.spec.get("ctes"):
+            self.capabilities.require_feature("ctes")
+        if self.spec.get("window_functions"):
+            self.capabilities.require_feature("window_functions")
+        if (
+            self.spec.get("rollup")
+            or self.spec.get("cube")
+            or self.spec.get("grouping_sets")
+            or self.spec.get("pivot")
+            or self.spec.get("grouping_type")
+        ):
+            self.capabilities.require_feature("analytical_grouping")
+        if self.spec.get("vector_search") or self.spec.get("hybrid_search"):
+            self.capabilities.require_feature("vector_search")
+        if self.spec.get("joins"):
+            self.capabilities.require_feature("joins")
+        if self.spec.get("order_by"):
+            self.capabilities.require_feature("sorts")
+        if self.spec.get("filters") or self.spec.get("having"):
+            self.capabilities.require_feature("filters")
+        if self.spec.get("distinct") is True or "limit" in self.spec:
+            self.capabilities.require_feature("distinct_limit")
+        cols = self.spec.get("columns", [])
+        for c in cols:
+            if isinstance(c, dict):
+                if c.get("expression") or c.get("case_when"):
+                    self.capabilities.require_feature("calculated_fields")
+            elif hasattr(c, "expression") or hasattr(c, "case_when"):
+                if getattr(c, "expression", None) or getattr(c, "case_when", None):
+                    self.capabilities.require_feature("calculated_fields")
 
     def _generate_unique_alias(self) -> str:
         self._alias_counter += 1

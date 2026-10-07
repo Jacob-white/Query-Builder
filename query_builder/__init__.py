@@ -41,6 +41,11 @@ from query_builder.cache import (
     reset_global_cache,
     set_global_cache,
 )
+from query_builder.capabilities import (
+    DisabledFeatureError,
+    EngineCapabilities,
+    FeatureTier,
+)
 from query_builder.compiler import (
     AGGREGATE_MAP,
     OPERATOR_MAP,
@@ -629,6 +634,9 @@ __all__ = [
     "AiQueryResult",
     "AliasCounter",
     "AnalyticalCompiler",
+    "DisabledFeatureError",
+    "EngineCapabilities",
+    "FeatureTier",
     "AlloyDBConnector",
     "AlloyDBDialect",
     "BringYourOwnAiProvider",

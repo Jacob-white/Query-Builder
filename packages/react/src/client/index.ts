@@ -253,6 +253,11 @@ export interface QueryBuilderClient {
   ): Promise<Blob>;
 
   /**
+   * Introspects backend engine capabilities and active feature tiers.
+   */
+  getCapabilities(options?: RequestOptions): Promise<Record<string, string>>;
+
+  /**
    * Starts a fluent query builder bound to this client.
    */
   query(table?: string): FluentQuery;
@@ -423,6 +428,23 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
           return fallbackData?.schema || fallbackData;
         }
         throw err;
+      }
+    },
+
+    async getCapabilities(options?: RequestOptions): Promise<Record<string, string>> {
+      try {
+        const data = await makeRequest<any>("/capabilities", { method: "GET" }, options);
+        return data?.capabilities || data;
+      } catch (err) {
+        try {
+          const schema = await client.getSchema(options);
+          if ((schema as any)?.capabilities) {
+            return (schema as any).capabilities;
+          }
+        } catch {
+          // ignore fallback error
+        }
+        return {};
       }
     },
 

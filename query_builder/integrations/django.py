@@ -22,6 +22,11 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from query_builder.ast_validator import validate_sql_ast
+from query_builder.capabilities import (
+    DisabledFeatureError,
+    EngineCapabilities,
+    FeatureTier,
+)
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig
 from query_builder.connectors.registry import get_connector
@@ -257,6 +262,7 @@ def create_django_urls(
     connector: Any,
     security: SecurityPolicy | dict[str, Any] | None = None,
     tenant_resolver: Callable[[HttpRequest], TenantContext | dict[str, Any] | str | None] | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
 ) -> list[Any]:
     """Generates standard Django URL patterns for Query-Builder.
 
@@ -268,6 +274,8 @@ def create_django_urls(
         Security policy configuration.
     tenant_resolver:
         Callable taking Django HttpRequest and returning TenantContext.
+    capabilities:
+        Engine capabilities or dictionary defining enabled/advanced/disabled features.
 
     Returns
     -------
@@ -279,6 +287,17 @@ def create_django_urls(
         )
 
     policy = _get_effective_policy(security, tenant_resolver is not None)
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (EngineCapabilities.from_dict(capabilities) if isinstance(capabilities, dict) else EngineCapabilities.default())
+    )
+
+    @csrf_exempt
+    def capabilities_view(request: HttpRequest) -> HttpResponse:
+        if request.method != "GET":
+            return JsonResponse({"error": "Method not allowed"}, status=405)
+        return JsonResponse({"capabilities": effective_capabilities.to_dict()})
 
     @csrf_exempt
     def schema_view(request: HttpRequest) -> HttpResponse:
@@ -288,6 +307,7 @@ def create_django_urls(
         try:
             snapshot = _exec_conn_method(conn, "introspect_schema")
             data = _normalize_schema_snapshot(snapshot)
+            data["capabilities"] = effective_capabilities.to_dict()
             data = _filter_schema_tables(data, policy)
             return JsonResponse(data, safe=False)
         except Exception as exc:
@@ -315,7 +335,12 @@ def create_django_urls(
                 )
 
             dialect = body.get("dialect") or getattr(conn, "dialect_name", "postgres")
-            compiler = QueryCompiler(active_spec, schema=body.get("schema"), dialect=dialect)
+            compiler = QueryCompiler(
+                active_spec,
+                schema=body.get("schema"),
+                dialect=dialect,
+                capabilities=effective_capabilities,
+            )
             main_sql, params, count_sql, count_params = compiler.compile()
             return JsonResponse({
                 "sql": main_sql,
@@ -326,7 +351,7 @@ def create_django_urls(
             })
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except SecurityError as exc:
+        except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:
             return JsonResponse({"error": f"Compilation failed: {exc}"}, status=400)
@@ -360,6 +385,21 @@ def create_django_urls(
                 return JsonResponse({"error": "Either 'spec' or 'sql' must be provided"}, status=400)
 
             if spec is not None:
+                if effective_capabilities:
+                    if spec.get("ctes"):
+                        effective_capabilities.require_feature("ctes")
+                    if spec.get("window_functions"):
+                        effective_capabilities.require_feature("window_functions")
+                    if (
+                        spec.get("rollup")
+                        or spec.get("cube")
+                        or spec.get("grouping_sets")
+                        or spec.get("pivot")
+                    ):
+                        effective_capabilities.require_feature("analytical_grouping")
+                    if spec.get("vector_search") or spec.get("hybrid_search"):
+                        effective_capabilities.require_feature("vector_search")
+
                 active_spec = spec
                 if policy is not None or tenant_ctx is not None:
                     active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
@@ -377,6 +417,11 @@ def create_django_urls(
                     "sql": getattr(result, "sql", ""),
                 })
 
+            if not effective_capabilities.is_enabled("raw_sql"):
+                return JsonResponse(
+                    {"error": "Feature 'raw_sql' is disabled in engine capabilities."}, status=403
+                )
+
             if policy and getattr(policy, "enforce_tenant_isolation", False):
                 return JsonResponse(
                     {"error": "Raw SQL execution restricted under tenant isolation."}, status=403
@@ -393,7 +438,7 @@ def create_django_urls(
             })
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except SecurityError as exc:
+        except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:
             return JsonResponse({"error": f"Execution failed: {exc}"}, status=400)
@@ -435,7 +480,7 @@ def create_django_urls(
             return resp
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except SecurityError as exc:
+        except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:
             return JsonResponse({"error": f"Export failed: {exc}"}, status=400)
@@ -443,6 +488,7 @@ def create_django_urls(
     return [
         path("schema/", schema_view, name="query-builder-schema"),
         path("introspect/", schema_view, name="query-builder-introspect"),
+        path("capabilities/", capabilities_view, name="query-builder-capabilities"),
         path("compile/", compile_view, name="query-builder-compile"),
         path("validate/", validate_view, name="query-builder-validate"),
         path("execute/", execute_view, name="query-builder-execute"),
@@ -454,17 +500,28 @@ def create_drf_views(
     connector: Any,
     security: SecurityPolicy | dict[str, Any] | None = None,
     tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None] | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
 ) -> dict[str, type[APIView]]:
     """Generates Django REST Framework APIView classes for Query-Builder."""
     PermissionDenied, ValidationError, _, DRFResponse, APIView = _get_drf()
 
     policy = _get_effective_policy(security, tenant_resolver is not None)
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (EngineCapabilities.from_dict(capabilities) if isinstance(capabilities, dict) else EngineCapabilities.default())
+    )
+
+    class CapabilitiesView(APIView):
+        def get(self, request: DRFRequest) -> DRFResponse:
+            return DRFResponse({"capabilities": effective_capabilities.to_dict()})
 
     class SchemaView(APIView):
         def get(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             snapshot = _exec_conn_method(conn, "introspect_schema")
             data = _normalize_schema_snapshot(snapshot)
+            data["capabilities"] = effective_capabilities.to_dict()
             data = _filter_schema_tables(data, policy)
             return DRFResponse(data)
 
@@ -479,8 +536,16 @@ def create_drf_views(
             if policy is not None or tenant_ctx is not None:
                 active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
             dialect = request.data.get("dialect") or getattr(conn, "dialect_name", "postgres")
-            compiler = QueryCompiler(active_spec, schema=request.data.get("schema"), dialect=dialect)
-            sql, params, c_sql, c_params = compiler.compile()
+            try:
+                compiler = QueryCompiler(
+                    active_spec,
+                    schema=request.data.get("schema"),
+                    dialect=dialect,
+                    capabilities=effective_capabilities,
+                )
+                sql, params, c_sql, c_params = compiler.compile()
+            except DisabledFeatureError as exc:
+                raise PermissionDenied(str(exc)) from exc
             return DRFResponse({
                 "sql": sql,
                 "params": params,
@@ -507,11 +572,29 @@ def create_drf_views(
                 raise ValidationError("Either 'spec' or 'sql' must be provided")
 
             if spec is not None:
+                if effective_capabilities:
+                    if spec.get("ctes"):
+                        effective_capabilities.require_feature("ctes")
+                    if spec.get("window_functions"):
+                        effective_capabilities.require_feature("window_functions")
+                    if (
+                        spec.get("rollup")
+                        or spec.get("cube")
+                        or spec.get("grouping_sets")
+                        or spec.get("pivot")
+                    ):
+                        effective_capabilities.require_feature("analytical_grouping")
+                    if spec.get("vector_search") or spec.get("hybrid_search"):
+                        effective_capabilities.require_feature("vector_search")
+
                 active_spec = spec
                 if policy is not None or tenant_ctx is not None:
                     active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
                 res = _exec_conn_method(conn, "execute", active_spec, statement_timeout_ms=request.data.get("timeout_ms"))
                 return DRFResponse(res.to_dict() if hasattr(res, "to_dict") else res)
+
+            if not effective_capabilities.is_enabled("raw_sql"):
+                raise PermissionDenied("Feature 'raw_sql' is disabled in engine capabilities.")
 
             if policy and getattr(policy, "enforce_tenant_isolation", False):
                 raise PermissionDenied("Raw SQL execution restricted under tenant isolation.")
@@ -543,6 +626,8 @@ def create_drf_views(
                     "columns": res.get("columns", []) if isinstance(res, dict) else getattr(res, "columns", []),
                 }
             elif request.data.get("sql") is not None:
+                if not effective_capabilities.is_enabled("raw_sql"):
+                    raise PermissionDenied("Feature 'raw_sql' is disabled in engine capabilities.")
                 if policy and getattr(policy, "enforce_tenant_isolation", False):
                     raise PermissionDenied("Raw SQL export restricted under tenant isolation.")
                 cols, rows, _ = _exec_conn_method(conn, "execute_raw", request.data["sql"], request.data.get("params") or [])
@@ -561,6 +646,13 @@ def create_drf_views(
         "ValidateView": ValidateView,
         "ExecuteView": ExecuteView,
         "ExportView": ExportView,
+        "CapabilitiesView": CapabilitiesView,
+        "schema": SchemaView,
+        "compile": CompileView,
+        "validate": ValidateView,
+        "execute": ExecuteView,
+        "export": ExportView,
+        "capabilities": CapabilitiesView,
     }
 
 
@@ -568,6 +660,7 @@ def create_ninja_router(
     connector: Any,
     security: SecurityPolicy | dict[str, Any] | None = None,
     tenant_resolver: Callable[[Any], TenantContext | dict[str, Any] | str | None] | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> Any:
     """Generates a Django Ninja Router for Query-Builder."""
@@ -578,12 +671,22 @@ def create_ninja_router(
 
     router = NinjaRouter(tags=tags or ["Query Builder"])
     policy = _get_effective_policy(security, tenant_resolver is not None)
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (EngineCapabilities.from_dict(capabilities) if isinstance(capabilities, dict) else EngineCapabilities.default())
+    )
+
+    @router.get("/capabilities")
+    def get_capabilities(request: HttpRequest) -> dict[str, Any]:
+        return {"capabilities": effective_capabilities.to_dict()}
 
     @router.get("/schema")
     def get_schema(request: HttpRequest) -> dict[str, Any]:
         conn = _resolve_conn(connector)
         snapshot = _exec_conn_method(conn, "introspect_schema")
         data = _normalize_schema_snapshot(snapshot)
+        data["capabilities"] = effective_capabilities.to_dict()
         return _filter_schema_tables(data, policy)
 
     @router.post("/compile")
@@ -597,8 +700,16 @@ def create_ninja_router(
         if policy is not None or tenant_ctx is not None:
             active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
         dialect = payload.get("dialect") or getattr(conn, "dialect_name", "postgres")
-        compiler = QueryCompiler(active_spec, schema=payload.get("schema"), dialect=dialect)
-        sql, params, c_sql, c_params = compiler.compile()
+        try:
+            compiler = QueryCompiler(
+                active_spec,
+                schema=payload.get("schema"),
+                dialect=dialect,
+                capabilities=effective_capabilities,
+            )
+            sql, params, c_sql, c_params = compiler.compile()
+        except DisabledFeatureError as exc:
+            raise HttpError(403, str(exc)) from exc
         return {
             "sql": sql,
             "params": params,
@@ -624,11 +735,29 @@ def create_ninja_router(
             raise HttpError(400, "Either 'spec' or 'sql' must be provided")
 
         if spec is not None:
+            if effective_capabilities:
+                if spec.get("ctes"):
+                    effective_capabilities.require_feature("ctes")
+                if spec.get("window_functions"):
+                    effective_capabilities.require_feature("window_functions")
+                if (
+                    spec.get("rollup")
+                    or spec.get("cube")
+                    or spec.get("grouping_sets")
+                    or spec.get("pivot")
+                ):
+                    effective_capabilities.require_feature("analytical_grouping")
+                if spec.get("vector_search") or spec.get("hybrid_search"):
+                    effective_capabilities.require_feature("vector_search")
+
             active_spec = spec
             if policy is not None or tenant_ctx is not None:
                 active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
             res = _exec_conn_method(conn, "execute", active_spec, statement_timeout_ms=payload.get("timeout_ms"))
             return res.to_dict() if hasattr(res, "to_dict") else res
+
+        if not effective_capabilities.is_enabled("raw_sql"):
+            raise HttpError(403, "Feature 'raw_sql' is disabled in engine capabilities.")
 
         if policy and getattr(policy, "enforce_tenant_isolation", False):
             raise HttpError(403, "Raw SQL execution restricted under tenant isolation.")
