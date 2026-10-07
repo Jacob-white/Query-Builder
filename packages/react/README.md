@@ -502,4 +502,4 @@ VITEST_MAX_WORKERS=2 pnpm test
 
 ## 📄 License
 
-MIT © 2026 Jacob White.
+MIT License © 2026 HobbyHabbit LLC. See [LICENSE](../../LICENSE) for full details.

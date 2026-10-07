@@ -713,3 +713,9 @@ const cellRenderers = {
   ),
 };
 ```
+
+---
+
+## 📄 License & Ownership
+
+Query-Builder is open-source software owned and maintained by **HobbyHabbit LLC** under the **MIT License**. For security disclosures, see **[SECURITY.md](../SECURITY.md)**.

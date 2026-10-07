@@ -1,6 +1,6 @@
 # Security Policy — Query-Builder ⚡
 
-At **Query-Builder**, security is a foundational architectural pillar. As a dynamic query compilation and execution engine supporting over 198 database connector variants, Query-Builder is designed to enforce zero-trust query isolation, defense-in-depth SQL injection prevention, and strict multi-tenant data governance.
+At **Query-Builder**, security is a foundational architectural pillar. Owned and maintained by **HobbyHabbit LLC** under the **MIT License**, Query-Builder is a dynamic query compilation and execution engine supporting over 198 database connector variants, designed to enforce zero-trust query isolation, defense-in-depth SQL injection prevention, and strict multi-tenant data governance.
 
 This document outlines our security policies, vulnerability reporting procedures, defensive architecture, and configuration best practices for developers.
 
@@ -12,9 +12,8 @@ We provide security patches, bug fixes, and vulnerability reviews for the follow
 
 | Version | Supported | Status |
 | :--- | :--- | :--- |
-| `0.2.x` | :white_check_mark: | Current Active Development (Full Security Support) |
-| `0.1.x` | :white_check_mark: | Critical Security Fixes Only |
-| `< 0.1.0` | :x: | Unsupported — Please upgrade immediately |
+| `1.x` | :white_check_mark: | Current Active Production (Full Security Support) |
+| `< 1.0.0` | :x: | Unsupported — Please upgrade immediately |
 
 ---
 
@@ -23,7 +22,7 @@ We provide security patches, bug fixes, and vulnerability reviews for the follow
 We deeply appreciate the efforts of security researchers and developers in identifying potential security issues. We adhere to **Coordinated Vulnerability Disclosure (CVD)** principles.
 
 ### A. How to Report
-- **Email**: Send vulnerability reports directly to `security@hobbyhabbit.com` and `jake@hobbyhabbit.com`.
+- **Email**: Send vulnerability reports directly to `security@hobbyhabbit.com`, `support@hobbyhabbit.com`, and `jake@hobbyhabbit.com`.
 - **Subject Line**: `[SECURITY VULNERABILITY] Query-Builder — <Brief Description>`
 - **GitHub Private Vulnerability Reporting**: You may also report vulnerabilities privately via GitHub's [Advisory Submission Portal](https://github.com/Jacob-white/Query-Builder/security/advisories/new).
 
@@ -240,4 +239,10 @@ Query-Builder maintains strict test invariants to guarantee security integrity:
 
 ---
 
-*Last Updated: October 2026 — Query-Builder Security Team*
+## 7. Ownership & License
+
+Query-Builder is owned and maintained by **HobbyHabbit LLC** and licensed under the **MIT License**. For enterprise licensing inquiries or commercial support, contact `support@hobbyhabbit.com`.
+
+---
+
+*Last Updated: October 2026 — HobbyHabbit LLC Security Team*

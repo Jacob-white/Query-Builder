@@ -631,3 +631,8 @@ export function HeadlessEditor({ schema }: { schema: SchemaSnapshot }) {
 
 - Explore the **[Full-Stack Starter Template](../examples/fullstack_starter/README.md)** for a complete FastAPI + React 18 + SQLite application.
 - Review the **[Exhaustive API Reference](api_reference.md)** for detailed specifications of all data models, options, and methods.
+- Read the **[Security Policy & Sandboxing Guide](../SECURITY.md)** for zero-trust query isolation and vulnerability disclosure procedures.
+
+---
+
+*Query-Builder is developed and maintained by **HobbyHabbit LLC** under the **MIT License**.*
