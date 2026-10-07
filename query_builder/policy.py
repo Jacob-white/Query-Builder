@@ -29,6 +29,29 @@ class TenantContext:
 
 
 @dataclass
+class TablePolicy:
+    """Table-level access policy declaring allowed and restricted tables."""
+
+    allowed_tables: list[str] | None = None
+    restricted_tables: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ColumnPolicy:
+    """Role-based Column-Level Access Control (CLAC) policy specification."""
+
+    allowed_roles: list[str] = field(default_factory=list)
+    restricted_columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RowPolicy:
+    """Row-level security (RLS) predicate specification."""
+
+    filters: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class SecurityPolicy:
     """Security policy configuration for multi-tenant isolation and row-level access control."""
 
@@ -42,6 +65,38 @@ class SecurityPolicy:
     masking_strategy: str = "redact"
     max_complexity_score: int | None = None
     column_permissions: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    table_policy: TablePolicy | None = None
+    column_policies: dict[str, ColumnPolicy | dict[str, Any]] | None = None
+    row_policies: dict[str, RowPolicy | list[dict[str, Any]]] | None = None
+
+    def __post_init__(self) -> None:
+        if self.table_policy is not None:
+            if self.table_policy.allowed_tables is not None:
+                self.allowed_tables = list(self.table_policy.allowed_tables)
+            if self.table_policy.restricted_tables:
+                self.restricted_tables = list(self.table_policy.restricted_tables)
+        if self.column_policies is not None:
+            for table_name, col_policy in self.column_policies.items():
+                if isinstance(col_policy, ColumnPolicy):
+                    self.column_permissions[table_name] = {
+                        "allowed_roles": list(col_policy.allowed_roles),
+                        "restricted_columns": list(col_policy.restricted_columns),
+                    }
+                elif isinstance(col_policy, dict):
+                    self.column_permissions[table_name] = col_policy
+        if self.row_policies is not None:
+            for table_name, row_policy in self.row_policies.items():
+                if isinstance(row_policy, RowPolicy):
+                    self.row_level_filters[table_name] = [
+                        f.to_dict() if hasattr(f, "to_dict") else dict(f)
+                        for f in row_policy.filters
+                    ]
+                elif isinstance(row_policy, list):
+                    self.row_level_filters[table_name] = row_policy
+
+
+SecurityGovernor = SecurityPolicy
+
 
 
 def apply_security_policy(

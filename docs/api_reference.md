@@ -8,20 +8,25 @@ Complete, exhaustive reference documentation for the Python Engine and the React
 1. [Volume 1: Python Engine Public API (`query_builder`)](#volume-1-python-engine-public-api-query_builder)
    - [1. Data Models (`query_builder.models`)](#1-data-models-query_buildermodels)
    - [2. ORM & Schema Adapters (`query_builder.adapters`)](#2-orm--schema-adapters-query_builderadapters)
-   - [3. Engine Configuration & Security Profiles (`query_builder.config`)](#3-engine-configuration--security-profiles-query_builderconfig)
-   - [4. Query Compiler & Custom Operators (`query_builder.compiler`)](#4-query-compiler--custom-operators-query_buildercompiler)
-   - [5. Dialect Subsystem (`query_builder.dialects`)](#5-dialect-subsystem-query_builderdialects)
-   - [6. Connector Subsystem (`query_builder.connectors`)](#6-connector-subsystem-query_builderconnectors)
-   - [7. AST Safety Validator (`query_builder.ast_validator`)](#7-ast-safety-validator-query_builderast_validator)
-   - [8. Relational Join Solver (`query_builder.join_solver`)](#8-relational-join-solver-query_builderjoin_solver)
-   - [9. Native HTTP Microservice Server (`query_builder.server`)](#9-native-http-microservice-server-query_builderserver)
+   - [3. Bidirectional Schema Converters (`query_builder.schema_converters`)](#3-bidirectional-schema-converters-query_builderschema_converters)
+   - [4. Enterprise Security Governor & CLAC (`query_builder.policy`)](#4-enterprise-security-governor--clac-query_builderpolicy)
+   - [5. Query Compiler & Analytical Expressions (`query_builder.compiler`)](#5-query-compiler--analytical-expressions-query_buildercompiler)
+   - [6. Dialect Subsystem (`query_builder.dialects`)](#6-dialect-subsystem-query_builderdialects)
+   - [7. Connectors & Async Connection Pooling (`query_builder.connectors`, `query_builder.async_pool`)](#7-connectors--async-connection-pooling-query_builderconnectors-query_builderasync_pool)
+   - [8. AST Safety Validator (`query_builder.ast_validator`)](#8-ast-safety-validator-query_builderast_validator)
+   - [9. Turnkey Framework Integrations (`query_builder.integrations`)](#9-turnkey-framework-integrations-query_builderintegrations)
+   - [10. Model Context Protocol (MCP) Server & CLI (`query_builder.mcp_server`, `query_builder.cli`)](#10-model-context-protocol-mcp-server--cli-query_buildermcp_server-query_buildercli)
 2. [Volume 2: React Component Library & Headless SDK (`@jacob-white/query-builder-react`)](#volume-2-react-component-library--headless-sdk-jacob-whitequery-builder-react)
-   - [1. TypeScript Types & Interfaces](#1-typescript-types--interfaces)
-   - [2. TypeScript ORM Adapters (`/adapters`)](#2-typescript-orm-adapters-adapters)
-   - [3. Theming & Provider (`QueryBuilderProvider`, `ThemeProvider`)](#3-theming--provider-querybuilderprovider-themeprovider)
-   - [4. Headless React Hooks (`/hooks`)](#4-headless-react-hooks-hooks)
-   - [5. Visual UI Components (`/components`)](#5-visual-ui-components-components)
-   - [6. Extension Points (Custom Operators, Custom Field Renderers)](#6-extension-points-custom-operators-custom-field-renderers)
+   - [1. Subpath Entry Points](#1-subpath-entry-points)
+   - [2. TypeScript Types & Interfaces](#2-typescript-types--interfaces)
+   - [3. First-Class Typed API Client (`/client`)](#3-first-class-typed-api-client-client)
+   - [4. Composable Compound Components (`/components/compound`)](#4-composable-compound-components-componentscompound)
+   - [5. Visual Query Builder (`<VisualQueryBuilder>`)](#5-visual-query-builder-visualquerybuilder)
+   - [6. TypeScript ORM Adapters & Exporters (`/adapters`)](#6-typescript-orm-adapters--exporters-adapters)
+   - [7. Client-Side OLAP Engine & Ingest (`/olap`)](#7-client-side-olap-engine--ingest-olap)
+   - [8. Headless React Hooks (`/hooks`)](#8-headless-react-hooks-hooks)
+   - [9. Theming & Provider (`QueryBuilderProvider`, `ThemeProvider`)](#9-theming--provider-querybuilderprovider-themeprovider)
+   - [10. Extension Points (Custom Operators, Custom Field Renderers)](#10-extension-points-custom-operators-custom-field-renderers)
 
 ---
 
@@ -37,16 +42,16 @@ Represents the structural metadata of a single database table.
 class TableSchema:
     name: str
     columns: list[ColumnSchema] = field(default_factory=list)
+    schema: str = "public"
+    comment: str | None = None
     primary_keys: list[str] = field(default_factory=list)
     foreign_keys: list[ForeignKey] = field(default_factory=list)
-    schema: str | None = None
-    comment: str | None = None
     enums: dict[str, list[str]] = field(default_factory=dict)
 ```
 
 **Methods**:
 - `to_dict() -> dict[str, Any]`: Serializes table metadata into a JSON-compatible dictionary.
-- `get_column(name: str) -> ColumnSchema | None`: Finds a column by case-insensitive name.
+- `to_table_meta() -> TableMeta`: Normalizes to internal compiler `TableMeta`.
 
 ---
 
@@ -60,7 +65,7 @@ class ColumnSchema:
     data_type: str = "text"
     is_nullable: bool = True
     is_primary: bool = False
-    default: Any | None = None
+    default: Any = None
     comment: str | None = None
     enums: list[str] | None = None
     foreign_key: ForeignKey | None = None
@@ -84,144 +89,243 @@ class ForeignKey:
 ---
 
 ### `QuerySpec`
-Declarative query specification representation.
+Declarative specification for building and compiling a SQL query.
 
 ```python
 @dataclass
 class QuerySpec:
     table: str
     columns: list[str | dict[str, Any]] = field(default_factory=list)
-    joins: list[dict[str, Any]] = field(default_factory=list)
-    filters: list[dict[str, Any]] = field(default_factory=list)
-    filter_join: str = "AND"
-    order_by: list[dict[str, Any]] = field(default_factory=list)
-    having: list[dict[str, Any]] = field(default_factory=list)
-    limit: int | None = 50
-    offset: int | None = 0
+    joins: list[dict[str, Any] | JoinSpec] = field(default_factory=list)
+    filters: list[dict[str, Any] | FilterSpec] = field(default_factory=list)
+    filter_join: str = "AND"  # "AND" | "OR"
+    having: list[dict[str, Any] | HavingSpec] = field(default_factory=list)
+    order_by: list[dict[str, Any] | OrderBySpec] = field(default_factory=list)
+    limit: int = 50
+    offset: int = 0
     distinct: bool = False
-    tenant_id: Any | None = None
+    tenant_id: Any = None
+    vector_search: VectorSearchSpec | dict[str, Any] | None = None
+    hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
+    ctes: list[CteSpec | dict[str, Any]] = field(default_factory=list)
+    window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
+    set_operations: list[SetOperationSpec | dict[str, Any]] = field(default_factory=list)
+    grouping_type: str | None = None  # "standard" | "rollup" | "cube" | "grouping_sets"
+    grouping_sets: list[list[str]] | GroupingSetsSpec = field(default_factory=list)
+    rollup: RollupSpec | None = None
+    cube: CubeSpec | None = None
+    pivot: PivotSpec | dict[str, Any] | None = None
 ```
 
 ---
 
-### `SchemaSnapshot`
-Complete multi-table schema catalog including tables, relationships, and categories.
+### `WindowFunctionSpec` (Alias: `WindowSpec`)
+Specification of an advanced window function with partition, order, and framing.
 
 ```python
 @dataclass
-class SchemaSnapshot:
-    tables: dict[str, dict[str, Any]] = field(default_factory=dict)
-    foreign_keys: list[dict[str, str]] = field(default_factory=list)
-    relationships: list[dict[str, str]] = field(default_factory=list)
-    categories: dict[str, list[str]] = field(default_factory=dict)
+class WindowFunctionSpec:
+    function: str  # e.g. "ROW_NUMBER", "RANK", "DENSE_RANK", "SUM", "AVG", "LAG", "LEAD"
+    arguments: list[Any] = field(default_factory=list)
+    partition_by: list[str] = field(default_factory=list)
+    order_by: list[dict[str, Any] | OrderBySpec] = field(default_factory=list)
+    frame: WindowFrameSpec | dict[str, Any] | None = None
+    alias: str | None = None
+```
+
+---
+
+### `WindowFrameSpec`
+Specification of window function frame bounds (ROWS, RANGE, GROUPS).
+
+```python
+@dataclass
+class WindowFrameSpec:
+    frame_type: str = "ROWS"  # "ROWS" | "RANGE" | "GROUPS"
+    start: str = "UNBOUNDED PRECEDING"  # e.g. "UNBOUNDED PRECEDING", "1 PRECEDING", "CURRENT ROW"
+    end: str | None = None               # e.g. "CURRENT ROW", "1 FOLLOWING", "UNBOUNDED FOLLOWING"
+    exclusion: str | None = None         # e.g. "CURRENT ROW", "GROUP", "TIES", "NO OTHERS"
+```
+
+---
+
+### `RollupSpec`, `CubeSpec`, `GroupingSetsSpec`, `PivotSpec`
+Analytical grouping and cross-tabulation specifications:
+
+```python
+@dataclass
+class RollupSpec:
+    columns: list[str] = field(default_factory=list)
+
+@dataclass
+class CubeSpec:
+    columns: list[str] = field(default_factory=list)
+
+@dataclass
+class GroupingSetsSpec:
+    sets: list[list[str]] = field(default_factory=list)
+
+@dataclass
+class PivotSpec:
+    aggregate: str
+    column: str
+    values: list[Any] = field(default_factory=list)
+    alias: str | None = None
+```
+
+---
+
+### `CaseWhenSpec` & `CaseWhenBranch`
+Conditional SQL column expressions (`CASE WHEN ... THEN ... ELSE ... END`).
+
+```python
+@dataclass
+class CaseWhenBranch:
+    condition: FilterSpec | dict[str, Any]
+    then_value: Any = None
+    then_column: str | None = None
+
+@dataclass
+class CaseWhenSpec:
+    branches: list[CaseWhenBranch | dict[str, Any]] = field(default_factory=list)
+    else_value: Any = None
+    else_column: str | None = None
+    alias: str | None = None
+```
+
+---
+
+### `SetOperationSpec`
+Set operations chaining multiple queries.
+
+```python
+@dataclass
+class SetOperationSpec:
+    operation: str = "UNION"  # "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT" | "MINUS"
+    query: QuerySpec | dict[str, Any] = field(default_factory=dict)
+```
+
+---
+
+### `CteSpec`
+Common Table Expression (WITH stage) specification in a DAG pipeline.
+
+```python
+@dataclass
+class CteSpec:
+    name: str
+    query: QuerySpec | dict[str, Any]
 ```
 
 ---
 
 ## 2. ORM & Schema Adapters (`query_builder.adapters`)
 
-All adapters convert third-party schemas into `SchemaDict` (`dict[str, TableSchema]`).
+All adapters convert third-party schema sources into `SchemaDict` (`dict[str, TableSchema]`).
 
 ### `from_prisma(source: str | dict[str, Any]) -> SchemaDict`
 Parses Prisma schema files, DSL text strings, or Prisma DMMF JSON representations.
-- **Parameters**:
-  - `source`: File path to `schema.prisma`, raw Prisma DSL string, or parsed DMMF dict.
-- **Returns**: `SchemaDict` mapping table names to `TableSchema` instances.
-- **Features**: Extracts `@id`, `@map`, `@@map`, `enum` declarations, `@relation` foreign keys, and field types.
-
----
+- **Parameters**: `source`: Path to `schema.prisma`, Prisma DSL string, or parsed DMMF dict.
+- **Features**: Extracts `@id`, `@map`, `@@map`, `enum` declarations, `@relation` foreign keys, and scalar types.
 
 ### `from_drizzle(source: str | dict[str, Any]) -> SchemaDict`
 Parses Drizzle ORM TypeScript schema files or code strings.
-- **Parameters**:
-  - `source`: File path to TypeScript schema file (`schema.ts`), TypeScript source code string, or structured table definitions.
-- **Returns**: `SchemaDict`.
+- **Parameters**: `source`: Path to TypeScript schema file (`schema.ts`), source code string, or structured table definitions.
 - **Features**: Supports PostgreSQL (`pgTable`), MySQL (`mysqlTable`), and SQLite (`sqliteTable`) declarations, `.primaryKey()`, `.references()`, `.notNull()`, and custom column names.
-
----
 
 ### `from_sqlalchemy(source: Any) -> SchemaDict`
 Dual-mode adapter supporting live SQLAlchemy reflection and zero-dependency AST parsing of Python source code.
-- **Parameters**:
-  - `source`: SQLAlchemy `MetaData` instance, Declarative Model class, list of Models, or Python model file path / string.
-- **Returns**: `SchemaDict`.
-- **Features**: Extracts Column types, nullable constraints, primary keys, `ForeignKey` constraints, and composite keys.
-
----
+- **Parameters**: `source`: SQLAlchemy `MetaData` instance, Declarative Model class, list of Models, or Python model file path / string.
 
 ### `from_json_schema(source: str | dict[str, Any]) -> SchemaDict`
 Parses JSON Schema (Draft 4/7/2020-12) or OpenAPI 3.x specifications into `TableSchema` models.
-- **Parameters**:
-  - `source`: File path, JSON string, or Python dictionary. Supports OpenAPI `components.schemas`, JSON Schema `$defs` / `definitions`, and direct table maps.
-- **Returns**: `SchemaDict`.
 - **Features**: Resolves internal `$ref` links to foreign key relationships, maps `x-primary-keys`, and infers enum constraints.
 
----
-
 ### `to_schema_snapshot(tables: dict[str, TableSchema] | list[TableSchema] | TableSchema) -> SchemaSnapshot`
-Synthesizes a full `SchemaSnapshot` from `TableSchema` models, normalizing foreign keys and bidirectional relationships.
+Normalizes tables, foreign keys, and bidirectional relationships into a unified `SchemaSnapshot`.
 
 ---
 
-## 3. Engine Configuration & Security Profiles (`query_builder.config`)
+## 3. Bidirectional Schema Converters (`query_builder.schema_converters`)
 
-### `configure_query_builder(...) -> QueryBuilderConfig`
-Thread-safe global configuration manager for Query-Builder.
+Exports `SchemaSnapshot` or `TableSchema` dictionaries into production-ready ORM definitions:
+
+### `to_prisma_schema(tables: Any, provider: str = "postgresql") -> str`
+Generates a complete, syntax-validated `.prisma` schema file with models, fields, types, and `@relation` directives.
+
+### `to_drizzle_schema(tables: Any, dialect: str = "postgres") -> str`
+Generates clean Drizzle ORM TypeScript code importing dialect-specific table and column primitives (`pgTable`, `mysqlTable`, `sqliteTable`).
+
+### `to_sqlalchemy_models(tables: Any, base_class_name: str = "Base") -> str`
+Generates production-grade SQLAlchemy Declarative Base Python code with `Column`, `ForeignKey`, and type mappings.
+
+---
+
+## 4. Enterprise Security Governor & CLAC (`query_builder.policy`)
+
+### `SecurityPolicy` (Alias: `SecurityGovernor`)
+Configuration for multi-tenant isolation, Column-Level Access Control (CLAC), and pre-execution AST complexity quotas:
 
 ```python
-def configure_query_builder(
-    config: QueryBuilderConfig | None = None,
-    default_dialect: str | None = None,
-    security: SecurityConfig | None = None,
-    profile: str | None = None,
-    dialects: dict[str, Any] | None = None,
-    connectors: dict[str, Any] | None = None,
-    custom_operators: dict[str, Any] | None = None,
-    default_limit: int | None = None,
-    **security_kwargs: Any,
-) -> QueryBuilderConfig
+@dataclass
+class SecurityPolicy:
+    allowed_tables: list[str] | None = None
+    restricted_tables: list[str] = field(default_factory=list)
+    tenant_column: str = "tenant_id"
+    enforce_tenant_isolation: bool = True
+    row_level_filters: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    column_masking: dict[str, list[str]] = field(default_factory=dict)
+    sensitive_column_patterns: list[str] = field(default_factory=list)
+    masking_strategy: str = "redact"  # "redact" | "hash" | "partial"
+    max_complexity_score: int | None = None
+    column_permissions: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    table_policy: TablePolicy | None = None
+    column_policies: dict[str, ColumnPolicy | dict[str, Any]] | None = None
+    row_policies: dict[str, RowPolicy | list[dict[str, Any]]] | None = None
 ```
 
-**Parameters**:
-- `profile`: Preset security profile name: `"development"`, `"production"`, or `"strict"`.
-- `default_dialect`: Default SQL dialect (e.g. `"sqlite"`, `"postgres"`, `"snowflake"`).
-- `security`: Explicit `SecurityConfig` dataclass instance.
-- `default_limit`: Default row limit for queries when not specified.
-- `dialects`: Custom dialect mapping to register.
-- `connectors`: Custom connector mapping to register.
-- `custom_operators`: Custom filter operators mapping to register.
+### Policy Specification Helpers
+- `TablePolicy(allowed_tables=..., restricted_tables=...)`: Table-level authorization rules.
+- `ColumnPolicy(allowed_roles=..., restricted_columns=...)`: Role-based column access control.
+- `RowPolicy(filters=...)`: Dynamic attribute predicates.
+
+### `TenantContext`
+Authentication context accompanying query execution:
+```python
+@dataclass
+class TenantContext:
+    tenant_id: str
+    user_id: str | None = None
+    roles: list[str] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+```
+
+### `apply_security_policy(spec, schema=None, context=None, policy=None) -> dict[str, Any]`
+Validates and transforms query spec according to tenant context and security policy. Fails closed on:
+- Missing or empty `tenant_id` when `enforce_tenant_isolation=True`.
+- Query complexity exceeding `max_complexity_score`.
+- Unauthorized table references or column references lacking required roles.
+- Injects dynamic `$attr.key` predicates from `context.attributes`.
 
 ---
 
-### `SecurityProfile`
-Factory providing standard security configuration presets.
+## 5. Query Compiler & Analytical Expressions (`query_builder.compiler`)
 
-- `SecurityProfile.development()`: Relaxed settings for local development. Allows private/loopback networks, relaxed TLS, longer timeouts (30s), permits system catalog introspection.
-- `SecurityProfile.production()`: Hardened zero-trust defaults. Blocks private networks/SSRF, enforces TLS and cert verification, enforces read-only sessions, 5s statement timeout, 1000 row max limit, AST complexity governance.
-- `SecurityProfile.strict()`: Hardened enterprise/financial profile. 3s statement timeout, 500 row max limit, join depth capped at 3, comprehensive audit logging.
-
----
-
-## 4. Query Compiler & Custom Operators (`query_builder.compiler`)
-
-### `QueryCompiler`
-Translates declarative JSON query specs into safe, parameterized SQL with bind parameters.
+### `QueryCompiler` (Alias: `AnalyticalCompiler`)
+Translates declarative JSON query specs into safe, parameterized SQL with bind parameters across 71+ dialects.
 
 ```python
 class QueryCompiler:
     def __init__(
         self,
-        spec: dict[str, Any] | Any,
+        spec: dict[str, Any] | QuerySpec,
         schema: dict[str, Any] | None = None,
         user_id: Any = None,
         force_user_filter: bool = False,
         tenant_id: Any = None,
         dialect: str | BaseDialect | None = None,
-        ownership_paths: dict[str, list[list[tuple[str, str, str]]]] | None = None,
         max_limit: int = 100,
         validate_spec: bool = True,
-        allow_unknown_keys: bool = False,
-        middleware: Any = None,
     ) -> None: ...
 
     def compile(
@@ -229,164 +333,166 @@ class QueryCompiler:
     ) -> tuple[str, list[Any], str, list[Any]]: ...
 ```
 
-**Return Value**:
-- `(main_sql, main_params, count_sql, count_params)`
-  - `main_sql`: The parameterized `SELECT` SQL statement.
-  - `main_params`: Positional list of bind values for `main_sql`.
-  - `count_sql`: Matching `SELECT COUNT(*)` query for pagination.
-  - `count_params`: Positional list of bind values for `count_sql`.
-
----
+**Returns**: `(main_sql, main_params, count_sql, count_params)`
 
 ### Custom Filter Operators
+- `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
+- `unregister_filter_operator(name: str) -> None`
+- `list_filter_operators() -> list[str]`
 
-#### `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
-Registers a custom filter operator globally.
+---
 
+## 6. Dialect Subsystem (`query_builder.dialects`)
+
+Supports 71+ database and query engine dialects:
+- `get_dialect(name: str) -> BaseDialect`
+- `list_dialects() -> list[str]`
+- `register_dialect(name: str, dialect_cls_or_instance: Any) -> None`
+- `quote_identifier(ident: str, dialect: str = "postgres") -> str`
+- `quote_alias(alias: str, dialect: str = "postgres") -> str`
+
+---
+
+## 7. Connectors & Async Connection Pooling (`query_builder.connectors`, `query_builder.async_pool`)
+
+### `BaseConnector` & `SQLiteConnector`
+Synchronous database connector executing queries with automatic AST validation and latency measurement:
+- `execute(spec=..., timeout_ms=...) -> dict[str, Any]`
+- `introspect_schema(filter_sensitive: bool = True) -> dict[str, Any]`
+- `test_connection() -> dict[str, Any]`
+
+### `AsyncConnectionPool` (Alias: `AsyncQueryPool`)
+High-concurrency, non-blocking connection pool for asyncio applications:
 ```python
-from query_builder import register_filter_operator
+class AsyncConnectionPool:
+    def __init__(
+        self,
+        factory: Callable[[], Awaitable[Any] | Any] | None = None,
+        max_size: int = 10,
+        min_size: int = 0,
+        timeout: float = 30.0,
+        max_idle_seconds: float = 300.0,
+        max_lifespan_seconds: float = 3600.0,
+        health_check_sql: str = "SELECT 1",
+        connector_name: str | None = None,
+        connector: Any = None,
+        **connection_kwargs: Any,
+    ) -> None: ...
 
-
-def tax_exempt_handler(col_ref, value, dialect):
-    # Returns (sql_expression, list_of_params)
-    return f"{col_ref} IS NOT NULL AND {col_ref} = {dialect.placeholder}", [value]
-
-
-register_filter_operator("tax_exempt", tax_exempt_handler)
+    async def initialize(self) -> None: ...
+    async def acquire(self, token: AsyncCancellationToken | None = None) -> Any: ...
+    async def release(self, conn: Any) -> None: ...
+    def connection(self, token: AsyncCancellationToken | None = None) -> AsyncIterator[Any]: ...
+    async def close(self) -> None: ...
 ```
 
-- `unregister_filter_operator(name: str) -> None`: Removes a registered operator.
-- `list_filter_operators() -> list[str]`: Returns list of all available operator names.
+### `AsyncCancellationToken`
+Cooperative cancellation token to abort long-running asynchronous queries on socket level:
+- `cancel() -> None`: Signals cancellation and triggers callbacks.
+- `is_cancelled: bool`: Returns cancellation status.
+- `throw_if_cancelled() -> None`: Raises `QueryCancelledError` if cancelled.
+
+### `async_execute(...)` & `AsyncStreamingExecutor`
+Asynchronously executes specifications against async or sync connectors with timeout cancellation:
+- `AsyncStreamingExecutor.execute_stream(connector, spec, batch_size=1000, **kwargs) -> Any`: Executes query against connector asynchronously.
+- `AsyncStreamingExecutor.export_stream(connector, spec, format="csv", chunk_size=1000, **kwargs) -> tuple[Iterator[bytes], str, str]`: Streams query dataset export in chunked bytes along with `(mime_type, file_extension)`.
+- `stream_export_dataset(data, format="csv", columns=None, chunk_size=1000) -> tuple[Iterator[bytes], str, str]`: High-throughput chunk generator for HTTP streaming responses.
 
 ---
 
-## 5. Dialect Subsystem (`query_builder.dialects`)
-
-Supports 71+ database and query engine dialects.
-
-### Core Functions
-- `get_dialect(name: str) -> BaseDialect`: Resolves a dialect instance by name (case-insensitive).
-- `list_dialects() -> list[str]`: Lists all registered dialect names.
-- `register_dialect(name: str, dialect_cls_or_instance: Any) -> None`: Registers a custom dialect.
-- `unregister_dialect(name: str) -> None`: Unregisters a custom dialect.
-- `quote_identifier(ident: str, dialect: str = "postgres") -> str`: Safely quotes an identifier according to dialect rules.
-- `quote_alias(alias: str, dialect: str = "postgres") -> str`: Safely quotes an alias.
-
----
-
-## 6. Connector Subsystem (`query_builder.connectors`)
-
-### `BaseConnector`
-Abstract base connector for synchronous database drivers.
-
-**Core Methods**:
-- `connect() -> Any`: Returns driver connection object.
-- `get_cursor() -> Generator[Any, None, None]`: Context manager yielding a cursor with deterministic cleanup.
-- `execute(spec=..., schema=..., timeout_ms=...) -> dict[str, Any]`: Compiles and executes a query.
-  - **Returns**:
-    ```python
-    {
-        "columns": ["id", "name"],
-        "rows": [{"id": 1, "name": "Alice"}],
-        "count": 1,
-        "limit": 50,
-        "offset": 0,
-        "page": 1,
-        "latency_ms": 1.25,
-        "dialect": "sqlite",
-    }
-    ```
-- `introspect_schema(filter_sensitive: bool = True) -> dict[str, Any]`: Returns introspected catalog.
-- `test_connection() -> dict[str, Any]`: Verifies connectivity.
-
----
-
-### `AsyncBaseConnector`
-Abstract base connector for async drivers (`asyncio`).
-
-**Core Methods**:
-- `async connect() -> Any`
-- `async get_cursor() -> AsyncGenerator[Any, None]`
-- `async execute(spec=..., timeout_ms=...) -> dict[str, Any]`
-- `async introspect_schema(...) -> dict[str, Any]`
-
----
-
-### `SQLiteConnector`
-Synchronous connector using Python's standard library `sqlite3`.
-
-```python
-from query_builder import SQLiteConnector
-
-connector = SQLiteConnector(database="app.db")
-# Or in-memory:
-connector = SQLiteConnector(database=":memory:")
-```
-
----
-
-### Connector Exceptions
-- `ConnectorError`: Base exception for connector errors.
-- `ConnectionFailedError`: Database unreachable or bad credentials.
-- `DriverNotInstalledError`: Missing optional pip driver extra.
-- `QueryExecutionError`: SQL execution runtime error or timeout.
-- `IntrospectionError`: Catalog reflection failure.
-
----
-
-## 7. AST Safety Validator (`query_builder.ast_validator`)
+## 8. AST Safety Validator (`query_builder.ast_validator`)
 
 ### `validate_sql_ast(sql: str, allowed_statements: set[str] | None = None) -> dict[str, Any]`
-Parses SQL using AST tokens to enforce strict read-only guarantees.
+Parses SQL using AST tokens to enforce strict read-only execution:
+- Rejects mutation keywords (`RESTRICTED_MUTATION_KEYWORDS`: `DELETE`, `DROP`, `UPDATE`, `INSERT`, `TRUNCATE`, `ALTER`, `GRANT`, `REVOKE`, etc.).
+- Rejects multi-statement semicolons.
+- Restricts access to sensitive system tables (`RESTRICTED_SECURITY_TABLES`: `AUTH_USER`, `PG_SHADOW`, `SQLITE_MASTER`, etc.).
 
-**Returns**:
+### `validate_cte_dag(ctes: list[Any]) -> dict[str, Any]`
+Validates CTE DAG pipelines for cyclic dependencies and self-references.
+
+### `validate_window_function_spec(spec: Any) -> dict[str, Any]`
+Validates window function frame bounds and functions.
+
+---
+
+## 9. Turnkey Framework Integrations (`query_builder.integrations`)
+
+### FastAPI: `create_query_builder_router(...) -> APIRouter`
 ```python
-{
-    "valid": bool,
-    "is_read_only": bool,
-    "statement_type": str,  # e.g. "SELECT", "MULTI_STATEMENT"
-    "tables": list[str],  # Referenced table names
-    "injection_risk": str,  # "NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"
-    "errors": list[str],  # Descriptive rejection reasons
-}
+def create_query_builder_router(
+    connector: Any,
+    security: SecurityPolicy | SecurityConfig | dict[str, Any] | None = None,
+    tenant_resolver: Callable[[Request], TenantContext | Awaitable[TenantContext] | dict[str, Any] | str | None] | None = None,
+    prefix: str = "",
+    tags: list[str] | None = None,
+) -> APIRouter
 ```
+Exposes:
+- `GET {prefix}/schema` (and alias `/introspect`)
+- `POST {prefix}/compile`
+- `POST {prefix}/validate`
+- `POST {prefix}/execute`
+- `POST {prefix}/export`
 
-- Rejects `DELETE`, `DROP`, `UPDATE`, `INSERT`, `TRUNCATE`, `ALTER`, `GRANT`, `REVOKE`, `COPY`, `INTO`.
-- Rejects semicolon query chaining (`MULTI_STATEMENT`).
-- Restricts access to sensitive system tables (`pg_shadow`, `auth_user`, `sqlite_master`).
-
----
-
-## 8. Relational Join Solver (`query_builder.join_solver`)
-
-### `find_join_path(active_tables: list[str], target_table: str, schema_data: dict[str, Any]) -> list[dict[str, Any]]`
-Discovers the shortest relational join path between already active tables and a target table using BFS pathfinding.
-
-### `find_best_join_condition(left_table: str, right_table: str, schema_data: dict[str, Any]) -> list[dict[str, str]] | None`
-Finds foreign key matching conditions between two tables.
+### Django Integration
+- `create_django_urls(connector, security=None, tenant_resolver=None) -> list[Any]`: Standard Django URL patterns.
+- `create_drf_views(connector, security=None, tenant_resolver=None) -> dict[str, type[APIView]]`: Django REST Framework APIViews (`SchemaView`, `CompileView`, `ValidateView`, `ExecuteView`, `ExportView`).
+- `create_ninja_router(connector, security=None, tenant_resolver=None, tags=None) -> NinjaRouter`: Django Ninja router.
 
 ---
 
-## 9. Native HTTP Microservice Server (`query_builder.server`)
+## 10. Model Context Protocol (MCP) Server & CLI (`query_builder.mcp_server`, `query_builder.cli`)
 
-Zero-dependency HTTP server with OpenAPI 3.1 documentation.
+### MCP Server (`query-builder mcp`)
+Standard JSON-RPC 2.0 stdio server providing AI agents with:
+1. `query_builder_compile`: Compiles JSON QuerySpec into safe parameterized SQL.
+2. `query_builder_validate`: Validates raw SQL statement AST.
+3. `query_builder_explain_and_advise`: Returns query execution plan and optimization recommendations.
+4. `query_builder_get_complexity`: Scores query AST complexity against governance quotas.
+5. `query_builder_introspect`: Reflects database schema catalog.
+6. `query_builder_execute`: Compiles and executes queries against configured connector.
+7. `query_builder_join_path`: Discovers optimal multi-hop relational join paths.
 
-### `create_server(host: str = "127.0.0.1", port: int = 8000, telemetry_collector: TelemetryCollector | None = None, template_store: TemplateStore | None = None, pool: ConnectionPool | None = None) -> ThreadingHTTPServer`
-Creates an HTTP server instance exposing:
-- `GET /health`: Health status, dialect list, active security profile.
-- `GET /openapi.json`: OpenAPI 3.1 specification.
-- `GET /docs`: Interactive Swagger UI HTML documentation.
-- `POST /api/v1/compile`: Compiles JSON query spec to SQL.
-- `POST /api/v1/validate`: Validates raw SQL statement AST.
-- `POST /api/v1/execute`: Compiles and executes query against configured connector.
-- `POST /api/v1/introspect`: Introspects database schema.
-- `POST /api/v1/export`: Exports query dataset to CSV / JSON / Excel.
+### CLI Subcommands (`query-builder <command>`)
+- `compile`: Compiles declarative spec JSON file to parameterized SQL.
+- `validate`: AST safety check for raw SQL strings or JSON query spec files.
+- `test-connection` (alias: `test`): Tests database reachability, health, and latency.
+- `introspect`: Reverse-engineers database schema metadata and foreign key relationships.
+- `export-schema` (alias: `export`): Converts schema snapshot into Prisma, Drizzle, or SQLAlchemy definitions.
+- `join-path` (alias: `join`): Discovers shortest relational join path between tables via BFS graph solver.
+- `serve`: Launches zero-dependency HTTP REST API microservice server with Swagger UI.
+- `schema`: Inspects schema catalog structure and prints ASCII relationship trees.
+- `mcp`: Launches the Model Context Protocol (MCP) JSON-RPC 2.0 stdio server.
+- `init`: Scaffolds a turnkey Query-Builder starter project (`fullstack`, `fastapi`, `minimal`).
+- `doctor`: Diagnoses environment dependencies and installed connector drivers.
 
 ---
 
 # Volume 2: React Component Library & Headless SDK (`@jacob-white/query-builder-react`)
 
-## 1. TypeScript Types & Interfaces
+## 1. Subpath Entry Points
+
+```typescript
+// Core visual components, provider, and theming
+import { VisualQueryBuilder, QueryBuilderProvider } from "@jacob-white/query-builder-react";
+
+// First-class typed API client and fluent query builder
+import { createQueryBuilderClient, createQuery, FluentQuery } from "@jacob-white/query-builder-react/client";
+
+// TypeScript ORM schema adapters and bidirectional exporters
+import { fromPrisma, toPrismaSchema, fromDrizzle, toDrizzleSchema } from "@jacob-white/query-builder-react/adapters";
+
+// Unstyled headless React hooks
+import { useQueryBuilder, useQueryExecution, useSchemaIntrospection } from "@jacob-white/query-builder-react/hooks";
+
+// In-memory client OLAP SQL engine and local file ingestion
+import { getClientOlapEngine, ingestLocalFile } from "@jacob-white/query-builder-react/olap";
+```
+
+---
+
+## 2. TypeScript Types & Interfaces
 
 ```typescript
 export interface TableSchema {
@@ -410,14 +516,6 @@ export interface ColumnSchema {
   foreign_key?: ForeignKey;
 }
 
-export interface ForeignKey {
-  table: string;
-  column: string;
-  foreign_table: string;
-  foreign_column: string;
-  constraint_name?: string;
-}
-
 export interface SchemaSnapshot {
   tables: Record<string, TableMeta>;
   foreign_keys: ForeignKeyMeta[];
@@ -435,126 +533,155 @@ export interface QueryResultData {
   latency_ms?: number;
   dialect?: string;
 }
-```
 
----
-
-## 2. TypeScript ORM Adapters (`/adapters`)
-
-Convert schemas directly in the browser or Node runtime:
-
-### `fromPrisma(source: string | Record<string, any>, options?: AdapterOptions): TableSchema[]`
-Parses Prisma `.prisma` schema DSL or DMMF object into `TableSchema[]`.
-
-### `fromDrizzle(source: string | Record<string, any>, options?: AdapterOptions): TableSchema[]`
-Parses Drizzle ORM TypeScript schema into `TableSchema[]`.
-
-### `fromSqlAlchemy(source: string | Record<string, any>, options?: AdapterOptions): TableSchema[]`
-Parses SQLAlchemy declarative model code or dictionary into `TableSchema[]`.
-
-### `fromJsonSchema(source: string | Record<string, any>, options?: AdapterOptions): TableSchema[]`
-Parses JSON Schema or OpenAPI 3.x schema definition into `TableSchema[]`.
-
-### `toSchemaSnapshot(tables: TableSchema[]): SchemaSnapshot`
-Converts `TableSchema[]` into normalized `SchemaSnapshot` for visual builder components and hooks.
-
----
-
-## 3. Theming & Provider (`QueryBuilderProvider`, `ThemeProvider`)
-
-### `<QueryBuilderProvider>`
-Top-level provider establishing UI mode, themes, custom operators, and execution handlers.
-
-```tsx
-interface QueryBuilderProviderProps {
-  mode?: "styled" | "unstyled";
-  theme?: QueryBuilderTheme;
-  themeMode?: "dark" | "light";
-  customTokens?: DeepPartial<QueryBuilderTheme>;
-  customOperators?: Record<string, CustomFilterOperator>;
-  fieldRenderers?: Record<string, CustomFieldRenderer>;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
-  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
-  children: React.ReactNode;
+export interface VisualQueryBuilderRef {
+  getSpec: () => QuerySpec;
+  getSql: () => string;
+  setSpec: (newSpec: QuerySpec) => void;
+  reset: () => void;
+  execute: () => Promise<QueryResultData | void>;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 }
 ```
 
-### Container-Scoped CSS Variables
-When `mode="styled"`, the provider applies scoped CSS variables:
-- Colors: `--qb-color-primary`, `--qb-color-background`, `--qb-color-surface`, `--qb-color-border`, `--qb-color-text`, `--qb-color-text-muted`
-- Typography: `--qb-font-family`, `--qb-font-family-mono`, `--qb-font-size-sm`, `--qb-font-size-md`
-- Radii: `--qb-radius-sm`, `--qb-radius-md`, `--qb-radius-lg`
-- Shadows: `--qb-shadow-sm`, `--qb-shadow-md`
+---
+
+## 3. First-Class Typed API Client (`/client`)
+
+### `createQueryBuilderClient(config: QueryBuilderClientConfig): QueryBuilderClient`
+
+```typescript
+export interface QueryBuilderClientConfig {
+  baseUrl: string;
+  headers?: Record<string, string> | (() => Promise<Record<string, string>> | Record<string, string>);
+  token?: string | (() => Promise<string | null | undefined> | string | null | undefined);
+  timeoutMs?: number;
+  fetchFn?: typeof fetch;
+}
+```
+
+**Methods**:
+- `getSchema(options?: RequestOptions): Promise<SchemaSnapshot>`
+- `compile(spec: QuerySpec, dialect?: SqlDialect, options?: RequestOptions): Promise<CompileResult>`
+- `validate(sql: string, options?: RequestOptions): Promise<SqlSafetyValidation>`
+- `execute(specOrSql: QuerySpec | { sql: string; params?: any[] }, options?: RequestOptions): Promise<QueryResultData>`
+- `export(spec: QuerySpec, format: "csv" | "json" | "parquet" | "excel" | "arrow", options?: RequestOptions): Promise<Blob>`
+- `query(table?: string): FluentQuery`
+
+### `createQuery(table?: string, client?: QueryBuilderClient): FluentQuery`
+Chainable builder constructing `QuerySpec` objects with `.from()`, `.select()`, `.join()`, `.where()`, `.groupBy()`, `.having()`, `.orderBy()`, `.distinct()`, `.limit()`, and `.execute()`.
 
 ---
 
-## 4. Headless React Hooks (`/hooks`)
+## 4. Composable Compound Components (`/components/compound`)
 
-### `useQueryBuilder<Schema>(options?: UseQueryBuilderOptions<Schema>)`
-Complete headless query builder state management hook.
-
-**Options**:
-- `schema`: `SchemaSnapshot | null`
-- `initialTable`: Primary table name
-- `dialect`: SQL dialect (`"postgres"`, `"sqlite"`, `"snowflake"`, `"mysql"`, `"mssql"`)
-- `initialLimit`: Default query row limit
-- `initialDistinct`: Boolean flag for `SELECT DISTINCT`
-
-**Returns**:
-- `state`: Active query state (`primaryTable`, `activeTableNames`, `selectedColumns`, `joins`, `filters`, `sorts`, `isDistinct`, `limit`, `dialect`, `rawSql`, `isRawMode`, `isDirty`).
-- `compiled`: `{ sql, params, countSql, countParams, spec }`.
-- `currentSql`: Formatted SQL string.
-- `safety`: `{ isValid, isReadOnly, issues, severity, allowedActions }`.
-- `actions`: Methods to mutate state (`setPrimaryTable`, `toggleColumn`, `addJoin`, `autoJoinTable`, `addFilter`, `addSort`, `setLimit`, `loadSpec`, `reset`).
+Build customized layouts with slotted atomic primitives:
+- `<QueryBuilderRoot schema={...} initialTable={...} dialect={...} classNames={...}>`: State and context container.
+- `<QueryBuilderCanvas>`: Visual entity-relationship table card diagram.
+- `<QueryBuilderColumns>`: Projection selector, aliases, and aggregations.
+- `<QueryBuilderFilters>`: Multi-operator filter criteria builder.
+- `<QueryBuilderJoins>`: Relational join configurator.
+- `<QueryBuilderSorts>`: Column order-by manager.
+- `<QueryBuilderSqlEditor>`: Live syntax-highlighted SQL viewer/editor.
+- `<QueryBuilderResults>`: Tabular results viewer with pagination and export.
 
 ---
 
-### `useQueryExecution(options?: UseQueryExecutionOptions)`
-Execution lifecycle controller with abort cancellation and latency metrics.
+## 5. Visual Query Builder (`<VisualQueryBuilder>`)
 
-**Options**:
-- `onExecuteQuery`: Async execution handler `(sql, spec) => Promise<QueryResultData>`.
-- `apiEndpoint`: Optional REST API endpoint.
-- `defaultTimeoutMs`: Timeout in milliseconds.
+Full-featured visual query workspace.
 
-**Returns**:
-- `results`: `QueryResultData | null`
-- `isLoading`: boolean
-- `error`: string | null
-- `latencyMs`: number | null
-- `executeQuery(sql, spec)`: Async execution trigger
-- `cancelExecution()`: Aborts in-flight request
-- `clearResults()`: Clears active result table
+```tsx
+interface VisualQueryBuilderProps {
+  schema: DatabaseSchemaDefinition | SchemaSnapshot | TableSchema[];
+  initialTable?: string;
+  dialect?: SqlDialect;
+  value?: QuerySpec;
+  onChange?: (spec: QuerySpec) => void;
+  client?: QueryBuilderClient;
+  ref?: React.Ref<VisualQueryBuilderRef>;
+  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData>;
+  theme?: "dark" | "light" | "auto" | QueryBuilderTheme;
+  unstyled?: boolean;
+  readOnly?: boolean;
+  classNames?: Partial<QueryBuilderClassNames>;
+}
+```
+
+### Schema Diagnostics: `validateSchema(schema)`
+```typescript
+const diagnostics: SchemaValidationResult = validateSchema(schema);
+// { valid: boolean, diagnostics: SchemaDiagnostic[], errors: [], warnings: [], infos: [] }
+```
 
 ---
 
-### `useSchemaIntrospection(options?: UseSchemaIntrospectionOptions)`
+## 6. TypeScript ORM Adapters & Exporters (`/adapters`)
+
+Convert schemas directly in the browser or Node runtime:
+- `fromPrisma(source)` / `toPrismaSchema(snapshot, options)`
+- `fromDrizzle(source)` / `toDrizzleSchema(snapshot, options)`
+- `fromSqlAlchemy(source)` / `toSqlAlchemyModels(snapshot, options)`
+- `fromJsonSchema(source)`
+- `toSchemaSnapshot(tables)`
+- `createSemanticModel(definition)` & `attachSemanticModelsToTables(schema, models)`
+
+---
+
+## 7. Client-Side OLAP Engine & Ingest (`/olap`)
+
+### `InMemoryOlapEngine`
+Pure TypeScript columnar in-memory execution engine with zero external wasm runtime dependencies:
+- `query(sql: string): Promise<DuckDBQueryResult>`
+- `ingestCsv(tableName: string, csvText: string, options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>`
+- `ingestJson(tableName: string, rows: Record<string, any>[]): Promise<DuckDBTableMeta>`
+- `ingestParquet(tableName: string, buffer: ArrayBuffer): Promise<DuckDBTableMeta>`
+- `getSchemaSnapshot(): SchemaSnapshot`
+- `dropTable(tableName: string): Promise<void>`
+- `clear(): Promise<void>`
+
+### Helper Functions:
+- `getClientOlapEngine(config?: DuckDBDriverConfig): InMemoryOlapEngine`: Global singleton accessor.
+- `ingestLocalFile(file, engine, options?)` / `ingestLocalFile(engine, file, options?)`: Detects format and streams CSV/TSV/JSON/Parquet file directly into memory. Accepts either parameter order and either string table name or `{ tableName?: string }` options object.
+
+---
+
+## 8. Headless React Hooks (`/hooks`)
+
+### `useQueryBuilder(options)`
+Zero-CSS state machine hook managing selected columns, joins, filters, sorting, and compilation.
+- Returns `{ state, compiled, currentSql, safety, actions }`.
+
+### `useQueryExecution(options)`
+Execution lifecycle controller with abort cancellation, latency tracking, and error handling.
+- Returns `{ results, isLoading, error, latencyMs, executeQuery, cancelExecution, clearResults }`.
+
+### `useSchemaIntrospection(options)`
 Fetches, caches, and normalizes remote database schemas.
 
 ---
 
-## 5. Visual UI Components (`/components`)
+## 9. Theming & Provider (`QueryBuilderProvider`, `ThemeProvider`)
 
-- `<VisualQueryBuilder>`: Full-featured visual query workspace with canvas, joins, filters, raw SQL toggle, and results table.
-- `<QueryCanvas>`: Interactive diagrammatic canvas with table cards and relational connector lines.
-- `<TableCard>`: Individual draggable/interactive table card displaying columns and projection toggles.
-- `<TableFiltersEditor>`: Dynamic filter builder supporting multi-operator criteria.
-- `<TableJoinEditor>`: Relational join configurator with auto-join discovery.
-- `<TableSortsEditor>`: Multi-column sorting and direction manager.
-- `<SchemaErdModal>`: Entity-Relationship Diagram modal.
-- `<SchemaExplorer>`: Searchable tree view of tables, columns, and foreign keys.
-- `<QueryResultsTable>`: Paginated tabular result viewer with CSV export.
-- `<QueryPlayground>`: Split-screen developer playground with live AST visualization.
+Container-scoped CSS custom properties:
+- `--qb-color-primary`: Accent color.
+- `--qb-color-background`: Container background.
+- `--qb-color-surface`: Card and surface background.
+- `--qb-color-border`: Border and divider color.
+- `--qb-color-text`: Primary text.
+- `--qb-color-text-muted`: Subdued label text.
+- `--qb-radius-md`: Medium border radius.
 
 ---
 
-## 6. Extension Points (Custom Operators, Custom Field Renderers)
+## 10. Extension Points (Custom Operators, Custom Field Renderers)
 
-### Custom Filter Operators (`customOperators`)
-Extend visual query filters with domain-specific operators:
-
+### Custom Filter Operators
 ```tsx
-const customOperators: Record<string, CustomFilterOperator> = {
+const customOperators = {
   TAX_EXEMPT: {
     value: "TAX_EXEMPT",
     label: "Is Tax Exempt",
@@ -564,13 +691,11 @@ const customOperators: Record<string, CustomFilterOperator> = {
 };
 ```
 
-### Custom Cell Renderers (`cellRenderers`)
-Customize table cell rendering in results:
-
+### Custom Cell Renderers
 ```tsx
 const cellRenderers = {
   price: (val: any) => (
-    <span className="font-mono text-emerald-600 font-semibold">
+    <span className="font-mono text-emerald-500 font-bold">
       ${Number(val).toFixed(2)}
     </span>
   ),

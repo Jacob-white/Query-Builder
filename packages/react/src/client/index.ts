@@ -15,6 +15,14 @@ import type {
   SqlSafetyValidation,
 } from "../types";
 
+export type {
+  QuerySpec,
+  SchemaSnapshot,
+  QueryResultData,
+  SqlDialect,
+  SqlSafetyValidation,
+};
+
 export interface QueryBuilderClientConfig {
   /**
    * Base URL of the query builder backend endpoint.

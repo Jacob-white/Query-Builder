@@ -6,3 +6,9 @@
 
 export * from "../drivers/duckdbDriver";
 export * from "../utils/localDataIngest";
+export type {
+  SchemaSnapshot,
+  TableMeta,
+  QueryResultData,
+  SqlDialect,
+} from "../types";

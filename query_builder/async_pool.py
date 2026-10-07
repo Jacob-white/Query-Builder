@@ -84,15 +84,39 @@ class AsyncConnectionPool:
 
     def __init__(
         self,
-        factory: Callable[[], Awaitable[Any] | Any],
+        factory: Callable[[], Awaitable[Any] | Any] | None = None,
         max_size: int = 10,
         min_size: int = 0,
         timeout: float = 30.0,
         max_idle_seconds: float = 300.0,
         max_lifespan_seconds: float = 3600.0,
         health_check_sql: str = "SELECT 1",
+        connector_name: str | None = None,
+        connector: Any = None,
+        **connection_kwargs: Any,
     ) -> None:
-        self.factory = factory
+        if factory is not None:
+            self.factory = factory
+        elif connector is not None:
+            self.factory = lambda: connector.connect() if hasattr(connector, "connect") else connector
+        elif connector_name is not None:
+            clean_name = connector_name.lower().strip()
+            if clean_name == "sqlite":
+                db_name = connection_kwargs.get("database", ":memory:")
+                clean_kw = {k: v for k, v in connection_kwargs.items() if k != "database"}
+                import sqlite3
+
+                self.factory = lambda: sqlite3.connect(db_name, **clean_kw)
+            else:
+                from query_builder.connectors.registry import ConnectorRegistry
+
+                inst = ConnectorRegistry.get(clean_name, **connection_kwargs)
+                self.factory = lambda: inst.connect() if hasattr(inst, "connect") else inst
+        else:
+            raise ValueError(
+                "AsyncConnectionPool requires a 'factory' callable, 'connector' instance, or 'connector_name' string."
+            )
+
         self.max_size = max(1, max_size)
         self.min_size = max(0, min(min_size, self.max_size))
         self.timeout = max(0.0, timeout)
@@ -310,3 +334,40 @@ async def reset_async_connection_pool_manager() -> None:
     if _GLOBAL_ASYNC_POOL_MANAGER is not None:
         await _GLOBAL_ASYNC_POOL_MANAGER.close_all()
         _GLOBAL_ASYNC_POOL_MANAGER = None
+
+
+AsyncQueryPool = AsyncConnectionPool
+
+
+class AsyncStreamingExecutor:
+    """High-concurrency async streaming query and export execution harness."""
+
+    def __init__(self, pool: AsyncConnectionPool | None = None) -> None:
+        self.pool = pool
+
+    async def execute_stream(
+        self,
+        connector: Any,
+        spec: dict[str, Any] | Any,
+        batch_size: int = 1000,
+        **kwargs: Any,
+    ) -> Any:
+        from query_builder.executor import async_execute
+
+        spec_dict = spec.to_dict() if hasattr(spec, "to_dict") else spec
+        return await async_execute(connector, spec=spec_dict, **kwargs)
+
+    async def export_stream(
+        self,
+        connector: Any,
+        spec: dict[str, Any] | Any,
+        format: str = "csv",
+        chunk_size: int = 1000,
+        **kwargs: Any,
+    ) -> Any:
+        from query_builder.export import stream_export_dataset
+
+        result = await self.execute_stream(connector, spec, **kwargs)
+        return stream_export_dataset(result, format=format, chunk_size=chunk_size)
+
+

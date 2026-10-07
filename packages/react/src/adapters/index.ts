@@ -12,4 +12,10 @@ export { fromDrizzle, toDrizzle, toDrizzleSchema } from "./drizzle";
 export { fromSqlAlchemy, toSqlAlchemy, toSqlAlchemyModels } from "./sqlalchemy";
 export { fromJsonSchema } from "./jsonSchema";
 export * from "./semantic";
+export type {
+  TableSchema,
+  ColumnSchema,
+  ForeignKey,
+  SchemaSnapshot,
+} from "../types";
 

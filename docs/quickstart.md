@@ -1,10 +1,10 @@
 # Query-Builder Quickstart Guide 🚀
 
-Get up and running with Query-Builder in under 5 minutes. This guide covers both the **Python Core Engine** (compiler, ORM adapters, connectors, and microservice server) and the **React Visual Studio** (styled visual builder, container-scoped theming, and unstyled headless hooks).
+Get up and running with Query-Builder in under 5 minutes. This guide covers both the **Python Core Engine** (multi-dialect compiler, analytical expressions, enterprise security governor, framework routers, and MCP server) and the **React Visual Studio** (typed API client, compound components, controlled undo/redo studio, and client-side OLAP).
 
 ---
 
-## Part 1: Python Engine (5-Minute Quickstart)
+## Part 1: Python Engine Quickstart
 
 ### 1. Installation
 
@@ -30,7 +30,7 @@ pip install -e .
 
 ### 2. 1-Line ORM Schema Adapters
 
-Query-Builder includes declarative schema adapters for popular ORMs and schema formats. These convert external schemas into normalized `TableSchema` models and `SchemaSnapshot` structures for the query compiler and UI:
+Query-Builder includes declarative schema adapters that convert external schemas into normalized `TableSchema` models and `SchemaSnapshot` catalogs:
 
 #### Prisma Schema (`from_prisma`)
 ```python
@@ -38,8 +38,8 @@ from query_builder.adapters import from_prisma, to_schema_snapshot
 
 prisma_schema = """
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -53,11 +53,11 @@ model Order {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
   amount    Float
+  status    String
   user      User     @relation(fields: [userId], references: [id])
 }
 """
 
-# Accepts schema text or path to schema.prisma
 tables = from_prisma(prisma_schema)
 snapshot = to_schema_snapshot(tables)
 print(f"Loaded tables: {list(tables.keys())}")
@@ -93,7 +93,6 @@ print(f"Loaded tables: {list(tables.keys())}")
 from query_builder.adapters import from_sqlalchemy
 from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table
 
-# Mode A: Live SQLAlchemy MetaData or Declarative Models
 metadata = MetaData()
 users_table = Table(
     "users",
@@ -111,74 +110,35 @@ orders_table = Table(
 tables = from_sqlalchemy(metadata)
 print(f"Loaded tables: {list(tables.keys())}")
 # Loaded tables: ['users', 'orders']
-
-# Mode B: Zero-dependency AST reflection from source string or .py file
-py_code = """
-class Product(Base):
-    __tablename__ = 'products'
-    id = Column(Integer, primary_key=True)
-    sku = Column(String(32), nullable=False)
-"""
-tables_ast = from_sqlalchemy(py_code)
-```
-
-#### JSON Schema & OpenAPI 3.x (`from_json_schema`)
-```python
-from query_builder.adapters import from_json_schema
-
-json_schema = {
-    "definitions": {
-        "customers": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "company": {"type": "string"},
-            },
-            "required": ["id", "company"],
-            "x-primary-keys": ["id"],
-        }
-    }
-}
-
-tables = from_json_schema(json_schema)
 ```
 
 ---
 
-### 3. Global Engine Configuration
+### 3. Declarative Query Compilation with Analytical SQL
 
-Configure dialects, security profiles, and custom extensions with a single function call:
-
-```python
-from query_builder import configure_query_builder, get_query_builder_config
-
-# Choose between "development", "production", or "strict"
-config = configure_query_builder(
-    profile="development",
-    default_dialect="sqlite",
-    default_limit=50,
-)
-
-print(f"Default Dialect: {config.default_dialect}")
-print(
-    f"Read-only sessions enforced: {config.security.execution.enforce_read_only_session}"
-)
-```
-
----
-
-### 4. Declarative Query Compilation
-
-Compile declarative query specifications into safe, parameterized SQL with bind parameters:
+Compile structured queries with multi-dialect support (Postgres, Snowflake, MySQL, SQLite, DuckDB, ClickHouse, MSSQL, BigQuery, Oracle, Trino) and analytical expressions:
 
 ```python
-from query_builder import QueryCompiler
+from query_builder import QueryCompiler, WindowFunctionSpec
 
 spec = {
     "table": "orders",
     "columns": [
         "orders.id",
-        {"column": "orders.amount", "agg": "sum", "alias": "total_revenue"},
+        "orders.user_id",
+        {"column": "orders.amount", "agg": "sum", "alias": "total_spent"},
+        {
+            "case_when": {
+                "branches": [
+                    {
+                        "condition": {"column": "orders.amount", "op": "gte", "value": 500},
+                        "then_value": "Premium",
+                    }
+                ],
+                "else_value": "Standard",
+            },
+            "alias": "spend_tier",
+        },
     ],
     "joins": [
         {
@@ -189,84 +149,222 @@ spec = {
     ],
     "filters": [
         {"column": "orders.status", "op": "eq", "value": "COMPLETED"},
-        {"column": "orders.amount", "op": "gt", "value": 100},
     ],
-    "filter_join": "AND",
-    "order_by": [{"column": "orders.id", "direction": "DESC"}],
+    "window_functions": [
+        WindowFunctionSpec(
+            function="RANK",
+            order_by=[{"column": "orders.amount", "direction": "DESC"}],
+            alias="order_rank",
+        )
+    ],
+    "grouping_type": "rollup",
     "limit": 25,
-    "offset": 0,
 }
 
-compiler = QueryCompiler(spec, dialect="sqlite")
+compiler = QueryCompiler(spec, dialect="postgres")
 main_sql, params, count_sql, count_params = compiler.compile()
 
-print("Main SQL:", main_sql)
-print("Parameters:", params)
-print("Count SQL:", count_sql)
+print("Main SQL:\n", main_sql)
+print("Bind Parameters:", params)
 ```
 
 ---
 
-### 5. Executing Queries with Connectors
+### 4. Enterprise Security Governor & Column-Level Access Control (CLAC)
 
-Query-Builder includes built-in connectors supporting both synchronous (`BaseConnector`) and asynchronous (`AsyncBaseConnector`) execution:
+Enforce fail-closed row-level tenant filtering, role-based column access, and AST complexity quotas:
 
 ```python
-import sqlite3
-from query_builder import SQLiteConnector
-
-# Initialize SQLite database
-conn = sqlite3.connect(":memory:")
-conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);")
-conn.execute("INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob');")
-conn.commit()
-
-# Pass open connection or database path
-connector = SQLiteConnector(connection=conn)
-
-# Execute spec directly with automatic AST safety validation & row pagination
-result = connector.execute(
-    spec={"table": "users", "columns": ["users.id", "users.name"], "limit": 10}
+from query_builder import (
+    SecurityPolicy,
+    TenantContext,
+    apply_security_policy,
 )
 
-print("Columns:", result["columns"])
-print("Rows:", result["rows"])
-print("Total Count:", result["count"])
-print("Execution Latency:", result["latency_ms"], "ms")
+policy = SecurityPolicy(
+    enforce_tenant_isolation=True,
+    tenant_column="tenant_id",
+    max_complexity_score=50,
+    column_permissions={
+        "employees": {
+            "allowed_roles": ["finance", "hr_admin"],
+            "restricted_columns": ["salary", "ssn"],
+        }
+    },
+)
+
+# User authentication context
+context = TenantContext(
+    tenant_id="tenant_01",
+    user_id="usr_99",
+    roles=["analyst"],  # Does not have 'finance' role
+)
+
+spec = {
+    "table": "employees",
+    "columns": ["id", "name", "salary"],
+}
+
+try:
+    apply_security_policy(spec, context=context, policy=policy)
+except Exception as exc:
+    print(f"Access Denied: {exc}")
+    # Access to restricted column 'salary' on table 'employees' requires roles: ['finance', 'hr_admin']
 ```
 
 ---
 
-### 6. Built-in REST & Swagger Microservice
+### 5. Turnkey Web Framework Routers
 
-Query-Builder includes a zero-dependency HTTP server with OpenAPI 3.1 documentation:
+Mount complete Query-Builder REST endpoints in 1 line of code:
+
+#### FastAPI Router:
+```python
+from fastapi import FastAPI, Request
+from query_builder import SQLiteConnector, create_query_builder_router, TenantContext
+
+app = FastAPI()
+connector = SQLiteConnector("app.db")
+
+async def resolve_tenant(request: Request) -> TenantContext:
+    tenant_id = request.headers.get("X-Tenant-ID", "tenant-1")
+    return TenantContext(tenant_id=tenant_id)
+
+router = create_query_builder_router(
+    connector=connector,
+    tenant_resolver=resolve_tenant,
+    prefix="/api/qb",
+)
+app.include_router(router)
+# Endpoints registered:
+# GET  /api/qb/schema
+# POST /api/qb/compile
+# POST /api/qb/validate
+# POST /api/qb/execute
+# POST /api/qb/export
+```
+
+#### Django Ninja Router:
+```python
+# Requires: pip install django django-ninja
+from ninja import NinjaAPI
+from query_builder import SQLiteConnector, create_ninja_router
+
+api = NinjaAPI()
+connector = SQLiteConnector("app.db")
+
+router = create_ninja_router(connector=connector)
+api.add_router("/qb", router)
+```
+
+---
+
+### 6. Async Connection Pooling & Streaming
+
+Manage high-concurrency database connection lifecycles and query streaming:
+
+```python
+import asyncio
+from query_builder import AsyncConnectionPool, AsyncCancellationToken, AsyncStreamingExecutor
+
+async def run_analytics():
+    # 1. Initialize pooled connections (with SQLite, Postgres, Snowflake, etc.)
+    pool = AsyncConnectionPool(
+        connector_name="sqlite",
+        database=":memory:",
+        min_size=2,
+        max_size=10,
+    )
+    await pool.initialize()
+
+    token = AsyncCancellationToken()
+
+    # 2. Acquire and release safely via async context manager
+    async with pool.connection(token=token) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        print("Pooled result:", cursor.fetchall())
+
+    # 3. Or acquire manually: conn = await pool.acquire(token=token); await pool.release(conn)
+
+    await pool.close()
+
+asyncio.run(run_analytics())
+```
+
+---
+
+### 7. Bidirectional Schema Converters
+
+Export schemas directly to Prisma, Drizzle, or SQLAlchemy definitions:
+
+```python
+from query_builder.adapters import from_json_schema
+from query_builder.schema_converters import (
+    to_prisma_schema,
+    to_drizzle_schema,
+    to_sqlalchemy_models,
+)
+
+# Ingest schema
+tables = from_json_schema({
+    "definitions": {
+        "users": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}, "email": {"type": "string"}},
+            "x-primary-keys": ["id"],
+        }
+    }
+})
+
+# Export to any ORM definition:
+prisma_code = to_prisma_schema(tables, provider="postgresql")
+drizzle_code = to_drizzle_schema(tables, dialect="postgres")
+sqlalchemy_code = to_sqlalchemy_models(tables)
+```
+
+---
+
+### 8. MCP Server & CLI Tools
 
 ```bash
-# Start microservice on port 8000
-query-builder serve --host 127.0.0.1 --port 8000 --profile development
-```
+# Start Model Context Protocol (MCP) server for Claude Desktop / Cursor
+query-builder mcp
 
-Visit `http://localhost:8000/docs` in your browser to interact with the Swagger UI documentation for schema introspection, compilation, and query execution endpoints.
+# Scaffold a new fullstack project
+query-builder init my-app --template fullstack
+
+# Check system health & optional driver packages
+query-builder doctor
+
+# Start native HTTP microservice server
+query-builder serve --host 127.0.0.1 --port 8000
+```
 
 ---
 
-## Part 2: React Visual Studio (5-Minute Quickstart)
+## Part 2: React Visual Studio Quickstart
 
-### 1. Installation
+### 1. Installation & Subpaths
 
-Install `@jacob-white/query-builder-react` using your preferred package manager:
+Install `@jacob-white/query-builder-react`:
 
 ```bash
 pnpm add @jacob-white/query-builder-react
 # or
 npm install @jacob-white/query-builder-react
-# or
-yarn add @jacob-white/query-builder-react
 ```
+
+Subpath entry points:
+- `@jacob-white/query-builder-react`: Visual UI studio and root components.
+- `@jacob-white/query-builder-react/client`: Typed HTTP client (`createQueryBuilderClient`, `FluentQuery`).
+- `@jacob-white/query-builder-react/adapters`: TypeScript ORM schema adapters.
+- `@jacob-white/query-builder-react/hooks`: Headless unstyled React hooks.
+- `@jacob-white/query-builder-react/olap`: In-memory client OLAP SQL engine and file ingest.
 
 ---
 
-### 2. Plug-and-Play Styled Mode (`<VisualQueryBuilder>`)
+### 2. Plug-and-Play Visual Query Builder (`<VisualQueryBuilder>`)
 
 Wrap your application in `QueryBuilderProvider` and mount `<VisualQueryBuilder>`:
 
@@ -275,61 +373,33 @@ import React, { useState } from "react";
 import {
   QueryBuilderProvider,
   VisualQueryBuilder,
-  type SchemaSnapshot,
-  type QueryResultData,
+  fromPrisma,
+  toSchemaSnapshot,
 } from "@jacob-white/query-builder-react";
+import { createQueryBuilderClient } from "@jacob-white/query-builder-react/client";
+
+// Initialize typed client
+const client = createQueryBuilderClient({
+  baseUrl: "/api/qb",
+});
+
+const schema = toSchemaSnapshot(fromPrisma(`
+  model Customer {
+    id      Int    @id @default(autoincrement())
+    company String
+    tier    String
+  }
+`));
 
 export function App() {
-  const [schema] = useState<SchemaSnapshot>({
-    tables: {
-      users: {
-        name: "users",
-        columns: [
-          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
-          { name: "email", data_type: "text", is_nullable: false, is_primary: false },
-          { name: "created_at", data_type: "timestamp", is_nullable: false, is_primary: false },
-        ],
-      },
-      orders: {
-        name: "orders",
-        columns: [
-          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
-          { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
-          { name: "total", data_type: "decimal", is_nullable: false, is_primary: false },
-          { name: "status", data_type: "text", is_nullable: false, is_primary: false },
-        ],
-      },
-    },
-    foreign_keys: [
-      {
-        table: "orders",
-        column: "user_id",
-        foreign_table: "users",
-        foreign_column: "id",
-      },
-    ],
-  });
-
-  const handleExecute = async (
-    sql: string,
-    spec?: Record<string, unknown>
-  ): Promise<QueryResultData> => {
-    const response = await fetch("/api/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec }),
-    });
-    return await response.json();
-  };
-
   return (
     <QueryBuilderProvider mode="styled" themeMode="dark">
-      <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      <div style={{ height: "100vh" }}>
         <VisualQueryBuilder
           schema={schema}
-          initialTable="users"
-          dialect="sqlite"
-          onExecuteQuery={handleExecute}
+          client={client}
+          initialTable="Customer"
+          dialect="postgres"
         />
       </div>
     </QueryBuilderProvider>
@@ -339,98 +409,172 @@ export function App() {
 
 ---
 
-### 3. Loading Schemas with TypeScript Adapters
+### 3. First-Class Typed API Client (`/client`)
 
-Instead of manually constructing `SchemaSnapshot` objects, load them using TypeScript adapters:
+Construct queries programmatically with full TypeScript typing:
 
 ```tsx
 import {
-  fromPrisma,
-  fromDrizzle,
-  fromSqlAlchemy,
-  fromJsonSchema,
-  toSchemaSnapshot,
-} from "@jacob-white/query-builder-react";
+  createQueryBuilderClient,
+  createQuery,
+} from "@jacob-white/query-builder-react/client";
 
-// Load from Prisma schema string or DMMF
-const prismaTables = fromPrisma(`
-  model Product {
-    id    Int    @id @default(autoincrement())
-    name  String
-    price Float
-  }
-`);
+const client = createQueryBuilderClient({
+  baseUrl: "/api/qb",
+  token: async () => localStorage.getItem("jwt_token"),
+  timeoutMs: 20000,
+});
 
-// Convert TableSchema[] to SchemaSnapshot
-const schemaSnapshot = toSchemaSnapshot(prismaTables);
+// Fluent query builder
+const results = await createQuery("orders", client)
+  .select([
+    "orders.id",
+    { column: "orders.amount", agg: "sum", alias: "revenue" },
+  ])
+  .where("orders.status", "eq", "COMPLETED")
+  .groupBy(["orders.id"])
+  .orderBy("revenue", "DESC")
+  .limit(10)
+  .execute();
+
+console.log("Rows:", results.rows);
 ```
 
 ---
 
-### 4. Customizing Theme with CSS Variables
+### 4. Controlled State, Undo/Redo & Schema Diagnostics
 
-All components use container-scoped CSS custom properties (`--qb-*`). Override tokens globally or per-container:
+Control the builder state, access 50-step undo/redo, and run diagnostic validation:
 
 ```tsx
-import { QueryBuilderProvider } from "@jacob-white/query-builder-react";
+import React, { useState, useRef } from "react";
+import {
+  VisualQueryBuilder,
+  validateSchema,
+  type VisualQueryBuilderRef,
+  type QuerySpec,
+  type SchemaSnapshot,
+} from "@jacob-white/query-builder-react";
 
-<QueryBuilderProvider
-  mode="styled"
-  themeMode="dark"
-  customTokens={{
-    colors: {
-      primary: "#6366f1",
-      background: "#0f172a",
-      surface: "#1e293b",
-      border: "#334155",
-      text: "#f8fafc",
-      textMuted: "#94a3b8",
-    },
-    radii: {
-      md: "8px",
-      lg: "12px",
-    },
-  }}
->
-  <VisualQueryBuilder schema={schema} />
-</QueryBuilderProvider>
-```
+export function ControlledStudio({ schema }: { schema: SchemaSnapshot }) {
+  const ref = useRef<VisualQueryBuilderRef>(null);
+  const [spec, setSpec] = useState<QuerySpec>({
+    table: "orders",
+    columns: ["orders.id", "orders.total"],
+    limit: 25,
+  });
 
-Or via standard CSS:
-```css
-.my-custom-container {
-  --qb-color-primary: #3b82f6;
-  --qb-color-background: #18181b;
-  --qb-radius-md: 6px;
+  // Verify schema integrity
+  const diagnostics = validateSchema(schema);
+  if (!diagnostics.valid) {
+    console.error("Schema errors:", diagnostics.errors);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <button onClick={() => ref.current?.undo()} disabled={!ref.current?.canUndo()}>
+          Undo
+        </button>
+        <button onClick={() => ref.current?.redo()} disabled={!ref.current?.canRedo()}>
+          Redo
+        </button>
+        <button onClick={() => ref.current?.reset()}>
+          Reset
+        </button>
+        <button onClick={() => ref.current?.execute()}>
+          Execute
+        </button>
+      </div>
+
+      <VisualQueryBuilder
+        ref={ref}
+        schema={schema}
+        value={spec}
+        onChange={(newSpec) => setSpec(newSpec)}
+        dialect="postgres"
+      />
+    </div>
+  );
 }
 ```
 
 ---
 
-### 5. Headless Mode (Zero CSS, Unstyled Design Systems)
+### 5. Composable Compound Components
 
-For custom design systems (Tailwind CSS, shadcn/ui), use unstyled headless hooks without loading default component styles:
+Compose custom query layouts with slotted CSS styling:
 
 ```tsx
 import React from "react";
 import {
-  useQueryBuilder,
-  useQueryExecution,
+  QueryBuilderRoot,
+  QueryBuilderCanvas,
+  QueryBuilderColumns,
+  QueryBuilderFilters,
+  QueryBuilderResults,
   type SchemaSnapshot,
 } from "@jacob-white/query-builder-react";
 
-export function HeadlessQueryBuilder({ schema }: { schema: SchemaSnapshot }) {
-  // 1. Headless query builder state
-  const { state, compiled, actions, safety } = useQueryBuilder({
-    schema,
-    initialTable: "users",
-    dialect: "sqlite",
-  });
+export function Studio({ schema }: { schema: SchemaSnapshot }) {
+  return (
+    <QueryBuilderRoot schema={schema} initialTable="orders">
+      <div className="flex gap-4 p-4 bg-slate-950 text-white">
+        <div className="flex-1 space-y-4">
+          <QueryBuilderCanvas className="h-96 border border-slate-800 rounded-lg" />
+          <QueryBuilderResults className="border border-slate-800 rounded-lg" />
+        </div>
+        <div className="w-80 space-y-4">
+          <QueryBuilderColumns />
+          <QueryBuilderFilters />
+        </div>
+      </div>
+    </QueryBuilderRoot>
+  );
+}
+```
 
-  // 2. Query execution controller with AbortController support
-  const { results, isLoading, error, executeQuery } = useQueryExecution({
+---
+
+### 6. Client-Side OLAP Engine & Local File Ingestion (`/olap`)
+
+Run analytical queries in-browser over local CSV, TSV, Parquet, or JSON files:
+
+```tsx
+import {
+  getClientOlapEngine,
+  ingestLocalFile,
+} from "@jacob-white/query-builder-react/olap";
+
+const olap = getClientOlapEngine();
+
+// Ingest local file uploaded by user
+const fileInput = document.querySelector<HTMLInputElement>("#file-upload")!;
+const file = fileInput.files![0];
+
+await ingestLocalFile(olap, file, { tableName: "user_data" });
+
+// Run local SQL execution with zero server latency
+const queryResult = await olap.query("SELECT * FROM user_data LIMIT 10");
+console.log("Local rows:", queryResult.rows);
+```
+
+---
+
+### 7. Headless Mode (Zero CSS, Custom Design Systems)
+
+Build completely custom interfaces with zero CSS opinions:
+
+```tsx
+import React from "react";
+import { useQueryBuilder, useQueryExecution } from "@jacob-white/query-builder-react/hooks";
+import type { SchemaSnapshot } from "@jacob-white/query-builder-react";
+
+export function HeadlessEditor({ schema }: { schema: SchemaSnapshot }) {
+  const { state, compiled, actions } = useQueryBuilder({ schema, initialTable: "users" });
+  const { results, isLoading, executeQuery } = useQueryExecution({
     onExecuteQuery: async (sql, spec) => {
-      const res = await fetch("/api/execute", {
+      const res = await fetch("/api/qb/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spec }),
@@ -440,63 +584,28 @@ export function HeadlessQueryBuilder({ schema }: { schema: SchemaSnapshot }) {
   });
 
   return (
-    <div className="p-6 space-y-4 font-sans text-gray-900 dark:text-gray-100">
-      <div className="flex items-center gap-4">
-        <label className="font-semibold text-sm">Primary Table:</label>
-        <select
-          value={state.primaryTable}
-          onChange={(e) => actions.setPrimaryTable(e.target.value)}
-          className="px-3 py-1.5 border rounded-md dark:bg-gray-800"
-        >
-          {Object.keys(schema.tables || {}).map((tableName) => (
-            <option key={tableName} value={tableName}>
-              {tableName}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="p-4 space-y-4">
+      <select
+        value={state.primaryTable}
+        onChange={(e) => actions.setPrimaryTable(e.target.value)}
+        className="border p-2 rounded"
+      >
+        {Object.keys(schema.tables || {}).map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
 
-      <div className="bg-gray-900 text-gray-100 p-4 rounded-md font-mono text-sm">
-        <div className="text-xs text-gray-400 mb-1">Generated SQL:</div>
-        <pre>{compiled.sql}</pre>
-      </div>
+      <pre className="bg-gray-900 text-white p-3 rounded font-mono">{compiled.sql}</pre>
 
       <button
         onClick={() => executeQuery(compiled.sql, compiled.spec)}
-        disabled={isLoading || !safety.isValid}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md disabled:opacity-50"
+        disabled={isLoading}
+        className="px-4 py-2 bg-blue-600 text-white rounded font-medium disabled:opacity-50"
       >
-        {isLoading ? "Running..." : "Run Query"}
+        {isLoading ? "Executing..." : "Run Query"}
       </button>
 
-      {error && <div className="text-red-500 text-sm">Error: {error}</div>}
-
-      {results && (
-        <div className="overflow-x-auto border rounded-md">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                {results.columns.map((col) => (
-                  <th key={col} className="px-3 py-2 text-left text-xs font-medium uppercase">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-              {results.rows.map((row, idx) => (
-                <tr key={idx}>
-                  {results.columns.map((col) => (
-                    <td key={col} className="px-3 py-2 text-sm">
-                      {String(row[col] ?? "")}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {results && <div>Found {results.count} results in {results.latency_ms}ms</div>}
     </div>
   );
 }
@@ -506,5 +615,5 @@ export function HeadlessQueryBuilder({ schema }: { schema: SchemaSnapshot }) {
 
 ## Next Steps
 
-- Check out the **[Full-Stack Starter Template](../examples/fullstack_starter/README.md)** featuring FastAPI + React 18 + SQLite.
-- Explore the **[API Reference](api_reference.md)** for exhaustive details on every configuration option, hook, and adapter.
+- Explore the **[Full-Stack Starter Template](../examples/fullstack_starter/README.md)** for a complete FastAPI + React 18 + SQLite application.
+- Review the **[Exhaustive API Reference](api_reference.md)** for detailed specifications of all data models, options, and methods.
