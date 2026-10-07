@@ -1,5 +1,6 @@
 import React from "react";
-import type { VisualFilter, TableMeta, CustomFilterOperator } from "../types";
+import type { VisualFilter, TableMeta, CustomFilterOperator, QueryBuilderClassNames } from "../types";
+import { cx } from "../utils/classNames";
 
 export interface TableFiltersEditorProps {
   filters: VisualFilter[];
@@ -7,6 +8,8 @@ export interface TableFiltersEditorProps {
   onChange: (filters: VisualFilter[]) => void;
   unstyled?: boolean;
   customOperators?: Record<string, CustomFilterOperator>;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
 }
 
 export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
@@ -15,6 +18,8 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
   onChange,
   unstyled = false,
   customOperators,
+  className,
+  classNames,
 }) => {
   const allColumns = activeTables.flatMap((tbl) =>
     tbl.columns.map((c) => ({
@@ -50,6 +55,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
   return (
     <div
       data-qb="filters-editor"
+      className={cx(className, classNames?.filters)}
       style={
         unstyled
           ? undefined
@@ -77,6 +83,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
         }
       >
         <span
+          className={cx(classNames?.title)}
           style={
             unstyled
               ? undefined
@@ -89,6 +96,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
           type="button"
           onClick={handleAddFilter}
           data-qb="btn-add-filter"
+          className={cx(classNames?.filterAddButton)}
           style={
             unstyled
               ? undefined
@@ -137,6 +145,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
               key={f.id}
               data-qb="filter-row"
               data-qb-filter-id={f.id}
+              className={cx(classNames?.filterItem)}
               style={
                 unstyled
                   ? undefined

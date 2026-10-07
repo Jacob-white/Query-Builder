@@ -461,6 +461,83 @@ class CteSpec:
 
 
 @dataclass
+class CaseWhenBranch:
+    """A single conditional branch (WHEN <condition> THEN <value | column>) in a CASE expression."""
+
+    condition: dict[str, Any] | FilterSpec
+    then_value: Any = None
+    then_column: str | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.condition, dict):
+            self.condition = FilterSpec(**self.condition)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "condition": self.condition.to_dict() if hasattr(self.condition, "to_dict") else self.condition,
+        }
+        if self.then_value is not None:
+            d["then_value"] = self.then_value
+        if self.then_column is not None:
+            d["then_column"] = self.then_column
+        return d
+
+
+@dataclass
+class CaseWhenSpec:
+    """Declarative specification for a SQL CASE WHEN conditional projection."""
+
+    branches: list[CaseWhenBranch | dict[str, Any]] = field(default_factory=list)
+    else_value: Any = None
+    else_column: str | None = None
+    alias: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.branches:
+            self.branches = [
+                CaseWhenBranch(**b) if isinstance(b, dict) else b
+                for b in self.branches
+            ]
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "branches": [
+                b.to_dict() if hasattr(b, "to_dict") else (b.__dict__ if hasattr(b, "__dict__") else b)
+                for b in self.branches
+            ],
+        }
+        if self.else_value is not None:
+            d["else_value"] = self.else_value
+        if self.else_column is not None:
+            d["else_column"] = self.else_column
+        if self.alias is not None:
+            d["alias"] = self.alias
+        return d
+
+
+@dataclass
+class SetOperationSpec:
+    """Specification for a SQL set operation (UNION, UNION ALL, INTERSECT, EXCEPT/MINUS)."""
+
+    operation: str = "UNION"  # UNION, UNION ALL, INTERSECT, EXCEPT, MINUS
+    query: QuerySpec | dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.operation = (self.operation or "UNION").upper().strip()
+        valid_ops = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
+        if self.operation not in valid_ops:
+            raise ValueError(f"Invalid SetOperationSpec operation: '{self.operation}'. Must be one of {sorted(valid_ops)}.")
+        if isinstance(self.query, dict):
+            self.query = QuerySpec(**self.query)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "operation": self.operation,
+            "query": self.query.to_dict() if hasattr(self.query, "to_dict") else self.query,
+        }
+
+
+@dataclass
 class QuerySpec:
     """Declarative specification for building and compiling a SQL query."""
 
@@ -479,6 +556,9 @@ class QuerySpec:
     hybrid_search: HybridSearchSpec | dict[str, Any] | None = None
     ctes: list[CteSpec | dict[str, Any]] = field(default_factory=list)
     window_functions: list[WindowFunctionSpec | dict[str, Any]] = field(default_factory=list)
+    set_operations: list[SetOperationSpec | dict[str, Any]] = field(default_factory=list)
+    grouping_type: str | None = None  # standard, rollup, cube, grouping_sets
+    grouping_sets: list[list[str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if isinstance(self.vector_search, dict):
@@ -495,6 +575,13 @@ class QuerySpec:
                 WindowFunctionSpec(**w) if isinstance(w, dict) else w
                 for w in self.window_functions
             ]
+        if self.set_operations:
+            self.set_operations = [
+                SetOperationSpec(**s) if isinstance(s, dict) else s
+                for s in self.set_operations
+            ]
+        if self.grouping_type is not None:
+            self.grouping_type = self.grouping_type.lower().strip()
 
     def to_dict(self) -> dict[str, Any]:
         res: dict[str, Any] = {
@@ -545,6 +632,15 @@ class QuerySpec:
                 w.to_dict() if hasattr(w, "to_dict") else (w.__dict__ if hasattr(w, "__dict__") else w)
                 for w in self.window_functions
             ]
+        if self.set_operations:
+            res["set_operations"] = [
+                s.to_dict() if hasattr(s, "to_dict") else (s.__dict__ if hasattr(s, "__dict__") else s)
+                for s in self.set_operations
+            ]
+        if self.grouping_type is not None:
+            res["grouping_type"] = self.grouping_type
+        if self.grouping_sets:
+            res["grouping_sets"] = [list(gs) for gs in self.grouping_sets]
         return res
 
 

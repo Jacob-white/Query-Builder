@@ -10,6 +10,10 @@ import type {
   SqlDialect,
   QuerySpec,
   SchemaSnapshot,
+  VectorSearchSpec,
+  HybridSearchSpec,
+  CteSpec,
+  WindowFunctionSpec,
 } from "../types";
 import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
 
@@ -26,6 +30,10 @@ export interface QueryState<Schema = any> {
   offset: number;
   dialect: SqlDialect;
   isDirty: boolean;
+  vectorSearch?: VectorSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
+  ctes?: CteSpec[];
+  windowFunctions?: WindowFunctionSpec[];
 }
 
 export interface QueryHistory<Schema = any> {
@@ -46,6 +54,12 @@ export interface QueryStateActions<Schema = any> {
   ) => void;
   updateColumnSelect: (key: string, updates: Partial<VisualColumnSelect<Schema>>) => void;
   removeColumnProjection: (key: string) => void;
+  setSelectedColumns: (
+    selected: Record<string, VisualColumnSelect<Schema>>,
+    orderedKeys?: string[],
+  ) => void;
+  setOrderedProjectionKeys: (keys: string[]) => void;
+  setJoins: (joins: VisualJoin<Schema>[]) => void;
   addJoin: (join: VisualJoin<Schema>) => void;
   autoJoinTable: (
     targetTable: SchemaTableNames<Schema> | string,
@@ -53,9 +67,11 @@ export interface QueryStateActions<Schema = any> {
   ) => void;
   updateJoin: (id: string, updates: Partial<VisualJoin<Schema>>) => void;
   removeJoin: (id: string) => void;
+  setFilters: (filters: VisualFilter<Schema>[]) => void;
   addFilter: (filter: VisualFilter<Schema>) => void;
   updateFilter: (id: string, updates: Partial<VisualFilter<Schema>>) => void;
   removeFilter: (id: string) => void;
+  setSorts: (sorts: VisualSort<Schema>[]) => void;
   addSort: (sort: VisualSort<Schema>) => void;
   updateSort: (id: string, updates: Partial<VisualSort<Schema>>) => void;
   removeSort: (id: string) => void;
@@ -63,6 +79,10 @@ export interface QueryStateActions<Schema = any> {
   setOffset: (offset: number) => void;
   setDistinct: (distinct: boolean) => void;
   setDialect: (dialect: SqlDialect) => void;
+  setVectorSearch: (vs: VectorSearchSpec | null) => void;
+  setHybridSearch: (hs: HybridSearchSpec | null) => void;
+  setCtes: (ctes: CteSpec[]) => void;
+  setWindowFunctions: (wfs: WindowFunctionSpec[]) => void;
   loadSpec: (spec: QuerySpec<Schema> | Record<string, unknown>) => void;
   reset: () => void;
   markClean: () => void;
@@ -129,7 +149,7 @@ export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<
     direction: s.direction,
   }));
 
-  return {
+  const spec: QuerySpec<Schema> = {
     table: state.primaryTable,
     columns,
     joins,
@@ -139,6 +159,24 @@ export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<
     distinct: state.isDistinct,
     limit: state.limit,
   };
+
+  if (state.offset !== undefined && state.offset !== 0) {
+    spec.offset = state.offset;
+  }
+  if (state.vectorSearch) {
+    spec.vector_search = state.vectorSearch;
+  }
+  if (state.hybridSearch) {
+    spec.hybrid_search = state.hybridSearch;
+  }
+  if (state.ctes && state.ctes.length > 0) {
+    spec.ctes = state.ctes;
+  }
+  if (state.windowFunctions && state.windowFunctions.length > 0) {
+    spec.window_functions = state.windowFunctions;
+  }
+
+  return spec;
 }
 
 /**
@@ -297,10 +335,26 @@ export function specToState<Schema = any>(
     partial.dialect = s.dialect;
   }
 
+  if (s.vector_search || s.vectorSearch) {
+    partial.vectorSearch = s.vector_search || s.vectorSearch;
+  }
+
+  if (s.hybrid_search || s.hybridSearch) {
+    partial.hybridSearch = s.hybrid_search || s.hybridSearch;
+  }
+
+  if (Array.isArray(s.ctes)) {
+    partial.ctes = s.ctes;
+  }
+
+  if (Array.isArray(s.window_functions) || Array.isArray(s.windowFunctions)) {
+    partial.windowFunctions = s.window_functions || s.windowFunctions;
+  }
+
   return partial;
 }
 
-function createInitialState<Schema>(
+export function createInitialState<Schema>(
   initial?: QuerySpec<Schema> | Partial<QueryState<Schema>> | Record<string, unknown>,
 ): QueryState<Schema> {
   const defaults: QueryState<Schema> = {
@@ -316,6 +370,10 @@ function createInitialState<Schema>(
     offset: 0,
     dialect: "postgres",
     isDirty: false,
+    vectorSearch: null,
+    hybridSearch: null,
+    ctes: [],
+    windowFunctions: [],
   };
 
   if (!initial) {
@@ -337,6 +395,10 @@ function createInitialState<Schema>(
     limit: typeof parsed.limit === "number" ? parsed.limit : defaults.limit,
     offset: typeof parsed.offset === "number" ? parsed.offset : defaults.offset,
     dialect: parsed.dialect || defaults.dialect,
+    vectorSearch: parsed.vectorSearch !== undefined ? parsed.vectorSearch : defaults.vectorSearch,
+    hybridSearch: parsed.hybridSearch !== undefined ? parsed.hybridSearch : defaults.hybridSearch,
+    ctes: parsed.ctes ?? defaults.ctes,
+    windowFunctions: parsed.windowFunctions ?? defaults.windowFunctions,
     isDirty: false,
   };
 }
@@ -480,6 +542,40 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     [applyUpdate],
   );
 
+  const setSelectedColumns = useCallback(
+    (
+      selected: Record<string, VisualColumnSelect<Schema>>,
+      orderedKeys?: string[],
+    ) => {
+      applyUpdate((prev) => ({
+        ...prev,
+        selectedColumns: selected,
+        orderedProjectionKeys: orderedKeys ?? Object.keys(selected),
+      }));
+    },
+    [applyUpdate],
+  );
+
+  const setOrderedProjectionKeys = useCallback(
+    (keys: string[]) => {
+      applyUpdate((prev) => ({
+        ...prev,
+        orderedProjectionKeys: keys,
+      }));
+    },
+    [applyUpdate],
+  );
+
+  const setJoins = useCallback(
+    (joins: VisualJoin<Schema>[]) => {
+      applyUpdate((prev) => ({
+        ...prev,
+        joins,
+      }));
+    },
+    [applyUpdate],
+  );
+
   const addJoin = useCallback(
     (join: VisualJoin<Schema>) => {
       applyUpdate((prev) => ({
@@ -563,6 +659,16 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     [applyUpdate],
   );
 
+  const setFilters = useCallback(
+    (filters: VisualFilter<Schema>[]) => {
+      applyUpdate((prev) => ({
+        ...prev,
+        filters,
+      }));
+    },
+    [applyUpdate],
+  );
+
   const addFilter = useCallback(
     (filter: VisualFilter<Schema>) => {
       applyUpdate((prev) => ({
@@ -588,6 +694,16 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       applyUpdate((prev) => ({
         ...prev,
         filters: prev.filters.filter((f) => f.id !== id),
+      }));
+    },
+    [applyUpdate],
+  );
+
+  const setSorts = useCallback(
+    (sorts: VisualSort<Schema>[]) => {
+      applyUpdate((prev) => ({
+        ...prev,
+        sorts,
       }));
     },
     [applyUpdate],
@@ -651,25 +767,73 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     [applyUpdate],
   );
 
+  const setVectorSearch = useCallback(
+    (vs: VectorSearchSpec | null) => {
+      applyUpdate((prev) => ({ ...prev, vectorSearch: vs }));
+    },
+    [applyUpdate],
+  );
+
+  const setHybridSearch = useCallback(
+    (hs: HybridSearchSpec | null) => {
+      applyUpdate((prev) => ({ ...prev, hybridSearch: hs }));
+    },
+    [applyUpdate],
+  );
+
+  const setCtes = useCallback(
+    (ctes: CteSpec[]) => {
+      applyUpdate((prev) => ({ ...prev, ctes }));
+    },
+    [applyUpdate],
+  );
+
+  const setWindowFunctions = useCallback(
+    (wfs: WindowFunctionSpec[]) => {
+      applyUpdate((prev) => ({ ...prev, windowFunctions: wfs }));
+    },
+    [applyUpdate],
+  );
+
   const loadSpec = useCallback(
     (spec: QuerySpec<Schema> | Record<string, unknown>) => {
       const parsed = specToState<Schema>(spec);
-      applyUpdate((prev) => ({
-        ...prev,
-        ...parsed,
-        primaryTable: (parsed.primaryTable || prev.primaryTable) as SchemaTableNames<Schema>,
-        activeTables: (parsed.activeTables ||
-          (parsed.primaryTable ? [parsed.primaryTable] : prev.activeTables)) as SchemaTableNames<Schema>[],
-        selectedColumns: parsed.selectedColumns || prev.selectedColumns,
-        orderedProjectionKeys: parsed.orderedProjectionKeys || prev.orderedProjectionKeys,
-        joins: parsed.joins || prev.joins,
-        filters: parsed.filters || prev.filters,
-        sorts: parsed.sorts || prev.sorts,
-        isDistinct: parsed.isDistinct ?? prev.isDistinct,
-        limit: typeof parsed.limit === "number" ? parsed.limit : prev.limit,
-        offset: typeof parsed.offset === "number" ? parsed.offset : prev.offset,
-        dialect: parsed.dialect || prev.dialect,
-      }));
+      const isFullSpec = Boolean(parsed.primaryTable || (spec as any).table);
+      const joinTables = (parsed.joins || []).map((j: any) => j.table).filter(Boolean);
+
+      applyUpdate((prev) => {
+        const activeTables =
+          parsed.activeTables ||
+          (parsed.primaryTable
+            ? (Array.from(new Set([parsed.primaryTable, ...joinTables])) as SchemaTableNames<Schema>[])
+            : prev.activeTables);
+
+        return {
+          ...prev,
+          ...parsed,
+          primaryTable: (parsed.primaryTable || prev.primaryTable) as SchemaTableNames<Schema>,
+          activeTables,
+          selectedColumns: parsed.selectedColumns ?? (isFullSpec ? {} : prev.selectedColumns),
+          orderedProjectionKeys:
+            parsed.orderedProjectionKeys ?? (isFullSpec ? [] : prev.orderedProjectionKeys),
+          joins: parsed.joins ?? (isFullSpec ? [] : prev.joins),
+          filters: parsed.filters ?? (isFullSpec ? [] : prev.filters),
+          sorts: parsed.sorts ?? (isFullSpec ? [] : prev.sorts),
+          isDistinct: parsed.isDistinct ?? (isFullSpec ? false : prev.isDistinct),
+          limit: typeof parsed.limit === "number" ? parsed.limit : (isFullSpec ? 50 : prev.limit),
+          offset: typeof parsed.offset === "number" ? parsed.offset : (isFullSpec ? 0 : prev.offset),
+          dialect: parsed.dialect || prev.dialect,
+          vectorSearch:
+            parsed.vectorSearch !== undefined ? parsed.vectorSearch : (isFullSpec ? null : prev.vectorSearch),
+          hybridSearch:
+            parsed.hybridSearch !== undefined ? parsed.hybridSearch : (isFullSpec ? null : prev.hybridSearch),
+          ctes: parsed.ctes !== undefined ? parsed.ctes : (isFullSpec ? [] : prev.ctes),
+          windowFunctions:
+            parsed.windowFunctions !== undefined
+              ? parsed.windowFunctions
+              : (isFullSpec ? [] : prev.windowFunctions),
+        };
+      });
     },
     [applyUpdate],
   );
@@ -732,13 +896,18 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       toggleColumn,
       updateColumnSelect,
       removeColumnProjection,
+      setSelectedColumns,
+      setOrderedProjectionKeys,
+      setJoins,
       addJoin,
       autoJoinTable,
       updateJoin,
       removeJoin,
+      setFilters,
       addFilter,
       updateFilter,
       removeFilter,
+      setSorts,
       addSort,
       updateSort,
       removeSort,
@@ -746,6 +915,10 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       setOffset,
       setDistinct,
       setDialect,
+      setVectorSearch,
+      setHybridSearch,
+      setCtes,
+      setWindowFunctions,
       loadSpec,
       reset,
       markClean,
@@ -761,13 +934,18 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       toggleColumn,
       updateColumnSelect,
       removeColumnProjection,
+      setSelectedColumns,
+      setOrderedProjectionKeys,
+      setJoins,
       addJoin,
       autoJoinTable,
       updateJoin,
       removeJoin,
+      setFilters,
       addFilter,
       updateFilter,
       removeFilter,
+      setSorts,
       addSort,
       updateSort,
       removeSort,
@@ -775,6 +953,10 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
       setOffset,
       setDistinct,
       setDialect,
+      setVectorSearch,
+      setHybridSearch,
+      setCtes,
+      setWindowFunctions,
       loadSpec,
       reset,
       markClean,

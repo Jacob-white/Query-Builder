@@ -172,3 +172,213 @@ export function normalizeSchema(
     relationships,
   };
 }
+
+export type SchemaDiagnosticSeverity = "error" | "warning" | "info";
+
+export interface SchemaDiagnostic {
+  severity: SchemaDiagnosticSeverity;
+  code: string;
+  table?: string;
+  column?: string;
+  message: string;
+  suggestion?: string;
+}
+
+export interface SchemaValidationResult {
+  valid: boolean;
+  diagnostics: SchemaDiagnostic[];
+  errors: SchemaDiagnostic[];
+  warnings: SchemaDiagnostic[];
+  infos: SchemaDiagnostic[];
+}
+
+/**
+ * Validates a schema definition, snapshot, or table array and returns actionable diagnostics.
+ * Detects missing tables, broken foreign keys, missing data types, missing primary keys,
+ * and duplicate columns with descriptive developer suggestions.
+ */
+export function validateSchema(
+  rawSchema?: DatabaseSchemaDefinition | SchemaSnapshot | TableSchema[] | null,
+): SchemaValidationResult {
+  const diagnostics: SchemaDiagnostic[] = [];
+
+  if (!rawSchema) {
+    diagnostics.push({
+      severity: "error",
+      code: "SCHEMA_EMPTY",
+      message: "Schema is null, undefined, or empty.",
+      suggestion: "Provide a valid SchemaSnapshot, TableSchema[] array, or DatabaseSchemaDefinition.",
+    });
+    return {
+      valid: false,
+      diagnostics,
+      errors: diagnostics.filter((d) => d.severity === "error"),
+      warnings: [],
+      infos: [],
+    };
+  }
+
+  const normalized = normalizeSchema(rawSchema);
+  if (!normalized || !normalized.tables || Object.keys(normalized.tables).length === 0) {
+    diagnostics.push({
+      severity: "error",
+      code: "SCHEMA_NO_TABLES",
+      message: "Schema contains no tables or could not be parsed.",
+      suggestion: "Check that tables are defined with at least one column.",
+    });
+    return {
+      valid: false,
+      diagnostics,
+      errors: diagnostics.filter((d) => d.severity === "error"),
+      warnings: [],
+      infos: [],
+    };
+  }
+
+  const tableNames = new Set(Object.keys(normalized.tables));
+
+  // 1. Validate each table
+  for (const [tableName, table] of Object.entries(normalized.tables)) {
+    if (!table.columns || table.columns.length === 0) {
+      diagnostics.push({
+        severity: "warning",
+        code: "TABLE_NO_COLUMNS",
+        table: tableName,
+        message: `Table "${tableName}" has no columns defined.`,
+        suggestion: "Add column metadata to enable querying this table.",
+      });
+      continue;
+    }
+
+    const seenCols = new Set<string>();
+    let hasPk = false;
+
+    for (const col of table.columns) {
+      // Duplicate column check
+      if (seenCols.has(col.name)) {
+        diagnostics.push({
+          severity: "error",
+          code: "DUPLICATE_COLUMN",
+          table: tableName,
+          column: col.name,
+          message: `Table "${tableName}" has duplicate column "${col.name}".`,
+          suggestion: `Ensure column names are unique within table "${tableName}".`,
+        });
+      }
+      seenCols.add(col.name);
+
+      // Missing or empty data_type check
+      if (!col.data_type || col.data_type.trim() === "") {
+        diagnostics.push({
+          severity: "warning",
+          code: "COLUMN_MISSING_DATA_TYPE",
+          table: tableName,
+          column: col.name,
+          message: `Column "${tableName}.${col.name}" is missing a data type. Defaulting to text.`,
+          suggestion: 'Specify a data type such as "integer", "varchar", "boolean", or "timestamp".',
+        });
+      }
+
+      if (col.is_primary || col.name.toLowerCase() === "id") {
+        hasPk = true;
+      }
+    }
+
+    // Missing primary key check
+    if (!hasPk) {
+      diagnostics.push({
+        severity: "info",
+        code: "TABLE_NO_PRIMARY_KEY",
+        table: tableName,
+        message: `Table "${tableName}" has no primary key designated.`,
+        suggestion: "Designating a primary key column helps the query builder recommend optimal joins.",
+      });
+    }
+  }
+
+  // 2. Validate Foreign Keys & Relationships
+  const allFks = [...(normalized.foreign_keys || [])];
+  if (normalized.relationships) {
+    for (const rel of normalized.relationships) {
+      const alreadyPresent = allFks.some(
+        (fk) =>
+          fk.table === rel.source_table &&
+          fk.column === rel.source_column &&
+          fk.foreign_table === rel.target_table &&
+          fk.foreign_column === rel.target_column,
+      );
+      if (!alreadyPresent) {
+        allFks.push({
+          table: rel.source_table,
+          column: rel.source_column,
+          foreign_table: rel.target_table,
+          foreign_column: rel.target_column,
+        });
+      }
+    }
+  }
+
+  for (const fk of allFks) {
+    // Check source table
+    if (!tableNames.has(fk.table)) {
+      diagnostics.push({
+        severity: "error",
+        code: "FK_SOURCE_TABLE_MISSING",
+        table: fk.table,
+        message: `Foreign key references missing source table "${fk.table}".`,
+        suggestion: `Define table "${fk.table}" in the schema snapshot.`,
+      });
+      continue;
+    }
+
+    const sourceTable = normalized.tables[fk.table];
+    const sourceColExists = sourceTable.columns.some((c) => c.name === fk.column);
+    if (!sourceColExists) {
+      diagnostics.push({
+        severity: "error",
+        code: "FK_SOURCE_COLUMN_MISSING",
+        table: fk.table,
+        column: fk.column,
+        message: `Foreign key column "${fk.column}" does not exist in source table "${fk.table}".`,
+        suggestion: `Add column "${fk.column}" to table "${fk.table}" or fix foreign key definition.`,
+      });
+    }
+
+    // Check target table
+    if (!tableNames.has(fk.foreign_table)) {
+      diagnostics.push({
+        severity: "error",
+        code: "FK_TARGET_TABLE_MISSING",
+        table: fk.table,
+        message: `Foreign key in table "${fk.table}" references non-existent target table "${fk.foreign_table}".`,
+        suggestion: `Include table "${fk.foreign_table}" in schema snapshot or remove broken foreign key.`,
+      });
+    } else {
+      // Check target column
+      const targetTable = normalized.tables[fk.foreign_table];
+      const targetColExists = targetTable.columns.some((c) => c.name === fk.foreign_column);
+      if (!targetColExists) {
+        diagnostics.push({
+          severity: "error",
+          code: "FK_TARGET_COLUMN_MISSING",
+          table: fk.foreign_table,
+          column: fk.foreign_column,
+          message: `Foreign key in table "${fk.table}" references column "${fk.foreign_table}.${fk.foreign_column}" which does not exist.`,
+          suggestion: `Ensure column "${fk.foreign_column}" exists in target table "${fk.foreign_table}".`,
+        });
+      }
+    }
+  }
+
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  const warnings = diagnostics.filter((d) => d.severity === "warning");
+  const infos = diagnostics.filter((d) => d.severity === "info");
+
+  return {
+    valid: errors.length === 0,
+    diagnostics,
+    errors,
+    warnings,
+    infos,
+  };
+}

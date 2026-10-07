@@ -26,13 +26,16 @@ describe("ExportWorkbench Component", () => {
     expect(screen.getByText("TypeScript SDK")).toBeTruthy();
     expect(screen.getByText("Compiled SQL")).toBeTruthy();
     expect(screen.getByText("JSON AST")).toBeTruthy();
-    expect(screen.getByText(/import \{ createQuery \} from "@jacob-white\/query-builder"/)).toBeTruthy();
+    expect(screen.getByText(/import \{ createQuery, createQueryBuilderClient \} from "@jacob-white\/query-builder-react\/client"/)).toBeTruthy();
     expect(screen.getByText(/\.from\("users"\)/)).toBeTruthy();
     expect(screen.getByText(/\.join\("orders", "id", "=", "user_id"\)/)).toBeTruthy();
     expect(screen.getByText(/\.where\("users\.id", ">", 10\)/)).toBeTruthy();
     expect(screen.getByText(/\.orderBy\("users\.id", "DESC"\)/)).toBeTruthy();
     expect(screen.getByText(/\.distinct\(\)/)).toBeTruthy();
     expect(screen.getByText(/\.limit\(25\)/)).toBeTruthy();
+    const snippet = generateSdkSnippet(sampleSpec);
+    expect(snippet).not.toContain('"@jacob-white/query-builder"');
+    expect(snippet).toContain('"@jacob-white/query-builder-react/client"');
   });
 
   it("switches to Compiled SQL and JSON AST tabs", () => {

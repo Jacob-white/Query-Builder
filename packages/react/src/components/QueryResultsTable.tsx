@@ -1,11 +1,15 @@
 import React, { useState } from "react";
-import type { QueryResultData } from "../types";
+import type { QueryResultData, QueryBuilderClassNames } from "../types";
+import { cx } from "../utils/classNames";
 
 export interface QueryResultsTableProps {
   results: QueryResultData | null;
   isLoading?: boolean;
   unstyled?: boolean;
   cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  pageSize?: number;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
 }
 
 export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
@@ -13,13 +17,19 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   isLoading,
   unstyled = false,
   cellRenderers,
+  pageSize = 100,
+  className,
+  classNames,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
 
   if (isLoading) {
     return (
       <div
         data-qb="results-table-root"
+        className={cx(className, classNames?.results, classNames?.resultsLoading)}
         style={
           unstyled
             ? undefined
@@ -42,6 +52,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
     return (
       <div
         data-qb="results-table-root"
+        className={cx(className, classNames?.results, classNames?.resultsEmpty)}
         style={
           unstyled
             ? undefined
@@ -71,6 +82,16 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
       String(v ?? "").toLowerCase().includes(term),
     );
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
+  const effectivePage = Math.min(currentPage, totalPages);
+  const displayedRows =
+    filteredRows.length > rowsPerPage
+      ? filteredRows.slice(
+          (effectivePage - 1) * rowsPerPage,
+          effectivePage * rowsPerPage,
+        )
+      : filteredRows;
 
   const handleExportCsv = () => {
     if (typeof document === "undefined") return;
@@ -115,6 +136,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   return (
     <div
       data-qb="results-table-root"
+      className={cx(className, classNames?.results)}
       style={
         unstyled
           ? undefined
@@ -130,6 +152,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
       {/* Action Bar */}
       <div
         data-qb="results-toolbar"
+        className={cx(classNames?.resultsHeader)}
         style={
           unstyled
             ? undefined
@@ -179,7 +202,10 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
             placeholder="Search results..."
             aria-label="Search query results"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             style={
               unstyled
                 ? undefined
@@ -260,6 +286,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
           role="table"
           aria-label="Query results"
           data-qb="results-table"
+          className={cx(classNames?.resultsTable)}
           style={
             unstyled
               ? undefined
@@ -308,10 +335,11 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r, idx) => (
+            {displayedRows.map((r, idx) => (
               <tr
                 key={idx}
                 role="row"
+                className={cx(classNames?.resultsRow)}
                 style={
                   unstyled
                     ? undefined
@@ -329,6 +357,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                     key={c}
                     role="cell"
                     data-qb="results-td"
+                    className={cx(classNames?.resultsCell)}
                     style={
                       unstyled
                         ? undefined
@@ -355,6 +384,75 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div
+          data-qb="results-pagination-controls"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "6px 2px",
+                  fontSize: "0.8rem",
+                  color: "#94a3b8",
+                }
+          }
+        >
+          <span>
+            Page <strong>{effectivePage}</strong> of <strong>{totalPages}</strong>
+          </span>
+          <div style={unstyled ? undefined : { display: "flex", gap: "6px" }}>
+            <button
+              type="button"
+              data-qb="btn-prev-page"
+              aria-label="Previous page"
+              disabled={effectivePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: effectivePage <= 1 ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
+                      color: effectivePage <= 1 ? "#64748b" : "#f8fafc",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: "4px",
+                      padding: "3px 10px",
+                      cursor: effectivePage <= 1 ? "not-allowed" : "pointer",
+                      fontSize: "0.78rem",
+                    }
+              }
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              data-qb="btn-next-page"
+              aria-label="Next page"
+              disabled={effectivePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: effectivePage >= totalPages ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
+                      color: effectivePage >= totalPages ? "#64748b" : "#f8fafc",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: "4px",
+                      padding: "3px 10px",
+                      cursor: effectivePage >= totalPages ? "not-allowed" : "pointer",
+                      fontSize: "0.78rem",
+                    }
+              }
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

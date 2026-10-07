@@ -874,3 +874,144 @@ def test_cli_main_module_execution(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         runpy.run_path("query_builder/cli.py", run_name="__main__")
     assert exc.value.code == 0
+
+
+# ============================================================================
+# 8. Init and Doctor Subcommand Tests
+# ============================================================================
+
+
+def test_cli_init_fullstack(tmp_path, capsys):
+    target = tmp_path / "starter_app"
+    ret = main(["init", str(target), "--template", "fullstack", "--dialect", "sqlite"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "[OK] Scaffolded Query-Builder 'fullstack' starter project" in captured.out
+    assert (target / "schema.json").exists()
+    assert (target / "spec.json").exists()
+    assert (target / "main.py").exists()
+    assert (target / "README.md").exists()
+    main_text = (target / "main.py").read_text()
+    assert "create_query_builder_router" in main_text
+
+
+def test_cli_init_minimal_json(tmp_path, capsys):
+    target = tmp_path / "minimal_app"
+    ret = main(["init", str(target), "--template", "minimal", "--json"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["success"] is True
+    assert payload["template"] == "minimal"
+    assert "schema.json" in payload["created_files"]
+    assert (target / "main.py").exists()
+    main_text = (target / "main.py").read_text()
+    assert "QueryCompiler" in main_text
+
+
+def test_cli_init_existing_without_and_with_force(tmp_path, capsys):
+    target = tmp_path / "overwrite_app"
+    main(["init", str(target), "--json"])
+    capsys.readouterr()  # Flush initial output
+
+    # Run again without --force -> files skipped
+    ret_skip = main(["init", str(target), "--json"])
+    assert ret_skip == 0
+    payload_skip = json.loads(capsys.readouterr().out)
+    assert len(payload_skip["skipped_files"]) == 4
+    assert len(payload_skip["created_files"]) == 0
+
+    # Run with --force -> files overwritten
+    ret_force = main(["init", str(target), "--force", "--json"])
+    assert ret_force == 0
+    payload_force = json.loads(capsys.readouterr().out)
+    assert len(payload_force["created_files"]) == 4
+
+
+def test_cli_doctor_text_output(capsys):
+    ret = main(["doctor"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "Query-Builder Doctor Diagnostics" in captured.out
+    assert "[OK] Python:" in captured.out
+    assert "[OK] Query-Builder:" in captured.out
+    assert "sqlite (in-memory):" in captured.out
+    assert "[PASS] All core Query-Builder diagnostic checks passed!" in captured.out
+
+
+def test_cli_doctor_json_output(capsys):
+    ret = main(["doctor", "--json"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "healthy"
+    assert "environment" in payload
+    assert "drivers" in payload
+    assert "registered_connectors" in payload
+    assert "connectivity" in payload
+    assert payload["drivers"]["sqlite3"]["available"] is True
+
+
+def test_cli_doctor_with_connector(capsys):
+    ret = main(["doctor", "--connector", "sqlite", "--json"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "healthy"
+    assert "sqlite" in payload["connectivity"]
+
+
+def test_cli_doctor_with_failing_connector(capsys):
+    ret = main(["doctor", "--connector", "nonexistent_driver_xyz"])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "Doctor error:" in captured.err or "failed" in captured.out
+
+
+def test_cli_join_path_with_inline_schema(capsys):
+    inline_schema = json.dumps({
+        "tables": {
+            "users": {"columns": [{"name": "id"}]},
+            "orders": {"columns": [{"name": "id"}, {"name": "user_id"}]},
+        },
+        "foreign_keys": [
+            {
+                "table": "orders",
+                "column": "user_id",
+                "foreign_table": "users",
+                "foreign_column": "id",
+            }
+        ],
+    })
+    ret = main(["join-path", "--active", "users", "--target", "orders", "--schema", inline_schema])
+    assert ret == 0
+    captured = capsys.readouterr()
+    path = json.loads(captured.out)
+    assert len(path) == 1
+    assert path[0]["table"] == "orders"
+
+
+def test_cli_init_with_dialects(tmp_path, capsys):
+    # 1. Postgres dialect in fullstack
+    pg_target = tmp_path / "pg_app"
+    ret_pg = main(["init", str(pg_target), "--dialect", "postgres", "--json"])
+    assert ret_pg == 0
+    pg_main = (pg_target / "main.py").read_text()
+    assert "ConnectorRegistry" in pg_main
+    assert 'get("postgres"' in pg_main
+
+    # 2. DuckDB dialect in fullstack
+    duck_target = tmp_path / "duck_app"
+    ret_duck = main(["init", str(duck_target), "--dialect", "duckdb", "--json"])
+    assert ret_duck == 0
+    duck_main = (duck_target / "main.py").read_text()
+    assert 'get("duckdb"' in duck_main
+
+    # 3. Minimal template with postgres dialect
+    min_target = tmp_path / "min_pg_app"
+    ret_min = main(["init", str(min_target), "--template", "minimal", "--dialect", "postgres", "--json"])
+    assert ret_min == 0
+    min_main = (min_target / "main.py").read_text()
+    assert 'dialect="postgres"' in min_main
+
+

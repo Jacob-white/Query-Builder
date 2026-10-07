@@ -1,11 +1,14 @@
 import React from "react";
-import type { VisualSort, TableMeta } from "../types";
+import type { VisualSort, TableMeta, QueryBuilderClassNames } from "../types";
+import { cx } from "../utils/classNames";
 
 export interface TableSortsEditorProps {
   sorts: VisualSort[];
   activeTables: TableMeta[];
   onChange: (sorts: VisualSort[]) => void;
   unstyled?: boolean;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
 }
 
 export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
@@ -13,6 +16,8 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
   activeTables,
   onChange,
   unstyled = false,
+  className,
+  classNames,
 }) => {
   const allColumns = activeTables.flatMap((tbl) =>
     tbl.columns.map((c) => ({
@@ -44,6 +49,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
   return (
     <div
       data-qb="sorts-editor"
+      className={cx(className, classNames?.sorts)}
       style={
         unstyled
           ? undefined
@@ -71,6 +77,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
         }
       >
         <span
+          className={cx(classNames?.title)}
           style={
             unstyled
               ? undefined
@@ -83,6 +90,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
           type="button"
           onClick={handleAddSort}
           data-qb="btn-add-sort"
+          className={cx(classNames?.sortAddButton)}
           style={
             unstyled
               ? undefined
@@ -131,6 +139,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
               key={s.id}
               data-qb="sort-row"
               data-qb-sort-id={s.id}
+              className={cx(classNames?.sortItem)}
               style={
                 unstyled
                   ? undefined

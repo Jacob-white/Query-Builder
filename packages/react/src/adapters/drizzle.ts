@@ -3,9 +3,14 @@
  * Converts Drizzle runtime table objects or TypeScript source code into TableSchema[].
  */
 
-import type { ColumnSchema, ForeignKey, TableSchema } from "../types";
-import type { AdapterOptions } from "./types";
-import { normalizeDataType } from "./utils";
+import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../types";
+import type { AdapterOptions, ToDrizzleOptions } from "./types";
+import {
+  extractSnapshotData,
+  normalizeDataType,
+  toCamelCase,
+} from "./utils";
+
 
 const DRIZZLE_TYPE_MAP: Record<string, string> = {
   serial: "integer",
@@ -433,3 +438,203 @@ export function fromDrizzle(
 
   return tables;
 }
+
+export const SUPPORTED_DRIZZLE_DIALECTS = new Set(["postgres", "mysql", "sqlite"]);
+
+export const DRIZZLE_DIALECT_ALIASES: Record<string, string> = {
+  postgresql: "postgres",
+};
+
+/**
+ * Converts a TableSchema array, SchemaSnapshot, or metadata dictionary to Drizzle ORM TypeScript definitions.
+ *
+ * Generates:
+ * - Dialect-specific core imports (drizzle-orm/pg-core, mysql-core, sqlite-core)
+ * - Typed table declarations (pgTable, mysqlTable, sqliteTable)
+ * - Column creators, serial/autoincrement primary keys
+ * - Foreign key constraints via .references(() => targetTable.col)
+ * - .notNull() chained modifiers
+ */
+export function toDrizzle(
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  options?: ToDrizzleOptions | string,
+): string {
+  const rawDialect =
+    typeof options === "string"
+      ? options
+      : options?.dialect || "postgres";
+  let cleanDialect = rawDialect.toLowerCase().trim();
+  cleanDialect = DRIZZLE_DIALECT_ALIASES[cleanDialect] || cleanDialect;
+
+  if (!SUPPORTED_DRIZZLE_DIALECTS.has(cleanDialect)) {
+    throw new Error(
+      `Unsupported Drizzle dialect '${rawDialect}'. Supported: ('postgres', 'mysql', 'sqlite')`,
+    );
+  }
+
+  const { tables, foreignKeys } = extractSnapshotData(snapshot);
+
+  let importStmt: string;
+  let tableCreator: string;
+
+  if (cleanDialect === "postgres") {
+    importStmt =
+      "import { bigint, boolean, doublePrecision, integer, jsonb, numeric, " +
+      'pgTable, primaryKey, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";';
+    tableCreator = "pgTable";
+  } else if (cleanDialect === "mysql") {
+    importStmt =
+      "import { bigint, boolean, decimal, double, int, json, " +
+      'mysqlTable, primaryKey, serial, text, timestamp, varchar } from "drizzle-orm/mysql-core";';
+    tableCreator = "mysqlTable";
+  } else {
+    // sqlite
+    importStmt =
+      'import { blob, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";';
+    tableCreator = "sqliteTable";
+  }
+
+  const tableEntries = Object.entries(tables);
+  if (tableEntries.length === 0) {
+    return importStmt;
+  }
+
+  // Build FK index: `${table}.${column}` -> [foreign_table, foreign_column]
+  const fkLookup: Record<string, [string, string]> = {};
+  for (const fk of foreignKeys) {
+    if (tables[fk.table] && tables[fk.foreign_table]) {
+      fkLookup[`${fk.table}.${fk.column}`] = [fk.foreign_table, fk.foreign_column];
+    }
+  }
+
+  const tableBlocks: string[] = [];
+
+  for (const [tableName, tableInfo] of tableEntries) {
+    const tableVar = toCamelCase(tableName);
+    const columns = tableInfo.columns;
+
+    const pkColumns = columns.filter((c) => Boolean(c.is_primary));
+    const isCompositePk = pkColumns.length > 1;
+
+    const colLines: string[] = [];
+    for (const col of columns) {
+      const cName = col.name;
+      const cType = (col.data_type || "text").toLowerCase();
+      const isPk = Boolean(col.is_primary);
+      const isNullable = Boolean(col.is_nullable);
+      const colVar = toCamelCase(cName);
+
+      const isInt = ["int", "serial", "smallint", "tinyint"].some((t) => cType.includes(t));
+      const isBigint = ["bigint", "bigserial"].some((t) => cType.includes(t));
+
+      let expr: string;
+
+      if (cleanDialect === "postgres") {
+        if (isPk && !isCompositePk && isInt) {
+          expr = `serial("${cName}").primaryKey()`;
+        } else if (isPk && !isCompositePk) {
+          expr = `text("${cName}").primaryKey()`;
+        } else if (isBigint) {
+          expr = `bigint("${cName}", { mode: "number" })`;
+        } else if (isInt) {
+          expr = `integer("${cName}")`;
+        } else if (["bool", "boolean"].some((t) => cType.includes(t))) {
+          expr = `boolean("${cName}")`;
+        } else if (["float", "double", "real"].some((t) => cType.includes(t))) {
+          expr = `doublePrecision("${cName}")`;
+        } else if (["decimal", "numeric", "money"].some((t) => cType.includes(t))) {
+          expr = `numeric("${cName}")`;
+        } else if (["datetime", "timestamp", "date", "time"].some((t) => cType.includes(t))) {
+          expr = `timestamp("${cName}")`;
+        } else if (["json", "jsonb"].some((t) => cType.includes(t))) {
+          expr = `jsonb("${cName}")`;
+        } else if (cType.includes("varchar")) {
+          expr = `varchar("${cName}", { length: 255 })`;
+        } else {
+          expr = `text("${cName}")`;
+        }
+      } else if (cleanDialect === "mysql") {
+        if (isPk && !isCompositePk && isInt) {
+          expr = `serial("${cName}").primaryKey()`;
+        } else if (isPk && !isCompositePk) {
+          expr = `varchar("${cName}", { length: 255 }).primaryKey()`;
+        } else if (isBigint) {
+          expr = `bigint("${cName}", { mode: "number" })`;
+        } else if (isInt) {
+          expr = `int("${cName}")`;
+        } else if (["bool", "boolean"].some((t) => cType.includes(t))) {
+          expr = `boolean("${cName}")`;
+        } else if (["float", "double", "real"].some((t) => cType.includes(t))) {
+          expr = `double("${cName}")`;
+        } else if (["decimal", "numeric", "money"].some((t) => cType.includes(t))) {
+          expr = `decimal("${cName}", { precision: 10, scale: 2 })`;
+        } else if (["datetime", "timestamp", "date", "time"].some((t) => cType.includes(t))) {
+          expr = `timestamp("${cName}")`;
+        } else if (["json", "jsonb"].some((t) => cType.includes(t))) {
+          expr = `json("${cName}")`;
+        } else {
+          expr = `varchar("${cName}", { length: 255 })`;
+        }
+      } else {
+        // sqlite
+        if (isPk && !isCompositePk && isInt) {
+          expr = `integer("${cName}").primaryKey({ autoIncrement: true })`;
+        } else if (isPk && !isCompositePk) {
+          expr = `text("${cName}").primaryKey()`;
+        } else if (isInt || isBigint) {
+          expr = `integer("${cName}")`;
+        } else if (["bool", "boolean"].some((t) => cType.includes(t))) {
+          expr = `integer("${cName}", { mode: "boolean" })`;
+        } else if (["float", "double", "real", "decimal", "numeric"].some((t) => cType.includes(t))) {
+          expr = `real("${cName}")`;
+        } else if (["blob", "bytea", "binary"].some((t) => cType.includes(t))) {
+          expr = `blob("${cName}")`;
+        } else {
+          expr = `text("${cName}")`;
+        }
+      }
+
+      // Foreign key chaining
+      const fkKey = `${tableName}.${cName}`;
+      if (fkLookup[fkKey]) {
+        const [tgtTbl, tgtCol] = fkLookup[fkKey];
+        if (tables[tgtTbl]) {
+          const tgtTblVar = toCamelCase(tgtTbl);
+          const tgtColVar = toCamelCase(tgtCol);
+          expr += `.references(() => ${tgtTblVar}.${tgtColVar})`;
+        }
+      }
+
+      // Not-null chaining
+      if (!isNullable && !isPk) {
+        expr += ".notNull()";
+      }
+
+      colLines.push(`  ${colVar}: ${expr},`);
+    }
+
+    const body = colLines.join("\n");
+    if (body) {
+      if (isCompositePk) {
+        const pkRefs = pkColumns.map((c) => `table.${toCamelCase(c.name)}`).join(", ");
+        tableBlocks.push(
+          `export const ${tableVar} = ${tableCreator}("${tableName}", {\n${body}\n}, (table) => ({\n  pk: primaryKey({ columns: [${pkRefs}] }),\n}));`,
+        );
+      } else {
+        tableBlocks.push(
+          `export const ${tableVar} = ${tableCreator}("${tableName}", {\n${body}\n});`,
+        );
+      }
+    } else {
+      tableBlocks.push(
+        `export const ${tableVar} = ${tableCreator}("${tableName}", {});\n`,
+      );
+    }
+  }
+
+  const tablesContent = tableBlocks.join("\n\n");
+  return `${importStmt}\n\n${tablesContent}`;
+}
+
+export const toDrizzleSchema = toDrizzle;
+

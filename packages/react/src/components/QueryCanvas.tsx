@@ -10,12 +10,14 @@ import type {
   CustomFieldRenderer,
   VectorSearchSpec,
   HybridSearchSpec,
+  QueryBuilderClassNames,
 } from "../types";
 import { TableCard } from "./TableCard";
 import { TableFiltersEditor } from "./TableFiltersEditor";
 import { TableJoinEditor } from "./TableJoinEditor";
 import { TableSortsEditor } from "./TableSortsEditor";
 import { VectorHybridControl } from "./VectorHybridControl";
+import { cx } from "../utils/classNames";
 
 export interface QueryCanvasProps {
   schema?: SchemaSnapshot | null;
@@ -45,6 +47,8 @@ export interface QueryCanvasProps {
   onVectorChange?: (vs: VectorSearchSpec | null) => void;
   onHybridChange?: (hs: HybridSearchSpec | null) => void;
   unstyled?: boolean;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
 }
@@ -77,6 +81,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onVectorChange,
   onHybridChange,
   unstyled = false,
+  className,
+  classNames,
   customOperators,
   fieldRenderers,
 }) => {
@@ -100,6 +106,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   return (
     <div
       data-qb="canvas"
+      className={cx(className, classNames?.canvas)}
       style={
         unstyled
           ? undefined
@@ -114,6 +121,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       {/* Tables row / workspace */}
       <div
         data-qb="canvas-tables"
+        className={cx(classNames?.canvasTables)}
         style={unstyled ? undefined : { display: "flex", flexDirection: "column", gap: "10px" }}
       >
         <div
@@ -128,6 +136,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           }
         >
           <span
+            className={cx(classNames?.title)}
             style={
               unstyled
                 ? undefined
@@ -176,6 +185,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         {activeTables.length === 0 ? (
           <div
             data-qb="canvas-empty-state"
+            className={cx(classNames?.canvasEmpty)}
             style={
               unstyled
                 ? undefined
@@ -216,6 +226,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 onAddJoin={() => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))}
                 unstyled={unstyled}
                 fieldRenderers={fieldRenderers}
+                classNames={classNames}
               />
             ))}
           </div>
@@ -226,6 +237,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       {orderedProjectionKeys.length > 0 && (
         <div
           data-qb="canvas-projections"
+          className={cx(classNames?.columns)}
           style={
             unstyled
               ? undefined
@@ -242,6 +254,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         >
           <div
             data-qb="canvas-options"
+            className={cx(classNames?.columnsHeader)}
             style={
               unstyled
                 ? undefined
@@ -253,6 +266,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             }
           >
             <span
+              className={cx(classNames?.title)}
               style={
                 unstyled
                   ? undefined
@@ -346,6 +360,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   key={key}
                   data-qb="projection-item"
                   data-qb-column={key}
+                  className={cx(classNames?.projectionItem)}
                   style={
                     unstyled
                       ? undefined
@@ -404,6 +419,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     onChange={(e) =>
                       onUpdateColumnSelect(key, { alias: e.target.value })
                     }
+                    className={cx(classNames?.projectionAlias)}
                     style={
                       unstyled
                         ? undefined
@@ -449,6 +465,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                           timeGrain: (e.target.value as any) || undefined,
                         })
                       }
+                      className={cx(classNames?.projectionSelect)}
                       style={
                         unstyled
                           ? undefined
@@ -477,11 +494,14 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   {!item.metric && !item.timeGrain && (
                     <select
                       value={item.aggregate || ""}
+                      data-qb="projection-aggregate-select"
+                      aria-label={`Aggregate function for ${key}`}
                       onChange={(e) =>
                         onUpdateColumnSelect(key, {
                           aggregate: e.target.value as VisualColumnSelect["aggregate"],
                         })
                       }
+                      className={cx(classNames?.projectionSelect)}
                       style={
                         unstyled
                           ? undefined
@@ -561,6 +581,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         schema={schema}
         onChange={onJoinsChange}
         unstyled={unstyled}
+        classNames={classNames}
       />
 
       {/* Filter Conditions */}
@@ -570,6 +591,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         onChange={onFiltersChange}
         unstyled={unstyled}
         customOperators={customOperators}
+        classNames={classNames}
       />
 
       {/* Sorting */}
@@ -578,6 +600,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         activeTables={activeTables}
         onChange={onSortsChange}
         unstyled={unstyled}
+        classNames={classNames}
       />
 
       {/* Semantic Vector & Hybrid Retrieval */}

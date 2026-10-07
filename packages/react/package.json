@@ -14,9 +14,27 @@
     },
     "./adapters": {
       "types": "./dist/adapters/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs",
-      "default": "./dist/index.mjs"
+      "import": "./dist/adapters.mjs",
+      "require": "./dist/adapters.cjs",
+      "default": "./dist/adapters.mjs"
+    },
+    "./hooks": {
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks.mjs",
+      "require": "./dist/hooks.cjs",
+      "default": "./dist/hooks.mjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.cjs",
+      "default": "./dist/client.mjs"
+    },
+    "./olap": {
+      "types": "./dist/olap/index.d.ts",
+      "import": "./dist/olap.mjs",
+      "require": "./dist/olap.cjs",
+      "default": "./dist/olap.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -42,6 +60,14 @@
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",

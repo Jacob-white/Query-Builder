@@ -1,6 +1,7 @@
 import React from "react";
-import type { VisualJoin, TableMeta, SchemaSnapshot } from "../types";
+import type { VisualJoin, TableMeta, SchemaSnapshot, QueryBuilderClassNames } from "../types";
 import { findBestJoinCondition } from "../utils/joinUtils";
+import { cx } from "../utils/classNames";
 
 export interface TableJoinEditorProps {
   joins: VisualJoin[];
@@ -9,6 +10,8 @@ export interface TableJoinEditorProps {
   schema?: SchemaSnapshot | null;
   onChange: (joins: VisualJoin[]) => void;
   unstyled?: boolean;
+  className?: string;
+  classNames?: QueryBuilderClassNames;
 }
 
 export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
@@ -18,6 +21,8 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
   schema,
   onChange,
   unstyled = false,
+  className,
+  classNames,
 }) => {
   const handleAddJoin = (targetTable: string) => {
     if (!targetTable || activeTables.length === 0) return;
@@ -51,6 +56,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
   return (
     <div
       data-qb="joins-editor"
+      className={cx(className, classNames?.joins)}
       style={
         unstyled
           ? undefined
@@ -78,6 +84,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
         }
       >
         <span
+          className={cx(classNames?.title)}
           style={
             unstyled
               ? undefined
@@ -161,6 +168,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               key={j.id}
               data-qb="join-row"
               data-qb-join-id={j.id}
+              className={cx(classNames?.joinItem)}
               style={
                 unstyled
                   ? undefined

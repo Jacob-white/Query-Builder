@@ -40,6 +40,8 @@ class SecurityPolicy:
     column_masking: dict[str, list[str]] = field(default_factory=dict)
     sensitive_column_patterns: list[str] = field(default_factory=list)
     masking_strategy: str = "redact"
+    max_complexity_score: int | None = None
+    column_permissions: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 def apply_security_policy(
@@ -73,6 +75,8 @@ def apply_security_policy(
 
     if policy is None:
         active_policy = SecurityPolicy()
+    elif isinstance(policy, SecurityPolicy):
+        active_policy = policy
     elif isinstance(policy, dict):
         active_policy = SecurityPolicy(**policy)
     elif hasattr(policy, "privacy") and hasattr(
@@ -84,11 +88,16 @@ def apply_security_policy(
             enforce_tenant_isolation=policy.privacy.enforce_tenant_isolation,
             sensitive_column_patterns=policy.privacy.sensitive_column_patterns,
             masking_strategy=policy.privacy.masking_strategy,
+            max_complexity_score=getattr(
+                policy.execution,
+                "max_complexity_score",
+                getattr(policy.execution, "max_ast_complexity", None),
+            ) if hasattr(policy, "execution") else None,
         )
     elif hasattr(policy, "sensitive_column_patterns") and hasattr(
         policy, "tenant_column"
     ):
-        # PrivacySecurityConfig instance or SecurityPolicy
+        # PrivacySecurityConfig instance
         active_policy = SecurityPolicy(
             allowed_tables=getattr(policy, "allowed_tables", None),
             restricted_tables=getattr(policy, "restricted_tables", []),
@@ -98,9 +107,22 @@ def apply_security_policy(
             column_masking=getattr(policy, "column_masking", {}),
             sensitive_column_patterns=policy.sensitive_column_patterns,
             masking_strategy=getattr(policy, "masking_strategy", "redact"),
+            max_complexity_score=getattr(policy, "max_complexity_score", None),
+            column_permissions=getattr(policy, "column_permissions", {}),
         )
     else:
         active_policy = policy
+
+    # 0. Pre-execution Complexity Quota Governor
+    max_complexity = getattr(active_policy, "max_complexity_score", None)
+    if max_complexity is not None:
+        from query_builder.security import calculate_ast_complexity
+
+        score = calculate_ast_complexity(spec_dict)
+        if score > max_complexity:
+            raise SecurityError(
+                f"Query complexity score ({score}) exceeds authorized quota ceiling ({max_complexity})."
+            )
 
     # 1. Fail-closed tenant context verification
     if active_policy.enforce_tenant_isolation:
@@ -303,6 +325,35 @@ def apply_security_policy(
                 ):
                     rule_copy["table"] = tbl
                 filters.append(rule_copy)
+
+    # 4.5. Column-Level Access Control (CLAC)
+    col_perms = getattr(active_policy, "column_permissions", None)
+    if col_perms:
+        user_roles = set(r.lower() for r in (context.roles if context else []) if isinstance(r, str))
+        for tbl in referenced_tables:
+            clean_tbl = tbl.split(".")[-1].lower()
+            perm = (
+                col_perms.get(tbl)
+                or col_perms.get(clean_tbl)
+                or col_perms.get("*")
+            )
+            if perm:
+                allowed_roles = set(r.lower() for r in perm.get("allowed_roles", []))
+                restricted_cols = set(c.lower() for c in perm.get("restricted_columns", []))
+                if restricted_cols and not (user_roles & allowed_roles):
+                    for c in spec_dict.get("columns", []):
+                        if isinstance(c, str):
+                            col_name = c.split(".")[-1].lower()
+                            col_tbl = c.split(".")[0].lower() if "." in c else clean_base_table
+                        elif isinstance(c, dict):
+                            col_name = str(c.get("column") or c.get("name", "")).lower()
+                            col_tbl = str(c.get("table") or clean_base_table).split(".")[-1].lower()
+                        else:
+                            continue
+                        if (col_tbl == clean_tbl or col_tbl == "*") and col_name in restricted_cols:
+                            raise SecurityError(
+                                f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
+                            )
 
     # 5. Column Masking
     if active_policy.column_masking or active_policy.sensitive_column_patterns:

@@ -50,7 +50,14 @@ export {
   SchemaExplorerModal,
   type SchemaExplorerModalProps,
 } from "./components/SchemaExplorerModal";
-export { QueryResultsTable } from "./components/QueryResultsTable";
+export {
+  QueryResultsTable,
+  type QueryResultsTableProps,
+} from "./components/QueryResultsTable";
+export {
+  CalculatedFieldEditor,
+  type CalculatedFieldEditorProps,
+} from "./components/CalculatedFieldEditor";
 export { QueryChartPreview } from "./components/QueryChartPreview";
 export { BiChartVisualizer } from "./components/BiChartVisualizer";
 export { QueryPlayground } from "./components/QueryPlayground";
@@ -85,6 +92,12 @@ export {
   saveTemplates,
   resetTemplateStorage,
 } from "./components/QueryTemplateManager";
+
+// First-Class API Client & Fluent Query Builder
+export * from "./client";
+
+// In-Memory OLAP Engine & Local Data Ingestion
+export * from "./olap";
 
 // Headless Hooks
 export * from "./hooks";
@@ -133,3 +146,8 @@ export type {
 
 // Bring Your Own AI (BYO-AI) & Agentic Framework
 export * from "./ai";
+
+// Composable Compound Components & Slotted Styling Primitives
+export * from "./components/compound";
+export { cx } from "./utils/classNames";
+
