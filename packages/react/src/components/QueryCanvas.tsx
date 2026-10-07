@@ -17,6 +17,7 @@ import { TableFiltersEditor } from "./TableFiltersEditor";
 import { TableJoinEditor } from "./TableJoinEditor";
 import { TableSortsEditor } from "./TableSortsEditor";
 import { VectorHybridControl } from "./VectorHybridControl";
+import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { cx } from "../utils/classNames";
 
 export interface QueryCanvasProps {
@@ -86,6 +87,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   customOperators,
   fieldRenderers,
 }) => {
+  const ctx = useQueryBuilderContext();
+  const isVectorSearchVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("vector_search") : true;
+  const isJoinsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("joins") : true;
+  const isFiltersVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("filters") : true;
+  const isSortsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("sorts") : true;
+  const isDistinctLimitVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("distinct_limit") : true;
+
   const allTables = Object.values(schema?.tables || {});
   const availableToAdd = allTables.filter(
     (t) => !activeTables.some((a) => a.name === t.name),
@@ -223,7 +231,11 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 selectedColumns={selectedColumns}
                 onToggleColumn={(col) => onToggleColumn(t.name, col)}
                 onRemoveTable={() => onRemoveTable(t.name)}
-                onAddJoin={() => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))}
+                onAddJoin={
+                  isJoinsVisible
+                    ? () => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))
+                    : undefined
+                }
                 unstyled={unstyled}
                 fieldRenderers={fieldRenderers}
                 classNames={classNames}
@@ -275,73 +287,75 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             >
               ✨ Selected Columns & Projections ({orderedProjectionKeys.length})
             </span>
-            <div
-              style={
-                unstyled
-                  ? undefined
-                  : { display: "flex", alignItems: "center", gap: "10px" }
-              }
-            >
-              <label
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        fontSize: "0.78rem",
-                        color: "#cbd5e1",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        cursor: "pointer",
-                      }
-                }
-              >
-                <input
-                  type="checkbox"
-                  data-qb="checkbox-distinct"
-                  checked={isDistinct}
-                  onChange={(e) => onDistinctChange(e.target.checked)}
-                />
-                DISTINCT
-              </label>
+            {isDistinctLimitVisible && (
               <div
                 style={
                   unstyled
                     ? undefined
-                    : { display: "flex", alignItems: "center", gap: "6px" }
+                    : { display: "flex", alignItems: "center", gap: "10px" }
                 }
               >
-                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
-                  Limit:
-                </span>
-                <select
-                  value={limit}
-                  data-qb="input-limit"
-                  onChange={(e) => onLimitChange(Number(e.target.value))}
+                <label
                   style={
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#f8fafc",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
-                          padding: "2px 6px",
-                          fontSize: "0.75rem",
+                          fontSize: "0.78rem",
+                          color: "#cbd5e1",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          cursor: "pointer",
                         }
                   }
                 >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={500}>500</option>
-                  {![10, 25, 50, 100, 500].includes(limit) && (
-                    <option value={limit}>{limit}</option>
-                  )}
-                </select>
+                  <input
+                    type="checkbox"
+                    data-qb="checkbox-distinct"
+                    checked={isDistinct}
+                    onChange={(e) => onDistinctChange(e.target.checked)}
+                  />
+                  DISTINCT
+                </label>
+                <div
+                  style={
+                    unstyled
+                      ? undefined
+                      : { display: "flex", alignItems: "center", gap: "6px" }
+                  }
+                >
+                  <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+                    Limit:
+                  </span>
+                  <select
+                    value={limit}
+                    data-qb="input-limit"
+                    onChange={(e) => onLimitChange(Number(e.target.value))}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "#1e293b",
+                            color: "#f8fafc",
+                            border: "1px solid #475569",
+                            borderRadius: "4px",
+                            padding: "2px 6px",
+                            fontSize: "0.75rem",
+                          }
+                    }
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={500}>500</option>
+                    {![10, 25, 50, 100, 500].includes(limit) && (
+                      <option value={limit}>{limit}</option>
+                    )}
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div
@@ -574,37 +588,43 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       )}
 
       {/* Relational Joins */}
-      <TableJoinEditor
-        joins={joins}
-        activeTables={activeTables}
-        allTables={allTables}
-        schema={schema}
-        onChange={onJoinsChange}
-        unstyled={unstyled}
-        classNames={classNames}
-      />
+      {isJoinsVisible && (
+        <TableJoinEditor
+          joins={joins}
+          activeTables={activeTables}
+          allTables={allTables}
+          schema={schema}
+          onChange={onJoinsChange}
+          unstyled={unstyled}
+          classNames={classNames}
+        />
+      )}
 
       {/* Filter Conditions */}
-      <TableFiltersEditor
-        filters={filters}
-        activeTables={activeTables}
-        onChange={onFiltersChange}
-        unstyled={unstyled}
-        customOperators={customOperators}
-        classNames={classNames}
-      />
+      {isFiltersVisible && (
+        <TableFiltersEditor
+          filters={filters}
+          activeTables={activeTables}
+          onChange={onFiltersChange}
+          unstyled={unstyled}
+          customOperators={customOperators}
+          classNames={classNames}
+        />
+      )}
 
       {/* Sorting */}
-      <TableSortsEditor
-        sorts={sorts}
-        activeTables={activeTables}
-        onChange={onSortsChange}
-        unstyled={unstyled}
-        classNames={classNames}
-      />
+      {isSortsVisible && (
+        <TableSortsEditor
+          sorts={sorts}
+          activeTables={activeTables}
+          onChange={onSortsChange}
+          unstyled={unstyled}
+          classNames={classNames}
+        />
+      )}
 
       {/* Semantic Vector & Hybrid Retrieval */}
-      {onVectorChange && onHybridChange && (
+      {isVectorSearchVisible && onVectorChange && onHybridChange && (
         <VectorHybridControl
           vectorSearch={vectorSearch}
           hybridSearch={hybridSearch}

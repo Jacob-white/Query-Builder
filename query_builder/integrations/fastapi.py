@@ -40,6 +40,11 @@ except ImportError:
         return None
 
 from query_builder.ast_validator import validate_sql_ast
+from query_builder.capabilities import (
+    DisabledFeatureError,
+    EngineCapabilities,
+    FeatureTier,
+)
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig
 from query_builder.connectors.base import BaseConnector
@@ -158,6 +163,7 @@ def create_query_builder_router(
     connector: Any,
     security: SecurityPolicy | SecurityConfig | dict[str, Any] | None = None,
     tenant_resolver: Callable[[Request], TenantContext | Awaitable[TenantContext] | dict[str, Any] | str | None] | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
     prefix: str = "",
     tags: list[str] | None = None,
 ) -> APIRouter:
@@ -174,6 +180,8 @@ def create_query_builder_router(
         Callable taking a FastAPI Request and returning a TenantContext (or string tenant_id).
         Can be sync or async. Fails closed (401 Unauthorized) if resolution returns None,
         empty tenant_id, or raises an error.
+    capabilities:
+        Engine capabilities or dictionary defining enabled/advanced/disabled features.
     prefix:
         URL path prefix for all registered routes (e.g. "/api/query-builder").
     tags:
@@ -189,6 +197,12 @@ def create_query_builder_router(
         )
 
     router = APIRouter(prefix=prefix, tags=tags or ["Query Builder"])
+
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (EngineCapabilities.from_dict(capabilities) if isinstance(capabilities, dict) else EngineCapabilities.default())
+    )
 
     async def get_tenant_context(request: Request) -> TenantContext | None:
         """Securely resolves tenant context from request, failing closed."""
@@ -272,6 +286,11 @@ def create_query_builder_router(
             return pol
         return security
 
+    @router.get("/capabilities", summary="Get Engine Capabilities")
+    async def get_capabilities() -> dict[str, Any]:
+        """Returns the active engine capabilities and feature tiers."""
+        return {"capabilities": effective_capabilities.to_dict()}
+
     @router.get("/schema", summary="Introspect Database Schema")
     @router.get("/introspect", summary="Introspect Database Schema (Alias)", include_in_schema=False)
     async def get_schema() -> dict[str, Any]:
@@ -290,6 +309,8 @@ def create_query_builder_router(
                     data = dict(snapshot)
                 except (TypeError, ValueError):
                     data = {"tables": {}}
+
+            data["capabilities"] = effective_capabilities.to_dict()
 
             policy = get_effective_policy()
             if policy and "tables" in data and isinstance(data["tables"], dict):
@@ -334,6 +355,7 @@ def create_query_builder_router(
                 active_spec,
                 schema=payload.schema_snapshot,
                 dialect=dialect,
+                capabilities=effective_capabilities,
             )
             main_sql, params, count_sql, count_params = compiler.compile()
             return {
@@ -345,7 +367,7 @@ def create_query_builder_router(
             }
         except HTTPException:
             raise
-        except SecurityError as exc:
+        except (SecurityError, DisabledFeatureError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (CompilationError, Exception) as exc:
             raise HTTPException(status_code=400, detail=f"Compilation error: {exc}") from exc
@@ -392,6 +414,21 @@ def create_query_builder_router(
                 else:
                     active_spec = target_spec
 
+                if effective_capabilities:
+                    if target_spec.get("ctes"):
+                        effective_capabilities.require_feature("ctes")
+                    if target_spec.get("window_functions"):
+                        effective_capabilities.require_feature("window_functions")
+                    if (
+                        target_spec.get("rollup")
+                        or target_spec.get("cube")
+                        or target_spec.get("grouping_sets")
+                        or target_spec.get("pivot")
+                    ):
+                        effective_capabilities.require_feature("analytical_grouping")
+                    if target_spec.get("vector_search") or target_spec.get("hybrid_search"):
+                        effective_capabilities.require_feature("vector_search")
+
                 exec_kwargs: dict[str, Any] = {}
                 if payload.timeout_ms is not None:
                     exec_kwargs["statement_timeout_ms"] = int(payload.timeout_ms)
@@ -415,6 +452,12 @@ def create_query_builder_router(
                 }
 
             # Raw SQL execution path
+            if not effective_capabilities.is_enabled("raw_sql"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Feature 'raw_sql' is disabled in active engine capabilities.",
+                )
+
             # Strictly restrict raw SQL if tenant isolation is enforced
             if policy and getattr(policy, "enforce_tenant_isolation", False):
                 raise HTTPException(
@@ -445,7 +488,7 @@ def create_query_builder_router(
             }
         except HTTPException:
             raise
-        except SecurityError as exc:
+        except (SecurityError, DisabledFeatureError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Query execution error: {exc}") from exc

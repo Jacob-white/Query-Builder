@@ -23,7 +23,18 @@ import type {
   QuerySpec,
   SchemaSnapshot,
   QueryBuilderClassNames,
+  FeatureKey,
+  FeatureTier,
+  FeatureConfig,
+  FeaturePreset,
+  ResolvedFeatureMap,
 } from "../types";
+import {
+  resolveFeatureConfig,
+  isFeatureVisible as checkFeatureVisible,
+  detectActiveAdvancedClauses,
+  ALL_FEATURE_KEYS,
+} from "../utils/featureUtils";
 import { QueryCanvas } from "./QueryCanvas";
 import { QueryResultsTable } from "./QueryResultsTable";
 import { SchemaErdModal } from "./SchemaErdModal";
@@ -127,6 +138,13 @@ export const VisualQueryBuilder = React.forwardRef<
     fieldRenderers: propFieldRenderers,
     cellRenderers: propCellRenderers,
     ai,
+    features: propFeatures,
+    featurePreset: propFeaturePreset,
+    allowToggleAdvanced = true,
+    advancedMode: propAdvancedMode,
+    defaultAdvancedMode = true,
+    onAdvancedModeChange,
+    storageKey = "qb_advanced_mode",
   },
   ref,
 ) {
@@ -184,6 +202,70 @@ export const VisualQueryBuilder = React.forwardRef<
     }
   }, [propSchema, client, clientSchema]);
 
+  // Auto-wire engine capabilities from client if client is provided
+  const [serverCapabilities, setServerCapabilities] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (client && !serverCapabilities && typeof client.getCapabilities === "function") {
+      client
+        .getCapabilities()
+        .then((caps) => {
+          if (caps && Object.keys(caps).length > 0) {
+            setServerCapabilities(caps);
+          }
+        })
+        .catch((err) => {
+          console.warn("[Query-Builder] Failed to auto-fetch capabilities from client:", err);
+        });
+    }
+  }, [client, serverCapabilities]);
+
+  const [featureOverrides, setFeatureOverrides] = useState<Record<string, FeatureTier>>({});
+  const [isFeatureSettingsOpen, setIsFeatureSettingsOpen] = useState<boolean>(false);
+
+  const resolvedFeatures: ResolvedFeatureMap = useMemo(() => {
+    const base = resolveFeatureConfig(
+      propFeatures ?? qbContext?.features,
+      propFeaturePreset,
+      serverCapabilities,
+    );
+    return { ...base, ...featureOverrides };
+  }, [propFeatures, qbContext?.features, propFeaturePreset, serverCapabilities, featureOverrides]);
+
+  const [internalAdvancedMode, setInternalAdvancedMode] = useState<boolean>(() => {
+    if (propAdvancedMode !== undefined) return propAdvancedMode;
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored !== null) return stored === "true";
+      } catch {}
+    }
+    return defaultAdvancedMode;
+  });
+
+  const isAdvancedMode =
+    propAdvancedMode !== undefined ? propAdvancedMode : internalAdvancedMode;
+
+  const handleToggleAdvanced = useCallback(
+    (nextVal?: boolean) => {
+      const val = nextVal !== undefined ? nextVal : !isAdvancedMode;
+      setInternalAdvancedMode(val);
+      if (storageKey && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(storageKey, String(val));
+        } catch {}
+      }
+      onAdvancedModeChange?.(val);
+      qbContext?.setIsAdvancedMode?.(val);
+    },
+    [isAdvancedMode, storageKey, onAdvancedModeChange, qbContext],
+  );
+
+  const isFeatureVisible = useCallback(
+    (feat: FeatureKey) => checkFeatureVisible(feat, resolvedFeatures, isAdvancedMode),
+    [resolvedFeatures, isAdvancedMode],
+  );
+
   const effectiveSchema = propSchema || clientSchema;
   const normalizedSchema = useMemo(() => normalizeSchema(effectiveSchema), [effectiveSchema]);
 
@@ -238,6 +320,44 @@ export const VisualQueryBuilder = React.forwardRef<
   const setWindowFunctions = actions.setWindowFunctions;
   const setVectorSearch = actions.setVectorSearch;
   const setHybridSearch = actions.setHybridSearch;
+
+  const activeAdvancedClauses = useMemo(() => {
+    if (isAdvancedMode) return [];
+    return detectActiveAdvancedClauses(
+      {
+        ctes,
+        windowFunctions,
+        vectorSearch,
+        hybridSearch,
+        selectedColumns: state.selectedColumns,
+      },
+      resolvedFeatures,
+    );
+  }, [
+    isAdvancedMode,
+    ctes,
+    windowFunctions,
+    vectorSearch,
+    hybridSearch,
+    state.selectedColumns,
+    resolvedFeatures,
+  ]);
+
+  const handleClearAdvancedClauses = useCallback(() => {
+    if (ctes.length > 0) actions.setCtes([]);
+    if (windowFunctions.length > 0) actions.setWindowFunctions([]);
+    if (vectorSearch) actions.setVectorSearch(null);
+    if (hybridSearch) actions.setHybridSearch(null);
+    const cleanedCols = { ...state.selectedColumns };
+    let hasCleaned = false;
+    for (const [k, v] of Object.entries(cleanedCols)) {
+      if (v && (v.rawExpression || (v as any).expression)) {
+        delete cleanedCols[k];
+        hasCleaned = true;
+      }
+    }
+    if (hasCleaned) actions.setSelectedColumns(cleanedCols);
+  }, [ctes, windowFunctions, vectorSearch, hybridSearch, state.selectedColumns, actions]);
 
   // Dynamic Schema Augmentation: expose upstream CTEs as virtual tables & attach semantic models
   const augmentedSchema = useMemo(() => {
@@ -690,19 +810,26 @@ export const VisualQueryBuilder = React.forwardRef<
     setIsTemplateManagerOpen(false);
   };
 
-  const hasPlanTab = Boolean(queryPlan || showPlanTab);
-  const hasPipelineTab = Boolean(showPipelineTab || ctes.length > 0);
+  const hasPlanTab = Boolean((queryPlan || showPlanTab) && isFeatureVisible("query_plan"));
+  const hasPipelineTab = Boolean((showPipelineTab || ctes.length > 0) && isFeatureVisible("ctes"));
+  const hasRawSqlTab = Boolean(isFeatureVisible("raw_sql"));
+  const hasVisualChartTab = Boolean(isFeatureVisible("visual_chart"));
+
+  useEffect(() => {
+    if (activeTab === "sql" && !hasRawSqlTab) setActiveTab("visual");
+    if (activeTab === "pipeline" && !hasPipelineTab) setActiveTab("visual");
+    if (activeTab === "plan" && !hasPlanTab) setActiveTab("visual");
+    if (activeTab === "chart" && !hasVisualChartTab) setActiveTab("visual");
+  }, [activeTab, hasRawSqlTab, hasPipelineTab, hasPlanTab, hasVisualChartTab]);
 
   const handleTabKeyDown = (
     e: React.KeyboardEvent<HTMLButtonElement>,
     tab: "visual" | "sql" | "results" | "chart" | "plan" | "pipeline",
   ) => {
-    const tabs: ("visual" | "sql" | "results" | "chart" | "plan" | "pipeline")[] = [
-      "visual",
-      "sql",
-      "results",
-      "chart",
-    ];
+    const tabs: ("visual" | "sql" | "results" | "chart" | "plan" | "pipeline")[] = ["visual"];
+    if (hasRawSqlTab) tabs.push("sql");
+    tabs.push("results");
+    if (hasVisualChartTab) tabs.push("chart");
     if (hasPipelineTab) tabs.push("pipeline");
     if (hasPlanTab) tabs.push("plan");
     const currentIndex = tabs.indexOf(tab);
@@ -822,39 +949,41 @@ export const VisualQueryBuilder = React.forwardRef<
             >
               🎨 Visual Builder
             </button>
-            <button
-              ref={tabRefs.sql}
-              role="tab"
-              id="tab-sql"
-              aria-controls="panel-sql"
-              aria-selected={activeTab === "sql"}
-              tabIndex={activeTab === "sql" ? 0 : -1}
-              onKeyDown={(e) => handleTabKeyDown(e, "sql")}
-              type="button"
-              onClick={() => {
-                if (!isRawMode) setRawSql(compiled.sql);
-                setActiveTab("sql");
-              }}
-              data-qb="tab"
-              data-qb-tab="sql"
-              className={cx(classNames?.tab, activeTab === "sql" && classNames?.tabActive)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: activeTab === "sql" ? activeTheme.colors.primary : "transparent",
-                      color: activeTab === "sql" ? "#fff" : activeTheme.colors.textMuted,
-                      border: "none",
-                      borderRadius: activeTheme.radii.sm,
-                      padding: "6px 12px",
-                      fontSize: activeTheme.typography.fontSizeSm,
-                      fontWeight: activeTheme.typography.fontWeightSemibold,
-                      cursor: "pointer",
-                    }
-              }
-            >
-              📝 Raw SQL
-            </button>
+            {hasRawSqlTab && (
+              <button
+                ref={tabRefs.sql}
+                role="tab"
+                id="tab-sql"
+                aria-controls="panel-sql"
+                aria-selected={activeTab === "sql"}
+                tabIndex={activeTab === "sql" ? 0 : -1}
+                onKeyDown={(e) => handleTabKeyDown(e, "sql")}
+                type="button"
+                onClick={() => {
+                  if (!isRawMode) setRawSql(compiled.sql);
+                  setActiveTab("sql");
+                }}
+                data-qb="tab"
+                data-qb-tab="sql"
+                className={cx(classNames?.tab, activeTab === "sql" && classNames?.tabActive)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: activeTab === "sql" ? activeTheme.colors.primary : "transparent",
+                        color: activeTab === "sql" ? "#fff" : activeTheme.colors.textMuted,
+                        border: "none",
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 12px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        fontWeight: activeTheme.typography.fontWeightSemibold,
+                        cursor: "pointer",
+                      }
+                }
+              >
+                📝 Raw SQL
+              </button>
+            )}
             <button
               ref={tabRefs.results}
               role="tab"
@@ -885,36 +1014,38 @@ export const VisualQueryBuilder = React.forwardRef<
             >
               📊 Results {queryResults ? `(${queryResults.count})` : ""}
             </button>
-            <button
-              ref={tabRefs.chart}
-              role="tab"
-              id="tab-chart"
-              aria-controls="panel-chart"
-              aria-selected={activeTab === "chart"}
-              tabIndex={activeTab === "chart" ? 0 : -1}
-              onKeyDown={(e) => handleTabKeyDown(e, "chart")}
-              type="button"
-              onClick={() => setActiveTab("chart")}
-              data-qb="tab"
-              data-qb-tab="chart"
-              className={cx(classNames?.tab, activeTab === "chart" && classNames?.tabActive)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: activeTab === "chart" ? activeTheme.colors.primary : "transparent",
-                      color: activeTab === "chart" ? "#fff" : activeTheme.colors.textMuted,
-                      border: "none",
-                      borderRadius: activeTheme.radii.sm,
-                      padding: "6px 12px",
-                      fontSize: activeTheme.typography.fontSizeSm,
-                      fontWeight: activeTheme.typography.fontWeightSemibold,
-                      cursor: "pointer",
-                    }
-              }
-            >
-              📈 Visual Chart
-            </button>
+            {hasVisualChartTab && (
+              <button
+                ref={tabRefs.chart}
+                role="tab"
+                id="tab-chart"
+                aria-controls="panel-chart"
+                aria-selected={activeTab === "chart"}
+                tabIndex={activeTab === "chart" ? 0 : -1}
+                onKeyDown={(e) => handleTabKeyDown(e, "chart")}
+                type="button"
+                onClick={() => setActiveTab("chart")}
+                data-qb="tab"
+                data-qb-tab="chart"
+                className={cx(classNames?.tab, activeTab === "chart" && classNames?.tabActive)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: activeTab === "chart" ? activeTheme.colors.primary : "transparent",
+                        color: activeTab === "chart" ? "#fff" : activeTheme.colors.textMuted,
+                        border: "none",
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 12px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        fontWeight: activeTheme.typography.fontWeightSemibold,
+                        cursor: "pointer",
+                      }
+                }
+              >
+                📈 Visual Chart
+              </button>
+            )}
             {hasPipelineTab && (
               <button
                 ref={tabRefs.pipeline}
@@ -982,77 +1113,83 @@ export const VisualQueryBuilder = React.forwardRef<
           </div>
 
           {/* Window Functions Button */}
-          <button
-            type="button"
-            onClick={() => setIsWfBuilderOpen(true)}
-            aria-label="Open window functions builder"
-            data-qb="btn-window-functions"
-            data-testid="btn-open-wf-builder"
-            style={
-              unstyled
-                ? undefined
-                : {
-                    background: "rgba(30, 41, 59, 0.5)",
-                    color: "#a855f7",
-                    border: "1px solid rgba(168, 85, 247, 0.3)",
-                    borderRadius: activeTheme.radii.sm,
-                    padding: "6px 12px",
-                    fontSize: activeTheme.typography.fontSizeSm,
-                    fontWeight: activeTheme.typography.fontWeightSemibold,
-                    cursor: "pointer",
-                  }
-            }
-          >
-            🪟 Window Functions {windowFunctions.length > 0 ? `(${windowFunctions.length})` : ""}
-          </button>
+          {isFeatureVisible("window_functions") && (
+            <button
+              type="button"
+              onClick={() => setIsWfBuilderOpen(true)}
+              aria-label="Open window functions builder"
+              data-qb="btn-window-functions"
+              data-testid="btn-open-wf-builder"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "rgba(30, 41, 59, 0.5)",
+                      color: "#a855f7",
+                      border: "1px solid rgba(168, 85, 247, 0.3)",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              🪟 Window Functions {windowFunctions.length > 0 ? `(${windowFunctions.length})` : ""}
+            </button>
+          )}
 
           {/* Schema Explorer Button */}
-          <button
-            type="button"
-            onClick={() => setIsSchemaExplorerOpen(true)}
-            aria-label="Open schema explorer"
-            data-qb="btn-schema-explorer"
-            style={
-              unstyled
-                ? undefined
-                : {
-                    background: "rgba(30, 41, 59, 0.5)",
-                    color: "#38bdf8",
-                    border: "1px solid rgba(56, 189, 248, 0.3)",
-                    borderRadius: activeTheme.radii.sm,
-                    padding: "6px 12px",
-                    fontSize: activeTheme.typography.fontSizeSm,
-                    fontWeight: activeTheme.typography.fontWeightSemibold,
-                    cursor: "pointer",
-                  }
-            }
-          >
-            🗄️ Schema Explorer
-          </button>
+          {isFeatureVisible("schema_tools") && (
+            <button
+              type="button"
+              onClick={() => setIsSchemaExplorerOpen(true)}
+              aria-label="Open schema explorer"
+              data-qb="btn-schema-explorer"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "rgba(30, 41, 59, 0.5)",
+                      color: "#38bdf8",
+                      border: "1px solid rgba(56, 189, 248, 0.3)",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              🗄️ Schema Explorer
+            </button>
+          )}
 
           {/* ERD Button */}
-          <button
-            type="button"
-            onClick={() => setIsErdOpen(true)}
-            aria-label="Open schema ERD modal"
-            data-qb="btn-erd"
-            style={
-              unstyled
-                ? undefined
-                : {
-                    background: "rgba(30, 41, 59, 0.5)",
-                    color: "#38bdf8",
-                    border: "1px solid rgba(56, 189, 248, 0.3)",
-                    borderRadius: activeTheme.radii.sm,
-                    padding: "6px 12px",
-                    fontSize: activeTheme.typography.fontSizeSm,
-                    fontWeight: activeTheme.typography.fontWeightSemibold,
-                    cursor: "pointer",
-                  }
-            }
-          >
-            🗺️ Schema ERD
-          </button>
+          {isFeatureVisible("schema_tools") && (
+            <button
+              type="button"
+              onClick={() => setIsErdOpen(true)}
+              aria-label="Open schema ERD modal"
+              data-qb="btn-erd"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "rgba(30, 41, 59, 0.5)",
+                      color: "#38bdf8",
+                      border: "1px solid rgba(56, 189, 248, 0.3)",
+                      borderRadius: activeTheme.radii.sm,
+                      padding: "6px 12px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      fontWeight: activeTheme.typography.fontWeightSemibold,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              🗺️ Schema ERD
+            </button>
+          )}
         </div>
 
         {/* Action Controls */}
@@ -1109,6 +1246,213 @@ export const VisualQueryBuilder = React.forwardRef<
           >
             ↷ Redo
           </button>
+
+          {/* Advanced Mode Toggle Switch */}
+          {allowToggleAdvanced && (
+            <div
+              data-qb="advanced-mode-control"
+              style={
+                unstyled
+                  ? undefined
+                  : { display: "flex", alignItems: "center", gap: "4px", position: "relative" }
+              }
+            >
+              <button
+                type="button"
+                onClick={() => handleToggleAdvanced()}
+                aria-pressed={isAdvancedMode}
+                data-testid="btn-toggle-advanced"
+                data-qb="btn-toggle-advanced"
+                title={isAdvancedMode ? "Switch to Simple Mode" : "Switch to Advanced Mode"}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: isAdvancedMode
+                          ? "rgba(168, 85, 247, 0.2)"
+                          : activeTheme.colors.surface,
+                        color: isAdvancedMode ? "#c084fc" : activeTheme.colors.textMuted,
+                        border: `1px solid ${isAdvancedMode ? "#a855f7" : activeTheme.colors.border}`,
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 10px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        fontWeight: activeTheme.typography.fontWeightSemibold,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }
+                }
+              >
+                <span>⚡ Advanced</span>
+                <span
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          display: "inline-block",
+                          width: "8px",
+                          height: "8px",
+                          borderRadius: "50%",
+                          background: isAdvancedMode ? "#22c55e" : "#64748b",
+                        }
+                  }
+                />
+              </button>
+
+              {/* Granular Feature Settings Gear */}
+              <button
+                type="button"
+                onClick={() => setIsFeatureSettingsOpen((prev) => !prev)}
+                aria-label="Configure advanced features"
+                title="Configure advanced features"
+                data-testid="btn-feature-settings"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: isFeatureSettingsOpen
+                          ? activeTheme.colors.surfaceHover
+                          : "transparent",
+                        color: activeTheme.colors.textMuted,
+                        border: `1px solid ${isFeatureSettingsOpen ? activeTheme.colors.border : "transparent"}`,
+                        borderRadius: activeTheme.radii.sm,
+                        padding: "6px 8px",
+                        fontSize: activeTheme.typography.fontSizeSm,
+                        cursor: "pointer",
+                      }
+                }
+              >
+                ⚙️
+              </button>
+
+              {/* Settings Dropdown Popover */}
+              {isFeatureSettingsOpen && (
+                <div
+                  data-testid="feature-settings-popover"
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          position: "absolute",
+                          top: "100%",
+                          right: 0,
+                          marginTop: "6px",
+                          width: "260px",
+                          background: activeTheme.colors.surface,
+                          border: `1px solid ${activeTheme.colors.border}`,
+                          borderRadius: activeTheme.radii.md,
+                          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
+                          padding: "12px",
+                          zIndex: 1000,
+                          fontSize: activeTheme.typography.fontSizeXs,
+                        }
+                  }
+                >
+                  <div
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "8px",
+                            paddingBottom: "6px",
+                            borderBottom: `1px solid ${activeTheme.colors.border}`,
+                            fontWeight: activeTheme.typography.fontWeightBold,
+                          }
+                    }
+                  >
+                    <span>Feature Tiers</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsFeatureSettingsOpen(false)}
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              background: "none",
+                              border: "none",
+                              color: activeTheme.colors.textMuted,
+                              cursor: "pointer",
+                            }
+                      }
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            maxHeight: "220px",
+                            overflowY: "auto",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "6px",
+                          }
+                    }
+                  >
+                    {ALL_FEATURE_KEYS.map((key) => {
+                      const currentTier = featureOverrides[key] ?? resolvedFeatures[key];
+                      return (
+                        <div
+                          key={key}
+                          style={
+                            unstyled
+                              ? undefined
+                              : {
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: "8px",
+                                }
+                          }
+                        >
+                          <span
+                            style={
+                              unstyled
+                                ? undefined
+                                : { textTransform: "capitalize", color: activeTheme.colors.text }
+                            }
+                          >
+                            {key.replace("_", " ")}
+                          </span>
+                          <select
+                            value={currentTier}
+                            onChange={(e) => {
+                              const newTier = e.target.value as FeatureTier;
+                              setFeatureOverrides((prev) => ({ ...prev, [key]: newTier }));
+                            }}
+                            data-testid={`feature-select-${key}`}
+                            style={
+                              unstyled
+                                ? undefined
+                                : {
+                                    background: activeTheme.colors.background,
+                                    color: activeTheme.colors.text,
+                                    border: `1px solid ${activeTheme.colors.border}`,
+                                    borderRadius: activeTheme.radii.xs,
+                                    padding: "2px 6px",
+                                    fontSize: activeTheme.typography.fontSizeXs,
+                                  }
+                            }
+                          >
+                            <option value="standard">Standard</option>
+                            <option value="advanced">Advanced</option>
+                            <option value="disabled">Disabled</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <span
             data-testid="dialect-badge"
             style={
@@ -1250,6 +1594,80 @@ export const VisualQueryBuilder = React.forwardRef<
           )}
         </div>
       </div>
+
+      {/* Non-destructive Advanced Clauses Alert Banner */}
+      {!isAdvancedMode && activeAdvancedClauses.length > 0 && (
+        <div
+          data-testid="active-advanced-clauses-banner"
+          data-qb="advanced-clauses-banner"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 14px",
+                  borderRadius: activeTheme.radii.sm,
+                  background: "rgba(234, 179, 8, 0.12)",
+                  border: "1px solid rgba(234, 179, 8, 0.35)",
+                  color: "#eab308",
+                  fontSize: activeTheme.typography.fontSizeSm,
+                }
+          }
+        >
+          <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>⚠️</span>
+            <span>
+              <strong>{activeAdvancedClauses.length} hidden advanced clause(s) active</strong> (
+              {activeAdvancedClauses.map((c) => c.label).join(", ")}). These clauses continue compiling.
+            </span>
+          </div>
+          <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={() => handleToggleAdvanced(true)}
+              data-testid="btn-view-advanced-clauses"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "#eab308",
+                      color: "#000",
+                      border: "none",
+                      borderRadius: activeTheme.radii.xs,
+                      padding: "3px 8px",
+                      fontSize: activeTheme.typography.fontSizeXs,
+                      fontWeight: activeTheme.typography.fontWeightBold,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              View in Advanced Mode
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAdvancedClauses}
+              data-testid="btn-clear-advanced-clauses"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "transparent",
+                      color: activeTheme.colors.textMuted,
+                      border: `1px solid ${activeTheme.colors.border}`,
+                      borderRadius: activeTheme.radii.xs,
+                      padding: "3px 8px",
+                      fontSize: activeTheme.typography.fontSizeXs,
+                      cursor: "pointer",
+                    }
+              }
+            >
+              Clear Clauses
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Safety & AST Status banner */}
       <div
