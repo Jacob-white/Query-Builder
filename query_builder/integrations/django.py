@@ -43,19 +43,28 @@ except ImportError:
     HttpResponse = Any  # type: ignore[misc, assignment]
     JsonResponse = Any  # type: ignore[misc, assignment]
 
-try:
-    import rest_framework
-    from rest_framework.exceptions import PermissionDenied, ValidationError
-    from rest_framework.request import Request as DRFRequest
-    from rest_framework.response import Response as DRFResponse
-    from rest_framework.views import APIView
+APIView = object  # type: ignore[misc, assignment]
+DRFRequest = Any  # type: ignore[misc, assignment]
+DRFResponse = Any  # type: ignore[misc, assignment]
 
-    DRF_AVAILABLE = True
-except ImportError:
-    DRF_AVAILABLE = False
-    APIView = object  # type: ignore[misc, assignment]
-    DRFRequest = Any  # type: ignore[misc, assignment]
-    DRFResponse = Any  # type: ignore[misc, assignment]
+
+def _get_drf() -> tuple[type[Exception], type[Exception], Any, Any, type[Any]]:
+    try:
+        import rest_framework  # noqa: F401
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+        from rest_framework.request import Request as DRFReq
+        from rest_framework.response import Response as DRFResp
+        from rest_framework.views import APIView as DRFAPIView
+
+        return PermissionDenied, ValidationError, DRFReq, DRFResp, DRFAPIView
+    except ImportError as exc:
+        raise ImportError(
+            "Django REST Framework is not installed. Install via 'pip install djangorestframework'."
+        ) from exc
+    except Exception as exc:
+        raise ImportError(
+            f"Django REST Framework could not be loaded: {exc}. Ensure Django settings are configured."
+        ) from exc
 
 try:
     import ninja
@@ -447,10 +456,7 @@ def create_drf_views(
     tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None] | None = None,
 ) -> dict[str, type[APIView]]:
     """Generates Django REST Framework APIView classes for Query-Builder."""
-    if not DRF_AVAILABLE:
-        raise ImportError(
-            "Django REST Framework is not installed. Install via 'pip install djangorestframework'."
-        )
+    PermissionDenied, ValidationError, _, DRFResponse, APIView = _get_drf()
 
     policy = _get_effective_policy(security, tenant_resolver is not None)
 
