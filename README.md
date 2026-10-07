@@ -17,6 +17,7 @@ A turnkey, developer-first **declarative SQL compiler, AST safety validator, ent
 - **[Complete API Reference](docs/api_reference.md)** — Exhaustive reference for all Python and TypeScript public APIs.
 - **[Full-Stack Starter Template](examples/fullstack_starter/README.md)** — Standalone runnable project (FastAPI + React 18 + Vite + SQLite).
 - **[Security Policy & Sandboxing Guide](SECURITY.md)** — Vulnerability reporting, zero-trust query isolation, AST validation, and defense-in-depth architecture.
+- **[Documentation Index & Specifications](docs/README.md)** — Master index for all guides, API specs, connector roadmaps, and testing invariants.
 
 ---
 

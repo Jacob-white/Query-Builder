@@ -145,3 +145,9 @@ Exports query dataset into downloadable binary/text formats (`csv`, `json`, `par
   "format": "csv"
 }
 ```
+
+---
+
+## 📄 License & Ownership
+
+The Fullstack Starter Template is open-source software owned and maintained by **HobbyHabbit LLC** under the **MIT License**. See **[LICENSE](../../LICENSE)** for complete details.

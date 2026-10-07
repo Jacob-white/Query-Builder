@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [
-    { name = "HobbyHabbit LLC", email = "support@hobbyhabbit.com" },
+    { name = "HobbyHabbit LLC", email = "support@hobbyhabbit.com" }
+]
+maintainers = [
     { name = "Jacob White", email = "jake@hobbyhabbit.com" }
 ]
 classifiers = [
