@@ -16,6 +16,7 @@ A turnkey, developer-first **declarative SQL compiler, AST safety validator, ent
 - **[React Studio Package README](packages/react/README.md)** — Exhaustive guide for `@jacob-white/query-builder-react` (subpaths, client, compound components, controlled mode, and OLAP).
 - **[Complete API Reference](docs/api_reference.md)** — Exhaustive reference for all Python and TypeScript public APIs.
 - **[Full-Stack Starter Template](examples/fullstack_starter/README.md)** — Standalone runnable project (FastAPI + React 18 + Vite + SQLite).
+- **[Security Policy & Sandboxing Guide](SECURITY.md)** — Vulnerability reporting, zero-trust query isolation, AST validation, and defense-in-depth architecture.
 
 ---
 
@@ -452,4 +453,4 @@ VITEST_MAX_WORKERS=2 pnpm test
 
 ## 📄 License
 
-MIT © 2026 Jacob White.
+MIT License © 2026 HobbyHabbit LLC. See [LICENSE](LICENSE) for full details.

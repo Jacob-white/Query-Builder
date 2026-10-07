@@ -55,7 +55,7 @@
     "erd",
     "database"
   ],
-  "author": "Jacob White <jake@hobbyhabbit.com>",
+  "author": "HobbyHabbit LLC <support@hobbyhabbit.com>",
   "license": "MIT",
   "peerDependencies": {
     "react": ">=18.0.0",
