@@ -8,7 +8,8 @@ into Query-Builder TableSchema models.
 from __future__ import annotations
 
 import re
-from typing import Any
+from heapq import heappop, heappush
+from typing import Any, NamedTuple
 
 from query_builder.adapters.utils import normalize_type_name, read_source
 from query_builder.models import ColumnSchema, ForeignKey, SchemaDict, TableSchema
@@ -44,6 +45,217 @@ DRIZZLE_TYPE_MAP: dict[str, str] = {
     "bytes": "bytes",
     "blob": "bytes",
 }
+
+
+# ``(?<!\w)`` limits the unanchored search to word starts: a match from the middle of a
+# word implies the same match from its first character (which the leftmost-match rule
+# prefers), but trying every position of a long identifier was quadratic.
+_COLUMN_CALL_RE = re.compile(r"(?<!\w)(\w+)\s*\(\s*(?:['\"`]([^'\"`]*)['\"`])?")
+
+
+_TABLE_KEYWORD = r"(?:pgTable|mysqlTable|sqliteTable)"
+_QUOTED_NAME = r"['\"`]([^'\"`]+)['\"`]"
+# ``= pgTable('name'`` (strict: no space before the parenthesis) as used for the
+# variable -> table name map, and the looser form used for table headers.
+_ASSIGNED_STRICT_RE = re.compile(r"=\s*" + _TABLE_KEYWORD + r"\(\s*" + _QUOTED_NAME)
+_ASSIGNED_LOOSE_RE = re.compile(r"=\s*" + _TABLE_KEYWORD + r"\s*\(\s*" + _QUOTED_NAME)
+_BARE_TABLE_RE = re.compile(_TABLE_KEYWORD + r"\s*\(\s*" + _QUOTED_NAME)
+# ``const name`` + optional ``: annotation`` that ends exactly at the end position
+# passed to ``match`` (the ``=`` sign).
+_CONST_HEAD_RE = re.compile(r"const\s+(\w+)\s*(?::\s*[^=]+)?\Z")
+
+
+def _through_last(text: str, char: str) -> str:
+    """``text`` up to and including its last ``char`` (empty when there is none).
+
+    Patterns of the form ``literal([^X]+)X`` can only match up to the last ``X``, and
+    searching the truncated text is equivalent.  It guarantees that every scan of
+    ``[^X]+`` ends at an ``X``; without a following ``X`` each repeated ``literal(``
+    start rescanned the rest of the text (quadratic).
+    """
+    return text[: text.rfind(char) + 1]
+
+
+def _assignment_head(code: str, eq: int, low: int) -> tuple[int, str] | None:
+    r"""Leftmost ``[export ]const name[: type]`` ending exactly at the ``=`` at ``eq``.
+
+    Returns ``(start, name)`` for the leftmost start ``>= low``; the annotation cannot
+    contain ``=`` so only the text after the previous ``=`` can hold the head.  This
+    replaces the regex ``(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=`` whose
+    ``[^=]+`` rescans to the next ``=`` from every ``const x:`` start (quadratic).
+    """
+    previous = code.rfind("=", low, eq)
+    if previous != -1:
+        low = previous + 1
+    position = code.find("const", low, eq)
+    while position != -1:
+        match = _CONST_HEAD_RE.match(code, position, eq)
+        if match:
+            start = position
+            before = position
+            while before > low and code[before - 1].isspace():
+                before -= 1
+            if before < position and before - 6 >= low:
+                if code.startswith("export", before - 6, before):
+                    start = before - 6
+            return start, match.group(1)
+        position = code.find("const", position + 1, eq)
+    return None
+
+
+class _TableHeader(NamedTuple):
+    start: int
+    variable: str | None
+    table: str
+
+
+def _find_assigned_tables(code: str) -> list[tuple[str, str]]:
+    r"""Linear equivalent of ``findall`` for ``[export ]const v[: T] = pgTable('t'``."""
+    headers: list[tuple[str, str]] = []
+    last_end = 0
+    position = 0
+    while True:
+        tail = _ASSIGNED_STRICT_RE.search(code, position)
+        if tail is None:
+            return headers
+        head = _assignment_head(code, tail.start(), last_end)
+        if head is None:
+            position = tail.start() + 1
+            continue
+        headers.append((head[1], tail.group(1)))
+        last_end = position = tail.end()
+
+
+def _find_table_headers(code: str) -> list[_TableHeader]:
+    r"""Linear equivalent of ``finditer`` for the table header pattern.
+
+    ``(?:[export ]const v[: T]=\s*)?(?:pgTable|...)\s*\(\s*'name'`` -- the assignment
+    prefix is optional, so every table keyword yields one header.  Matches are found
+    in order of their start: a ``const v: T`` head whose annotation spans earlier table
+    keywords (the annotation may hold anything but ``=``) starts before them and wins.
+    """
+    headers: list[_TableHeader] = []
+    last_end = 0
+    heads: dict[int, tuple[int, str] | None] = {}
+
+    def head_at(eq: int) -> tuple[int, str] | None:
+        if eq not in heads:
+            heads[eq] = _assignment_head(code, eq, last_end)
+        return heads[eq]
+
+    while True:
+        bare = _BARE_TABLE_RE.search(code, last_end)
+        if bare is None:
+            return headers
+        keyword = bare.start()
+        spanning = None
+        eq = code.find("=", keyword)
+        if eq != -1:
+            tail = _ASSIGNED_LOOSE_RE.match(code, eq)
+            head = head_at(eq) if tail else None
+            if tail and head and head[0] < keyword:
+                spanning = (head, tail)
+        if spanning is not None:
+            (start, variable), tail = spanning
+            headers.append(_TableHeader(start, variable, tail.group(1)))
+            last_end = tail.end()
+            heads.clear()
+            continue
+        before = keyword
+        while before > last_end and code[before - 1].isspace():
+            before -= 1
+        head = (
+            head_at(before - 1)
+            if before > last_end and code[before - 1] == "="
+            else None
+        )
+        if head is None:
+            headers.append(_TableHeader(keyword, None, bare.group(1)))
+        else:
+            headers.append(_TableHeader(head[0], head[1], bare.group(1)))
+        last_end = bare.end()
+        heads.clear()
+
+
+class _OpenScans:
+    """Open parenthesis scans that currently share one quote state.
+
+    Depths are stored relative to ``offset`` in a min-heap, so a ``(`` / ``)`` applies
+    to every scan in the group at once and finished scans pop off the front.
+    """
+
+    __slots__ = ("heap", "offset")
+
+    def __init__(self) -> None:
+        self.heap: list[tuple[int, int]] = []
+        self.offset = 0
+
+    def absorb(self, other: _OpenScans) -> _OpenScans:
+        """Merges two groups, moving the smaller heap into the larger one."""
+        big, small = (
+            (self, other) if len(self.heap) >= len(other.heap) else (other, self)
+        )
+        for stored, start in small.heap:
+            heappush(big.heap, (stored + small.offset - big.offset, start))
+        return big
+
+
+def _balanced_call_ends(code: str, starts: list[int]) -> dict[int, int]:
+    r"""Index of the ``)`` closing the call whose ``(`` is at each start (-1: unclosed).
+
+    Equivalent to scanning forward from every start with a depth counter and a quote
+    state (a quote closes only on the same character not preceded by a backslash).  The
+    quote state evolves independently of the depth, so all scans that are in the same
+    quote state can share one pass: a single left-to-right sweep keeps at most four
+    groups (no quote, ``'``, ``"``, `````) of open scans in depth-ordered heaps, instead
+    of rescanning to the end of the file for every start.
+    """
+    ends: dict[int, int] = {}
+    pending = sorted(set(starts))
+    if not pending:
+        return ends
+    quotes = ("'", '"', "`")
+    groups = {
+        None: _OpenScans(),
+        "'": _OpenScans(),
+        '"': _OpenScans(),
+        "`": _OpenScans(),
+    }
+    active = 0
+    next_start = 0
+    index = pending[0]
+    length = len(code)
+    while index < length:
+        if next_start < len(pending) and pending[next_start] == index:
+            fresh = groups[None]
+            heappush(fresh.heap, (-fresh.offset, index))
+            active += 1
+            next_start += 1
+        elif not active:
+            if next_start >= len(pending):
+                break
+            index = pending[next_start]
+            continue
+        char = code[index]
+        if char in quotes:
+            outside = groups[None]
+            inside = groups[char]
+            if code[index - 1] == "\\":
+                groups[None], groups[char] = _OpenScans(), outside.absorb(inside)
+            else:
+                groups[None], groups[char] = inside, outside
+        elif char == "(":
+            groups[None].offset += 1
+        elif char == ")":
+            group = groups[None]
+            group.offset -= 1
+            while group.heap and group.heap[0][0] + group.offset == 0:
+                ends[heappop(group.heap)[1]] = index
+                active -= 1
+        index += 1
+    for start in pending:
+        ends.setdefault(start, -1)
+    return ends
 
 
 def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
@@ -87,7 +299,10 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
         r"(?:export\s+)?const\s+(\w+)\s*=\s*(?:pgEnum|mysqlEnum|sqliteEnum)\(\s*['\"`]([^'\"`]+)['\"`]\s*,\s*\[([^\]]+)\]",
         re.MULTILINE,
     )
-    for var_name, enum_db_name, raw_vals in enum_pattern.findall(code):
+    # (the pattern ends with "]", so nothing after the last "]" can take part)
+    for var_name, enum_db_name, raw_vals in enum_pattern.findall(
+        _through_last(code, "]")
+    ):
         vals = [
             v.strip().strip("'\"`")
             for v in raw_vals.split(",")
@@ -99,47 +314,25 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
     # 2. Map variable names to table names:
     # export const users = pgTable('users', ...);
     table_var_to_name: dict[str, str] = {}
-    var_table_pattern = re.compile(
-        r"(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*(?:pgTable|mysqlTable|sqliteTable)\(\s*['\"`]([^'\"`]+)['\"`]"
-    )
-    for var_name, tbl_name in var_table_pattern.findall(code):
-        table_var_to_name[var_name] = tbl_name
+    for variable, table in _find_assigned_tables(code):
+        table_var_to_name[variable] = table
 
     tables = SchemaDict()
 
     # 3. Find table definitions:
     # (pgTable|mysqlTable|sqliteTable)('name', { columns }, (table) => ({ extra }))
-    table_header_regex = re.compile(
-        r"(?:(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*)?(?:pgTable|mysqlTable|sqliteTable)\s*\(\s*['\"`]([^'\"`]+)['\"`]"
-    )
+    headers = _find_table_headers(code)
+    call_starts = [code.find("(", h.start) for h in headers]
+    call_ends = _balanced_call_ends(code, [c for c in call_starts if c != -1])
 
-    for header_match in table_header_regex.finditer(code):
-        var_name = header_match.group(1) or ""
-        table_name = header_match.group(2)
-        call_start_idx = code.find("(", header_match.start())
+    for header_match, call_start_idx in zip(headers, call_starts, strict=True):
+        var_name = header_match.variable or ""
+        table_name = header_match.table
         if call_start_idx == -1:  # pragma: no cover
             continue
 
-        # Balance parentheses to find full call
-        depth = 0
-        in_quote = None
-        call_end_idx = -1
-        i = call_start_idx
-        while i < len(code):
-            ch = code[i]
-            if in_quote:
-                if ch == in_quote and code[i - 1] != "\\":
-                    in_quote = None
-            elif ch in ("'", '"', "`"):
-                in_quote = ch
-            elif ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0:
-                    call_end_idx = i
-                    break
-            i += 1
+        # Balanced parentheses of the full call (computed for all headers in one pass)
+        call_end_idx = call_ends[call_start_idx]
 
         if call_end_idx == -1:
             continue
@@ -218,7 +411,7 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
             expr = expr.strip()
 
             # Extract column type call: e.g. serial('id'), integer('user_id'), text('bio')
-            col_call_m = re.search(r"(\w+)\s*\(\s*(?:['\"`]([^'\"`]*)['\"`])?", expr)
+            col_call_m = _COLUMN_CALL_RE.search(expr)
             if not col_call_m:
                 continue
 
@@ -241,7 +434,7 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
             if ".defaultNow(" in expr:
                 default_val = "now()"
             else:
-                def_m = re.search(r"\.default\(([^)]+)\)", expr)
+                def_m = re.search(r"\.default\(([^)]+)\)", _through_last(expr, ")"))
                 if def_m:
                     raw_def = def_m.group(1).strip()
                     if (raw_def.startswith('"') and raw_def.endswith('"')) or (
@@ -300,11 +493,15 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
         # or primaryKey(table.orderId, table.productId)
         if extra_block and "primaryKey(" in extra_block:
             raw_cols = ""
-            col_list_m = re.search(r"columns\s*:\s*\[([^\]]+)\]", extra_block)
+            col_list_m = re.search(
+                r"columns\s*:\s*\[([^\]]+)\]", _through_last(extra_block, "]")
+            )
             if col_list_m:
                 raw_cols = col_list_m.group(1)
             else:
-                pk_pos_m = re.search(r"primaryKey\(([^)]+)\)", extra_block)
+                pk_pos_m = re.search(
+                    r"primaryKey\(([^)]+)\)", _through_last(extra_block, ")")
+                )
                 if pk_pos_m:
                     raw_cols = pk_pos_m.group(1)
             if raw_cols:

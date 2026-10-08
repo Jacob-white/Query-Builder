@@ -31,6 +31,72 @@ def _strip_markdown_code_blocks(text: str) -> str:
     return clean.strip()
 
 
+# ``(?<![a-zA-Z0-9_])`` restricts the unanchored search to word starts.  The leftmost
+# match of the former pattern always started at the first character of a word anyway
+# (extending a match to the left keeps its tail), but trying every position inside a
+# long word was quadratic.
+_GT_FILTER_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])([a-zA-Z0-9_]+)\s*(?:>|greater than|more than)\s*([0-9]+)"
+)
+_LT_FILTER_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])([a-zA-Z0-9_]+)\s*(?:<|less than)\s*([0-9]+)"
+)
+_EQ_FILTER_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])([a-zA-Z0-9_]+)\s*(?:=|equals)\s*['\"]?([a-zA-Z0-9_-]+)['\"]?"
+)
+
+_COLUMN_PHRASE_KEYWORD_RE = re.compile(r"\b(?:show|select|find|get)(?=\s)")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+_COLUMN_CHARS_RUN_RE = re.compile(r"[a-zA-Z0-9_,\s]*")
+_COLUMN_PHRASE_TERMINATORS = ("from", "where", "order", "limit", "sorted")
+
+
+def _match_column_phrase(text: str) -> str | None:
+    r"""Returns the stripped column phrase of ``show|select|find|get <cols> from|...``.
+
+    Linear-time equivalent of ``re.search(r"\b(?:show|select|find|get)\s+
+    ([a-zA-Z0-9_,\s]+?)\s+(?:from|where|order|limit|sorted|$)", text)`` (group 1,
+    stripped; ``None`` when there is no match).  The lazy group may itself contain
+    whitespace, which made the regex cubic on long whitespace runs and quadratic on
+    repeated keywords.
+
+    Whether the whitespace run before a terminator (or the end of the text) is
+    followed by one depends on the run alone, so the lazy group ends at the first such
+    run inside the maximal run of allowed characters.  When the group cannot start at
+    the first non-space character the regex falls back to a one-character whitespace
+    group, which needs a whitespace run of at least three characters.
+    """
+    length = len(text)
+    # Maximal run ``[region_start, region_end)`` of allowed characters seen so far.
+    region_start = region_end = 0
+    failed_end = -1
+    for keyword in _COLUMN_PHRASE_KEYWORD_RE.finditer(text):
+        after_keyword = keyword.end()
+        group_start = _run_end(_WHITESPACE_RUN_RE, text, after_keyword)
+        if not region_start <= after_keyword < region_end:
+            region_start = after_keyword
+            region_end = _run_end(_COLUMN_CHARS_RUN_RE, text, after_keyword)
+        if failed_end <= group_start < region_end:
+            for run in _WHITESPACE_RUN_RE.finditer(text, group_start, region_end):
+                run_end = run.end()
+                if run_end == length or text.startswith(
+                    _COLUMN_PHRASE_TERMINATORS, run_end
+                ):
+                    return text[group_start : run.start()].strip()
+            failed_end = region_end
+        if group_start - after_keyword >= 3 and (
+            group_start == length
+            or text.startswith(_COLUMN_PHRASE_TERMINATORS, group_start)
+        ):
+            return ""
+    return None
+
+
+def _run_end(pattern: re.Pattern[str], text: str, pos: int) -> int:
+    match = pattern.match(text, pos)
+    return match.end() if match else pos
+
+
 class NlqProvider(ABC):
     """Abstract base class for all LLM providers translating natural language to QuerySpec."""
 
@@ -167,12 +233,8 @@ class MockNlqProvider(NlqProvider):
         elif "average" in lower_prompt or "avg" in lower_prompt:
             columns.append({"column": "score", "agg": "AVG", "alias": "avg_score"})
         else:
-            col_match = re.search(
-                r"\b(?:show|select|find|get)\s+([a-zA-Z0-9_,\s]+?)\s+(?:from|where|order|limit|sorted|$)",
-                lower_prompt,
-            )
-            if col_match:
-                raw_cols_str = col_match.group(1).strip()
+            raw_cols_str = _match_column_phrase(lower_prompt)
+            if raw_cols_str is not None:
                 if raw_cols_str and raw_cols_str != "all":
                     extracted = [
                         c.strip() for c in raw_cols_str.split(",") if c.strip()
@@ -206,9 +268,7 @@ class MockNlqProvider(NlqProvider):
             filters.append({"column": "status", "op": "=", "value": "active"})
         if "pending" in lower_prompt:
             filters.append({"column": "status", "op": "=", "value": "pending"})
-        gt_match = re.search(
-            r"([a-zA-Z0-9_]+)\s*(?:>|greater than|more than)\s*([0-9]+)", lower_prompt
-        )
+        gt_match = _GT_FILTER_RE.search(lower_prompt)
         if gt_match:
             filters.append(
                 {
@@ -217,9 +277,7 @@ class MockNlqProvider(NlqProvider):
                     "value": int(gt_match.group(2)),
                 }
             )
-        lt_match = re.search(
-            r"([a-zA-Z0-9_]+)\s*(?:<|less than)\s*([0-9]+)", lower_prompt
-        )
+        lt_match = _LT_FILTER_RE.search(lower_prompt)
         if lt_match:
             filters.append(
                 {
@@ -228,10 +286,7 @@ class MockNlqProvider(NlqProvider):
                     "value": int(lt_match.group(2)),
                 }
             )
-        eq_match = re.search(
-            r"([a-zA-Z0-9_]+)\s*(?:=|equals)\s*['\"]?([a-zA-Z0-9_-]+)['\"]?",
-            lower_prompt,
-        )
+        eq_match = _EQ_FILTER_RE.search(lower_prompt)
         if eq_match and eq_match.group(1) not in {"status"}:
             filters.append(
                 {"column": eq_match.group(1), "op": "=", "value": eq_match.group(2)}
