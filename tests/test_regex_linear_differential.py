@@ -1,22 +1,21 @@
-"""Differential tests for the linear-time regex rewrites.
+"""Golden-snapshot tests for the linear-time regex rewrites.
 
-Every rewritten regex / scanner in ``query_builder`` is compared with a frozen copy of
-the ORIGINAL implementation (regexes below are verbatim copies of the pre-rewrite
-patterns) in two ways:
+The expected values below and in ``tests/fixtures/regex_golden_*.json`` were produced
+by running the ORIGINAL (pre-rewrite, super-linear) implementations over the same
+inputs; the original code is intentionally not kept in the repository.  Two kinds of
+snapshots are checked against the current implementation:
 
-* hand-picked tables whose expected values were captured by running the original
-  implementation before the rewrite, and
-* seeded randomized comparison on thousands of generated strings (hypothesis-style:
-  the generators mix structured templates with arbitrary whitespace and noise).
+* hand-picked tables (``*_TABLE`` below), and
+* seeded randomized corpora stored as JSON fixtures (input, expected output).
 
 See ``tests/test_regex_linear_timing.py`` for the adversarial linear-time tests.
 """
 
 from __future__ import annotations
 
-import random
-import re
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -29,235 +28,35 @@ from query_builder.nlq import providers as NP
 from query_builder.pool import mask_credentials
 from query_builder.security import URI_CREDENTIAL_REGEX
 
-I = re.IGNORECASE
-S = re.DOTALL
-
-# ---------------------------------------------------------------------------------
-# Frozen original patterns (verbatim from the code before the rewrite)
-# ---------------------------------------------------------------------------------
-OLD_CTE = re.compile(
-    r"^([a-zA-Z0-9_\"`\[\]]+)(?:\s*\(([^\)]+)\))?\s+AS\s*(?:(MATERIALIZED|NOT\s+MATERIALIZED)\s*)?\(\s*([\s\S]*)\s*\)$",
-    I,
-)
-OLD_WINDOW = re.compile(
-    r"^([a-zA-Z0-9_]+)\s*\(\s*(.*?)\s*\)\s+OVER\s*\(\s*(.*?)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_\"`\[\]]+))?$",
-    I | S,
-)
-OLD_PARTITION = r"\bPARTITION\s+BY\s+([^)]*?)(?=\bORDER\s+BY\b|\bROWS\b|\bRANGE\b|$)"
-OLD_ORDER = r"\bORDER\s+BY\s+([^)]*?)(?=\bROWS\b|\bRANGE\b|$)"
-OLD_DATE_TRUNC = re.compile(
-    r"^DATE_TRUNC\s*\(\s*['\"]([a-zA-Z0-9_]+)['\"]\s*,\s*([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_\"`\[\]]+))?$",
-    I,
-)
-OLD_DATETRUNC = re.compile(
-    r"^DATETRUNC\s*\(\s*([a-zA-Z0-9_]+)\s*,\s*([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_\"`\[\]]+))?$",
-    I,
-)
-OLD_FILTER_AGG = re.compile(
-    r"^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([^\)]+)\s*\)\s+FILTER\s*\(\s*WHERE\s+([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_\"`\[\]]+))?$",
-    I,
-)
-OLD_AGG = re.compile(
-    r"^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_\"`\[\]]+))?$",
-    I,
-)
-OLD_NEO4J = re.compile(
-    r"^SELECT\s+(?P<select>.+?)\s+FROM\s+(?P<from>[^\s]+(?:\s+[^\s]+)?)"
-    r"(?:\s+WHERE\s+(?P<where>.+?))?"
-    r"(?:\s+ORDER\s+BY\s+(?P<order>.+?))?"
-    r"(?:\s+SKIP\s+(?P<skip>[^\s]+))?"
-    r"(?:\s+LIMIT\s+(?P<limit>[^\s]+))?"
-    r"(?:\s+OFFSET\s+(?P<offset>[^\s]+))?$",
-    I | S,
-)
-OLD_COLUMN_PHRASE = re.compile(
-    r"\b(?:show|select|find|get)\s+([a-zA-Z0-9_,\s]+?)\s+(?:from|where|order|limit|sorted|$)"
-)
-OLD_GT = re.compile(r"([a-zA-Z0-9_]+)\s*(?:>|greater than|more than)\s*([0-9]+)")
-OLD_LT = re.compile(r"([a-zA-Z0-9_]+)\s*(?:<|less than)\s*([0-9]+)")
-OLD_EQ = re.compile(r"([a-zA-Z0-9_]+)\s*(?:=|equals)\s*['\"]?([a-zA-Z0-9_-]+)['\"]?")
-OLD_URI_CREDENTIAL = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^/:@]+:)([^@/]+)(@)")
-OLD_POOL_URI = re.compile(r"(://[^:]+:)([^@]+)(@)", I)
-OLD_BLOCK_COMMENT = re.compile(r"/\*[\s\S]*?\*/")
-OLD_BLOCK_COMMENT_DOTALL = re.compile(r"/\*.*?\*/", S)
-OLD_SEMICOLONS = re.compile(r";+\s*$")
-OLD_JSON_OBJECT = re.compile(r"\{.*\}", S)
-
-# ---------------------------------------------------------------------------------
-# Frozen original functions (verbatim copies from the pre-rewrite parser)
-# ---------------------------------------------------------------------------------
-ALLOWED_OPERATORS = P.ALLOWED_OPERATORS
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _old_split_where_conditions(text: str) -> list[dict[str, str]]:
-    """Splits WHERE conditions by top-level AND/OR outside parens and BETWEEN expressions."""
-    parts: list[dict[str, str]] = []
-    in_string = False
-    string_char = ""
-    paren_depth = 0
-    last_index = 0
-    in_between = False
-    text_len = len(text)
-
-    i = 0
-    while i < text_len:
-        char = text[i]
-
-        if in_string:
-            if char == string_char:
-                if i + 1 < text_len and text[i + 1] == string_char:
-                    i += 1
-                else:
-                    in_string = False
-            i += 1
-            continue
-
-        if char in ("'", '"', "`"):
-            in_string = True
-            string_char = char
-            i += 1
-            continue
-
-        if char == "(":
-            paren_depth += 1
-            i += 1
-            continue
-        if char == ")":
-            if paren_depth > 0:
-                paren_depth -= 1
-            i += 1
-            continue
-
-        if paren_depth == 0:
-            rest = text[i:]
-            if not in_between and re.match(r"^\bBETWEEN\s+", rest, re.IGNORECASE):
-                in_between = True
-                i += 7
-                continue
-
-            match = re.match(r"^\s+(AND|OR)\s+", rest, re.IGNORECASE)
-            if match and match.start() == 0:
-                delim = match.group(1).upper()
-                if in_between and delim == "AND":
-                    in_between = False
-                    i += len(match.group(0))
-                    continue
-
-                parts.append(
-                    {
-                        "value": text[last_index:i].strip(),
-                        "delimiter": delim,
-                    }
-                )
-                i += len(match.group(0))
-                last_index = i
-                in_between = False
-                continue
-
-        i += 1
-
-    if last_index < text_len:
-        val = text[last_index:].strip()
-        parts.append({"value": val, "delimiter": ""})
-
-    return [p for p in parts if p["value"]]
+def golden(name: str) -> dict[str, list[Any]]:
+    with (FIXTURES / f"regex_golden_{name}.json").open(encoding="utf-8") as fh:
+        return json.load(fh)  # type: ignore[no-any-return]
 
 
-def _old_find_top_level_operator(cond_str: str) -> tuple[str, int, int] | None:
-    """Finds top-level operator in a WHERE condition chunk, respecting parentheses and strings."""
-    if re.match(r"^\s*(NOT\s+)?EXISTS\s*\(", cond_str, re.IGNORECASE):
-        return None
+def jsonable(value: Any) -> Any:
+    """Normalise tuples etc. the way the fixtures were serialised."""
+    return json.loads(json.dumps(value))
 
-    in_string = False
-    string_char = ""
-    paren_depth = 0
-    cond_len = len(cond_str)
 
-    i = 0
-    while i < cond_len:
-        char = cond_str[i]
-
-        if in_string:
-            if char == string_char:
-                if i + 1 < cond_len and cond_str[i + 1] == string_char:
-                    i += 1
-                else:
-                    in_string = False
-            i += 1
-            continue
-
-        if char in ("'", '"', "`"):
-            in_string = True
-            string_char = char
-            i += 1
-            continue
-
-        if char == "(":
-            paren_depth += 1
-            i += 1
-            continue
-        if char == ")":
-            if paren_depth > 0:
-                paren_depth -= 1
-            i += 1
-            continue
-
-        if paren_depth == 0:
-            rest = cond_str[i:]
-            for op in ALLOWED_OPERATORS:
-                is_symbol = bool(re.match(r"^[><=!]+$", op))
-                matched = False
-                match_len = 0
-                match_offset = 0
-
-                if is_symbol:
-                    match = re.match(r"^\s*(" + re.escape(op) + r")(?![><=])", rest)
-                    if match and match.start() == 0:
-                        match_offset = match.group(0).index(op)
-                        match_len = len(op)
-                        matched = True
-                else:
-                    escaped_op = re.sub(r"\s+", r"\\s+", op)
-                    match = re.match(
-                        r"^\s+(" + escaped_op + r")(\s+|$)", rest, re.IGNORECASE
-                    )
-                    if match and match.start() == 0:
-                        match_offset = match.start(1)
-                        match_len = len(match.group(1))
-                        matched = True
-
-                if matched:
-                    actual_index = i + match_offset
-                    left_part = cond_str[:actual_index].strip()
-                    if left_part:
-                        normalized_op = "!=" if op == "<>" else op
-                        return (normalized_op, actual_index, match_len)
-
-        i += 1
-
-    return None
+def check_corpus(
+    corpus: list[Any], fn: Callable[[Any], Any], minimum: int = 300
+) -> None:
+    assert len(corpus) >= minimum
+    for text, expected in corpus:
+        assert jsonable(fn(text)) == expected, text
 
 
 # ---------------------------------------------------------------------------------
-# "Views": normalise old and new results to the values the callers actually use
+# "Views": normalise results to the values the callers actually use
 # ---------------------------------------------------------------------------------
-
-
-def old_cte(text: str) -> Any:
-    m = OLD_CTE.match(text)
-    return None if m is None else (*m.groups()[:3], m.group(4).strip())
 
 
 def new_cte(text: str) -> Any:
     m = P._CTE_DEF_RE.match(text)
     return None if m is None else (*m.groups()[:3], m.group(4).strip())
-
-
-def old_window(text: str) -> Any:
-    m = OLD_WINDOW.match(text)
-    if m is None:
-        return None
-    return (m.group(1), m.group(2).strip(), m.group(3).strip(), m.group(4))
 
 
 def new_window(text: str) -> Any:
@@ -267,27 +66,12 @@ def new_window(text: str) -> Any:
     return (m.func, m.args.strip(), m.over.strip(), m.alias)
 
 
-def old_partition(text: str) -> Any:
-    m = re.search(OLD_PARTITION, text, I)
-    return None if m is None else m.group(1)
-
-
 def new_partition(text: str) -> Any:
     return P._clause_body(text, P._PARTITION_BY_RE, P._PARTITION_TERMINATOR_RE)
 
 
-def old_order(text: str) -> Any:
-    m = re.search(OLD_ORDER, text, I)
-    return None if m is None else m.group(1)
-
-
 def new_order(text: str) -> Any:
     return P._clause_body(text, P._ORDER_BY_RE, P._ORDER_TERMINATOR_RE)
-
-
-def old_date_trunc(text: str) -> Any:
-    m = OLD_DATE_TRUNC.match(text)
-    return None if m is None else m.groups()
 
 
 def new_date_trunc(text: str) -> Any:
@@ -297,11 +81,6 @@ def new_date_trunc(text: str) -> Any:
     return (m.group(1), P._arg_after_comma(m.group(2)), m.group(3))
 
 
-def old_datetrunc(text: str) -> Any:
-    m = OLD_DATETRUNC.match(text)
-    return None if m is None else m.groups()
-
-
 def new_datetrunc(text: str) -> Any:
     m = P._DATETRUNC_RE.match(text)
     if m is None:
@@ -309,24 +88,12 @@ def new_datetrunc(text: str) -> Any:
     return (m.group(1), P._arg_after_comma(m.group(2)), m.group(3))
 
 
-def old_filter_agg(text: str) -> Any:
-    m = OLD_FILTER_AGG.match(text)
-    if m is None:
-        return None
-    # group 3 (the condition) is never read by the parser; only its existence matters
-    return (m.group(1), m.group(2), m.group(4))
-
-
 def new_filter_agg(text: str) -> Any:
     m = P._FILTER_AGG_RE.match(text)
     if m is None or not P._valid_filter_condition(m.group(3)):
         return None
+    # group 3 (the condition) is never read by the parser; only its existence matters
     return (m.group(1), P._agg_argument(m.group(2)), m.group(4))
-
-
-def old_agg(text: str) -> Any:
-    m = OLD_AGG.match(text)
-    return None if m is None else m.groups()
 
 
 def new_agg(text: str) -> Any:
@@ -336,597 +103,79 @@ def new_agg(text: str) -> Any:
     return (m.group(1), P._agg_argument(m.group(2)), m.group(3))
 
 
-def old_neo4j(text: str) -> Any:
-    m = OLD_NEO4J.match(text)
-    if m is None:
-        return None
-    return _neo4j_view(
-        m.group("select"),
-        m.group("from"),
-        m.group("where"),
-        m.group("order"),
-        m.group("skip"),
-        m.group("limit"),
-        m.group("offset"),
-    )
-
-
 def new_neo4j(text: str) -> Any:
     m = _match_simple_select(text)
     if m is None:
         return None
-    return _neo4j_view(m.select, m.from_, m.where, m.order, m.skip, m.limit, m.offset)
-
-
-def _neo4j_view(sel, frm, where, order, skip, limit, offset) -> Any:
-    """What ``_Neo4jCursorAdapter.execute`` reads: stripped text + truthiness."""
 
     def free(group: str | None) -> Any:
         return None if group is None else (bool(group), group.strip())
 
-    # the cursor applies .split() to ``from`` and uses skip/limit/offset verbatim
-    return (sel.strip(), frm.split(), free(where), free(order), skip, limit, offset)
+    # what ``_Neo4jCursorAdapter.execute`` reads: stripped text, split ``from``, truthiness
+    return (
+        m.select.strip(),
+        m.from_.split(),
+        free(m.where),
+        free(m.order),
+        m.skip,
+        m.limit,
+        m.offset,
+    )
 
 
-def old_column_phrase(text: str) -> Any:
-    m = OLD_COLUMN_PHRASE.search(text)
-    return None if m is None else m.group(1).strip()
-
-
-def old_filter(pattern: re.Pattern[str], text: str) -> Any:
+def new_filter(pattern: Any, text: str) -> Any:
     m = pattern.search(text)
     return None if m is None else m.groups()
 
 
-def new_filter(pattern: re.Pattern[str], text: str) -> Any:
-    m = pattern.search(text)
-    return None if m is None else m.groups()
-
-
-def old_json_object(text: str) -> Any:
-    m = OLD_JSON_OBJECT.search(text)
-    return None if m is None else m.group(0)
-
-
 # ---------------------------------------------------------------------------------
-# Random generators
+# Golden corpora (fixtures)
 # ---------------------------------------------------------------------------------
-WS = ["", " ", "  ", "   ", "    ", "\t", "\n", " \n\t ", "      ", "\r\n"]
+PARSER = golden("parser")
+MISC = golden("misc")
 
 
-class Gen:
-    def __init__(self, seed: int) -> None:
-        self.rng = random.Random(seed)
+def test_golden_cte_and_window() -> None:
+    check_corpus(PARSER["cte"], new_cte)
+    check_corpus(PARSER["window"], new_window)
 
-    def ws(self) -> str:
-        return self.rng.choice(WS)
 
-    def ws1(self) -> str:
-        return self.rng.choice(WS[1:])
+def test_golden_partition_and_order() -> None:
+    check_corpus(PARSER["partition"], new_partition)
+    check_corpus(PARSER["order"], new_order)
 
-    def pick(self, *options: str) -> str:
-        return self.rng.choice(options)
 
-    def noise(self, atoms: list[str], low: int = 1, high: int = 10) -> str:
-        return "".join(
-            self.rng.choice(atoms) for _ in range(self.rng.randint(low, high))
-        )
+def test_golden_trunc_and_aggregates() -> None:
+    check_corpus(PARSER["date_trunc"], new_date_trunc)
+    check_corpus(PARSER["datetrunc"], new_datetrunc)
+    check_corpus(PARSER["agg"], new_agg)
+    check_corpus(PARSER["filter_agg"], new_filter_agg)
 
-    def alias(self) -> str:
-        return self.pick(
-            "",
-            "",
-            self.ws1() + "x",
-            self.ws1() + "AS" + self.ws1() + "x",
-            self.ws1() + "AS" + self.ws(),
-            self.ws1() + '"y"',
-            self.ws1() + "as" + self.ws1() + "AS",
-            self.ws1() + "z" + self.ws1() + "w",
-        )
 
+def test_golden_where_splitting_and_operators() -> None:
+    check_corpus(PARSER["split_where"], P.split_where_conditions)
+    check_corpus(PARSER["operator"], P.find_top_level_operator)
 
-SQL_ATOMS = [
-    "(",
-    ")",
-    ",",
-    " ",
-    "  ",
-    "\n",
-    "\t",
-    "   ",
-    "AS",
-    "OVER",
-    "FILTER",
-    "WHERE",
-    "DISTINCT",
-    "PARTITION BY",
-    "ORDER BY",
-    "ROWS",
-    "RANGE",
-    "a",
-    "b.c",
-    "x",
-    "'month'",
-    "COUNT",
-    "SUM",
-    "MATERIALIZED",
-    "NOT",
-    "=",
-    "1",
-]
 
-
-def gen_window(g: Gen) -> str:
-    if g.rng.random() < 0.25:
-        return g.noise(SQL_ATOMS, 2, 14)
-    body = g.pick(
-        "",
-        "PARTITION BY a",
-        "PARTITION BY a, b ORDER BY c DESC",
-        "ORDER BY b",
-        "ORDER BY b ROWS 1",
-        "PARTITION BY x" + g.ws() + ")" + g.ws() + "ORDER BY y",
-        "PARTITION BY a " * g.rng.randint(1, 3) + ")",
-        "ORDER BY a RANGE x",
-        "partition by a order by b",
-        "PARTITION BY a" + g.ws1(),
-    )
-    args = g.pick("", "a", "a, b", "a)", "f(a)", ")")
-    return (
-        f"{g.pick('ROW_NUMBER', 'SUM', 'rank')}{g.ws()}({g.ws()}{args}{g.ws()})"
-        f"{g.ws1()}OVER{g.ws()}({g.ws()}{body}{g.ws()}){g.alias()}"
-        + g.pick("", "", ")", " OVER (x)", "\n")
-    )
-
-
-def gen_trunc(g: Gen) -> str:
-    if g.rng.random() < 0.2:
-        return g.noise(SQL_ATOMS, 2, 14)
-    arg = g.pick("c", "t.c", " ", "", "a b", "c)", "  c  ", ")")
-    if g.rng.random() < 0.5:
-        return (
-            f"{g.pick('DATE_TRUNC', 'date_trunc')}{g.ws()}({g.ws()}"
-            f"{g.pick(chr(39), chr(34))}{g.pick('month', 'd')}{g.pick(chr(39), chr(34))}"
-            f"{g.ws()},{g.ws()}{arg}{g.ws()}){g.alias()}"
-        )
-    return (
-        f"DATETRUNC{g.ws()}({g.ws()}{g.pick('day', 'm')}{g.ws()},{g.ws()}{arg}"
-        f"{g.ws()}){g.alias()}"
-    )
-
-
-def gen_agg(g: Gen) -> str:
-    if g.rng.random() < 0.2:
-        return g.noise(SQL_ATOMS, 2, 14)
-    distinct = g.pick("", "", "DISTINCT" + g.ws1(), "DISTINCT" + g.ws(), "distinct ")
-    arg = g.pick("a", "t.a", "*", "", "DISTINCT", " ", "a b", "(", "a,b")
-    head = f"{g.pick('COUNT', 'sum', 'AVG', 'MIN', 'max')}{g.ws()}({g.ws()}{distinct}{arg}{g.ws()})"
-    if g.rng.random() < 0.5:
-        cond = g.pick("a = 1", "", " ", "x", "a)", "  ", "a = 'b'")
-        head += (
-            f"{g.ws1()}FILTER{g.ws()}({g.ws()}WHERE{g.pick('', ' ', '  ', chr(9), g.ws())}"
-            f"{cond}{g.ws()})"
-        )
-    return head + g.alias() + g.pick("", "", ")", "\n")
-
-
-def gen_cte(g: Gen) -> str:
-    if g.rng.random() < 0.2:
-        return g.noise(SQL_ATOMS, 2, 14)
-    cols = g.pick("", g.ws() + "(a, b)", g.ws() + "(a)", g.ws() + "()", g.ws() + "(a")
-    mat = g.pick("", "MATERIALIZED", "NOT" + g.ws1() + "MATERIALIZED", "NOT")
-    return (
-        f"{g.pick('c', 'cte_1', '[x]', 'a.b')}{cols}{g.ws1()}AS{g.ws()}{mat}{g.ws()}"
-        f"({g.ws()}{g.pick('SELECT a FROM t', '', ' ', 'x (y) z', '(')}{g.ws()})"
-        + g.pick("", "", " ", "\n", ")", "x")
-    )
-
-
-def gen_neo4j(g: Gen) -> str:
-    if g.rng.random() < 0.15:
-        return g.noise(
-            ["SELECT", "FROM", "WHERE", "ORDER BY", "SKIP", "LIMIT", "OFFSET"]
-            + ["a", "b", "t", "1", " ", "  ", "   ", "    ", "\n", "x.y", "`t`"],
-            2,
-            16,
-        )
-    sel = g.pick("*", "a", "a, b", "count(*)", "FROM", "a FROM b", " ", "WHERE x")
-    frm = g.pick("t", "`t`", "t u", "t WHERE", "t ORDER", "FROM", "t u v")
-    out = f"{g.pick('SELECT', 'select')}{g.ws1()}{sel}{g.ws1()}{g.pick('FROM', 'from')}{g.ws1()}{frm}"
-    if g.rng.random() < 0.5:
-        out += f"{g.ws1()}WHERE{g.ws1()}{g.pick('a = 1', 'x', ' ', 'a  =  b', 'ORDER BY z')}"
-    if g.rng.random() < 0.4:
-        out += (
-            f"{g.ws1()}ORDER{g.ws1()}BY{g.ws1()}{g.pick('a', 'a DESC', ' ', 'a  ,  b')}"
-        )
-    for kw in ("SKIP", "LIMIT", "OFFSET"):
-        if g.rng.random() < 0.25:
-            out += f"{g.ws1()}{kw}{g.ws1()}{g.pick('5', '10', 'x')}"
-    if g.rng.random() < 0.3:
-        out += g.pick(" extra", "\n", g.ws1() + "WHERE", "  x  y")
-    return out
-
-
-COLUMN_ATOMS = [
-    "show",
-    "select",
-    "find",
-    "get",
-    "from",
-    "where",
-    "order",
-    "limit",
-    "sorted",
-    "a",
-    "b,c",
-    "all",
-    "name",
-    ",",
-    " ",
-    "  ",
-    "   ",
-    "    ",
-    "\n",
-    "\t",
-    "-",
-    "!",
-    "fromage",
-    "target",
-    "x_1",
-    "9",
-    "SHOW",
-    "\n\n",
-]
-
-
-def gen_column_phrase(g: Gen) -> str:
-    if g.rng.random() < 0.5:
-        return g.noise(COLUMN_ATOMS, 1, 14)
-    cols = g.pick("name, age", "a", "all", "x_1,y", "a  b", "-", "!", "a-b", "", "  ")
-    end = g.pick(
-        "from users",
-        "where x",
-        "order by a",
-        "limit 5",
-        "sorted by a",
-        "",
-        "\n",
-        "fromage",
-        "-",
-        "show a from b",
-    )
-    return (
-        g.pick("", "please ", "x")
-        + f"{g.pick('show', 'select', 'find', 'get')}{g.ws1()}{cols}{g.ws()}{end}"
-        + g.pick("", "", " get all from t", g.ws1())
-    )
-
-
-FILTER_ATOMS = [
-    "a",
-    "xyz",
-    "_",
-    "1",
-    "9",
-    ">",
-    "<",
-    "=",
-    " ",
-    "  ",
-    "\n",
-    "greater than",
-    "more than",
-    "less than",
-    "equals",
-    "'",
-    '"',
-    "-",
-    "greater",
-    "than",
-    "!",
-]
-
-
-def gen_filter(g: Gen) -> str:
-    return g.noise(FILTER_ATOMS, 1, 14)
-
-
-URI_ATOMS = [
-    "a",
-    "B",
-    "1",
-    "+",
-    ".",
-    "-",
-    "http",
-    "postgres",
-    "://",
-    ":",
-    "@",
-    "/",
-    "user",
-    "pw",
-    " ",
-    "x",
-    "9p",
-    "://u:p@",
-    "s3",
-    "\n",
-]
-
-
-def gen_uri(g: Gen) -> str:
-    if g.rng.random() < 0.4:
-        return g.noise(URI_ATOMS, 1, 16)
-    return (
-        g.pick("", "1", "+-", "9a.", "x ")
-        + g.pick("postgres", "http", "a", "A1+.-b", "s3")
-        + g.pick("://", "://", ":/", "//")
-        + g.pick("u", "us er", "u@x", "", "u/v")
-        + g.pick(":", ":", "::", "")
-        + g.pick("p", "p w", "", "@", "p@", "p/q")
-        + g.pick("@", "@", "")
-        + g.pick("host", "h:5432/db", " tail ://x:y@z", "@@", "")
-    )
-
-
-def gen_json(g: Gen) -> str:
-    return g.noise(["{", "}", "a", " ", '"k"', ":", "1", "\n", "{}", "}{"], 0, 14)
-
-
-COMMENT_ATOMS = ["/*", "*/", "/", "*", "a", " ", "\n", "/**/", "--", "x", "*/*"]
-
-
-def gen_comment(g: Gen) -> str:
-    return g.noise(COMMENT_ATOMS, 0, 16)
-
-
-SEMI_ATOMS = [";", ";;", " ", "\n", "\t", "a", "b ", "'", ";\n", "  ", ";  ;"]
-
-
-def gen_semi(g: Gen) -> str:
-    return g.noise(SEMI_ATOMS, 0, 12)
-
-
-COND_ATOMS = [
-    "a",
-    "b.c",
-    "'x'",
-    "(a)",
-    "(a AND b)",
-    " ",
-    "  ",
-    "\n",
-    "\t",
-    "   ",
-    "=",
-    ">=",
-    "<=",
-    "<>",
-    "!=",
-    ">",
-    "<",
-    "IN",
-    "NOT IN",
-    "IS NULL",
-    "IS NOT NULL",
-    "IS  NOT   NULL",
-    "LIKE",
-    "ILIKE",
-    "BETWEEN",
-    "AND",
-    "OR",
-    "NOT",
-    "1",
-    "(1, 2)",
-    "'a b'",
-    "x",
-]
-
-
-def gen_cond(g: Gen) -> str:
-    return g.noise(COND_ATOMS, 1, 14)
-
-
-def gen_cond_structured(g: Gen) -> str:
-    parts = []
-    for _ in range(g.rng.randint(1, 3)):
-        parts.append(
-            g.pick("a", "a.b", "(a)", "'x y'", "f(a, b)")
-            + g.ws()
-            + g.pick("=", ">=", "<>", "!=", "IN", "NOT IN", "IS NULL", "LIKE", "<", "")
-            + g.ws()
-            + g.pick("1", "'x'", "(1,2)", "b", "")
-        )
-    seps = [g.ws1() + g.pick("AND", "OR", "and", "BETWEEN") + g.ws1() for _ in parts]
-    return "".join(p + s for p, s in zip(parts, seps, strict=False)) + g.pick("", "x")
-
-
-# ---------------------------------------------------------------------------------
-# Randomized differential tests
-# ---------------------------------------------------------------------------------
-N = 4000
-
-
-def _compare(
-    gen: Callable[[Gen], str],
-    old: Callable[[str], Any],
-    new: Callable[[str], Any],
-    seed: int,
-    min_matches: int,
-) -> None:
-    g = Gen(seed)
-    matches = 0
-    for _ in range(N):
-        text = gen(g)
-        expected = old(text)
-        assert new(text) == expected, text
-        if expected is not None:
-            matches += 1
-    assert matches >= min_matches, f"generator rarely matched ({matches})"
-
-
-def test_random_cte_definition() -> None:
-    _compare(gen_cte, old_cte, new_cte, 11, 500)
-
-
-def test_random_window_expression() -> None:
-    _compare(gen_window, old_window, new_window, 12, 500)
-
-
-def test_random_partition_clause() -> None:
-    def gen(g: Gen) -> str:
-        if g.rng.random() < 0.5:
-            return g.noise(SQL_ATOMS + ["PARTITION BY ", "ORDER BY "], 1, 14)
-        return (
-            g.pick("", "x ", ")")
-            + "PARTITION"
-            + g.ws1()
-            + "BY"
-            + g.ws1()
-            + g.pick("a", "a, b", "", "a)", "a ORDER BY b", "a ROWS 1", "a\n")
-            + g.pick("", g.ws1() + "ORDER BY b", ")", "\n", g.ws1() + "RANGE x")
-            + g.pick("", " PARTITION BY c", ") PARTITION BY d", "\n")
-        )
-
-    _compare(gen, old_partition, new_partition, 13, 500)
-
-
-def test_random_order_clause() -> None:
-    def gen(g: Gen) -> str:
-        if g.rng.random() < 0.5:
-            return g.noise(SQL_ATOMS + ["ORDER BY ", "ROWS ", "RANGE "], 1, 14)
-        return (
-            g.pick("", "x ", ")")
-            + "ORDER"
-            + g.ws1()
-            + "BY"
-            + g.ws1()
-            + g.pick("a", "a DESC", "", "a)", "a ROWS 1", "a\n")
-            + g.pick("", g.ws1() + "RANGE", ")", "\n", g.ws1() + "ROWS x")
-            + g.pick("", " ORDER BY c", ") ORDER BY d", "\n")
-        )
-
-    _compare(gen, old_order, new_order, 14, 500)
-
-
-def test_random_date_trunc() -> None:
-    def gen(g: Gen) -> str:
-        return gen_trunc(g)
-
-    _compare(gen, old_date_trunc, new_date_trunc, 15, 200)
-    _compare(gen, old_datetrunc, new_datetrunc, 16, 200)
-
-
-def test_random_aggregates() -> None:
-    _compare(gen_agg, old_agg, new_agg, 17, 300)
-    _compare(gen_agg, old_filter_agg, new_filter_agg, 18, 300)
-
-
-def test_random_neo4j_select() -> None:
-    _compare(gen_neo4j, old_neo4j, new_neo4j, 19, 1000)
-
-
-def test_random_column_phrase() -> None:
-    _compare(
-        gen_column_phrase,
-        old_column_phrase,
-        NP._match_column_phrase,
-        20,
-        500,
-    )
+def test_golden_neo4j_and_column_phrase() -> None:
+    check_corpus(MISC["neo4j"], new_neo4j)
+    check_corpus(MISC["column_phrase"], NP._match_column_phrase)
 
 
 @pytest.mark.parametrize(
-    ("old", "new", "seed"),
-    [
-        (OLD_GT, NP._GT_FILTER_RE, 21),
-        (OLD_LT, NP._LT_FILTER_RE, 22),
-        (OLD_EQ, NP._EQ_FILTER_RE, 23),
-    ],
+    ("key", "pattern"),
+    [("gt", NP._GT_FILTER_RE), ("lt", NP._LT_FILTER_RE), ("eq", NP._EQ_FILTER_RE)],
 )
-def test_random_nlq_filter_patterns(
-    old: re.Pattern[str], new: re.Pattern[str], seed: int
-) -> None:
-    _compare(
-        gen_filter,
-        lambda t: old_filter(old, t),
-        lambda t: new_filter(new, t),
-        seed,
-        100,
-    )
-    # word-structured: leftmost match must start at a word start with the same groups
-    g = Gen(seed + 100)
-    words = ["xgreater", "a", "b2", "limit", "than", "greater", "5", "x"]
-    ops = ["", ">", " > ", "greater than", " less than ", "=", " equals ", "<"]
-    for _ in range(N):
-        text = "".join(
-            g.pick(*words) + g.pick(*ops) + g.pick(*WS, "'", '"') for _ in range(4)
-        )
-        assert old_filter(old, text) == new_filter(new, text), text
+def test_golden_nlq_filter_patterns(key: str, pattern: Any) -> None:
+    check_corpus(MISC[key], lambda t: new_filter(pattern, t), 300)
 
 
-def test_random_uri_credentials() -> None:
-    g = Gen(24)
-    hits = 0
-    for _ in range(N):
-        text = gen_uri(g)
-        expected = OLD_URI_CREDENTIAL.sub(r"\g<1>***\g<3>", text)
-        assert URI_CREDENTIAL_REGEX.sub(r"\g<1>***\g<3>", text) == expected, text
-        hits += expected != text
-    assert hits >= 300
-
-
-def test_random_pool_mask_credentials() -> None:
-    g = Gen(25)
-    hits = 0
-    for _ in range(N):
-        text = gen_uri(g)
-        expected = OLD_POOL_URI.sub(r"\1***\3", text)
-        assert mask_credentials(text) == expected, text
-        hits += expected != text
-    assert hits >= 300
-
-
-def test_random_json_object_span() -> None:
-    g = Gen(26)
-    for _ in range(N):
-        text = gen_json(g)
-        assert _find_json_object_text(text) == old_json_object(text), text
-
-
-def test_random_block_comments() -> None:
-    g = Gen(27)
-    for _ in range(N):
-        text = gen_comment(g)
-        expected = OLD_BLOCK_COMMENT.sub("", text)
-        assert strip_block_comments(text) == expected, text
-        assert expected == OLD_BLOCK_COMMENT_DOTALL.sub("", text)
-
-
-def test_random_trailing_semicolons() -> None:
-    g = Gen(28)
-    for _ in range(N):
-        text = gen_semi(g)
-        assert strip_trailing_semicolons(text) == OLD_SEMICOLONS.sub("", text), text
-
-
-def test_random_split_where_conditions() -> None:
-    g = Gen(29)
-    for i in range(N):
-        text = gen_cond(g) if i % 2 else gen_cond_structured(g)
-        assert P.split_where_conditions(text) == _old_split_where_conditions(text), text
-
-
-def test_random_find_top_level_operator() -> None:
-    g = Gen(30)
-    found = 0
-    for i in range(N):
-        text = gen_cond(g) if i % 2 else gen_cond_structured(g)
-        expected = _old_find_top_level_operator(text)
-        assert P.find_top_level_operator(text) == expected, text
-        found += expected is not None
-    assert found >= 500
+def test_golden_secrets_json_comments_semicolons() -> None:
+    check_corpus(MISC["uri"], lambda t: URI_CREDENTIAL_REGEX.sub(r"\g<1>***\g<3>", t))
+    check_corpus(MISC["pool"], mask_credentials)
+    check_corpus(MISC["json_object"], _find_json_object_text)
+    check_corpus(MISC["block_comments"], strip_block_comments)
+    check_corpus(MISC["semicolons"], strip_trailing_semicolons)
 
 
 PARSE_TABLE = [

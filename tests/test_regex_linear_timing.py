@@ -335,3 +335,20 @@ def test_prisma_composite_id_without_closing_bracket() -> None:
     body = "x Int\n@@id([" * 5_000 + " "
     assert_fast(lambda: from_prisma("model a {\n" + body + "\n}"))
     assert_fast(lambda: from_prisma("model a {\n" + "@@id( [a] " * 5_000 + "\n}"))
+
+
+def test_drizzle_nested_and_repeated_tables_parse_once() -> None:
+    nested = "pgTable('x', {" * 3_000 + "}" + ")" * 3_000
+    assert len(assert_fast(lambda: from_drizzle(nested))) == 1
+    repeated = "export const t = pgTable('t', {\n a: text('a'),\n b: integer('b')\n})\n"
+    assert len(assert_fast(lambda: from_drizzle(repeated * 800))) == 1
+    names = "".join(
+        f"export const t{i} = pgTable('t{i}', {{ a: text('a') }});\n"
+        for i in range(1_500)
+    )
+    assert len(assert_fast(lambda: from_drizzle(names))) == 1_500
+
+
+def test_drizzle_nested_header_is_not_a_second_table() -> None:
+    source = "export const outer = pgTable('outer', { x: text('x'), y: pgTable('inner', { z: text('z') }) })"
+    assert list(from_drizzle(source)) == ["outer"]
