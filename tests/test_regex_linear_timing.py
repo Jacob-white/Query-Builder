@@ -30,7 +30,10 @@ from query_builder.parser import (
 from query_builder.pool import mask_credentials
 from query_builder.security import scrub_secrets
 
-LIMIT_SECONDS = 2.0
+# Linear-time code finishes these inputs in well under a second locally, but CI runners with
+# coverage tracing can be several times slower (up to ~3.5s observed). The regressions this
+# guards against took 25s to minutes, so a generous limit still separates them cleanly.
+LIMIT_SECONDS = 8.0
 N = 50_000
 # the parser walks the text character by character in Python, so its inputs are smaller
 PN = 20_000
