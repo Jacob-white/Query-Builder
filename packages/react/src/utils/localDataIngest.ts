@@ -44,7 +44,12 @@ export function detectFileFormat(file: { name: string; type?: string }): Ingesti
 export function sanitizeTableName(fileName: string): string {
   const base = fileName.replace(/\.[^/.]+$/, "");
   const sanitized = base.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
-  return sanitized.replace(/^_+|_+$/g, "") || "local_table";
+  // Strip leading/trailing underscores (linear-time `.replace(/^_+|_+$/g, "")`).
+  let first = 0;
+  let last = sanitized.length;
+  while (first < last && sanitized[first] === "_") first++;
+  while (last > first && sanitized[last - 1] === "_") last--;
+  return sanitized.slice(first, last) || "local_table";
 }
 
 /**

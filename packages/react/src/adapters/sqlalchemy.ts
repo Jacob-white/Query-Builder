@@ -12,6 +12,45 @@ import {
   toSnakeCase,
 } from "./utils";
 
+const WS_CHAR = /\s/;
+const WORD_CHAR = /\w/;
+
+/**
+ * Linear-time equivalent of `code.split(/\n(?=\s*class\s+\w+)/)`: splits at every
+ * newline whose following whitespace run is directly followed by `class <name>`.
+ */
+function splitClassBlocks(code: string): string[] {
+  const blocks: string[] = [];
+  let last = 0;
+  let i = 0;
+  while (i < code.length) {
+    if (!WS_CHAR.test(code[i])) {
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (runEnd < code.length && WS_CHAR.test(code[runEnd])) runEnd++;
+    if (startsWithClassDecl(code, runEnd)) {
+      for (let p = i; p < runEnd; p++) {
+        if (code[p] === "\n") {
+          blocks.push(code.slice(last, p));
+          last = p + 1;
+        }
+      }
+    }
+    i = runEnd;
+  }
+  blocks.push(code.slice(last));
+  return blocks;
+}
+
+function startsWithClassDecl(code: string, pos: number): boolean {
+  if (!code.startsWith("class", pos)) return false;
+  let next = pos + 5;
+  while (next < code.length && WS_CHAR.test(code[next])) next++;
+  return next > pos + 5 && next < code.length && WORD_CHAR.test(code[next]);
+}
+
 
 const SQLALCHEMY_TYPE_MAP: Record<string, string> = {
   integer: "integer",
@@ -119,7 +158,7 @@ export function fromSqlAlchemy(
   const tables: TableSchema[] = [];
 
   // Split into classes
-  const classBlocks = code.split(/\n(?=\s*class\s+\w+)/);
+  const classBlocks = splitClassBlocks(code);
 
   for (const block of classBlocks) {
     const classMatch = /class\s+(\w+)(?:\([^)]*\))?:/.exec(block);
@@ -155,7 +194,7 @@ export function fromSqlAlchemy(
 
       // e.g.: id = Column(Integer, primary_key=True)
       // or user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-      const assignMatch = /^(\w+)(?:\s*:\s*([^=]+))?\s*=\s*(?:Column|mapped_column)\((.*)\)$/.exec(line);
+      const assignMatch = /^(\w+)(?:\s*:([^=]+)|\s*)=\s*(?:Column|mapped_column)\((.*)\)$/.exec(line);
       if (!assignMatch) continue;
 
       const propName = assignMatch[1];

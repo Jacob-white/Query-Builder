@@ -139,7 +139,13 @@ export function toCamelCase(name: string): string {
 export function toSnakeCase(name: string): string {
   const s1 = name.replace(/(.)([A-Z][a-z]+)/g, "$1_$2");
   const s2 = s1.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
-  let s3 = s2.replace(/[^a-zA-Z0-9]+/g, "_").toLowerCase().replace(/^_+|_+$/g, "");
+  let s3 = s2.replace(/[^a-zA-Z0-9]+/g, "_").toLowerCase();
+  // Strip leading/trailing underscores (linear-time `.replace(/^_+|_+$/g, "")`).
+  let first = 0;
+  let last = s3.length;
+  while (first < last && s3[first] === "_") first++;
+  while (last > first && s3[last - 1] === "_") last--;
+  s3 = s3.slice(first, last);
   if (!s3) return "col";
   if (/^[0-9]/.test(s3)) {
     s3 = `col_${s3}`;

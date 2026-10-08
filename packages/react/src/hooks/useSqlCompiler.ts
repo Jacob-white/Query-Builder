@@ -22,6 +22,49 @@ import { normalizeSchema } from "../utils/schemaUtils";
 import { specToState, type QueryState } from "./useQueryState";
 import type { QueryBuilderState } from "./useQueryBuilder";
 
+const WS_CHAR = /\s/;
+
+function isWs(ch: string | undefined): boolean {
+  return ch !== undefined && WS_CHAR.test(ch);
+}
+
+// Linear-time equivalent of `sql.replace(/;+\s*$/, "")`.
+function stripTrailingSemicolons(sql: string): string {
+  const trimmed = sql.trimEnd();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === ";") end--;
+  return end === trimmed.length ? sql : trimmed.slice(0, end);
+}
+
+// Linear-time equivalent of `sql.replace(/\s+ORDER\s+BY\s+[^)]+$/i, "")`:
+// drops a trailing ORDER BY that is not closed by a later ")".
+function stripTrailingOrderBy(sql: string): string {
+  const tailStart = sql.lastIndexOf(")") + 1;
+  let i = tailStart;
+  while (i < sql.length) {
+    if (!isWs(sql[i])) {
+      i++;
+      continue;
+    }
+    let orderAt = i;
+    while (isWs(sql[orderAt])) orderAt++;
+    if (sql.slice(orderAt, orderAt + 5).toUpperCase() === "ORDER" && isWs(sql[orderAt + 5])) {
+      let byAt = orderAt + 5;
+      while (isWs(sql[byAt])) byAt++;
+      const restAt = byAt + 2;
+      if (
+        sql.slice(byAt, restAt).toUpperCase() === "BY" &&
+        isWs(sql[restAt]) &&
+        restAt + 1 < sql.length
+      ) {
+        return sql.slice(0, i);
+      }
+    }
+    i = orderAt;
+  }
+  return sql;
+}
+
 export interface UseSqlCompilerOptions {
   dialect?: SqlDialect;
   schema?: SchemaSnapshot | DatabaseSchemaDefinition | null;
@@ -199,9 +242,9 @@ function compileInput(
     const sql = compiled.sql;
     let countSql = "";
     if (sql) {
-      let cleanSql = sql.replace(/;+\s*$/, "");
+      let cleanSql = stripTrailingSemicolons(sql);
       if (dialect === "mssql") {
-        cleanSql = cleanSql.replace(/\s+ORDER\s+BY\s+[^)]+$/i, "");
+        cleanSql = stripTrailingOrderBy(cleanSql);
       }
       countSql = `SELECT COUNT(*) FROM (${cleanSql}) AS count_wrapper;`;
     }

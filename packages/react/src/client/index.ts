@@ -295,7 +295,11 @@ export interface QueryBuilderClient {
 export function createQueryBuilderClient(
   config: QueryBuilderClientConfig,
 ): QueryBuilderClient & Required<Pick<QueryBuilderClient, "request">> {
-  const cleanBaseUrl = (config.baseUrl || "").replace(/\/+$/, "");
+  const rawBaseUrl = config.baseUrl || "";
+  // Strip trailing slashes (linear-time `.replace(/\/+$/, "")`).
+  let baseUrlEnd = rawBaseUrl.length;
+  while (baseUrlEnd > 0 && rawBaseUrl[baseUrlEnd - 1] === "/") baseUrlEnd--;
+  const cleanBaseUrl = rawBaseUrl.slice(0, baseUrlEnd);
   const defaultTimeoutMs = config.timeoutMs ?? 30000;
   const fetchFn = config.fetchFn ?? globalThis.fetch;
 
