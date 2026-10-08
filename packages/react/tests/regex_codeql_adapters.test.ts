@@ -176,6 +176,26 @@ function digestAll() {
   };
 }
 
+/**
+ * Structured drizzle cases whose quote chars are mismatched at random (a double quote closed by a
+ * backtick, ...). The shifted quote state makes an earlier table's call span run past later table
+ * headers. Those headers lie inside an already-parsed call, so they are no longer parsed as tables:
+ * a documented intentional difference from the pre-linear implementation, matching
+ * query_builder/adapters/drizzle.py. Maps case index -> table names that are still produced
+ * (written out literally; the golden output had exactly these plus the swallowed ones).
+ */
+const QUOTE_SHIFTED_DRIZZLE: Record<number, string[]> = {
+  6: ["tbl0"],
+  9: ["tbl0", "tbl2", "tbl3"],
+  10: ["tbl0"],
+  54: ["tbl0"],
+  60: ["tbl0"],
+  95: ["tbl2"],
+  104: ["tbl0"],
+  147: ["tbl0"],
+  152: ["tbl0", "tbl3"],
+};
+
 describe("drizzle/prisma golden outputs (recorded from the original regex implementation)", () => {
   const golden = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as { drizzle: string[]; prisma: string[] };
   const now = digestAll();
@@ -187,7 +207,21 @@ describe("drizzle/prisma golden outputs (recorded from the original regex implem
     expect(golden.prisma.length).toBe(now.prisma.length);
   });
   it("drizzle: hand written + structured inputs match exactly", () => {
-    for (let i = 0; i < dEnd; i++) expect(now.drizzle[i], `drizzle #${i}`).toBe(golden.drizzle[i]);
+    for (let i = 0; i < dEnd; i++) {
+      if (i in QUOTE_SHIFTED_DRIZZLE) continue; // covered by the explicit test below
+      expect(now.drizzle[i], `drizzle #${i}`).toBe(golden.drizzle[i]);
+    }
+  });
+  it("drizzle: quote-shifted call spans: later tables inside an already-parsed call span are skipped", () => {
+    for (const [key, kept] of Object.entries(QUOTE_SHIFTED_DRIZZLE)) {
+      const i = Number(key);
+      const original = JSON.parse(golden.drizzle[i]) as { name: string }[];
+      const current = JSON.parse(now.drizzle[i]) as { name: string }[];
+      expect(current.map((t) => t.name), `drizzle #${i}`).toEqual(kept);
+      // New output is exactly the original output minus the swallowed tables: nothing else changed.
+      expect(current, `drizzle #${i}`).toEqual(original.filter((t) => kept.includes(t.name)));
+      expect(current.length).toBeLessThan(original.length);
+    }
   });
   it("drizzle: random token soup matches", () => {
     for (let i = dEnd; i < now.drizzle.length; i++) {
