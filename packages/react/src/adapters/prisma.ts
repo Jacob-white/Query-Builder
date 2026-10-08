@@ -58,6 +58,66 @@ interface PrismaDatamodel {
   datamodel?: PrismaDatamodel;
 }
 
+/**
+ * Linear-time scanner for `enum NAME { ... }` blocks (`enum` + whitespace + identifier +
+ * optional whitespace + "{" + body up to the first "}"). It replaces an unanchored regex whose
+ * body run backtracked polynomially when the closing brace was missing. Matches never overlap and
+ * are reported left to right; the position of the next "}" is cached so a missing terminator is
+ * discovered once instead of once per "enum" keyword.
+ */
+function scanPrismaEnums(text: string): { name: string; body: string }[] {
+  const out: { name: string; body: string }[] = [];
+  const isSpace = (c: number): boolean =>
+    (c >= 9 && c <= 13) ||
+    c === 32 ||
+    c === 160 ||
+    c === 0x1680 ||
+    (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 ||
+    c === 0x2029 ||
+    c === 0x202f ||
+    c === 0x205f ||
+    c === 0x3000 ||
+    c === 0xfeff;
+  const isWord = (c: number): boolean =>
+    (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+  const skipSpace = (from: number): number => {
+    let i = from;
+    while (i < text.length && isSpace(text.charCodeAt(i))) i++;
+    return i;
+  };
+
+  let closeFrom = -1;
+  let closeAt = -1;
+  const nextClose = (from: number): number => {
+    if (closeFrom === -1 || from < closeFrom || (closeAt !== -1 && from > closeAt)) {
+      closeFrom = from;
+      closeAt = text.indexOf("}", from);
+    }
+    return closeAt;
+  };
+
+  let pos = text.indexOf("enum");
+  while (pos !== -1) {
+    let i = skipSpace(pos + 4);
+    const identStart = i;
+    if (i > pos + 4) {
+      while (i < text.length && isWord(text.charCodeAt(i))) i++;
+      const identEnd = i;
+      i = skipSpace(i);
+      if (identEnd > identStart && text.charCodeAt(i) === 123) {
+        const close = nextClose(i + 1);
+        if (close === -1) return out;
+        out.push({ name: text.slice(identStart, identEnd), body: text.slice(i + 1, close) });
+        pos = text.indexOf("enum", close + 1);
+        continue;
+      }
+    }
+    pos = text.indexOf("enum", pos + 1);
+  }
+  return out;
+}
+
 export function fromPrisma(
   source: string | Record<string, unknown>,
   options?: AdapterOptions,
@@ -195,11 +255,7 @@ export function fromPrisma(
 
   // 1. Parse Enums
   const enums: Record<string, string[]> = {};
-  const enumRegex = /enum\s+(\w+)\s*\{([^}]*)\}/g;
-  let enumMatch: RegExpExecArray | null;
-  while ((enumMatch = enumRegex.exec(text)) !== null) {
-    const enumName = enumMatch[1];
-    const enumBody = enumMatch[2];
+  for (const { name: enumName, body: enumBody } of scanPrismaEnums(text)) {
     const values: string[] = [];
     for (const line of enumBody.split("\n")) {
       const clean = line.split("//")[0].trim();
