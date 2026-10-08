@@ -585,11 +585,29 @@ KEY_VALUE_SECRET_REGEX = re.compile(
 )
 
 
+def _mask_uri(m: re.Match[str]) -> str:
+    return f"{m.group(1)}***{m.group(3)}"
+
+
+def _mask_bearer(m: re.Match[str]) -> str:
+    return f"{m.group(1)}***"
+
+
+def _mask_key_value(m: re.Match[str]) -> str:
+    return f"{m.group(1)}{m.group(2)}***"
+
+
 def _scrub_string(text: str) -> str:
-    """Sanitizes connection URI credentials, bearer tokens, and key-value secrets in text."""
-    text = URI_CREDENTIAL_REGEX.sub(r"\g<1>***\g<3>", text)
-    text = BEARER_TOKEN_REGEX.sub(r"\g<1>***", text)
-    text = KEY_VALUE_SECRET_REGEX.sub(r"\g<1>\g<2>***", text)
+    """Sanitizes connection URI credentials, bearer tokens, and key-value secrets in text.
+
+    Replacements are functions rather than template strings on purpose: on Python 3.11 and
+    earlier, ``re.sub`` with a template string imports a module through ``builtins.__import__``
+    while it runs, so scrubbing an error message while a caller (or a test) has that hook
+    patched would itself raise ImportError and mask the original error.
+    """
+    text = URI_CREDENTIAL_REGEX.sub(_mask_uri, text)
+    text = BEARER_TOKEN_REGEX.sub(_mask_bearer, text)
+    text = KEY_VALUE_SECRET_REGEX.sub(_mask_key_value, text)
     return text
 
 

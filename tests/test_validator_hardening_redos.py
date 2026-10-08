@@ -14,8 +14,9 @@ import pytest
 from query_builder.ast_validator import MAX_SQL_LENGTH, validate_sql_ast
 
 # Generous on purpose: the slowest case (sqlparse on 8000 parens) takes ~0.15s plain and ~0.45s
-# under coverage tracing, while the regressions this guards against took 20s to minutes.
-BUDGET_SECONDS = 2.0
+# under local coverage tracing, and CI runners can be several times slower still. The
+# regressions this guards against took 20s to minutes, so 8s still separates them cleanly.
+BUDGET_SECONDS = 8.0
 
 
 def _timed(sql: str, **kwargs) -> tuple[dict, float]:
