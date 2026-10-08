@@ -183,6 +183,8 @@ interface DrizzleCall {
   name: string;
   /** Index of the "(" that opens the call's argument list. */
   parenIdx: number;
+  /** Index where the match starts: the `const` of its head, or the keyword when there is none. */
+  start: number;
   /** Raw text between "[" and "]" for enum calls. */
   enumBody?: string;
 }
@@ -265,7 +267,7 @@ function scanDrizzleCalls(code: string, mode: DrizzleScanMode): DrizzleCall[] {
   // whitespace-then-"=" immediately before the keyword can end a head, and its type annotation
   // cannot contain another "=", so the candidates are the "const" tokens between the previous
   // "=" and this one; the leftmost valid one wins.
-  const findHead = (kwIdx: number, lo: number): string | null => {
+  const findHead = (kwIdx: number, lo: number): { name: string; start: number } | null => {
     let eq = kwIdx - 1;
     while (eq >= lo && isRegexSpace(code.charCodeAt(eq))) eq--;
     if (eq < lo || eq === 0 || code.charCodeAt(eq) !== 61) return null;
@@ -281,7 +283,7 @@ function scanDrizzleCalls(code: string, mode: DrizzleScanMode): DrizzleCall[] {
       const identEnd = i;
       i = skipSpace(i);
       if (i === eq || (code.charCodeAt(i) === 58 && i + 1 < eq)) {
-        return code.slice(identStart, identEnd);
+        return { name: code.slice(identStart, identEnd), start: p };
       }
     }
     return null;
@@ -320,10 +322,133 @@ function scanDrizzleCalls(code: string, mode: DrizzleScanMode): DrizzleCall[] {
 
     const head = findHead(k, lo);
     if (head === null && mode !== "table") continue;
-    out.push({ varName: head ?? "", name: code.slice(nameStart, nameEnd), parenIdx, enumBody });
+    out.push({
+      varName: head?.name ?? "",
+      name: code.slice(nameStart, nameEnd),
+      parenIdx,
+      start: head?.start ?? k,
+      enumBody,
+    });
     lo = end;
   }
   return out;
+}
+
+/**
+ * Open call scans that share one quote state, kept as a binary min-heap ordered by depth.
+ * Every scan in a group sees the same "(" / ")" characters, so their depths all move together:
+ * a scan is stored as `depth - offset` and the group's `offset` is the shared running delta.
+ */
+class OpenScans {
+  readonly keys: number[] = [];
+  readonly starts: number[] = [];
+  offset = 0;
+
+  push(key: number, start: number): void {
+    let i = this.keys.length;
+    this.keys.push(key);
+    this.starts.push(start);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.keys[parent] <= key) break;
+      this.keys[i] = this.keys[parent];
+      this.starts[i] = this.starts[parent];
+      i = parent;
+    }
+    this.keys[i] = key;
+    this.starts[i] = start;
+  }
+
+  /** Removes the scan at the top of the heap and returns its start index. */
+  pop(): number {
+    const top = this.starts[0];
+    const key = this.keys.pop() ?? 0;
+    const start = this.starts.pop() ?? 0;
+    const n = this.keys.length;
+    if (n > 0) {
+      let i = 0;
+      for (;;) {
+        let child = 2 * i + 1;
+        if (child >= n) break;
+        if (child + 1 < n && this.keys[child + 1] < this.keys[child]) child++;
+        if (this.keys[child] >= key) break;
+        this.keys[i] = this.keys[child];
+        this.starts[i] = this.starts[child];
+        i = child;
+      }
+      this.keys[i] = key;
+      this.starts[i] = start;
+    }
+    return top;
+  }
+
+  /** Merges two groups by moving the smaller heap into the larger one. */
+  absorb(other: OpenScans): OpenScans {
+    const [big, small] = this.keys.length >= other.keys.length ? [this, other] : [other, this];
+    for (let i = 0; i < small.keys.length; i++) {
+      big.push(small.keys[i] + small.offset - big.offset, small.starts[i]);
+    }
+    return big;
+  }
+}
+
+/**
+ * Index of the ")" closing the call whose "(" is at each start (-1 when it never closes).
+ *
+ * Equivalent to scanning forward from every start with a depth counter and a quote state (a quote
+ * closes only on the same character not preceded by a backslash; an opening quote is never
+ * checked for a preceding backslash). The quote state evolves independently of the depth, so all
+ * scans in the same quote state share one pass: a single left-to-right sweep keeps four groups
+ * (no quote, ' , " and backtick) of open scans in depth-ordered heaps, instead of rescanning to
+ * the end of the input for every start. Mirrors `_balanced_call_ends` in the Python adapter.
+ */
+function balancedCallEnds(code: string, starts: readonly number[]): Map<number, number> {
+  const ends = new Map<number, number>();
+  const pending = [...new Set(starts)].sort((a, b) => a - b);
+  if (pending.length === 0) return ends;
+  let outside = new OpenScans();
+  const inside = new Map<string, OpenScans>([
+    ["'", new OpenScans()],
+    ['"', new OpenScans()],
+    ["`", new OpenScans()],
+  ]);
+  let active = 0;
+  let nextStart = 0;
+  let index = pending[0];
+  while (index < code.length) {
+    if (nextStart < pending.length && pending[nextStart] === index) {
+      outside.push(-outside.offset, index);
+      active++;
+      nextStart++;
+    } else if (active === 0) {
+      if (nextStart >= pending.length) break;
+      index = pending[nextStart];
+      continue;
+    }
+    const ch = code[index];
+    const quoted = inside.get(ch);
+    if (quoted) {
+      if (code[index - 1] === "\\") {
+        // Escaped: scans inside this quote stay in it; the others open it as well.
+        inside.set(ch, outside.absorb(quoted));
+        outside = new OpenScans();
+      } else {
+        inside.set(ch, outside);
+        outside = quoted;
+      }
+    } else if (ch === "(") {
+      outside.offset++;
+    } else if (ch === ")") {
+      outside.offset--;
+      while (outside.keys.length > 0 && outside.keys[0] + outside.offset === 0) {
+        ends.set(outside.pop(), index);
+        active--;
+      }
+    }
+    index++;
+  }
+  for (const start of pending) if (!ends.has(start)) ends.set(start, -1);
+  return ends;
 }
 
 export function fromDrizzle(
@@ -376,34 +501,26 @@ export function fromDrizzle(
 
   const tables: TableSchema[] = [];
 
-  for (const header of scanDrizzleCalls(code, "table")) {
+  const headers = scanDrizzleCalls(code, "table");
+  const callEnds = balancedCallEnds(
+    code,
+    headers.map((h) => h.parenIdx),
+  );
+
+  // A pgTable header inside the argument list of a call that was already parsed is not a new
+  // table (tables are never nested in valid code). Skipping it parses every argument list once,
+  // which keeps the whole pass linear. Mirrors `consumed_end` in the Python adapter.
+  let consumedEnd = 0;
+  for (const header of headers) {
+    if (header.start < consumedEnd) continue;
     const varName = header.varName;
     const tableName = header.name;
     const callStartIdx = header.parenIdx;
 
-    // Balance parentheses to find full call
-    let depth = 0;
-    let inQuote: string | null = null;
-    let callEndIdx = -1;
-    for (let i = callStartIdx; i < code.length; i++) {
-      const ch = code[i];
-      if (inQuote) {
-        if (ch === inQuote && code[i - 1] !== "\\") {
-          inQuote = null;
-        }
-      } else if (ch === "'" || ch === '"' || ch === "`") {
-        inQuote = ch;
-      } else if (ch === "(") {
-        depth++;
-      } else if (ch === ")") {
-        depth--;
-        if (depth === 0) {
-          callEndIdx = i;
-          break;
-        }
-      }
-    }
+    // Balanced parentheses of the full call (all headers resolved in one sweep)
+    const callEndIdx = callEnds.get(callStartIdx) ?? -1;
     if (callEndIdx === -1) continue;
+    consumedEnd = callEndIdx + 1;
 
     const argsContent = code.slice(callStartIdx + 1, callEndIdx);
     const args: string[] = [];

@@ -86,3 +86,30 @@ def test_fastapi_policy_errors_still_explain_why_a_query_was_refused(client):
     resp = client.post("/execute", json={"sql": "DROP TABLE users"})
     assert resp.status_code == 403
     assert "DROP" in resp.text
+
+
+def test_validator_parse_crash_does_not_leak_exception_text(caplog):
+    from unittest import mock
+
+    from query_builder.ast_validator import validate_sql_ast
+
+    with (
+        mock.patch("sqlparse.parse", side_effect=ValueError(LEAKY)),
+        caplog.at_level(logging.DEBUG, logger="query_builder.ast_validator"),
+    ):
+        result = validate_sql_ast("SELECT 1")
+
+    assert result["valid"] is False
+    assert LEAKY not in repr(result)
+    assert result["violations"] == ["Malformed SQL failed AST parsing."]
+    # Operators can still diagnose it from the debug log.
+    assert any(r.exc_info and r.exc_info[1] is not None for r in caplog.records)
+
+
+def test_fastapi_validate_endpoint_does_not_leak_parser_crash(client):
+    from unittest import mock
+
+    with mock.patch("sqlparse.parse", side_effect=ValueError(LEAKY)):
+        resp = client.post("/validate", json={"sql": "SELECT 1"})
+    assert LEAKY not in resp.text
+    assert resp.json()["valid"] is False
