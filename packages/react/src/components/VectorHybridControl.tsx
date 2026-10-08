@@ -3,6 +3,7 @@ import type {
   VectorSearchSpec,
   HybridSearchSpec,
   TableMeta,
+  ColumnMeta,
 } from "../types";
 
 export interface VectorHybridControlProps {
@@ -28,7 +29,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
     tbl.columns.map((c) => ({
       table: tbl.name,
       column: c.name,
-      type: c.data_type || (c as any).type || "string",
+      type: c.data_type || (c as ColumnMeta & { type?: string }).type || "string",
       label: `${tbl.name}.${c.name}`,
     }))
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   type QueryBuilderTheme,
   type DeepPartial,
@@ -32,47 +32,94 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   customTokens,
   children,
 }) => {
+  // Latest props live in refs so inline `theme` / `customTokens` objects (new identity every
+  // render) neither churn callbacks nor revert a mode picked via setMode/toggleMode.
+  const propsRef = useRef({ propTheme, customTokens });
+  useEffect(() => {
+    propsRef.current = { propTheme, customTokens };
+  });
+  // Mode picked through setMode/toggleMode; survives theme/token prop changes until `mode` prop changes.
+  const userModeRef = useRef<"dark" | "light" | undefined>(undefined);
+  const currentModeRef = useRef<"dark" | "light">("dark");
+
   const computeTheme = useCallback(
-    (explicitTheme?: QueryBuilderTheme | DeepPartial<QueryBuilderTheme>, explicitMode?: "dark" | "light"): QueryBuilderTheme => {
-      const activeMode = explicitMode || "dark";
+    (explicitMode?: "dark" | "light"): QueryBuilderTheme => {
+      const { propTheme: explicitTheme, customTokens: tokens } = propsRef.current;
+      const activeMode =
+        explicitMode || (explicitTheme as Partial<QueryBuilderTheme> | undefined)?.mode || "dark";
       const fallback = activeMode === "light" ? lightTheme : darkTheme;
       const base: QueryBuilderTheme = explicitTheme
         ? mergeTheme(fallback, explicitTheme as DeepPartial<QueryBuilderTheme>)
         : fallback;
-      const withTokens = customTokens ? mergeTheme(base, customTokens) : base;
+      const withTokens = tokens ? mergeTheme(base, tokens) : base;
       return {
         ...withTokens,
         mode: activeMode,
       };
     },
-    [customTokens],
+    [],
   );
 
-  const [activeTheme, setActiveTheme] = useState<QueryBuilderTheme>(() =>
-    computeTheme(propTheme, propMode),
-  );
+  const [activeTheme, setActiveTheme] = useState<QueryBuilderTheme>(() => computeTheme(propMode));
 
+  // Re-sync when theme/tokens/mode props change by value (JSON key). If a prop can't be
+  // serialized, fall back to comparing identities so changes are still picked up.
+  const propsKey = useMemo(() => {
+    try {
+      // Replacer keeps functions, undefined and non-finite numbers distinguishable.
+      return JSON.stringify([propTheme ?? null, customTokens ?? null, propMode ?? null], (_k, v) =>
+        typeof v === "function"
+          ? `fn:${v.toString()}`
+          : v === undefined
+            ? "__undefined__"
+            : typeof v === "number" && !Number.isFinite(v)
+              ? `num:${String(v)}`
+              : v,
+      );
+    } catch {
+      return null;
+    }
+  }, [propTheme, customTokens, propMode]);
+  const lastSyncRef = useRef({ key: propsKey, propTheme, customTokens, propMode });
   useEffect(() => {
-    setActiveTheme(computeTheme(propTheme, propMode));
-  }, [propTheme, propMode, computeTheme]);
+    const last = lastSyncRef.current;
+    const unchanged =
+      propsKey !== null && last.key !== null
+        ? propsKey === last.key
+        : last.propTheme === propTheme &&
+          last.customTokens === customTokens &&
+          last.propMode === propMode;
+    if (unchanged) return;
+    if (last.propMode !== propMode) userModeRef.current = undefined;
+    lastSyncRef.current = { key: propsKey, propTheme, customTokens, propMode };
+    propsRef.current = { propTheme, customTokens };
+    setActiveTheme(computeTheme(userModeRef.current ?? propMode));
+  }, [propsKey, propTheme, customTokens, propMode, computeTheme]);
 
   const setMode = useCallback(
     (newMode: "dark" | "light") => {
-      setActiveTheme(computeTheme(propTheme, newMode));
+      userModeRef.current = newMode;
+      setActiveTheme(computeTheme(newMode));
     },
-    [computeTheme, propTheme],
+    [computeTheme],
   );
 
   const toggleMode = useCallback(() => {
-    setActiveTheme((prev) => {
-      const nextMode = prev.mode === "dark" ? "light" : "dark";
-      return computeTheme(propTheme, nextMode);
-    });
-  }, [computeTheme, propTheme]);
+    // Read the committed mode instead of mutating refs inside a state updater (updaters
+    // must be pure; React may invoke them twice in StrictMode).
+    const next = currentModeRef.current === "dark" ? "light" : "dark";
+    userModeRef.current = next;
+    setActiveTheme(computeTheme(next));
+  }, [computeTheme]);
 
   const setTheme = useCallback((newTheme: QueryBuilderTheme) => {
+    userModeRef.current = newTheme.mode;
     setActiveTheme(newTheme);
   }, []);
+
+  useEffect(() => {
+    currentModeRef.current = activeTheme.mode;
+  }, [activeTheme.mode]);
 
   const cssVariables = useMemo(() => themeToCssVariables(activeTheme), [activeTheme]);
 

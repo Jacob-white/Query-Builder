@@ -33,10 +33,10 @@ function cleanIdent(ident: string): string {
  * Evaluates a single row against a WHERE condition.
  */
 export function evaluateCondition(
-  row: Record<string, any>,
+  row: Record<string, unknown>,
   col: string,
   op: string,
-  val: any,
+  val: unknown,
 ): boolean {
   const cell = row[col];
   const upperOp = op.toUpperCase().trim();
@@ -114,7 +114,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
   tables: Record<string, DuckDBTableMeta> = {};
   activeTable?: string;
 
-  private tableData: Map<string, Record<string, any>[]> = new Map();
+  private tableData: Map<string, Record<string, unknown>[]> = new Map();
   private config: DuckDBDriverConfig;
 
   constructor(config: DuckDBDriverConfig = {}) {
@@ -178,7 +178,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     const selectClause = selectMatch ? selectMatch[1].trim() : "*";
 
     let finalColumns: string[] = [];
-    let finalRows: Record<string, any>[] = [];
+    let finalRows: Record<string, unknown>[] = [];
 
     // Check GROUP BY
     const groupMatch = cleanSql.match(/\bGROUP\s+BY\s+([\s\S]+?)(?=\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)/i);
@@ -188,7 +188,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
     if (groupCols.length > 0 || /\b(COUNT|SUM|AVG|MIN|MAX)\s*\(/i.test(selectClause)) {
       // Grouping / Aggregate Mode
-      const groups = new Map<string, Record<string, any>[]>();
+      const groups = new Map<string, Record<string, unknown>[]>();
 
       if (groupCols.length > 0) {
         for (const row of resultRows) {
@@ -228,7 +228,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       finalColumns = aggSpecs.map((s) => s.alias);
 
       for (const [, bucket] of groups) {
-        const aggregatedRow: Record<string, any> = {};
+        const aggregatedRow: Record<string, unknown> = {};
 
         for (const spec of aggSpecs) {
           if (!spec.agg) {
@@ -279,7 +279,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       }
       finalColumns = colMap.map((c) => c.dest);
       finalRows = resultRows.map((r) => {
-        const mapped: Record<string, any> = {};
+        const mapped: Record<string, unknown> = {};
         for (const cm of colMap) {
           mapped[cm.dest] = r[cm.src];
         }
@@ -353,10 +353,10 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     const delimiter = options.delimiter || (lines[0].includes("\t") ? "\t" : ",");
     const rawHeaders = lines[0].split(delimiter).map((h) => cleanIdent(h));
 
-    const rows: Record<string, any>[] = [];
+    const rows: Record<string, unknown>[] = [];
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(delimiter);
-      const row: Record<string, any> = {};
+      const row: Record<string, unknown> = {};
       for (let j = 0; j < rawHeaders.length; j++) {
         const val = parts[j] !== undefined ? parts[j].trim() : "";
         if (options.inferTypes !== false) {
@@ -405,7 +405,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
   async ingestJson(
     tableName: string,
-    rows: Record<string, any>[],
+    rows: Record<string, unknown>[],
     options: DuckDBIngestOptions = {},
   ): Promise<DuckDBTableMeta> {
     const cleanName = cleanIdent(tableName);
@@ -490,7 +490,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
   async registerBackendResults(
     tableName: string,
-    rows: Record<string, any>[],
+    rows: Record<string, unknown>[],
   ): Promise<DuckDBTableMeta> {
     const meta = await this.ingestJson(tableName, rows);
     meta.sourceType = "query_cache";

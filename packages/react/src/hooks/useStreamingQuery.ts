@@ -1,6 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { StreamingQueryState } from "../types";
 
+/** Shape of the JSON payload carried by each SSE event. */
+interface StreamEventData {
+  columns?: string[];
+  total_estimated?: number;
+  rows?: Record<string, unknown>[];
+  elapsed_ms?: number;
+  cache_hit?: boolean;
+  message?: string;
+}
+
 export interface UseStreamingQueryOptions {
   /** Target endpoint for SSE streaming. Defaults to "/api/v1/stream". */
   endpoint?: string;
@@ -11,7 +21,7 @@ export interface UseStreamingQueryOptions {
   /** Optional custom headers to send with the POST request. */
   headers?: Record<string, string>;
   /** Callback fired whenever a new batch chunk of rows arrives. */
-  onBatch?: (batch: Record<string, any>[]) => void;
+  onBatch?: (batch: Record<string, unknown>[]) => void;
   /** Callback fired when streaming finishes successfully. */
   onComplete?: (totalRows: number) => void;
   /** Callback fired on streaming or connection error. */
@@ -23,7 +33,8 @@ export interface UseStreamingQueryReturn extends StreamingQueryState {
     elapsedMs?: number;
     cacheHit?: boolean;
   };
-  execute: (payload?: Record<string, any>) => Promise<void>;
+  /** Accepts any object payload (including `QuerySpec` interfaces). */
+  execute: (payload?: object) => Promise<void>;
   abort: () => void;
   reset: () => void;
 }
@@ -33,20 +44,17 @@ export interface UseStreamingQueryReturn extends StreamingQueryState {
  * backpressure management, progress telemetry, and abort signals.
  */
 export function useStreamingQuery(
-  initialPayload?: Record<string, any>,
+  initialPayload?: object,
   options: UseStreamingQueryOptions = {}
 ): UseStreamingQueryReturn {
-  const {
-    endpoint = "/api/v1/stream",
-    autoExecute = false,
-    batchSize = 250,
-    headers = {},
-    onBatch,
-    onComplete,
-    onError,
-  } = options;
+  const { autoExecute = false } = options;
 
-  const [rows, setRows] = useState<Record<string, any>[]>([]);
+  // Latest-ref pattern: `execute` keeps a stable identity regardless of whether the caller
+  // passes fresh option objects / header literals / callbacks on every render.
+  const optionsRef = useRef<UseStreamingQueryOptions>(options);
+  optionsRef.current = options;
+
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [progress, setProgress] = useState<{
@@ -65,7 +73,7 @@ export function useStreamingQuery(
   const [error, setError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const activePayloadRef = useRef<Record<string, any> | undefined>(initialPayload);
+  const activePayloadRef = useRef<object | undefined>(initialPayload);
 
   const reset = useCallback(() => {
     if (abortControllerRef.current) {
@@ -89,11 +97,21 @@ export function useStreamingQuery(
   }, []);
 
   const execute = useCallback(
-    async (overridePayload?: Record<string, any>) => {
-      const payloadToSend = overridePayload || activePayloadRef.current;
+    async (overridePayload?: object) => {
+      const payloadToSend: Record<string, unknown> | undefined = overridePayload
+        ? { ...overridePayload }
+        : activePayloadRef.current && { ...activePayloadRef.current };
       if (!payloadToSend) {
         return;
       }
+      const {
+        endpoint = "/api/v1/stream",
+        batchSize = 250,
+        headers = {},
+        onBatch,
+        onComplete,
+        onError,
+      } = optionsRef.current;
 
       // Abort any existing stream
       if (abortControllerRef.current) {
@@ -102,6 +120,8 @@ export function useStreamingQuery(
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      // A run only touches shared state / fires callbacks while it is still the active run.
+      const isActive = () => abortControllerRef.current === controller;
 
       setRows([]);
       setColumns([]);
@@ -111,7 +131,8 @@ export function useStreamingQuery(
       setStats({});
 
       const startTime = performance.now();
-      let hasCompleted = false;
+      // First terminal outcome wins: exactly one of onComplete / onError fires per run.
+      let terminal: "done" | "error" | null = null;
 
       try {
         const bodyPayload = {
@@ -133,7 +154,7 @@ export function useStreamingQuery(
         if (!response.ok) {
           let errorMsg = `Streaming request failed with HTTP ${response.status}`;
           try {
-            const errJson = await response.json();
+            const errJson: { error?: { message?: string } } | null = await response.json();
             if (errJson?.error?.message) {
               errorMsg = errJson.error.message;
             }
@@ -150,7 +171,7 @@ export function useStreamingQuery(
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
-        let accumulatedRows: Record<string, any>[] = [];
+        let accumulatedRows: Record<string, unknown>[] = [];
 
         while (true) {
           const { done, value } = await reader.read();
@@ -179,9 +200,10 @@ export function useStreamingQuery(
             }
 
             if (!dataStr) continue;
+            if (!isActive()) return;
 
             try {
-              const parsed = JSON.parse(dataStr);
+              const parsed: StreamEventData = JSON.parse(dataStr);
               if (eventName === "metadata") {
                 if (Array.isArray(parsed.columns)) {
                   setColumns(parsed.columns);
@@ -208,16 +230,18 @@ export function useStreamingQuery(
                 });
               } else if (eventName === "done") {
                 setIsStreaming(false);
-                if (!hasCompleted) {
-                  hasCompleted = true;
+                if (!terminal) {
+                  terminal = "done";
                   onComplete?.(accumulatedRows.length);
                 }
               } else if (eventName === "error") {
-                const errText = parsed.message || "Stream error";
-                setError(errText);
-                setIsStreaming(false);
-                hasCompleted = true;
-                onError?.(new Error(errText));
+                if (!terminal) {
+                  terminal = "error";
+                  const errText = parsed.message || "Stream error";
+                  setError(errText);
+                  setIsStreaming(false);
+                  onError?.(new Error(errText));
+                }
               }
             } catch {
               // Ignore malformed chunk JSON
@@ -225,18 +249,28 @@ export function useStreamingQuery(
           }
         }
 
+        if (!isActive()) return;
         setIsStreaming(false);
-        if (!hasCompleted) {
-          hasCompleted = true;
+        if (!terminal) {
+          terminal = "done";
           onComplete?.(accumulatedRows.length);
         }
-      } catch (err: any) {
-        hasCompleted = true;
-        if (err.name === "AbortError") {
-          // User aborted stream intentionally
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name === "AbortError") {
+          // Aborted: abort()/reset() already cleared isStreaming; a superseded run must
+          // never clear the flag of the run that replaced it.
+          return;
+        }
+        if (!isActive()) {
+          return;
+        }
+        if (terminal) {
+          // The server's explicit done/error event is authoritative; a socket reset while
+          // draining the closed stream afterwards doesn't change the reported outcome.
           setIsStreaming(false);
           return;
         }
+        terminal = "error";
         const errorInstance = err instanceof Error ? err : new Error(String(err));
         setError(errorInstance.message);
         setIsStreaming(false);
@@ -247,22 +281,28 @@ export function useStreamingQuery(
         }
       }
     },
-    [batchSize, endpoint, headers, onBatch, onComplete, onError]
+    []
   );
 
   const hasAutoExecutedRef = useRef(false);
+
+  // Real-unmount cleanup. Under React.StrictMode the dev double-invoke runs this cleanup and
+  // then re-runs the effects, so the auto-execute guard is reset to allow the restart.
+  useEffect(() => {
+    return () => {
+      hasAutoExecutedRef.current = false;
+      const controller = abortControllerRef.current;
+      abortControllerRef.current = null;
+      controller?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     activePayloadRef.current = initialPayload;
     if (autoExecute && initialPayload && !hasAutoExecutedRef.current) {
       hasAutoExecutedRef.current = true;
-      execute(initialPayload);
+      void execute(initialPayload);
     }
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
   }, [autoExecute, execute, initialPayload]);
 
   return {

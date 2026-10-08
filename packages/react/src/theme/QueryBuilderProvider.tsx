@@ -7,7 +7,8 @@ import type {
 import type {
   CustomFilterOperator,
   CustomFieldRenderer,
-  QueryResultData,
+  CellRenderer,
+  ExecuteQueryHandler,
   FeatureConfig,
   FeaturePreset,
   FeatureKey,
@@ -15,12 +16,14 @@ import type {
 } from "../types";
 import { resolveFeatureConfig, isFeatureVisible as checkFeatureVisible } from "../utils/featureUtils";
 
+export type { CellRenderer };
+
 export interface QueryBuilderContextValue {
   mode: "styled" | "unstyled";
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
-  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
+  cellRenderers?: Record<string, CellRenderer>;
+  onExecuteQuery?: ExecuteQueryHandler;
   isAdvancedMode?: boolean;
   setIsAdvancedMode?: (isAdvanced: boolean) => void;
   features?: ResolvedFeatureMap;
@@ -40,8 +43,8 @@ export interface QueryBuilderProviderProps {
   customTokens?: DeepPartial<QueryBuilderTheme>;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
-  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
+  cellRenderers?: Record<string, CellRenderer>;
+  onExecuteQuery?: ExecuteQueryHandler;
   features?: FeatureConfig;
   featurePreset?: FeaturePreset;
   isAdvancedMode?: boolean;
@@ -83,7 +86,7 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
   };
 
   const resolvedFeatures = useMemo(() => {
-    return resolveFeatureConfig(features, featurePreset, parentContext?.features as any);
+    return resolveFeatureConfig(features, featurePreset, parentContext?.features);
   }, [features, featurePreset, parentContext?.features]);
 
   const value = useMemo<QueryBuilderContextValue>(

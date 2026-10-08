@@ -17,30 +17,53 @@ const JSON_SCHEMA_TYPE_MAP: Record<string, string> = {
   null: "text",
 };
 
+/** Minimal structural shape of a JSON Schema / OpenAPI schema node (only what is read). */
+interface JsonSchemaNode {
+  type?: string | string[];
+  format?: string;
+  nullable?: boolean;
+  $ref?: string;
+  enum?: unknown[];
+  default?: unknown;
+  description?: string;
+  title?: string;
+  name?: string;
+  required?: unknown;
+  properties?: Record<string, unknown>;
+  primary_keys?: unknown;
+  primaryKey?: unknown;
+  is_primary?: unknown;
+  foreign_key?: unknown;
+  components?: { schemas?: Record<string, unknown> };
+  definitions?: Record<string, unknown>;
+  $defs?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 function parseSingleJsonTable(
   tableName: string,
-  schemaDef: Record<string, any>,
+  schemaDef: JsonSchemaNode,
   defaultSchema: string,
 ): TableSchema {
   const properties = schemaDef.properties || {};
   const requiredCols = new Set<string>(
-    Array.isArray(schemaDef.required) ? schemaDef.required : [],
+    Array.isArray(schemaDef.required) ? (schemaDef.required as string[]) : [],
   );
 
   const primaryKeys: string[] = [];
   if (Array.isArray(schemaDef["x-primary-keys"])) {
-    primaryKeys.push(...schemaDef["x-primary-keys"]);
+    primaryKeys.push(...(schemaDef["x-primary-keys"] as string[]));
   } else if (Array.isArray(schemaDef.primary_keys)) {
-    primaryKeys.push(...schemaDef.primary_keys);
+    primaryKeys.push(...(schemaDef.primary_keys as string[]));
   }
 
   const columns: ColumnSchema[] = [];
   const foreignKeys: ForeignKey[] = [];
 
   for (const [propName, propDefRaw] of Object.entries(properties)) {
-    const propDef: Record<string, any> =
+    const propDef: JsonSchemaNode =
       typeof propDefRaw === "object" && propDefRaw !== null
-        ? (propDefRaw as Record<string, any>)
+        ? (propDefRaw as JsonSchemaNode)
         : { type: String(propDefRaw) };
 
     // Handle $ref
@@ -58,7 +81,7 @@ function parseSingleJsonTable(
     }
 
     // Type resolution
-    let rawType = propDef.type || "string";
+    let rawType: string | string[] = propDef.type || "string";
     let hasNullType = false;
     if (Array.isArray(rawType)) {
       hasNullType = rawType.includes("null");
@@ -105,7 +128,7 @@ function parseSingleJsonTable(
 
     // Explicit foreign key
     let fk: ForeignKey | undefined = refFk;
-    const fkRaw =
+    const fkRaw: unknown =
       propDef["x-foreign-key"] || propDef["x-references"] || propDef.foreign_key;
     if (fkRaw) {
       if (typeof fkRaw === "string" && fkRaw.includes(".")) {
@@ -121,8 +144,8 @@ function parseSingleJsonTable(
         fk = {
           table: tableName,
           column: propName,
-          foreignTable: fkRaw.table || "",
-          foreignColumn: fkRaw.column || "id",
+          foreignTable: (fkRaw as { table?: string }).table || "",
+          foreignColumn: (fkRaw as { column?: string }).column || "id",
         };
         foreignKeys.push(fk);
       }
@@ -173,12 +196,12 @@ function parseSingleJsonTable(
 }
 
 export function fromJsonSchema(
-  source: string | Record<string, any>,
+  source: string | Record<string, unknown>,
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
 
-  let rawData: Record<string, any>;
+  let rawData: JsonSchemaNode;
   if (typeof source === "string") {
     try {
       rawData = JSON.parse(source);
@@ -186,7 +209,7 @@ export function fromJsonSchema(
       rawData = { type: "object", properties: {} };
     }
   } else {
-    rawData = source || {};
+    rawData = (source || {}) as JsonSchemaNode;
   }
 
   const tables: TableSchema[] = [];
@@ -200,7 +223,7 @@ export function fromJsonSchema(
   ) {
     for (const [name, def] of Object.entries(rawData.components.schemas)) {
       if (typeof def === "object" && def !== null) {
-        tables.push(parseSingleJsonTable(name, def, defaultSchema));
+        tables.push(parseSingleJsonTable(name, def as JsonSchemaNode, defaultSchema));
       }
     }
     return tables;
@@ -211,7 +234,7 @@ export function fromJsonSchema(
   if (defs && typeof defs === "object") {
     for (const [name, def] of Object.entries(defs)) {
       if (typeof def === "object" && def !== null) {
-        tables.push(parseSingleJsonTable(name, def as any, defaultSchema));
+        tables.push(parseSingleJsonTable(name, def as JsonSchemaNode, defaultSchema));
       }
     }
     return tables;
@@ -221,14 +244,14 @@ export function fromJsonSchema(
   if (!rawData.properties && !rawData.type) {
     for (const [name, def] of Object.entries(rawData)) {
       if (typeof def === "object" && def !== null) {
-        tables.push(parseSingleJsonTable(name, def, defaultSchema));
+        tables.push(parseSingleJsonTable(name, def as JsonSchemaNode, defaultSchema));
       }
     }
     return tables;
   }
 
   // 4. Single schema object
-  const name = rawData.title || rawData.name || "main";
+  const name = (rawData.title || rawData.name || "main") as string;
   tables.push(parseSingleJsonTable(name, rawData, defaultSchema));
 
   return tables;

@@ -3,6 +3,24 @@
  */
 
 import type { QuerySpec } from "../types";
+import type { ByoAiContext } from "./types";
+
+/** Minimal structural shape of the schema data read when synthesizing joins. */
+interface HealingForeignKey {
+  target_table?: string;
+  targetTable?: string;
+  target_column?: string;
+  targetColumn?: string;
+  column?: string;
+  foreign_column?: string;
+}
+
+interface HealingSchemaLike {
+  tables?: Record<
+    string,
+    { foreign_keys?: HealingForeignKey[]; foreignKeys?: HealingForeignKey[] } | undefined
+  >;
+}
 
 function extractTableAndColumn(ref: string, defaultTable: string): [string, string] {
   const clean = ref.trim().replace(/["`\[\]]/g, "");
@@ -15,7 +33,7 @@ function extractTableAndColumn(ref: string, defaultTable: string): [string, stri
 
 export function autoHealClientQuerySpec(
   spec: Partial<QuerySpec>,
-  schema?: any
+  schema?: ByoAiContext["schema"] | { name?: string }[]
 ): { healedSpec: QuerySpec; notes: string[] } {
   const notes: string[] = [];
 
@@ -102,10 +120,11 @@ export function autoHealClientQuerySpec(
       let leftCol = "id";
       let rightCol = `${primaryTable}_id`;
 
-      if (schema && schema.tables && schema.tables[targetTable]) {
-        const targetMeta = schema.tables[targetTable];
+      const schemaTables = (schema as HealingSchemaLike | null | undefined)?.tables;
+      if (schemaTables && schemaTables[targetTable]) {
+        const targetMeta = schemaTables[targetTable];
         const fks = targetMeta.foreign_keys || targetMeta.foreignKeys || [];
-        const matchingFk = fks.find((fk: any) => fk.target_table === primaryTable || fk.targetTable === primaryTable);
+        const matchingFk = fks.find((fk) => fk.target_table === primaryTable || fk.targetTable === primaryTable);
         if (matchingFk) {
           leftCol = matchingFk.target_column || matchingFk.targetColumn || "id";
           rightCol = matchingFk.column || matchingFk.foreign_column || "id";

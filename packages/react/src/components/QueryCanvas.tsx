@@ -11,6 +11,7 @@ import type {
   VectorSearchSpec,
   HybridSearchSpec,
   QueryBuilderClassNames,
+  TimeGrain,
 } from "../types";
 import { TableCard } from "./TableCard";
 import { TableFiltersEditor } from "./TableFiltersEditor";
@@ -478,7 +479,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       aria-label={`Time grain for ${key}`}
                       onChange={(e) =>
                         onUpdateColumnSelect(key, {
-                          timeGrain: (e.target.value as any) || undefined,
+                          timeGrain: (e.target.value as TimeGrain) || undefined,
                         })
                       }
                       className={cx(classNames?.projectionSelect)}

@@ -125,7 +125,7 @@ export const PipelineDagCanvas: React.FC<PipelineDagCanvasProps> = ({
     const newCte: CteSpec = {
       name: candidateName,
       query: {
-        table: (ctes[ctes.length - 1]?.name as any) || ("" as any),
+        table: ctes[ctes.length - 1]?.name || "",
         columns: ["*"],
         joins: [],
         filters: [],

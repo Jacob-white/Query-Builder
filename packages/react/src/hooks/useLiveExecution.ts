@@ -44,7 +44,7 @@ export interface UseLiveExecutionReturn {
   connectionLatencyMs: number | null;
   activeExecutionId: string | null;
   executeQuery: (
-    queryOrSql: string | Record<string, unknown>,
+    queryOrSql: string | object,
     options?: ExecuteQueryOptions
   ) => Promise<LiveExecutionResult | null>;
   cancelExecution: () => Promise<boolean>;
@@ -184,7 +184,7 @@ export function useLiveExecution(
 
   const executeQuery = useCallback(
     async (
-      queryOrSql: string | Record<string, unknown>,
+      queryOrSql: string | object,
       execOptions: ExecuteQueryOptions = {}
     ): Promise<LiveExecutionResult | null> => {
       if (abortControllerRef.current) {

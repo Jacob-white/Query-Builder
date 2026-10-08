@@ -32,17 +32,17 @@ export interface UseDashboardManagerReturn {
   setGlobalFilter: (filter: GlobalFilter) => void;
   removeGlobalFilter: (field: string) => void;
   clearGlobalFilters: () => void;
-  setCrossFilter: (sourceTileId: string, field: string, value: any) => void;
+  setCrossFilter: (sourceTileId: string, field: string, value: unknown) => void;
   clearCrossFilter: () => void;
-  getFilteredRowsForTile: (tileId: string) => Record<string, any>[];
-  computeKpi: (tile: DashboardTile, rows: Record<string, any>[]) => {
+  getFilteredRowsForTile: (tileId: string) => Record<string, unknown>[];
+  computeKpi: (tile: DashboardTile, rows: Record<string, unknown>[]) => {
     value: number | string;
     title: string;
     subtitle?: string;
     delta?: number;
     color?: string;
   };
-  computePivot: (tile: DashboardTile, rows: Record<string, any>[]) => {
+  computePivot: (tile: DashboardTile, rows: Record<string, unknown>[]) => {
     rowKeys: string[];
     colKeys: string[];
     data: Record<string, Record<string, number>>;
@@ -166,7 +166,7 @@ export function useDashboardManager(
     }));
   }, []);
 
-  const setCrossFilter = useCallback((sourceTileId: string, field: string, value: any) => {
+  const setCrossFilter = useCallback((sourceTileId: string, field: string, value: unknown) => {
     setDashboard((prev) => {
       // Toggle off if clicking the same value again
       if (
@@ -192,7 +192,7 @@ export function useDashboardManager(
   }, []);
 
   const getFilteredRowsForTile = useCallback(
-    (tileId: string): Record<string, any>[] => {
+    (tileId: string): Record<string, unknown>[] => {
       const tile = dashboard.tiles.find((t) => t.id === tileId);
       if (!tile || !tile.cachedRows) return [];
 
@@ -221,7 +221,7 @@ export function useDashboardManager(
   );
 
   const computeKpi = useCallback(
-    (tile: DashboardTile, rows: Record<string, any>[]) => {
+    (tile: DashboardTile, rows: Record<string, unknown>[]) => {
       const cfg = tile.kpiConfig || {};
       const valField = cfg.valueField || (rows[0] ? Object.keys(rows[0])[0] : "");
 
@@ -243,7 +243,7 @@ export function useDashboardManager(
   );
 
   const computePivot = useCallback(
-    (tile: DashboardTile, rows: Record<string, any>[]) => {
+    (tile: DashboardTile, rows: Record<string, unknown>[]) => {
       const cfg = tile.pivotConfig || {
         rowDimensions: [],
         columnDimensions: [],

@@ -11,22 +11,16 @@ import type {
   VisualQueryBuilderRef,
   TableMeta,
   ColumnMeta,
-  VisualColumnSelect,
   VisualFilter,
   VisualJoin,
   VisualSort,
   QueryResultData,
   QueryTemplate,
   DatabaseSchemaDefinition,
-  VectorSearchSpec,
-  HybridSearchSpec,
   QuerySpec,
   SchemaSnapshot,
-  QueryBuilderClassNames,
   FeatureKey,
   FeatureTier,
-  FeatureConfig,
-  FeaturePreset,
   ResolvedFeatureMap,
 } from "../types";
 import {
@@ -52,18 +46,20 @@ import { compileVisualState, estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema, validateSchema } from "../utils/schemaUtils";
 import { parseSqlToSpec } from "../utils/sqlParser";
-import { useQueryState, specToState, createInitialState } from "../hooks/useQueryState";
+import { useQueryState, createInitialState } from "../hooks/useQueryState";
 import { findBestJoinCondition } from "../utils/joinUtils";
 import { cx } from "../utils/classNames";
 import { useTheme } from "../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
+import { compileSpecToSql } from "../utils/compiler";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { attachSemanticModelsToTables } from "../adapters/semantic";
-import type { QueryPlanNode, CteSpec, WindowFunctionSpec, SemanticModel } from "../types";
+import type { NlqProviderName } from "../hooks/useNlqQuery";
+import type { QueryPlanNode, CteSpec, WindowFunctionSpec, SemanticModel, SqlDialect } from "../types";
 
 export type { VisualQueryBuilderRef };
 
-export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> = Omit<
+export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> = Omit<
   VisualQueryBuilderProps<Schema>,
   "theme"
 > & {
@@ -73,7 +69,7 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   showPlanTab?: boolean;
   showNlqBar?: boolean;
   nlqApiUrl?: string;
-  nlqDefaultProvider?: any;
+  nlqDefaultProvider?: NlqProviderName;
   showLiveExecutionBar?: boolean;
   liveExecutionApiUrl?: string;
   liveExecutionConnectionId?: string;
@@ -89,14 +85,42 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
  * Serializes a QuerySpec or object canonically, sorting all keys recursively
  * so equivalent specifications compare identically regardless of key ordering.
  */
-export function fastCanonicalSpec(obj: any): string {
+export function fastCanonicalSpec(obj: unknown): string {
   if (obj === null || obj === undefined) return "";
   if (typeof obj !== "object") return JSON.stringify(obj);
   if (Array.isArray(obj)) {
     return "[" + obj.map(fastCanonicalSpec).join(",") + "]";
   }
-  const keys = Object.keys(obj).sort().filter((k) => obj[k] !== undefined);
-  return "{" + keys.map((k) => JSON.stringify(k) + ":" + fastCanonicalSpec(obj[k])).join(",") + "}";
+  const rec = obj as Record<string, unknown>;
+  const keys = Object.keys(rec).sort().filter((k) => rec[k] !== undefined);
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + fastCanonicalSpec(rec[k])).join(",") + "}";
+}
+
+/**
+ * Formatting-insensitive form of SQL (case, whitespace, identifier quotes, trailing `;`).
+ * String literals are kept verbatim so edits inside them still count as changes.
+ */
+function normalizeSqlForCompare(sql: string): string {
+  return sql
+    .split(/('(?:[^']|'')*')/)
+    .map((seg, i) =>
+      i % 2 === 1
+        ? seg
+        : seg
+            .replace(/["`]/g, "")
+            .replace(/\[([A-Za-z_][\w ]*)\]/g, "$1")
+            .replace(/\s+/g, " ")
+            .replace(/\s*([(),=])\s*/g, "$1")
+            .toLowerCase(),
+    )
+    .join("")
+    .replace(/;+\s*$/, "")
+    .trim();
+}
+
+// True when the SQL carries line or block comments (outside string literals) that the visual model cannot represent.
+function hasSqlComments(sql: string): boolean {
+  return /--|\/\*/.test(sql.replace(/'(?:[^']|'')*'/g, "''"));
 }
 
 export const VisualQueryBuilder = React.forwardRef<
@@ -163,8 +187,8 @@ export const VisualQueryBuilder = React.forwardRef<
     propExecuteQuery ??
     qbContext?.onExecuteQuery ??
     (client
-      ? async (sql: string, spec?: Record<string, unknown>) => {
-          return client.execute(spec ? (spec as unknown as QuerySpec) : { sql });
+      ? async (sql: string, spec?: QuerySpec | null) => {
+          return client.execute(spec ? spec : { sql });
         }
       : undefined);
 
@@ -276,7 +300,7 @@ export const VisualQueryBuilder = React.forwardRef<
       if (!result.valid || result.warnings.length > 0) {
         if (
           typeof globalThis !== "undefined" &&
-          (globalThis as any).process?.env?.NODE_ENV !== "production"
+          (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NODE_ENV !== "production"
         ) {
           result.errors.forEach((e) => {
             console.warn(`[Query-Builder Schema Error] ${e.code}: ${e.message}`, e.suggestion);
@@ -293,9 +317,11 @@ export const VisualQueryBuilder = React.forwardRef<
   const initialQuery = useMemo(() => {
     if (value) return value;
     if (initialSpec) return initialSpec;
-    const base: Record<string, any> = {};
+    const base: Record<string, unknown> = {};
     const defaultT =
-      initialTable || (propSchema?.tables ? Object.keys(propSchema.tables)[0] : undefined);
+      initialTable || (propSchema && !Array.isArray(propSchema) && propSchema.tables
+        ? Object.keys(propSchema.tables)[0]
+        : undefined);
     if (defaultT) {
       base.table = defaultT;
       base.activeTables = [defaultT];
@@ -351,7 +377,7 @@ export const VisualQueryBuilder = React.forwardRef<
     const cleanedCols = { ...state.selectedColumns };
     let hasCleaned = false;
     for (const [k, v] of Object.entries(cleanedCols)) {
-      if (v && (v.rawExpression || (v as any).expression)) {
+      if (v && (v.rawExpression || (v as { expression?: unknown }).expression)) {
         delete cleanedCols[k];
         hasCleaned = true;
       }
@@ -368,7 +394,7 @@ export const VisualQueryBuilder = React.forwardRef<
         if (activeStageName && cte.name === activeStageName) continue;
         const cols: ColumnMeta[] = [];
         if (cte.query?.columns) {
-          cte.query.columns.forEach((col: any) => {
+          cte.query.columns.forEach((col) => {
             if (typeof col === "string") {
               cols.push({ name: col, data_type: "text", is_nullable: true, is_primary: false });
             } else if (col && typeof col === "object") {
@@ -382,7 +408,7 @@ export const VisualQueryBuilder = React.forwardRef<
           });
         }
         if (cte.query?.window_functions) {
-          cte.query.window_functions.forEach((wf: any) => {
+          cte.query.window_functions.forEach((wf) => {
             if (wf.alias)
               cols.push({
                 name: wf.alias,
@@ -444,22 +470,48 @@ export const VisualQueryBuilder = React.forwardRef<
 
   const [rawSql, setRawSql] = useState<string>("");
   const [isRawMode, setIsRawMode] = useState<boolean>(false);
+  // Raw SQL that a visual edit replaced; offered back to the user instead of being lost silently.
+  const [discardedRawSql, setDiscardedRawSql] = useState<string | null>(null);
+  const rawModeSnapshotRef = useRef<{
+    isRawMode: boolean;
+    rawSql: string;
+    compiledSql: string;
+    dialect: SqlDialect;
+    schema: SchemaSnapshot | null | undefined;
+  }>({ isRawMode: false, rawSql: "", compiledSql: "", dialect: "postgres", schema: null });
+  const leaveRawMode = useCallback(() => {
+    const snap = rawModeSnapshotRef.current;
+    if (snap.isRawMode && snap.rawSql.trim()) {
+      // Loss detection is semantic: nothing is lost when the raw SQL maps onto the visual model
+      // (parses, has no comments the model cannot hold, and recompiles to what the canvas shows).
+      let lost = hasSqlComments(snap.rawSql);
+      if (!lost) {
+        const parsed = parseSqlToSpec(snap.rawSql, snap.schema);
+        lost =
+          !parsed ||
+          normalizeSqlForCompare(compileSpecToSql(parsed, snap.dialect, snap.schema)) !==
+            normalizeSqlForCompare(snap.compiledSql);
+      }
+      if (lost) setDiscardedRawSql(snap.rawSql);
+    }
+    setIsRawMode(false);
+  }, []);
 
   const setLimit = actions.setLimit;
   const setIsDistinct = actions.setDistinct;
   const setSorts = useCallback(
     (newSorts: VisualSort[]) => {
-      setIsRawMode(false);
+      leaveRawMode();
       actions.setSorts(newSorts);
     },
-    [actions],
+    [actions, leaveRawMode],
   );
   const setFilters = useCallback(
     (newFilters: VisualFilter[]) => {
-      setIsRawMode(false);
+      leaveRawMode();
       actions.setFilters(newFilters);
     },
-    [actions],
+    [actions, leaveRawMode],
   );
   const setJoins = actions.setJoins;
   const setPrimaryTable = actions.setPrimaryTable;
@@ -580,11 +632,22 @@ export const VisualQueryBuilder = React.forwardRef<
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
+  useEffect(() => {
+    rawModeSnapshotRef.current = {
+      isRawMode,
+      rawSql,
+      compiledSql: compiled.sql,
+      dialect,
+      schema: augmentedSchema,
+    };
+  }, [isRawMode, rawSql, compiled.sql, dialect, augmentedSchema]);
   const safety = useMemo(() => validateSqlSafety(currentSql), [currentSql]);
 
-  const getActiveSpec = useCallback((): any => {
+  /** `null` while raw-SQL mode holds SQL that cannot be mapped to a spec (for example `SELECT`). */
+  const getActiveSpec = useCallback((): QuerySpec | null => {
     if (isRawMode) {
-      return parseSqlToSpec(currentSql, normalizedSchema);
+      const parsed = parseSqlToSpec(currentSql, normalizedSchema);
+      return parsed && parsed.table ? parsed : null;
     }
     return compiled.spec;
   }, [isRawMode, currentSql, normalizedSchema, compiled.spec]);
@@ -612,7 +675,9 @@ export const VisualQueryBuilder = React.forwardRef<
   // Propagate state changes to `onChange` callback
   useEffect(() => {
     const currentActiveSpec = getActiveSpec();
-    const canonicalActive = fastCanonicalSpec(createInitialState(currentActiveSpec));
+    const canonicalActive = currentActiveSpec
+      ? fastCanonicalSpec(createInitialState(currentActiveSpec))
+      : `__unparsed_raw_sql__:${currentSql}`;
 
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false;
@@ -632,7 +697,7 @@ export const VisualQueryBuilder = React.forwardRef<
 
   // Handle column selection toggle
   const handleToggleColumn = (tableName: string, colName: string) => {
-    setIsRawMode(false);
+    leaveRawMode();
     const key = `${tableName}.${colName}`;
     const nextSelected = { ...state.selectedColumns };
     let nextKeys = [...state.orderedProjectionKeys];
@@ -641,7 +706,7 @@ export const VisualQueryBuilder = React.forwardRef<
       nextKeys = nextKeys.filter((k) => k !== key);
     } else {
       const tblMeta = augmentedSchema?.tables?.[tableName];
-      const isMetric = tblMeta?.metrics?.find((m: any) => m.name === colName);
+      const isMetric = tblMeta?.metrics?.find((m) => m.name === colName);
       nextSelected[key] = {
         table: tableName,
         name: colName,
@@ -657,19 +722,19 @@ export const VisualQueryBuilder = React.forwardRef<
   // Add table to canvas
   const handleAddTableToCanvas = (tableName: string) => {
     if (!tableName) return;
-    setIsRawMode(false);
+    leaveRawMode();
     actions.addTable(tableName);
   };
 
   // Remove table from canvas
   const handleRemoveTable = (tableName: string) => {
-    setIsRawMode(false);
+    leaveRawMode();
     actions.removeTable(tableName);
   };
 
   // Synchronize Joins and active table names
   const handleJoinsChange = (newJoins: VisualJoin[]) => {
-    setIsRawMode(false);
+    leaveRawMode();
     actions.setJoins(newJoins);
     const set = new Set(state.activeTables);
     for (const j of newJoins) {
@@ -698,6 +763,7 @@ export const VisualQueryBuilder = React.forwardRef<
 
   // Raw SQL input change with bidirectional sync
   const handleRawSqlChange = (newSql: string) => {
+    setDiscardedRawSql(null);
     setIsRawMode(true);
     setRawSql(newSql);
 
@@ -716,10 +782,10 @@ export const VisualQueryBuilder = React.forwardRef<
     setIsRawMode(false);
   };
 
-  const handleApplyNlqSpec = (appliedSpec: any) => {
+  const handleApplyNlqSpec = (appliedSpec: QuerySpec) => {
     if (appliedSpec && appliedSpec.table) {
       actions.loadSpec(appliedSpec);
-      setIsRawMode(false);
+      leaveRawMode();
     }
   };
 
@@ -768,22 +834,22 @@ export const VisualQueryBuilder = React.forwardRef<
       getSpec: () => getActiveSpec(),
       getSql: () => currentSql,
       setSpec: (newSpec: QuerySpec) => {
-        setIsRawMode(false);
+        leaveRawMode();
         actions.loadSpec(newSpec);
       },
       reset: () => {
-        setIsRawMode(false);
+        leaveRawMode();
         actions.reset();
       },
       execute: async () => {
         return handleRunQuery();
       },
       undo: () => {
-        setIsRawMode(false);
+        leaveRawMode();
         actions.undo();
       },
       redo: () => {
-        setIsRawMode(false);
+        leaveRawMode();
         actions.redo();
       },
       canUndo: () => history.canUndo,
@@ -796,7 +862,7 @@ export const VisualQueryBuilder = React.forwardRef<
   const handleSaveTemplate = (template: QueryTemplate) => {
     if (onSaveQuery) {
       const parsedSpec = isRawMode
-        ? (parseSqlToSpec(template.sql, normalizedSchema) as any) || template.spec || compiled.spec
+        ? parseSqlToSpec(template.sql, normalizedSchema) || template.spec || compiled.spec
         : template.spec || compiled.spec;
       onSaveQuery(template.title, template.sql, parsedSpec);
     }
@@ -807,8 +873,9 @@ export const VisualQueryBuilder = React.forwardRef<
   const handleLoadTemplate = (template: QueryTemplate) => {
     if (template.spec && Object.keys(template.spec).length > 0) {
       actions.loadSpec(template.spec);
-      setIsRawMode(false);
+      leaveRawMode();
     } else if (template.sql) {
+      setDiscardedRawSql(null);
       setRawSql(template.sql);
       setIsRawMode(true);
       setActiveTab("sql");
@@ -1536,6 +1603,7 @@ export const VisualQueryBuilder = React.forwardRef<
               onChange={(e) => {
                 const preset = presets.find((p) => p.id === e.target.value);
                 if (preset?.sql) {
+                  setDiscardedRawSql(null);
                   setRawSql(preset.sql);
                   setIsRawMode(true);
                   setActiveTab("sql");
@@ -1745,7 +1813,8 @@ export const VisualQueryBuilder = React.forwardRef<
           onDismissError={liveExec.clearResults}
           onTestConnection={() => void liveExec.testConnection()}
           onExecute={() => {
-            void liveExec.executeQuery(getActiveSpec());
+            const activeSpec = getActiveSpec();
+            if (activeSpec) void liveExec.executeQuery(activeSpec);
           }}
           onCancel={() => void liveExec.cancelExecution()}
           unstyled={unstyled}
@@ -1823,6 +1892,47 @@ export const VisualQueryBuilder = React.forwardRef<
               : { display: "flex", flexDirection: "column", gap: "8px" }
           }
         >
+          {discardedRawSql !== null && (
+            <div
+              role="status"
+              data-qb="raw-sql-discarded-notice"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "6px 10px",
+                      fontSize: activeTheme.typography.fontSizeSm,
+                      color: activeTheme.colors.textSecondary,
+                      border: `1px solid ${activeTheme.colors.border}`,
+                      borderRadius: activeTheme.radii.sm,
+                    }
+              }
+            >
+              <span>A visual edit replaced your custom SQL with the compiled query.</span>
+              <span>
+                <button
+                  type="button"
+                  data-qb="btn-restore-raw-sql"
+                  onClick={() => {
+                    handleRawSqlChange(discardedRawSql);
+                  }}
+                >
+                  Restore my SQL
+                </button>{" "}
+                <button
+                  type="button"
+                  data-qb="btn-dismiss-raw-sql-notice"
+                  onClick={() => setDiscardedRawSql(null)}
+                >
+                  Dismiss
+                </button>
+              </span>
+            </div>
+          )}
           <div
             style={
               unstyled
@@ -2070,6 +2180,6 @@ export const VisualQueryBuilder = React.forwardRef<
       )}
     </div>
   );
-}) as <Schema extends DatabaseSchemaDefinition = any>(
+}) as <Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition>(
   props: ExtendedVisualQueryBuilderProps<Schema> & { ref?: React.Ref<VisualQueryBuilderRef> },
 ) => React.ReactElement | null;
