@@ -12,7 +12,9 @@ from enum import Enum
 from typing import Any
 
 
-class FeatureTier(str, Enum):
+# Not StrEnum on purpose: StrEnum changes str()/format() output (value vs "FeatureTier.X"),
+# which would silently alter serialized output for existing callers.
+class FeatureTier(str, Enum):  # noqa: UP042
     """Classification tier for a query builder engine feature."""
 
     STANDARD = "standard"
