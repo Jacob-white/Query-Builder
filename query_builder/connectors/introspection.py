@@ -32,7 +32,8 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
 
         for tbl in table_names:
             # Table columns
-            cursor.execute(f'PRAGMA table_info("{tbl}");')
+            safe_tbl = tbl.replace('"', '""')
+            cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
             cols_meta = cursor.fetchall()
             cols: list[dict[str, Any]] = []
             has_user = False
@@ -65,7 +66,7 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
             }
 
             # Foreign keys
-            cursor.execute(f'PRAGMA foreign_key_list("{tbl}");')
+            cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
             fk_rows = cursor.fetchall()
             for fk in fk_rows:
                 # id, seq, table, from, to, on_update, on_delete, match

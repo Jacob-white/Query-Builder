@@ -14,6 +14,12 @@ import type {
   SchemaColumnNames,
   SchemaColumnRefs,
   QuerySpec,
+  CustomFilterOperator,
+  VectorSearchSpec,
+  HybridSearchSpec,
+  CteSpec,
+  WindowFunctionSpec,
+  SemanticModel,
 } from "../types";
 import { compileVisualState, type CompiledVisualQuery } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
@@ -34,6 +40,13 @@ export interface UseQueryBuilderOptions<Schema extends DatabaseSchemaDefinition 
   initialFilters?: VisualFilter<Schema>[];
   initialSorts?: VisualSort<Schema>[];
   initialActiveTables?: SchemaTableNames<Schema>[];
+  customOperators?: Record<string, CustomFilterOperator>;
+  vectorSearch?: VectorSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
+  ctes?: CteSpec[] | null;
+  windowFunctions?: WindowFunctionSpec[] | null;
+  semanticModels?: SemanticModel[] | null;
+  filterJoin?: "AND" | "OR";
 }
 
 export interface QueryBuilderState<Schema = any> {
@@ -51,6 +64,12 @@ export interface QueryBuilderState<Schema = any> {
   rawSql: string;
   isRawMode: boolean;
   isDirty: boolean;
+  vectorSearch?: VectorSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
+  ctes?: CteSpec[] | null;
+  windowFunctions?: WindowFunctionSpec[] | null;
+  semanticModels?: SemanticModel[] | null;
+  filterJoin?: "AND" | "OR";
 }
 
 export interface QueryBuilderActions<Schema = any> {
@@ -85,6 +104,12 @@ export interface QueryBuilderActions<Schema = any> {
   loadSpec: (spec: Record<string, unknown> | QuerySpec<Schema>) => void;
   reset: () => void;
   markClean: () => void;
+  setVectorSearch?: (vs: VectorSearchSpec | null) => void;
+  setHybridSearch?: (hs: HybridSearchSpec | null) => void;
+  setCtes?: (ctes: CteSpec[] | null) => void;
+  setWindowFunctions?: (wfs: WindowFunctionSpec[] | null) => void;
+  setSemanticModels?: (models: SemanticModel[] | null) => void;
+  setFilterJoin?: (join: "AND" | "OR") => void;
 }
 
 export interface UseQueryBuilderReturn<Schema = any> {
@@ -173,6 +198,35 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
   const initDialect = optDialect || "postgres";
   const initRawSql = initialSql || "";
   const initIsRawMode = Boolean(initialSql);
+  const initVectorSearch =
+    options.vectorSearch ||
+    (options.initialSpec as any)?.vector_search ||
+    (options.initialSpec as any)?.vectorSearch ||
+    null;
+  const initHybridSearch =
+    options.hybridSearch ||
+    (options.initialSpec as any)?.hybrid_search ||
+    (options.initialSpec as any)?.hybridSearch ||
+    null;
+  const initCtes =
+    options.ctes ||
+    (options.initialSpec as any)?.ctes ||
+    null;
+  const initWindowFunctions =
+    options.windowFunctions ||
+    (options.initialSpec as any)?.window_functions ||
+    (options.initialSpec as any)?.windowFunctions ||
+    null;
+  const initSemanticModels =
+    options.semanticModels ||
+    (options.initialSpec as any)?.semantic_models ||
+    (options.initialSpec as any)?.semanticModels ||
+    null;
+  const initFilterJoin =
+    options.filterJoin ||
+    (options.initialSpec as any)?.filter_join ||
+    (options.initialSpec as any)?.filterJoin ||
+    "AND";
 
   const initialSnapshot = useMemo(
     () =>
@@ -211,6 +265,12 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
   const [rawSql, setRawSql] = useState<string>(initRawSql);
   const [isRawMode, setIsRawMode] = useState<boolean>(initIsRawMode);
   const [cleanSnapshot, setCleanSnapshot] = useState<string>(initialSnapshot);
+  const [vectorSearch, setVectorSearch] = useState<VectorSearchSpec | null>(initVectorSearch);
+  const [hybridSearch, setHybridSearch] = useState<HybridSearchSpec | null>(initHybridSearch);
+  const [ctes, setCtes] = useState<CteSpec[] | null>(initCtes);
+  const [windowFunctions, setWindowFunctions] = useState<WindowFunctionSpec[] | null>(initWindowFunctions);
+  const [semanticModels, setSemanticModels] = useState<SemanticModel[] | null>(initSemanticModels);
+  const [filterJoin, setFilterJoin] = useState<"AND" | "OR">(initFilterJoin);
 
   // Active table metadata
   const activeTables: TableMeta[] = useMemo(() => {
@@ -232,6 +292,13 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
       limit,
       normalizedSchema,
       dialect,
+      filterJoin,
+      options.customOperators,
+      vectorSearch,
+      hybridSearch,
+      ctes,
+      windowFunctions,
+      semanticModels,
     );
   }, [
     primaryTable,
@@ -244,6 +311,13 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     limit,
     normalizedSchema,
     dialect,
+    filterJoin,
+    options.customOperators,
+    vectorSearch,
+    hybridSearch,
+    ctes,
+    windowFunctions,
+    semanticModels,
   ]);
 
   const currentSql = isRawMode ? rawSql : compiled.sql;
@@ -283,6 +357,12 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     setDialect(initDialect);
     setRawSql(initRawSql);
     setIsRawMode(initIsRawMode);
+    setVectorSearch(initVectorSearch);
+    setHybridSearch(initHybridSearch);
+    setCtes(initCtes);
+    setWindowFunctions(initWindowFunctions);
+    setSemanticModels(initSemanticModels);
+    setFilterJoin(initFilterJoin);
     setCleanSnapshot(initialSnapshot);
   }, [
     initPrimaryTable,
@@ -297,6 +377,12 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     initDialect,
     initRawSql,
     initIsRawMode,
+    initVectorSearch,
+    initHybridSearch,
+    initCtes,
+    initWindowFunctions,
+    initSemanticModels,
+    initFilterJoin,
     initialSnapshot,
   ]);
 
@@ -599,6 +685,24 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     if (typeof spec.limit === "number") {
       setLimit(spec.limit);
     }
+    if ("vector_search" in s || "vectorSearch" in s) {
+      setVectorSearch(s.vector_search || s.vectorSearch || null);
+    }
+    if ("hybrid_search" in s || "hybridSearch" in s) {
+      setHybridSearch(s.hybrid_search || s.hybridSearch || null);
+    }
+    if ("ctes" in s) {
+      setCtes(s.ctes || null);
+    }
+    if ("window_functions" in s || "windowFunctions" in s) {
+      setWindowFunctions(s.window_functions || s.windowFunctions || null);
+    }
+    if ("semantic_models" in s || "semanticModels" in s) {
+      setSemanticModels(s.semantic_models || s.semanticModels || null);
+    }
+    if ("filter_join" in s || "filterJoin" in s) {
+      setFilterJoin(s.filter_join || s.filterJoin || "AND");
+    }
     setIsRawMode(false);
   }, []);
 
@@ -635,6 +739,12 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
       rawSql,
       isRawMode,
       isDirty,
+      vectorSearch,
+      hybridSearch,
+      ctes,
+      windowFunctions,
+      semanticModels,
+      filterJoin,
     },
     compiled,
     currentSql,
@@ -668,6 +778,12 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
       loadSpec,
       reset,
       markClean,
+      setVectorSearch,
+      setHybridSearch,
+      setCtes,
+      setWindowFunctions,
+      setSemanticModels,
+      setFilterJoin,
     },
   };
 }

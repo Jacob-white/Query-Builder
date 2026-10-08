@@ -156,3 +156,24 @@ def test_find_join_path_disconnected_fallback():
 def test_find_join_path_already_active(sample_schema):
     path = find_join_path(["firm_master"], "firm_master", sample_schema)
     assert path == []
+
+
+def test_clean_table_name_multipart():
+    from query_builder.join_solver import _clean_table_name
+
+    assert _clean_table_name("analytics.public.orders") == "orders"
+    assert _clean_table_name("cluster.db.schema.users") == "users"
+    assert _clean_table_name("production.firm_master") == "firm_master"
+    assert _clean_table_name("firm_master") == "firm_master"
+    assert _clean_table_name("") == ""
+    assert _clean_table_name(None) == ""
+
+
+def test_find_best_join_condition_multipart_schema(sample_schema):
+    cond = find_best_join_condition(
+        "analytics.public.firm_master", "db.public.firm_branch", sample_schema
+    )
+    assert cond["is_fk"] is True
+    assert cond["left_table"] == "firm_master"
+    assert cond["left_col"] == "firm_master_id"
+    assert cond["right_col"] == "firm_master_id"

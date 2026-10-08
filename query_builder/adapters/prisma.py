@@ -169,10 +169,10 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
     enum_blocks = re.findall(r"enum\s+(\w+)\s*\{([^}]*)\}", text, re.MULTILINE)
     for enum_name, enum_body in enum_blocks:
         values = []
-        for line in enum_body.strip().splitlines():
-            line = line.split("//")[0].strip()
-            if line:
-                values.append(line)
+        for raw_line in enum_body.strip().splitlines():
+            clean_line = raw_line.split("//")[0].strip()
+            if clean_line:
+                values.append(clean_line)
         enums[enum_name] = values
 
     # 2. Extract model name to @@map name

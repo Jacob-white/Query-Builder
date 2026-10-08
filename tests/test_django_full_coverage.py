@@ -714,6 +714,27 @@ def test_ninja_router_not_available():
         create_ninja_router("sqlite")
 
 
+def test_get_ninja_import_errors():
+    from query_builder.integrations.django import _get_ninja
+
+    with (
+        patch.dict("sys.modules", {"ninja": None}),
+        pytest.raises(ImportError, match="Django Ninja is not installed"),
+    ):
+        _get_ninja()
+
+    class FaultyNinja:
+        @property
+        def Router(self):
+            raise RuntimeError("unexpected load failure")
+
+    with (
+        patch.dict("sys.modules", {"ninja": FaultyNinja()}),
+        pytest.raises(ImportError, match="Django Ninja could not be loaded"),
+    ):
+        _get_ninja()
+
+
 def test_ninja_router_endpoints(sqlite_conn):
     rf = RequestFactory()
     router = create_ninja_router(
@@ -909,6 +930,10 @@ def test_django_integration_remaining_edge_cases(sqlite_conn):
     import query_builder.integrations.django as d_mod
 
     with patch.dict("sys.modules", {"ninja": None}):
+        importlib.reload(d_mod)
+        assert d_mod.NINJA_AVAILABLE is False
+
+    with patch("importlib.util.find_spec", side_effect=Exception("boom")):
         importlib.reload(d_mod)
         assert d_mod.NINJA_AVAILABLE is False
     # restore module

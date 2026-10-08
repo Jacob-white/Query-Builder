@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import type { WindowFunctionSpec, WindowFrameSpec } from "../types";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -113,6 +113,17 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
     onSave(spec);
     onClose();
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 

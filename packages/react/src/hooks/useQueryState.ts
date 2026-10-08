@@ -410,22 +410,33 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
   initialSpecOrState?: QuerySpec<Schema> | Partial<QueryState<Schema>> | Record<string, unknown>,
 ): UseQueryStateReturn<Schema> {
   const initialRef = useRef<QueryState<Schema>>(createInitialState<Schema>(initialSpecOrState));
-  const [state, setState] = useState<QueryState<Schema>>(initialRef.current);
+  const [historyState, setHistoryState] = useState<{
+    past: QueryState<Schema>[];
+    present: QueryState<Schema>;
+    future: QueryState<Schema>[];
+  }>(() => ({
+    past: [],
+    present: initialRef.current,
+    future: [],
+  }));
 
-  const [past, setPast] = useState<QueryState<Schema>[]>([]);
-  const [future, setFuture] = useState<QueryState<Schema>[]>([]);
+  const state = historyState.present;
+  const past = historyState.past;
+  const future = historyState.future;
 
   const applyUpdate = useCallback((updater: (prev: QueryState<Schema>) => QueryState<Schema>) => {
-    setState((prev) => {
-      const next = updater(prev);
-      setPast((p) => {
-        const nextPast = [...p, prev];
-        return nextPast.length > MAX_HISTORY_LENGTH
+    setHistoryState((curr) => {
+      const next = updater(curr.present);
+      const nextPast = [...curr.past, curr.present];
+      const trimmedPast =
+        nextPast.length > MAX_HISTORY_LENGTH
           ? nextPast.slice(nextPast.length - MAX_HISTORY_LENGTH)
           : nextPast;
-      });
-      setFuture([]);
-      return { ...next, isDirty: true };
+      return {
+        past: trimmedPast,
+        present: { ...next, isDirty: true },
+        future: [],
+      };
     });
   }, []);
 
@@ -833,40 +844,52 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
   );
 
   const undo = useCallback(() => {
-    setPast((p) => {
-      if (p.length === 0) return p;
-      const previous = p[p.length - 1];
-      const remaining = p.slice(0, p.length - 1);
-      setFuture((f) => [state, ...f]);
-      setState(previous);
-      return remaining;
+    setHistoryState((curr) => {
+      if (curr.past.length === 0) return curr;
+      const previous = curr.past[curr.past.length - 1];
+      const remaining = curr.past.slice(0, curr.past.length - 1);
+      return {
+        past: remaining,
+        present: previous,
+        future: [curr.present, ...curr.future],
+      };
     });
-  }, [state]);
+  }, []);
 
   const redo = useCallback(() => {
-    setFuture((f) => {
-      if (f.length === 0) return f;
-      const next = f[0];
-      const remaining = f.slice(1);
-      setPast((p) => [...p, state]);
-      setState(next);
-      return remaining;
+    setHistoryState((curr) => {
+      if (curr.future.length === 0) return curr;
+      const next = curr.future[0];
+      const remaining = curr.future.slice(1);
+      return {
+        past: [...curr.past, curr.present],
+        present: next,
+        future: remaining,
+      };
     });
-  }, [state]);
+  }, []);
 
   const clearHistory = useCallback(() => {
-    setPast([]);
-    setFuture([]);
+    setHistoryState((curr) => ({
+      ...curr,
+      past: [],
+      future: [],
+    }));
   }, []);
 
   const reset = useCallback(() => {
-    setState(initialRef.current);
-    setPast([]);
-    setFuture([]);
+    setHistoryState({
+      past: [],
+      present: initialRef.current,
+      future: [],
+    });
   }, []);
 
   const markClean = useCallback(() => {
-    setState((prev) => ({ ...prev, isDirty: false }));
+    setHistoryState((curr) => ({
+      ...curr,
+      present: { ...curr.present, isDirty: false },
+    }));
   }, []);
 
   const history = useMemo<QueryHistory<Schema>>(

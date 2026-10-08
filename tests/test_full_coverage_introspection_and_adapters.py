@@ -1041,3 +1041,25 @@ def test_edge_cases_all_adapters_and_introspection():
         fail_cur.execute.side_effect = RuntimeError("Introspection database error")
         with pytest.raises(IntrospectionError):
             fn(fail_cur)
+
+
+def test_introspect_sqlite_quoted_table_name():
+    import sqlite3
+    from query_builder.connectors.introspection import introspect_sqlite
+
+    conn = sqlite3.connect(":memory:")
+    cur = conn.cursor()
+    cur.execute(
+        'CREATE TABLE "users""data" (id INTEGER PRIMARY KEY, "full""name" TEXT, user_id INTEGER);'
+    )
+    cur.execute(
+        'CREATE TABLE "child""table" (id INTEGER PRIMARY KEY, parent_id INTEGER, FOREIGN KEY(parent_id) REFERENCES "users""data"(id));'
+    )
+    res = introspect_sqlite(cur)
+    assert 'users"data' in res["tables"]
+    table_meta = res["tables"]['users"data']
+    col_names = [c["name"] for c in table_meta["columns"]]
+    assert "id" in col_names
+    assert 'full"name' in col_names
+    assert table_meta["has_user_id"] is True
+    assert 'child"table' in res["tables"]

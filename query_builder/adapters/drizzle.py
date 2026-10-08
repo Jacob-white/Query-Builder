@@ -208,8 +208,8 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
             if chunk:
                 col_lines.append(chunk)
 
-        for col_def in col_lines:
-            col_def = col_def.split("//")[0].strip()
+        for raw_col in col_lines:
+            col_def = raw_col.split("//")[0].strip()
             if not col_def or ":" not in col_def:
                 continue
 

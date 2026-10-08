@@ -416,4 +416,4 @@ class DynamoDBConnector(BaseConnector):
                     user_id=str(user_id) if user_id is not None else None,
                     details={"error": str(scrubbed_exc)},
                 )
-            raise scrubbed_exc
+            raise scrubbed_exc from exc

@@ -9,6 +9,12 @@ import type {
   VisualFilter,
   VisualJoin,
   VisualSort,
+  CustomFilterOperator,
+  VectorSearchSpec,
+  HybridSearchSpec,
+  CteSpec,
+  WindowFunctionSpec,
+  SemanticModel,
 } from "../types";
 import { compileVisualState, type CompiledVisualQuery } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
@@ -21,6 +27,7 @@ export interface UseSqlCompilerOptions {
   schema?: SchemaSnapshot | DatabaseSchemaDefinition | null;
   debounceMs?: number;
   allowedSchemas?: string[];
+  customOperators?: Record<string, CustomFilterOperator>;
 }
 
 export interface UseSqlCompilerReturn {
@@ -121,6 +128,17 @@ function compileInput(
     }
 
     const filterJoin = (specOrState as any)?.filter_join || "AND";
+    const customOperators =
+      options?.customOperators || (specOrState as any)?.customOperators;
+    const vectorSearch =
+      (specOrState as any)?.vector_search || (specOrState as any)?.vectorSearch || null;
+    const hybridSearch =
+      (specOrState as any)?.hybrid_search || (specOrState as any)?.hybridSearch || null;
+    const ctes = (specOrState as any)?.ctes || null;
+    const windowFunctions =
+      (specOrState as any)?.window_functions || (specOrState as any)?.windowFunctions || null;
+    const semanticModels =
+      (specOrState as any)?.semantic_models || (specOrState as any)?.semanticModels || null;
 
     const compiled = compileVisualState(
       primaryTable,
@@ -134,6 +152,12 @@ function compileInput(
       normalizedSchema,
       dialect,
       filterJoin,
+      customOperators,
+      vectorSearch,
+      hybridSearch,
+      ctes,
+      windowFunctions,
+      semanticModels,
     );
 
     const sql = compiled.sql;
@@ -205,7 +229,14 @@ export function useSqlCompiler(
   const syncResult = useMemo(() => {
     if (isDebounced) return null;
     return compileInput(specOrState, options);
-  }, [specOrState, options?.dialect, options?.schema, options?.allowedSchemas, isDebounced]);
+  }, [
+    specOrState,
+    options?.dialect,
+    options?.schema,
+    options?.allowedSchemas,
+    options?.customOperators,
+    isDebounced,
+  ]);
 
   // Ref to track latest options/input for debounce
   const latestRef = useRef({ specOrState, options });
@@ -234,6 +265,7 @@ export function useSqlCompiler(
     options?.dialect,
     options?.schema,
     options?.allowedSchemas,
+    options?.customOperators,
     debounceMs,
     isDebounced,
   ]);

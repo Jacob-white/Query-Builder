@@ -125,8 +125,8 @@ def verify_prisma_structure(prisma_code: str) -> None:
         assert re.match(r"^[A-Z][a-zA-Z0-9_]*$", model_name), (
             f"Invalid model name: {model_name}"
         )
-        for line in body.strip().splitlines():
-            line = line.strip()
+        for raw_line in body.strip().splitlines():
+            line = raw_line.strip()
             if not line or line.startswith(("//", "@@")):
                 continue
             parts = line.split()
