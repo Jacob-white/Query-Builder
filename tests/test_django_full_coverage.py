@@ -1063,3 +1063,33 @@ def test_django_integration_remaining_edge_cases(sqlite_conn):
         rf.post("/"), payload={"spec": {"table": "users"}}
     )
     assert isinstance(res_ninja_exp, HttpResponse)
+
+
+def test_django_views_do_not_echo_unexpected_error_text(sqlite_conn):
+    """Unexpected exceptions get a fixed message; library errors keep theirs."""
+    leaky = "FATAL driver detail: connect to /var/lib/secret/db.sock failed"
+    rf = RequestFactory()
+    urls = create_django_urls(
+        sqlite_conn,
+        security={"allowed_tables": ["users"], "enforce_tenant_isolation": False},
+    )
+    url_map = {u.name: u.callback for u in urls}
+
+    with patch.object(
+        sqlite_conn, "introspect_schema", side_effect=RuntimeError(leaky)
+    ):
+        resp = url_map["query-builder-schema"](rf.get("/schema/"))
+    assert resp.status_code == 500
+    assert leaky not in resp.content.decode()
+    assert "Schema introspection failed" in resp.content.decode()
+
+    req = rf.post(
+        "/execute/",
+        data=json.dumps({"sql": "SELECT id FROM users"}),
+        content_type="application/json",
+    )
+    with patch.object(sqlite_conn, "execute_raw", side_effect=RuntimeError(leaky)):
+        resp = url_map["query-builder-execute"](req)
+    assert resp.status_code == 400
+    assert leaky not in resp.content.decode()
+    assert "Execution failed" in resp.content.decode()
