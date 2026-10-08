@@ -50,6 +50,7 @@ from query_builder.config import SecurityConfig
 from query_builder.connectors.base import BaseConnector
 from query_builder.connectors.registry import get_connector
 from query_builder.export import ExportError, export_dataset
+from query_builder.integrations._errors import public_error
 from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
 from query_builder.security import SecurityError
 
@@ -262,7 +263,7 @@ def create_query_builder_router(
         except Exception as exc:
             raise HTTPException(
                 status_code=401,
-                detail=f"Unauthorized: Tenant authentication failed: {exc}",
+                detail=public_error("Unauthorized: Tenant authentication failed", exc),
             ) from exc
 
     def get_effective_policy() -> SecurityPolicy | None:
@@ -354,7 +355,7 @@ def create_query_builder_router(
             return data
         except Exception as exc:
             raise HTTPException(
-                status_code=500, detail=f"Schema introspection failed: {exc}"
+                status_code=500, detail=public_error("Schema introspection failed", exc)
             ) from exc
 
     @router.post("/compile", summary="Compile Query Specification to SQL")
@@ -407,7 +408,7 @@ def create_query_builder_router(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (CompilationError, Exception) as exc:
             raise HTTPException(
-                status_code=400, detail=f"Compilation error: {exc}"
+                status_code=400, detail=public_error("Compilation error", exc)
             ) from exc
 
     @router.post("/validate", summary="Validate SQL AST Safety")
@@ -420,7 +421,7 @@ def create_query_builder_router(
             return result
         except Exception as exc:
             raise HTTPException(
-                status_code=400, detail=f"Validation error: {exc}"
+                status_code=400, detail=public_error("Validation error", exc)
             ) from exc
 
     @router.post("/execute", summary="Execute Query Specification or SQL")
@@ -539,7 +540,7 @@ def create_query_builder_router(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(
-                status_code=400, detail=f"Query execution error: {exc}"
+                status_code=400, detail=public_error("Query execution error", exc)
             ) from exc
 
     @router.post("/export", summary="Export Dataset in Multiple Formats")
@@ -620,6 +621,8 @@ def create_query_builder_router(
         except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (ExportError, Exception) as exc:
-            raise HTTPException(status_code=400, detail=f"Export error: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=public_error("Export error", exc)
+            ) from exc
 
     return router
