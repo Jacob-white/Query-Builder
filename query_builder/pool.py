@@ -37,10 +37,40 @@ _SECRET_KEY_PATTERNS = re.compile(
     r"(password|secret|token|api_key|credential|private_key|auth|access_key)",
     re.IGNORECASE,
 )
-_URI_PASSWORD_REGEX = re.compile(
-    r"(://[^:]+:)([^@]+)(@)",
-    re.IGNORECASE,
-)
+
+
+def _mask_uri_passwords(text: str) -> str:
+    """Masks the password in every ``scheme://user:password@host`` URI inside ``text``.
+
+    Same result as substituting ``(://[^:]+:)([^@]+)(@)`` with ``\\1***\\3``, implemented as a
+    scan: each ``://`` start looks for the first ``:`` and then the first ``@`` after it, and
+    scanning resumes after a match, so the work is bounded by what matches consume and a
+    missing ``:`` or ``@`` ends the whole scan instead of being retried from every start.
+    """
+    out: list[str] = []
+    pos = 0
+    i = text.find("://")
+    while i != -1:
+        colon = text.find(":", i + 3)
+        if colon == -1:
+            break  # No ":" anywhere later, so no further URI can match.
+        if colon == i + 3:  # Empty user part: this start cannot match.
+            i = text.find("://", i + 1)
+            continue
+        at = text.find("@", colon + 1)
+        if at == -1:
+            break  # No "@" anywhere later, so no further URI can match.
+        if at == colon + 1:  # Empty password: this start cannot match.
+            i = text.find("://", i + 1)
+            continue
+        out.append(text[pos : colon + 1])
+        out.append("***@")
+        pos = at + 1
+        i = text.find("://", pos)
+    if not out:
+        return text
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def mask_credentials(data: Any) -> Any:
@@ -49,13 +79,7 @@ def mask_credentials(data: Any) -> Any:
     Ensures secrets are never exposed in logs, exceptions, or JSON serializations.
     """
     if isinstance(data, str):
-        # A credential match always ends at an "@", so the text after the last "@" can
-        # never be part of one.  Without this bound every "://" start scans to the end of
-        # a string that has no "@" (quadratic).
-        end = data.rfind("@") + 1
-        if not end:
-            return data
-        return _URI_PASSWORD_REGEX.sub(r"\1***\3", data[:end]) + data[end:]
+        return _mask_uri_passwords(data)
     if isinstance(data, dict):
         masked: dict[str, Any] = {}
         for k, v in data.items():
