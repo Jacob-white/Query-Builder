@@ -1,5 +1,25 @@
 import { useState, useCallback, useRef, type Dispatch, type SetStateAction } from "react";
-import type { QuerySpec, DatabaseSchemaDefinition, SchemaSnapshot } from "../types";
+import type { QuerySpec } from "../types";
+import type { ByoAiSchema } from "../ai/types";
+
+type NlqSchema = ByoAiSchema;
+
+interface NlqErrorBody {
+  error?: { message?: string };
+}
+
+interface NlqTranslateResponse {
+  spec: QuerySpec;
+  confidence?: number;
+  explanation?: string;
+  steps?: string[];
+}
+
+interface NlqExplainResponse {
+  explanation?: string;
+  summary?: string;
+  steps?: string[];
+}
 
 export type NlqProviderName =
   | "mock"
@@ -10,7 +30,7 @@ export type NlqProviderName =
   | "custom";
 
 export interface UseNlqQueryOptions {
-  schema?: DatabaseSchemaDefinition | SchemaSnapshot | Record<string, any> | null;
+  schema?: NlqSchema;
   defaultProvider?: NlqProviderName;
   apiUrl?: string;
   dialect?: string;
@@ -18,7 +38,7 @@ export interface UseNlqQueryOptions {
   onApply?: (spec: QuerySpec) => void;
   customTranslator?: (
     prompt: string,
-    schema?: DatabaseSchemaDefinition | SchemaSnapshot | Record<string, any> | null,
+    schema?: NlqSchema,
     dialect?: string
   ) => Promise<QuerySpec>;
 }
@@ -100,14 +120,14 @@ export function useNlqQuery(options: UseNlqQueryOptions = {}): UseNlqQueryResult
           });
 
           if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
+            const errData: NlqErrorBody = await resp.json().catch(() => ({}));
             const msg =
               (errData && errData.error && errData.error.message) ||
               `Translation request failed (${resp.status})`;
             throw new Error(msg);
           }
 
-          const data = await resp.json();
+          const data: NlqTranslateResponse = await resp.json();
           generatedSpec = data.spec;
           generatedConfidence = typeof data.confidence === "number" ? data.confidence : 0.9;
           generatedExplanation = data.explanation || "";
@@ -128,7 +148,7 @@ export function useNlqQuery(options: UseNlqQueryOptions = {}): UseNlqQueryResult
 
         setIsLoading(false);
         return generatedSpec;
-      } catch (err: any) {
+      } catch (err) {
         const errorMsg =
           err instanceof Error
             ? err.message
@@ -164,14 +184,14 @@ export function useNlqQuery(options: UseNlqQueryOptions = {}): UseNlqQueryResult
         });
 
         if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
+          const errData: NlqErrorBody = await resp.json().catch(() => ({}));
           const msg =
             (errData && errData.error && errData.error.message) ||
             `Explain request failed (${resp.status})`;
           throw new Error(msg);
         }
 
-        const data = await resp.json();
+        const data: NlqExplainResponse = await resp.json();
         const explText = data.explanation || data.summary || "Explanation generated.";
         const steps = Array.isArray(data.steps) ? data.steps : [];
 
@@ -179,7 +199,7 @@ export function useNlqQuery(options: UseNlqQueryOptions = {}): UseNlqQueryResult
         setExplanationSteps(steps);
         setIsExplaining(false);
         return explText;
-      } catch (err: any) {
+      } catch (err) {
         const errorMsg =
           err instanceof Error ? err.message : "Failed to explain query.";
         setError(errorMsg);

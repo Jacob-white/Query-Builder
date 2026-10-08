@@ -165,8 +165,8 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
         }
         setExportStatus("Download complete!");
       }
-    } catch (err: any) {
-      setExportStatus(`Export error: ${err?.message || String(err)}`);
+    } catch (err) {
+      setExportStatus(`Export error: ${(err as Error | null | undefined)?.message || String(err)}`);
     } finally {
       setIsExporting(false);
     }

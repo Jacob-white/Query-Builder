@@ -43,24 +43,56 @@ const DRIZZLE_TYPE_MAP: Record<string, string> = {
   bytes: "bytes",
 };
 
+/** Minimal structural shape of a Drizzle runtime column. */
+interface DrizzleColumnLike {
+  name?: string;
+  primary?: boolean;
+  isPrimaryKey?: boolean;
+  notNull?: boolean;
+  dataType?: string;
+  columnType?: string;
+  enumValues?: string[];
+  references?: () => DrizzleRefTarget | null | undefined;
+  default?: unknown;
+}
+
+interface DrizzleTableRef {
+  [key: symbol]: unknown;
+  _?: { name?: string };
+  name?: string;
+}
+
+interface DrizzleRefTarget {
+  table?: DrizzleTableRef;
+  name?: string;
+  column?: { name?: string };
+}
+
+/** Minimal structural shape of a Drizzle runtime table. */
+interface DrizzleTableLike {
+  [key: symbol]: unknown;
+  _?: { name?: string; columns?: Record<string, unknown> };
+  name?: string;
+}
+
 function parseRuntimeDrizzleTable(
   nameOrKey: string,
-  tableObj: any,
+  tableObj: unknown,
   defaultSchema: string,
 ): TableSchema | null {
   if (!tableObj || typeof tableObj !== "object") return null;
+  const table = tableObj as DrizzleTableLike;
 
   // Resolve table name
   const nameSymbol = Symbol.for("drizzle:Name");
-  const tableName =
-    tableObj[nameSymbol] ||
-    tableObj._?.name ||
-    tableObj.name ||
-    nameOrKey;
+  const tableName = (table[nameSymbol] ||
+    table._?.name ||
+    table.name ||
+    nameOrKey) as string;
 
   // Resolve columns
   const colsSymbol = Symbol.for("drizzle:Columns");
-  const rawCols = tableObj[colsSymbol] || tableObj._?.columns || tableObj;
+  const rawCols = (table[colsSymbol] || table._?.columns || table) as Record<string, unknown>;
 
   const columns: ColumnSchema[] = [];
   const foreignKeys: ForeignKey[] = [];
@@ -70,15 +102,16 @@ function parseRuntimeDrizzleTable(
     if (!col || typeof col !== "object" || key.startsWith("_") || key.startsWith("$")) {
       continue;
     }
-    const colName = (col as any).name || key;
-    const isPk = Boolean((col as any).primary || (col as any).isPrimaryKey);
+    const colObj = col as DrizzleColumnLike;
+    const colName = colObj.name || key;
+    const isPk = Boolean(colObj.primary || colObj.isPrimaryKey);
     if (isPk) primaryKeys.push(colName);
 
-    const isNotNull = Boolean((col as any).notNull || isPk);
+    const isNotNull = Boolean(colObj.notNull || isPk);
     const isNullable = !isNotNull;
 
-    const rawType = (col as any).dataType || (col as any).columnType || "text";
-    const enumValues = (col as any).enumValues as string[] | undefined;
+    const rawType = colObj.dataType || colObj.columnType || "text";
+    const enumValues = colObj.enumValues;
 
     let dataType: string;
     let enums: string[] | undefined;
@@ -90,11 +123,11 @@ function parseRuntimeDrizzleTable(
     }
 
     let fk: ForeignKey | undefined;
-    if (typeof (col as any).references === "function") {
+    if (typeof colObj.references === "function") {
       try {
-        const refTarget = (col as any).references();
+        const refTarget = colObj.references();
         if (refTarget && typeof refTarget === "object") {
-          const targetTable = refTarget.table?.[nameSymbol] || refTarget.table?._?.name || refTarget.table?.name || "unknown";
+          const targetTable = (refTarget.table?.[nameSymbol] || refTarget.table?._?.name || refTarget.table?.name || "unknown") as string;
           const targetCol = refTarget.name || refTarget.column?.name || "id";
           fk = {
             table: tableName,
@@ -117,7 +150,7 @@ function parseRuntimeDrizzleTable(
       is_nullable: isNullable,
       isPrimary: isPk,
       is_primary: isPk,
-      default: (col as any).default,
+      default: colObj.default,
       enums,
       foreignKey: fk,
       foreign_key: fk,
@@ -142,7 +175,7 @@ function parseRuntimeDrizzleTable(
 }
 
 export function fromDrizzle(
-  source: string | Record<string, any> | any[],
+  source: string | Record<string, unknown> | unknown[],
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
@@ -155,7 +188,7 @@ export function fromDrizzle(
         const parsed = parseRuntimeDrizzleTable(`table_${i}`, source[i], defaultSchema);
         if (parsed) tables.push(parsed);
       }
-    } else if ((source as any)[Symbol.for("drizzle:Name")] || (source as any)._?.name) {
+    } else if ((source as DrizzleTableLike)[Symbol.for("drizzle:Name")] || (source as DrizzleTableLike)._?.name) {
       // Single table
       const parsed = parseRuntimeDrizzleTable("table", source, defaultSchema);
       if (parsed) tables.push(parsed);
@@ -456,7 +489,7 @@ export const DRIZZLE_DIALECT_ALIASES: Record<string, string> = {
  * - .notNull() chained modifiers
  */
 export function toDrizzle(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
   options?: ToDrizzleOptions | string,
 ): string {
   const rawDialect =

@@ -5,7 +5,7 @@ export interface QueryPlanVisualizerProps {
   /** The standardized QueryPlanNode root hierarchy. */
   plan: QueryPlanNode;
   /** Optional raw vendor explain payload (Postgres, SQLite, MySQL JSON). */
-  rawPlan?: any;
+  rawPlan?: unknown;
   /** Callback fired when a node in the tree is clicked. */
   onNodeSelect?: (node: QueryPlanNode) => void;
   /** Optional container class name. */

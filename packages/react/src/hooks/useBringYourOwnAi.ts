@@ -4,13 +4,20 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { ByoAiConfig, ByoAiContext, ByoAiMessage, ByoAiResponse } from "../ai/types";
-import type { QuerySpec } from "../types";
+import type { QuerySpec, SqlDialect } from "../types";
 import { autoHealClientQuerySpec } from "../ai/selfHealing";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { compileSpecToSql } from "../utils/compiler";
 
+/** Loosely-shaped response from a host handler / REST endpoint (string, spec, or envelope). */
+interface RawAiResponse extends Partial<QuerySpec> {
+  spec?: Partial<QuerySpec>;
+  explanation?: string;
+  confidence?: number;
+}
+
 export interface UseBringYourOwnAiOptions extends ByoAiConfig {
-  schema?: any;
+  schema?: ByoAiContext["schema"];
   currentSpec?: QuerySpec | null;
   onApplySpec?: (spec: QuerySpec) => void;
 }
@@ -79,7 +86,7 @@ export function useBringYourOwnAi(options: UseBringYourOwnAiOptions = {}): UseBr
       };
 
       try {
-        let rawResponse: any;
+        let rawResponse: string | RawAiResponse | null | undefined;
 
         // 1. Dispatch to Host App's Handler
         if (handler) {
@@ -122,7 +129,7 @@ export function useBringYourOwnAi(options: UseBringYourOwnAiOptions = {}): UseBr
             extractedSpec = parseSqlToSpec(rawResponse.trim());
           } else {
             try {
-              const parsedJson = JSON.parse(rawResponse);
+              const parsedJson: RawAiResponse | null = JSON.parse(rawResponse);
               if (parsedJson && parsedJson.table) {
                 extractedSpec = parsedJson;
               } else if (parsedJson && parsedJson.spec) {
@@ -156,7 +163,7 @@ export function useBringYourOwnAi(options: UseBringYourOwnAiOptions = {}): UseBr
             finalSpec = extractedSpec as QuerySpec;
           }
 
-          finalSql = compileSpecToSql(finalSpec, dialect as any);
+          finalSql = compileSpecToSql(finalSpec, dialect as SqlDialect);
         }
 
         const assistantMsg: ByoAiMessage = {
@@ -187,11 +194,11 @@ export function useBringYourOwnAi(options: UseBringYourOwnAiOptions = {}): UseBr
           confidence: confidenceScore,
           warnings: healingNotes,
         };
-      } catch (err: any) {
-        const errMsg = err?.message || String(err);
+      } catch (err) {
+        const errMsg = (err as Error | null | undefined)?.message || String(err);
         setError(errMsg);
         setIsGenerating(false);
-        if (onError) onError(err);
+        if (onError) onError(err as Error);
         return null;
       }
     },

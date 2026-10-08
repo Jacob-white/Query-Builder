@@ -55,6 +55,34 @@ interface CompiledInternal {
   dialect: SqlDialect;
 }
 
+/** Optional snake_case / camelCase spec fields that may appear on either a spec or a state object. */
+interface SpecLike {
+  dialect?: SqlDialect;
+  primaryTable?: unknown;
+  filter_join?: unknown;
+  filterJoin?: unknown;
+  customOperators?: Record<string, CustomFilterOperator>;
+  vector_search?: VectorSearchSpec;
+  vectorSearch?: VectorSearchSpec;
+  hybrid_search?: HybridSearchSpec;
+  hybridSearch?: HybridSearchSpec;
+  ctes?: CteSpec[];
+  window_functions?: WindowFunctionSpec[];
+  windowFunctions?: WindowFunctionSpec[];
+  semantic_models?: SemanticModel[];
+  semanticModels?: SemanticModel[];
+}
+
+const warnedFilterJoins = new Set<string>();
+/** Warns once per distinct unsupported `filter_join` value instead of on every recompile. */
+function warnUnsupportedFilterJoin(raw: unknown, normalized: string): void {
+  if (normalized === "AND" || normalized === "OR") return;
+  const key = String(raw);
+  if (warnedFilterJoins.has(key)) return;
+  warnedFilterJoins.add(key);
+  console.warn(`useSqlCompiler: unsupported filter_join "${key}", using "AND".`);
+}
+
 function compileInput(
   specOrState:
     | QuerySpec
@@ -66,9 +94,10 @@ function compileInput(
   options?: UseSqlCompilerOptions,
 ): CompiledInternal {
   const startTime = typeof performance !== "undefined" ? performance.now() : 0;
+  const looseSpec = specOrState as SpecLike | null | undefined;
   const dialect: SqlDialect =
     options?.dialect ||
-    ((specOrState as any)?.dialect as SqlDialect) ||
+    looseSpec?.dialect ||
     "postgres";
 
   if (!specOrState) {
@@ -101,7 +130,7 @@ function compileInput(
     // Check if it's already visual state-like
     if (
       "primaryTable" in specOrState &&
-      typeof (specOrState as any).primaryTable === "string" &&
+      typeof (specOrState as SpecLike).primaryTable === "string" &&
       "selectedColumns" in specOrState
     ) {
       const state = specOrState as QueryState | QueryBuilderState;
@@ -127,18 +156,25 @@ function compileInput(
       limit = typeof parsed.limit === "number" ? parsed.limit : 50;
     }
 
-    const filterJoin = (specOrState as any)?.filter_join || "AND";
+    const rawFilterJoin =
+      looseSpec?.filter_join || looseSpec?.filterJoin;
+    const normalizedFilterJoin =
+      typeof rawFilterJoin === "string" ? rawFilterJoin.trim().toUpperCase() : String(rawFilterJoin ?? "AND");
+    if (rawFilterJoin !== undefined && rawFilterJoin !== null && rawFilterJoin !== "") {
+      warnUnsupportedFilterJoin(rawFilterJoin, normalizedFilterJoin);
+    }
+    const filterJoin: "AND" | "OR" = normalizedFilterJoin === "OR" ? "OR" : "AND";
     const customOperators =
-      options?.customOperators || (specOrState as any)?.customOperators;
+      options?.customOperators || looseSpec?.customOperators;
     const vectorSearch =
-      (specOrState as any)?.vector_search || (specOrState as any)?.vectorSearch || null;
+      looseSpec?.vector_search || looseSpec?.vectorSearch || null;
     const hybridSearch =
-      (specOrState as any)?.hybrid_search || (specOrState as any)?.hybridSearch || null;
-    const ctes = (specOrState as any)?.ctes || null;
+      looseSpec?.hybrid_search || looseSpec?.hybridSearch || null;
+    const ctes = looseSpec?.ctes || null;
     const windowFunctions =
-      (specOrState as any)?.window_functions || (specOrState as any)?.windowFunctions || null;
+      looseSpec?.window_functions || looseSpec?.windowFunctions || null;
     const semanticModels =
-      (specOrState as any)?.semantic_models || (specOrState as any)?.semanticModels || null;
+      looseSpec?.semantic_models || looseSpec?.semanticModels || null;
 
     const compiled = compileVisualState(
       primaryTable,

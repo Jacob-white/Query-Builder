@@ -383,3 +383,24 @@ export function validateSchema(
     infos,
   };
 }
+
+/**
+ * Table names from any accepted schema shape: `TableSchema[]` (adapter output),
+ * `{ tables: Record<string, ...> }` (`DatabaseSchemaDefinition` / `SchemaSnapshot`) or null.
+ */
+export function getSchemaTableNames(schema: unknown): string[] {
+  if (Array.isArray(schema)) {
+    return schema
+      .map((t: unknown) =>
+        typeof t === "object" && t !== null && typeof (t as { name?: unknown }).name === "string"
+          ? (t as { name: string }).name
+          : "",
+      )
+      .filter(Boolean);
+  }
+  if (typeof schema === "object" && schema !== null) {
+    const tables = (schema as { tables?: unknown }).tables;
+    if (typeof tables === "object" && tables !== null) return Object.keys(tables);
+  }
+  return [];
+}

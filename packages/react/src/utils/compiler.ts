@@ -14,10 +14,11 @@ import type {
   WindowFunctionSpec,
   MetricDefinition,
   SemanticModel,
-  TimeGrain,
   QuerySpec,
+  LooseQuerySpec,
 } from "../types";
 import { specToState } from "../hooks/useQueryState";
+import { normalizeCombiner, resolveFilterCombiners } from "./filterCombiners";
 
 export interface CompiledVisualQuery {
   sql: string;
@@ -46,6 +47,7 @@ export interface CompiledVisualQuery {
       op: string;
       value: string | number | boolean;
       tablePrefix?: string;
+      combiner?: "AND" | "OR";
     }[];
     filter_join: "AND" | "OR";
     order_by: { column: string; direction: "ASC" | "DESC"; tablePrefix?: string }[];
@@ -80,6 +82,24 @@ const ALLOWED_OPERATORS = new Set([
 ]);
 
 const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
+
+const ALLOWED_TIME_GRAINS = new Set([
+  "second",
+  "minute",
+  "hour",
+  "day",
+  "week",
+  "month",
+  "quarter",
+  "year",
+]);
+
+const IDENT_TOKEN_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const WINDOW_BOUND_RE = /^(UNBOUNDED\s+(PRECEDING|FOLLOWING)|CURRENT\s+ROW|\d+\s+(PRECEDING|FOLLOWING))$/i;
+const WINDOW_EXCLUSIONS = new Set(["CURRENT ROW", "GROUP", "TIES", "NO OTHERS"]);
+
+const safeDirection = (d: unknown): "ASC" | "DESC" =>
+  typeof d === "string" && d.trim().toUpperCase() === "DESC" ? "DESC" : "ASC";
 
 const sanitizeIdent = (s: string = "") => (s || "").replace(/[\x00-\x1f\x7f]/g, "");
 
@@ -308,7 +328,7 @@ export function compileVisualState(
         columns: [],
         joins: [],
         filters: [],
-        filter_join: filterJoin || "AND",
+        filter_join: normalizeCombiner(filterJoin),
         order_by: [],
         distinct: false,
         limit,
@@ -422,7 +442,7 @@ export function compileVisualState(
           return `${item.rawExpression} AS ${quoteAlias(alias, dialect)}`;
         }
 
-        if (item.timeGrain) {
+        if (item.timeGrain && ALLOWED_TIME_GRAINS.has(String(item.timeGrain).toLowerCase())) {
           let alias = sanitizeIdent(item.alias || `${colName}_${item.timeGrain}`);
           if (usedAliases.has(alias)) {
             let disambiguated = `${alias}_${tableAlias}`;
@@ -582,22 +602,17 @@ export function compileVisualState(
     );
   const specFilters: CompiledVisualQuery["spec"]["filters"] = [];
   let whereClause = "";
+  let resolvedFilterJoin: "AND" | "OR" = normalizeCombiner(filterJoin);
 
   if (activeFilters.length > 0) {
-    const parts: { expr: string; combiner: "AND" | "OR" }[] = [];
+    // Pass 1: build the SQL expression of every active filter.
+    const built: { f: (typeof activeFilters)[number]; expr: string }[] = [];
     activeFilters.forEach((f) => {
       const tbl = cleanTableName(f.tablePrefix || cleanPrimary);
       const colName = sanitizeIdent(f.column);
       const colRef = `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
       const valStr = String(f.value ?? "");
       let expr = "";
-
-      specFilters.push({
-        column: colName,
-        op: f.operator.toLowerCase().replace(" ", "_"),
-        value: f.value,
-        tablePrefix: tbl,
-      });
 
       const customOp = customOperators?.[f.operator];
 
@@ -677,16 +692,36 @@ export function compileVisualState(
       }
 
       if (expr) {
-        if (f.parenOpen) expr = `${f.parenOpen}${expr}`;
-        if (f.parenClose) expr = `${expr}${f.parenClose}`;
-        parts.push({ expr, combiner: f.combiner || filterJoin || "AND" });
+        // Only grouping parentheses are allowed; anything else is dropped (no SQL injection).
+        const open = (f.parenOpen || "").replace(/[^(]/g, "");
+        const close = (f.parenClose || "").replace(/[^)]/g, "");
+        built.push({ f, expr: `${open}${expr}${close}` });
       }
     });
 
-    if (parts.length > 0) {
-      let combined = parts[0].expr;
-      for (let i = 1; i < parts.length; i++) {
-        combined += ` ${parts[i].combiner} ${parts[i].expr}`;
+    // Pass 2: resolve combiners ONCE from exactly the filters that are emitted, so the SQL, the
+    // per-filter spec combiners and the aggregate `filter_join` always agree.
+    const resolved = resolveFilterCombiners(
+      built.map((b) => b.f),
+      filterJoin,
+    );
+    resolvedFilterJoin = resolved.filterJoin;
+    built.forEach(({ f }, i) => {
+      specFilters.push({
+        column: sanitizeIdent(f.column),
+        op: f.operator.toLowerCase().replace(" ", "_"),
+        value: f.value,
+        tablePrefix: cleanTableName(f.tablePrefix || cleanPrimary),
+        // With any OR present every filter must state its combiner: a backend falling back to
+        // `filter_join: "OR"` would otherwise turn explicit ANDs into ORs.
+        ...(resolved.hasOr ? { combiner: resolved.combiners[i] } : {}),
+      });
+    });
+
+    if (built.length > 0) {
+      let combined = built[0].expr;
+      for (let i = 1; i < built.length; i++) {
+        combined += ` ${resolved.combiners[i]} ${built[i].expr}`;
       }
       whereClause = `WHERE ${combined}`;
     }
@@ -716,7 +751,7 @@ export function compileVisualState(
   ) {
     const vCol = sanitizeIdent(vectorSearch.column || "embedding");
     const vRef = `${quoteIdent(cleanPrimary, dialect)}.${quoteIdent(vCol, dialect)}`;
-    const vecStr = `'[${vectorSearch.vector.join(",")}]'`;
+    const vecStr = `'[${vectorSearch.vector.map((n) => (Number.isFinite(Number(n)) ? Number(n) : 0)).join(",")}]'`;
     if (vectorSearch.include_distances) {
       const distExpr = `(${vRef} <=> ${vecStr}) AS "_distance"`;
       selectClause = selectClause === "*" ? `*, ${distExpr}` : `${selectClause}, ${distExpr}`;
@@ -729,20 +764,38 @@ export function compileVisualState(
   // Window Functions
   if (windowFunctions && windowFunctions.length > 0) {
     const wfClauses = windowFunctions.map((wf) => {
-      const args = wf.arguments?.length ? wf.arguments.join(", ") : wf.function === "COUNT" ? "*" : "";
+      const fnName = IDENT_TOKEN_RE.test(wf.function) ? wf.function : "ROW_NUMBER";
+      const args = wf.arguments?.length
+        ? wf.arguments
+            .map((a) =>
+              typeof a === "number" && Number.isFinite(a)
+                ? String(a)
+                : /^[A-Za-z0-9_."*]+$/.test(String(a))
+                  ? String(a)
+                  : quoteIdent(String(a), dialect),
+            )
+            .join(", ")
+        : wf.function === "COUNT"
+          ? "*"
+          : "";
       const part = wf.partition_by?.length ? `PARTITION BY ${wf.partition_by.map((c) => sanitizeIdent(c)).join(", ")}` : "";
       const ord = wf.order_by?.length
-        ? `ORDER BY ${wf.order_by.map((o) => `${sanitizeIdent(o.column)} ${o.direction || "ASC"}`).join(", ")}`
+        ? `ORDER BY ${wf.order_by.map((o) => `${sanitizeIdent(o.column)} ${safeDirection(o.direction)}`).join(", ")}`
         : "";
       let frame = "";
       if (wf.frame) {
-        frame = `${wf.frame.frame_type || "ROWS"} BETWEEN ${wf.frame.start || "UNBOUNDED PRECEDING"} AND ${wf.frame.end || "CURRENT ROW"}`;
-        if (wf.frame.exclusion) frame += ` EXCLUDE ${wf.frame.exclusion}`;
+        const ft = String(wf.frame.frame_type || "ROWS").toUpperCase();
+        const frameType = ft === "RANGE" || ft === "GROUPS" ? ft : "ROWS";
+        const start = WINDOW_BOUND_RE.test(wf.frame.start || "") ? (wf.frame.start as string) : "UNBOUNDED PRECEDING";
+        const end = WINDOW_BOUND_RE.test(wf.frame.end || "") ? (wf.frame.end as string) : "CURRENT ROW";
+        frame = `${frameType} BETWEEN ${start} AND ${end}`;
+        const excl = (wf.frame.exclusion || "").trim().toUpperCase().replace(/\s+/g, " ");
+        if (WINDOW_EXCLUSIONS.has(excl)) frame += ` EXCLUDE ${excl}`;
       }
       const overTokens = [part, ord, frame].filter(Boolean);
       const overClause = `OVER (${overTokens.join(" ")})`;
       const aliasClause = wf.alias ? ` AS ${quoteIdent(wf.alias, dialect)}` : "";
-      return `${wf.function}(${args}) ${overClause}${aliasClause}`;
+      return `${fnName}(${args}) ${overClause}${aliasClause}`;
     });
     selectClause = selectClause === "*" ? wfClauses.join(", ") : `${selectClause}, ${wfClauses.join(", ")}`;
   }
@@ -762,7 +815,7 @@ export function compileVisualState(
         if (item.rawExpression) {
           return item.rawExpression;
         }
-        if (item.timeGrain) {
+        if (item.timeGrain && ALLOWED_TIME_GRAINS.has(String(item.timeGrain).toLowerCase())) {
           return expandTimeGrainSql(colRef, item.timeGrain, dialect);
         }
         return colRef;
@@ -784,7 +837,7 @@ export function compileVisualState(
     const hasRecursive = ctes.some((c) => c.recursive);
     const withKw = hasRecursive ? "WITH RECURSIVE " : "WITH ";
     const compiledCteList = ctes.map((c) => {
-      const innerSql = (c.query as any)?.sql || `SELECT * FROM ${quoteIdent(c.query?.table || "sub", dialect)}`;
+      const innerSql = c.query?.sql || `SELECT * FROM ${quoteIdent(c.query?.table || "sub", dialect)}`;
       const cols = c.columns?.length ? ` (${c.columns.map((col) => quoteIdent(col, dialect)).join(", ")})` : "";
       const mat = c.materialized ? "MATERIALIZED " : "";
       return `${quoteIdent(c.name, dialect)}${cols} AS ${mat}(\n${innerSql}\n)`;
@@ -799,10 +852,7 @@ export function compileVisualState(
       columns: specColumns,
       joins: specJoins,
       filters: specFilters,
-      filter_join:
-        (filters || []).some((f) => f.combiner === "OR") || filterJoin === "OR"
-          ? "OR"
-          : "AND",
+      filter_join: resolvedFilterJoin,
       order_by: specSorts,
       distinct: isDistinct,
       limit,
@@ -818,7 +868,7 @@ export function compileVisualState(
 /**
  * Estimates a client-side QueryPlanNode hierarchy from a compiled QuerySpec.
  */
-export function estimateClientPlan(spec: any): QueryPlanNode {
+export function estimateClientPlan(spec: LooseQuerySpec | null | undefined): QueryPlanNode {
   const table = spec?.table || "unknown";
   const limit = spec?.limit || 50;
   const joins = spec?.joins || [];
@@ -928,12 +978,13 @@ export function estimateClientPlan(spec: any): QueryPlanNode {
  * Compiles a QuerySpec or partial spec directly to SQL string.
  */
 export function compileSpecToSql(
-  spec: Partial<QuerySpec> | Record<string, any>,
+  spec: Partial<QuerySpec> | LooseQuerySpec | Record<string, unknown>,
   dialect: SqlDialect = "postgres",
   schemaData?: SchemaSnapshot | null,
 ): string {
+  const looseSpec = spec as LooseQuerySpec;
   const state = specToState(spec);
-  const primaryTable = state.primaryTable || (spec as any).table || "";
+  const primaryTable = state.primaryTable || looseSpec.table || "";
   if (!primaryTable) return "";
   const selectedColumns = state.selectedColumns || {};
   const orderedProjectionKeys = state.orderedProjectionKeys || Object.keys(selectedColumns);
@@ -941,13 +992,13 @@ export function compileSpecToSql(
   const filters = state.filters || [];
   const sorts = state.sorts || [];
   const isDistinct = state.isDistinct || false;
-  const limit = typeof state.limit === "number" ? state.limit : ((spec as any).limit ?? 50);
-  const filterJoin = (spec as any).filter_join || "AND";
-  const ctes = (spec as any).ctes;
-  const windowFunctions = (spec as any).window_functions;
-  const vectorSearch = (spec as any).vector_search;
-  const hybridSearch = (spec as any).hybrid_search;
-  const semanticModels = (spec as any).semantic_models;
+  const limit = typeof state.limit === "number" ? state.limit : (looseSpec.limit ?? 50);
+  const filterJoin = normalizeCombiner(looseSpec.filter_join);
+  const ctes = looseSpec.ctes;
+  const windowFunctions = looseSpec.window_functions;
+  const vectorSearch = looseSpec.vector_search;
+  const hybridSearch = looseSpec.hybrid_search;
+  const semanticModels = looseSpec.semantic_models;
 
   const compiled = compileVisualState(
     primaryTable,

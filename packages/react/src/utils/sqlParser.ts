@@ -1,9 +1,7 @@
+import { normalizeCombiner } from "./filterCombiners";
 import type {
   QuerySpec,
   SchemaSnapshot,
-  VisualJoin,
-  VisualFilter,
-  VisualSort,
   CteSpec,
   WindowFunctionSpec,
 } from "../types";
@@ -48,6 +46,88 @@ export function cleanIdentifier(ident: string): string {
   // Remove surrounding quotes, backticks, or brackets
   clean = clean.replace(/^["'`\[]|["'`\]]$/g, "");
   return clean.trim();
+}
+
+/** Words that can never be an alias: clause starters and join introducers. */
+const RESERVED_NON_ALIAS = new Set([
+  "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "FETCH", "FOR", "UNION", "INTERSECT",
+  "EXCEPT", "ON", "USING", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "OUTER",
+  "WINDOW", "QUALIFY", "LATERAL", "RETURNING",
+]);
+
+/**
+ * Table-hint words that are legal aliases on their own (`JOIN orders final ON ...`) and only act
+ * as hints when the following token says so (`WITH (NOLOCK)`, `FORCE INDEX (...)`, ...).
+ */
+const HINT_WORDS = new Set([
+  "WITH", "USE", "FORCE", "IGNORE", "PARTITION", "TABLESAMPLE", "INDEXED", "PIVOT", "UNPIVOT",
+  "SAMPLE", "SETTINGS",
+]);
+
+/** True when `candidate` (at `tokens[idx]`) is a clause/hint keyword rather than an alias. */
+function isNonAliasToken(tokens: string[], idx: number): boolean {
+  const word = tokens[idx].toUpperCase();
+  if (RESERVED_NON_ALIAS.has(word)) return true;
+  if (!HINT_WORDS.has(word)) return false;
+  const next = tokens[idx + 1];
+  const nextUpper = (next || "").toUpperCase();
+  switch (word) {
+    case "INDEXED":
+      return nextUpper === "BY";
+    case "SAMPLE":
+      return /^[\d(.]/.test(next || "");
+    case "SETTINGS":
+      return Boolean(next) && next.includes("=");
+    case "WITH":
+    case "USE":
+    case "FORCE":
+    case "IGNORE":
+    case "PARTITION":
+    case "TABLESAMPLE":
+    case "PIVOT":
+    case "UNPIVOT":
+      return (
+        (next || "").startsWith("(") ||
+        nextUpper === "INDEX" ||
+        nextUpper === "KEY" ||
+        nextUpper.startsWith("INDEX(") ||
+        nextUpper.startsWith("KEY(")
+      );
+    /* c8 ignore next 2 */
+    default:
+      return false;
+  }
+}
+
+/** Splits a table reference into whitespace tokens, keeping quoted identifiers intact. */
+function tokenizeTableRef(ref: string): string[] {
+  // A token is any run of quoted segments and plain characters, so `[dbo].[users]` stays whole.
+  return ref.match(/(?:"[^"]*"|`[^`]*`|\[[^\]]*\]|[^\s"`\[\]])+/g) || [];
+}
+
+/** Extracts `<table> [AS] [alias]`, ignoring trailing clause keywords and non-identifier tokens. */
+function parseTableRef(ref: string): { table: string; alias: string } {
+  const tokens = tokenizeTableRef(ref.trim());
+  // Only the first item of a comma-joined list matters here; strip list separators.
+  const table = cleanIdentifier((tokens[0] || "").replace(/,+$/, ""));
+  let candidateIdx = tokens[0]?.endsWith(",") ? -1 : 1;
+  let explicitAs = false;
+  if (candidateIdx >= 0 && tokens[candidateIdx] && tokens[candidateIdx].toUpperCase() === "AS") {
+    candidateIdx = 2;
+    explicitAs = true;
+  }
+  let candidate: string | undefined = candidateIdx >= 0 ? tokens[candidateIdx] : undefined;
+  if (candidate) candidate = candidate.replace(/,+$/, "");
+  if (
+    !candidate ||
+    (explicitAs
+      ? RESERVED_NON_ALIAS.has(candidate.toUpperCase())
+      : isNonAliasToken(tokens, candidateIdx)) ||
+    !/^(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[^\s,()=;"`\[\]]+)$/.test(candidate)
+  ) {
+    return { table, alias: "" };
+  }
+  return { table, alias: cleanIdentifier(candidate) };
 }
 
 /**
@@ -391,7 +471,7 @@ function findTopLevelOperator(
 export function parseSqlToSpec(
   sql: string,
   schema?: SchemaSnapshot | null,
-): Partial<QuerySpec> | null {
+): QuerySpec | null {
   if (!sql || typeof sql !== "string") return null;
 
   // Clean SQL comments
@@ -478,13 +558,13 @@ export function parseSqlToSpec(
             recursive: isRecursive,
             columns: cols,
             materialized,
-            query: { sql: querySql } as any,
+            query: { sql: querySql },
           };
         }
         return {
           name: cleanIdentifier(text.split(/\s+/)[0]),
           recursive: isRecursive,
-          query: { sql: text } as any,
+          query: { sql: text },
         };
       });
     } else {
@@ -522,17 +602,8 @@ export function parseSqlToSpec(
   if (!fromContent) {
     return null;
   }
-  const fromTokens = fromContent.split(/\s+/);
-  const primaryTable = cleanIdentifier(fromTokens[0]);
+  const { table: primaryTable, alias: primaryAlias } = parseTableRef(fromContent);
   if (!primaryTable) return null;
-  const primaryAlias =
-    fromTokens.length > 1
-      ? cleanIdentifier(
-          fromTokens[1].toUpperCase() === "AS" && fromTokens.length > 2
-            ? fromTokens[2]
-            : fromTokens[1],
-        )
-      : "";
 
   // 2. Projections & DISTINCT (SELECT)
   let selectContent = clauseMap["SELECT"] || "";
@@ -588,7 +659,7 @@ export function parseSqlToSpec(
 
         if (!windowFunctions) windowFunctions = [];
         windowFunctions.push({
-          function: fnName as any,
+          function: fnName,
           arguments: argsStr ? argsStr.split(",").map((a) => cleanIdentifier(a.trim())) : [],
           partition_by: partitionCols,
           order_by: orderSpecs,
@@ -721,17 +792,9 @@ export function parseSqlToSpec(
     const onIndex = jc.content.toUpperCase().indexOf(" ON ");
     if (onIndex === -1) continue;
     const tablePart = jc.content.slice(0, onIndex).trim();
-    const targetTableTokens = tablePart.split(/\s+/);
-    const targetTable = cleanIdentifier(targetTableTokens[0]);
+    const { table: targetTable, alias: als } = parseTableRef(tablePart);
     aliasToTable[targetTable] = targetTable;
-    if (targetTableTokens.length > 1) {
-      const als = cleanIdentifier(
-        targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
-          ? targetTableTokens[2]
-          : targetTableTokens[1],
-      );
-      if (als) aliasToTable[als] = targetTable;
-    }
+    if (als) aliasToTable[als] = targetTable;
   }
 
   for (const jc of joinClauses) {
@@ -742,16 +805,7 @@ export function parseSqlToSpec(
     const tablePart = jc.content.slice(0, onIndex).trim();
     const onPart = jc.content.slice(onIndex + 4).trim();
 
-    const targetTableTokens = tablePart.split(/\s+/);
-    const targetTable = cleanIdentifier(targetTableTokens[0]);
-    const targetAlias =
-      targetTableTokens.length > 1
-        ? cleanIdentifier(
-            targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
-              ? targetTableTokens[2]
-              : targetTableTokens[1],
-          )
-        : "";
+    const { table: targetTable, alias: targetAlias } = parseTableRef(tablePart);
 
     // Parse ON: e.g. users.id = orders.user_id or u.id = o.user_id
     const onMatch = onPart.match(/([a-zA-Z0-9_".`\[\]]+)\s*=\s*([a-zA-Z0-9_".`\[\]]+)/);
@@ -808,10 +862,13 @@ export function parseSqlToSpec(
     for (let cIdx = 0; cIdx < conditionChunks.length; cIdx++) {
       const chunk = conditionChunks[cIdx];
       const condStr = chunk.value.trim();
-      const combiner = (chunk.delimiter?.toUpperCase() as "AND" | "OR") || "AND";
+      const combiner = normalizeCombiner(chunk.delimiter);
       if (combiner === "OR") {
         filterJoin = "OR";
       }
+      // A chunk's delimiter follows it, so the operator joining this filter to the previous one
+      // is the previous chunk's delimiter.
+      const joinWithPrev = cIdx > 0 ? normalizeCombiner(conditionChunks[cIdx - 1].delimiter) : "AND";
 
       // Match top-level operator
       const foundOp = findTopLevelOperator(condStr);
@@ -846,6 +903,7 @@ export function parseSqlToSpec(
           op: matchedOp === "<>" ? "!=" : matchedOp,
           value: val,
           tablePrefix,
+          combiner: joinWithPrev,
         });
       } else {
         filters.push({
@@ -854,7 +912,8 @@ export function parseSqlToSpec(
           value: "",
           tablePrefix: primaryTable,
           rawExpression: condStr,
-        } as any);
+          combiner: joinWithPrev,
+        });
       }
     }
   }

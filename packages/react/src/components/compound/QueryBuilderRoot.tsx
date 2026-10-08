@@ -19,8 +19,10 @@ import type {
   CustomFieldRenderer,
   TableSchema,
   VisualQueryBuilderRef,
+  ExecuteQueryHandler,
 } from "../../types";
 import type { QueryBuilderClient } from "../../client";
+import type { CellRenderer } from "../../theme/QueryBuilderProvider";
 import {
   useQueryState,
   createInitialState,
@@ -38,11 +40,11 @@ import {
   type CompoundQueryBuilderContextValue,
 } from "./QueryBuilderContext";
 
-export interface QueryBuilderRootProps<Schema extends DatabaseSchemaDefinition = any> {
+export interface QueryBuilderRootProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   /** Controlled query specification AST */
   value?: QuerySpec<Schema>;
   /** Callback fired whenever the query specification or SQL changes */
-  onChange?: (spec: QuerySpec<Schema>, sql: string) => void;
+  onChange?: (spec: QuerySpec<Schema> | null, sql: string) => void;
   /** Initial query specification for uncontrolled usage */
   initialSpec?: QuerySpec<Schema>;
   /** Initial primary table name */
@@ -66,9 +68,9 @@ export interface QueryBuilderRootProps<Schema extends DatabaseSchemaDefinition =
   /** Custom field header or label renderers */
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   /** Custom result table cell renderers */
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  cellRenderers?: Record<string, CellRenderer>;
   /** Callback to execute SQL or QuerySpec against backend */
-  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
+  onExecuteQuery?: ExecuteQueryHandler;
   /** Compound component children */
   children?: React.ReactNode;
 }
@@ -160,7 +162,7 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
         if (!result.valid || result.warnings.length > 0) {
           if (
             typeof globalThis !== "undefined" &&
-            (globalThis as any).process?.env?.NODE_ENV !== "production"
+            (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NODE_ENV !== "production"
           ) {
             result.errors.forEach((e) => {
               console.warn(`[QueryBuilder Schema Error] ${e.code}: ${e.message}`, e.suggestion);
@@ -280,11 +282,11 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
 
     // Action wrappers that ensure visual interactions reset isRawMode back to false
     const wrappedActions = useMemo<QueryStateActions>(() => {
-      const wrap = <T extends (...args: any[]) => any>(fn: T): T => {
-        return ((...args: any[]) => {
+      const wrap = <A extends unknown[], R>(fn: (...args: A) => R): ((...args: A) => R) => {
+        return ((...args: A) => {
           setIsRawMode(false);
           return fn(...args);
-        }) as T;
+        });
       };
 
       return {
@@ -337,18 +339,18 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
     const effectiveOnExecuteQuery =
       propExecuteQuery ??
       (client
-        ? async (sql: string, s?: Record<string, unknown>) => {
-            return client.execute(s ? (s as unknown as QuerySpec) : { sql });
+        ? async (sql: string, s?: QuerySpec | null) => {
+            return client.execute(s ? s : { sql });
           }
         : undefined);
 
     const executeQuery = useCallback(
       async (
         overrideSql?: string,
-        overrideSpec?: Record<string, unknown>,
+        overrideSpec?: QuerySpec | null,
       ): Promise<QueryResultData | void> => {
         const targetSql = overrideSql ?? (isRawMode ? rawSql : compiled.sql);
-        const targetSpec = overrideSpec ?? (isRawMode ? undefined : (spec as unknown as Record<string, unknown>));
+        const targetSpec = overrideSpec ?? (isRawMode ? undefined : (spec as QuerySpec));
 
         if (!effectiveOnExecuteQuery) {
           console.warn(
@@ -365,8 +367,8 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
             setQueryResults(res);
             return res;
           }
-        } catch (err: any) {
-          setError(err);
+        } catch (err) {
+          setError(err as Error);
           throw err;
         } finally {
           setIsRunning(false);

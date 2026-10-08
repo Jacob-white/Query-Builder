@@ -335,7 +335,7 @@ export function validateSqlSafety(
   // Handle parenthesized queries like ((SELECT 1))
   const unwrapped = stripped.replace(/^[()\s]+/, "");
   const firstWordMatch = unwrapped.match(/^[a-zA-Z_]+/i);
-  let firstWord = firstWordMatch ? firstWordMatch[0].toUpperCase() : "";
+  const firstWord = firstWordMatch ? firstWordMatch[0].toUpperCase() : "";
 
   let stmtType = firstWord || "UNKNOWN";
   const isCte = firstWord === "WITH";

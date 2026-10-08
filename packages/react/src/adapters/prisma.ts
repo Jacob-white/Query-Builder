@@ -25,23 +25,57 @@ const PRISMA_TYPE_MAP: Record<string, string> = {
   bytes: "bytes",
 };
 
+/** Minimal structural shapes of the Prisma DMMF read by this adapter. */
+interface PrismaDmmfField {
+  kind?: string;
+  name: string;
+  dbName?: string | null;
+  type?: string;
+  isRequired?: boolean;
+  isId?: boolean;
+  default?: unknown;
+  documentation?: string;
+  relationFromFields?: string[];
+  relationToFields?: string[];
+}
+
+interface PrismaDmmfModel {
+  name?: string;
+  dbName?: string | null;
+  documentation?: string;
+  primaryKey?: { fields?: string[] } | null;
+  fields?: PrismaDmmfField[];
+}
+
+interface PrismaDmmfEnum {
+  name?: string;
+  values?: unknown[];
+}
+
+interface PrismaDatamodel {
+  enums?: unknown;
+  models?: unknown;
+  datamodel?: PrismaDatamodel;
+}
+
 export function fromPrisma(
-  source: string | Record<string, any>,
+  source: string | Record<string, unknown>,
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
 
   // Check if source is DMMF object
   if (typeof source === "object" && source !== null) {
-    const datamodel = source.datamodel || source;
-    const rawEnums = Array.isArray(datamodel.enums) ? datamodel.enums : [];
-    const rawModels = Array.isArray(datamodel.models) ? datamodel.models : [];
+    const dmmf = source as PrismaDatamodel;
+    const datamodel = dmmf.datamodel || dmmf;
+    const rawEnums: PrismaDmmfEnum[] = Array.isArray(datamodel.enums) ? datamodel.enums : [];
+    const rawModels: PrismaDmmfModel[] = Array.isArray(datamodel.models) ? datamodel.models : [];
 
     const enums: Record<string, string[]> = {};
     for (const e of rawEnums) {
       if (!e || !e.name) continue;
-      enums[e.name] = (e.values || []).map((v: any) =>
-        typeof v === "object" && v !== null ? v.name : String(v),
+      enums[e.name] = (e.values || []).map((v: unknown) =>
+        typeof v === "object" && v !== null ? (v as { name: string }).name : String(v),
       );
     }
 
@@ -91,8 +125,12 @@ export function fromPrisma(
         }
 
         let defaultVal = f.default;
-        if (typeof defaultVal === "object" && defaultVal !== null && defaultVal.name) {
-          defaultVal = `${defaultVal.name}()`;
+        if (
+          typeof defaultVal === "object" &&
+          defaultVal !== null &&
+          (defaultVal as { name?: string }).name
+        ) {
+          defaultVal = `${(defaultVal as { name: string }).name}()`;
         }
 
         let colEnums: string[] | undefined;
@@ -364,7 +402,7 @@ export const PRISMA_PROVIDER_ALIASES: Record<string, string> = {
  * - Field-level @map and model-level @@map attributes
  */
 export function toPrisma(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
   options?: ToPrismaOptions | string,
 ): string {
   const rawProvider =

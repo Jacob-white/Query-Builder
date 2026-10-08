@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type {
   DatabaseSchemaDefinition,
   SchemaSnapshot,
@@ -14,6 +14,7 @@ import type {
   SchemaColumnNames,
   SchemaColumnRefs,
   QuerySpec,
+  LooseQuerySpec,
   CustomFilterOperator,
   VectorSearchSpec,
   HybridSearchSpec,
@@ -24,9 +25,10 @@ import type {
 import { compileVisualState, type CompiledVisualQuery } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema } from "../utils/schemaUtils";
+import { normalizeCombiner } from "../utils/filterCombiners";
 import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
 
-export interface UseQueryBuilderOptions<Schema extends DatabaseSchemaDefinition = any> {
+export interface UseQueryBuilderOptions<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   schema?: SchemaSnapshot | Schema | null;
   initialTable?: SchemaTableNames<Schema>;
   dialect?: SqlDialect;
@@ -49,7 +51,7 @@ export interface UseQueryBuilderOptions<Schema extends DatabaseSchemaDefinition 
   filterJoin?: "AND" | "OR";
 }
 
-export interface QueryBuilderState<Schema = any> {
+export interface QueryBuilderState<Schema = DatabaseSchemaDefinition> {
   primaryTable: SchemaTableNames<Schema>;
   activeTableNames: SchemaTableNames<Schema>[];
   activeTables: TableMeta[];
@@ -72,7 +74,7 @@ export interface QueryBuilderState<Schema = any> {
   filterJoin?: "AND" | "OR";
 }
 
-export interface QueryBuilderActions<Schema = any> {
+export interface QueryBuilderActions<Schema = DatabaseSchemaDefinition> {
   setPrimaryTable: (table: SchemaTableNames<Schema>) => void;
   addTable: (tableName: SchemaTableNames<Schema>) => void;
   removeTable: (tableName: SchemaTableNames<Schema>) => void;
@@ -112,7 +114,7 @@ export interface QueryBuilderActions<Schema = any> {
   setFilterJoin?: (join: "AND" | "OR") => void;
 }
 
-export interface UseQueryBuilderReturn<Schema = any> {
+export interface UseQueryBuilderReturn<Schema = DatabaseSchemaDefinition> {
   state: QueryBuilderState<Schema>;
   compiled: CompiledVisualQuery;
   currentSql: string;
@@ -137,7 +139,218 @@ function computeSnapshot(data: {
   return JSON.stringify(data);
 }
 
-export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
+/** Result of converting a spec (or state-shaped object) into builder state; absent keys = leave as is. */
+interface SpecPatch<Schema extends DatabaseSchemaDefinition> {
+  primaryTable?: SchemaTableNames<Schema>;
+  activeTableNames?: (prev: SchemaTableNames<Schema>[]) => SchemaTableNames<Schema>[];
+  selectedColumns?: Record<string, VisualColumnSelect<Schema>>;
+  orderedProjectionKeys?: string[];
+  joins?: VisualJoin<Schema>[];
+  filters?: VisualFilter<Schema>[];
+  sorts?: VisualSort<Schema>[];
+  isDistinct?: boolean;
+  limit?: number;
+  vectorSearch?: VectorSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
+  ctes?: CteSpec[] | null;
+  windowFunctions?: WindowFunctionSpec[] | null;
+  semanticModels?: SemanticModel[] | null;
+  filterJoin?: "AND" | "OR";
+}
+
+/**
+ * Pure conversion shared by `loadSpec` and `initialSpec`, so a QuerySpec-shaped `initialSpec`
+ * produces exactly the same builder state (and SQL) as `actions.loadSpec(sameSpec)`.
+ */
+function convertSpecToPatch<Schema extends DatabaseSchemaDefinition>(s: LooseQuerySpec): SpecPatch<Schema> {
+  const patch: SpecPatch<Schema> = {};
+  const pTable = (s.table || s.primaryTable || "") as SchemaTableNames<Schema>;
+  let baseActive: SchemaTableNames<Schema>[] | undefined;
+  if (pTable) patch.primaryTable = pTable;
+  if (Array.isArray(s.activeTables)) {
+    baseActive = s.activeTables as SchemaTableNames<Schema>[];
+  } else if (pTable) {
+    baseActive = [pTable];
+  }
+  let joinTables: SchemaTableNames<Schema>[] = [];
+  // Mirrors the previous setState sequence: replace with the base list (if any), then union join tables.
+  const activeUpdater = (prev: SchemaTableNames<Schema>[]) =>
+    Array.from(new Set([...(baseActive ?? prev), ...joinTables]));
+  if (baseActive) patch.activeTableNames = activeUpdater;
+
+  if (s.selectedColumns && typeof s.selectedColumns === "object") {
+    patch.selectedColumns = s.selectedColumns as Record<string, VisualColumnSelect<Schema>>;
+    if (Array.isArray(s.orderedProjectionKeys)) {
+      patch.orderedProjectionKeys = s.orderedProjectionKeys as string[];
+    }
+  } else if (Array.isArray(s.columns)) {
+    const newSelected: Record<string, VisualColumnSelect<Schema>> = {};
+    const newKeys: string[] = [];
+    s.columns.forEach((colItem) => {
+      if (!colItem || colItem === "*") return;
+      if (typeof colItem === "string") {
+        let tbl = pTable as string;
+        let col = colItem;
+        if (colItem.includes(".")) {
+          const lastDot = colItem.lastIndexOf(".");
+          tbl = colItem.substring(0, lastDot);
+          col = colItem.substring(lastDot + 1);
+        }
+        const key = `${tbl}.${col}`;
+        newSelected[key] = {
+          table: tbl as SchemaTableNames<Schema>,
+          name: col,
+        };
+        newKeys.push(key);
+      } else if (typeof colItem === "object" && colItem.column) {
+        let tbl = pTable as string;
+        let col = colItem.column;
+        if (col.includes(".")) {
+          const lastDot = col.lastIndexOf(".");
+          tbl = col.substring(0, lastDot);
+          col = col.substring(lastDot + 1);
+        }
+        const key = `${tbl}.${col}`;
+        newSelected[key] = {
+          table: tbl as SchemaTableNames<Schema>,
+          name: col,
+          aggregate: colItem.agg ? (colItem.agg.toUpperCase() as VisualColumnSelect<Schema>["aggregate"]) : undefined,
+          alias: colItem.alias,
+        };
+        newKeys.push(key);
+      }
+    });
+    patch.selectedColumns = newSelected;
+    patch.orderedProjectionKeys = newKeys;
+  }
+
+  if (Array.isArray(s.joins)) {
+    const mappedJoins: VisualJoin<Schema>[] = s.joins.map((j, idx): VisualJoin<Schema> => {
+      const jType = (j.type || "LEFT").toUpperCase();
+      const fullType = jType.endsWith(" JOIN") ? jType : `${jType} JOIN`;
+      let leftTbl = j.left_table;
+      let leftC = j.left_col;
+      if (!leftC && j.on?.[0]?.left) {
+        const lStr = j.on[0].left;
+        if (lStr.includes(".")) {
+          const lastDot = lStr.lastIndexOf(".");
+          if (!leftTbl) leftTbl = lStr.substring(0, lastDot);
+          leftC = lStr.substring(lastDot + 1);
+        } else {
+          leftC = lStr;
+        }
+      }
+      let rightC = j.right_col;
+      if (!rightC && j.on?.[0]?.right) {
+        const rStr = j.on[0].right;
+        rightC = rStr.includes(".") ? rStr.substring(rStr.lastIndexOf(".") + 1) : rStr;
+      }
+      return {
+        id: j.id || `join_${idx + 1}`,
+        table: j.table as SchemaTableNames<Schema>,
+        type: fullType as VisualJoin<Schema>["type"],
+        left_table: leftTbl as SchemaTableNames<Schema> | undefined,
+        left_col: leftC || "id",
+        right_col: rightC || "id",
+      };
+    });
+    patch.joins = mappedJoins;
+    joinTables = mappedJoins.map((j) => j.table);
+    patch.activeTableNames = activeUpdater;
+  }
+
+  // Spec-level `filter_join` is the default combiner for filters without their own.
+  const specFilterJoin = normalizeCombiner(s.filter_join ?? s.filterJoin);
+  if (Array.isArray(s.filters)) {
+    patch.filters = s.filters.map((f, idx): VisualFilter<Schema> => {
+      let op = f.operator || f.op || "=";
+      op = op.toUpperCase().replace(/_/g, " ");
+      return {
+        id: f.id || `filter_${idx + 1}`,
+        tablePrefix: (f.tablePrefix || f.table || pTable) as SchemaTableNames<Schema>,
+        column: f.column || "",
+        operator: op,
+        value: f.value ?? "",
+        combiner: normalizeCombiner(f.combiner, specFilterJoin),
+      };
+    });
+  }
+
+  if (Array.isArray(s.sorts)) {
+    patch.sorts = s.sorts as VisualSort<Schema>[];
+  } else if (Array.isArray(s.order_by)) {
+    patch.sorts = s.order_by.map((ord, idx): VisualSort<Schema> => {
+      let col = ord.column || "";
+      let prefix = ord.tablePrefix;
+      if (!prefix && col.includes(".")) {
+        const lastDot = col.lastIndexOf(".");
+        prefix = col.substring(0, lastDot);
+        col = col.substring(lastDot + 1);
+      }
+      return {
+        id: `sort_${idx + 1}`,
+        tablePrefix: (prefix || pTable) as SchemaTableNames<Schema>,
+        column: col,
+        direction: ord.direction || "ASC",
+      };
+    });
+  }
+  if (typeof s.isDistinct === "boolean") {
+    patch.isDistinct = s.isDistinct;
+  } else if (typeof s.distinct === "boolean") {
+    patch.isDistinct = s.distinct;
+  }
+  if (typeof s.limit === "number") {
+    patch.limit = s.limit;
+  }
+  if ("vector_search" in s || "vectorSearch" in s) {
+    patch.vectorSearch = s.vector_search || s.vectorSearch || null;
+  }
+  if ("hybrid_search" in s || "hybridSearch" in s) {
+    patch.hybridSearch = s.hybrid_search || s.hybridSearch || null;
+  }
+  if ("ctes" in s) {
+    patch.ctes = s.ctes || null;
+  }
+  if ("window_functions" in s || "windowFunctions" in s) {
+    patch.windowFunctions = s.window_functions || s.windowFunctions || null;
+  }
+  if ("semantic_models" in s || "semanticModels" in s) {
+    patch.semanticModels = s.semantic_models || s.semanticModels || null;
+  }
+  if ("filter_join" in s || "filterJoin" in s) {
+    patch.filterJoin = specFilterJoin;
+  } else if (Array.isArray(s.filters)) {
+    // A spec that carries filters but no join is all-AND; do not keep a stale OR from a prior load.
+    patch.filterJoin = "AND";
+  }
+  return patch;
+}
+
+/**
+ * True when `initialSpec` is a serialized QuerySpec (snake_case, `op`, `order_by`, ...) rather than
+ * the hook's own state shape; such specs must go through the same conversion as `loadSpec`.
+ */
+function isSpecShaped(s: LooseQuerySpec): boolean {
+  if (
+    s.selectedColumns ||
+    s.orderedProjectionKeys ||
+    s.activeTables ||
+    s.sorts ||
+    s.primaryTable
+  ) {
+    return false;
+  }
+  return (
+    Array.isArray(s.columns) ||
+    Array.isArray(s.order_by) ||
+    "filter_join" in s ||
+    (Array.isArray(s.filters) && s.filters.some((f) => f && "op" in f)) ||
+    (Array.isArray(s.joins) && s.joins.some((j) => j && (Boolean(j.on) || (j.type !== undefined && !/JOIN$/i.test(j.type)))))
+  );
+}
+
+export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition>(
   options: UseQueryBuilderOptions<Schema> = {},
 ): UseQueryBuilderReturn<Schema> {
   const {
@@ -158,75 +371,83 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
 
   const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
 
+  const looseInit = initialSpec as LooseQuerySpec | undefined;
+  // A QuerySpec-shaped initialSpec is converted exactly like `actions.loadSpec` would.
+  const specInit = useMemo(
+    () => (looseInit && isSpecShaped(looseInit) ? convertSpecToPatch<Schema>(looseInit) : undefined),
+    [looseInit],
+  );
+
   const defaultTable =
     initialTable ||
-    ((initialSpec as any)?.primaryTable as SchemaTableNames<Schema>) ||
-    ((initialSpec as any)?.table as SchemaTableNames<Schema>) ||
+    (looseInit?.primaryTable as SchemaTableNames<Schema>) ||
+    (looseInit?.table as SchemaTableNames<Schema>) ||
     (normalizedSchema?.tables
-      ? (Object.keys(normalizedSchema.tables)[0] as SchemaTableNames<Schema>) || ("" as any)
-      : ("" as any));
+      ? (Object.keys(normalizedSchema.tables)[0] as SchemaTableNames<Schema>) || ("" as SchemaTableNames<Schema>)
+      : ("" as SchemaTableNames<Schema>));
 
   const initPrimaryTable = defaultTable;
   const initActiveTableNames: SchemaTableNames<Schema>[] =
     initialActiveTables ||
-    ((initialSpec as any)?.activeTables as SchemaTableNames<Schema>[]) ||
+    (looseInit?.activeTables as SchemaTableNames<Schema>[]) ||
+    specInit?.activeTableNames?.([]) ||
     (initPrimaryTable ? [initPrimaryTable] : []);
   const initSelectedColumns: Record<string, VisualColumnSelect<Schema>> =
     initialSelectedColumns ||
-    ((initialSpec as any)?.selectedColumns as Record<string, VisualColumnSelect<Schema>>) ||
+    (looseInit?.selectedColumns as Record<string, VisualColumnSelect<Schema>>) ||
+    specInit?.selectedColumns ||
     {};
   const initOrderedProjectionKeys: string[] =
     (initialOrderedProjectionKeys as string[]) ||
-    ((initialSpec as any)?.orderedProjectionKeys as string[]) ||
+    (looseInit?.orderedProjectionKeys as string[]) ||
+    specInit?.orderedProjectionKeys ||
     [];
   const initJoins: VisualJoin<Schema>[] =
-    initialJoins || ((initialSpec as any)?.joins as VisualJoin<Schema>[]) || [];
+    initialJoins || specInit?.joins || (looseInit?.joins as VisualJoin<Schema>[]) || [];
   const initFilters: VisualFilter<Schema>[] =
-    initialFilters || ((initialSpec as any)?.filters as VisualFilter<Schema>[]) || [];
+    initialFilters || specInit?.filters || (looseInit?.filters as VisualFilter<Schema>[]) || [];
   const initSorts: VisualSort<Schema>[] =
-    initialSorts || ((initialSpec as any)?.sorts as VisualSort<Schema>[]) || [];
+    initialSorts || specInit?.sorts || (looseInit?.sorts as VisualSort<Schema>[]) || [];
   const initIsDistinct =
     typeof initialDistinct === "boolean"
       ? initialDistinct
-      : Boolean((initialSpec as any)?.isDistinct ?? (initialSpec as any)?.distinct);
+      : Boolean(looseInit?.isDistinct ?? looseInit?.distinct);
   const initLimit =
     typeof initialLimit === "number"
       ? initialLimit
-      : typeof (initialSpec as any)?.limit === "number"
-        ? ((initialSpec as any).limit as number)
+      : typeof looseInit?.limit === "number"
+        ? looseInit.limit
         : 50;
   const initDialect = optDialect || "postgres";
   const initRawSql = initialSql || "";
   const initIsRawMode = Boolean(initialSql);
   const initVectorSearch =
     options.vectorSearch ||
-    (options.initialSpec as any)?.vector_search ||
-    (options.initialSpec as any)?.vectorSearch ||
+    looseInit?.vector_search ||
+    looseInit?.vectorSearch ||
     null;
   const initHybridSearch =
     options.hybridSearch ||
-    (options.initialSpec as any)?.hybrid_search ||
-    (options.initialSpec as any)?.hybridSearch ||
+    looseInit?.hybrid_search ||
+    looseInit?.hybridSearch ||
     null;
   const initCtes =
     options.ctes ||
-    (options.initialSpec as any)?.ctes ||
+    looseInit?.ctes ||
     null;
   const initWindowFunctions =
     options.windowFunctions ||
-    (options.initialSpec as any)?.window_functions ||
-    (options.initialSpec as any)?.windowFunctions ||
+    looseInit?.window_functions ||
+    looseInit?.windowFunctions ||
     null;
   const initSemanticModels =
     options.semanticModels ||
-    (options.initialSpec as any)?.semantic_models ||
-    (options.initialSpec as any)?.semanticModels ||
+    looseInit?.semantic_models ||
+    looseInit?.semanticModels ||
     null;
-  const initFilterJoin =
-    options.filterJoin ||
-    (options.initialSpec as any)?.filter_join ||
-    (options.initialSpec as any)?.filterJoin ||
-    "AND";
+  const initFilterJoin = normalizeCombiner(
+    options.filterJoin || looseInit?.filter_join || looseInit?.filterJoin,
+  );
 
   const initialSnapshot = useMemo(
     () =>
@@ -344,27 +565,9 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     setCleanSnapshot(currentSnapshot);
   }, [currentSnapshot]);
 
-  const reset = useCallback(() => {
-    setPrimaryTable(initPrimaryTable);
-    setActiveTableNames(initActiveTableNames);
-    setSelectedColumns(initSelectedColumns);
-    setOrderedProjectionKeys(initOrderedProjectionKeys);
-    setJoins(initJoins);
-    setFilters(initFilters);
-    setSorts(initSorts);
-    setIsDistinct(initIsDistinct);
-    setLimit(initLimit);
-    setDialect(initDialect);
-    setRawSql(initRawSql);
-    setIsRawMode(initIsRawMode);
-    setVectorSearch(initVectorSearch);
-    setHybridSearch(initHybridSearch);
-    setCtes(initCtes);
-    setWindowFunctions(initWindowFunctions);
-    setSemanticModels(initSemanticModels);
-    setFilterJoin(initFilterJoin);
-    setCleanSnapshot(initialSnapshot);
-  }, [
+  // Latest initial values live in a ref so `reset` keeps a stable identity even when
+  // callers pass inline arrays/objects (new references every render).
+  const initRef = useRef({
     initPrimaryTable,
     initActiveTableNames,
     initSelectedColumns,
@@ -383,8 +586,69 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
     initWindowFunctions,
     initSemanticModels,
     initFilterJoin,
-    initialSnapshot,
-  ]);
+  });
+  // Written post-commit (not during render) so discarded concurrent renders can't leak in.
+  useEffect(() => {
+    initRef.current = {
+      initPrimaryTable,
+      initActiveTableNames,
+      initSelectedColumns,
+      initOrderedProjectionKeys,
+      initJoins,
+      initFilters,
+      initSorts,
+      initIsDistinct,
+      initLimit,
+      initDialect,
+      initRawSql,
+      initIsRawMode,
+      initVectorSearch,
+      initHybridSearch,
+      initCtes,
+      initWindowFunctions,
+      initSemanticModels,
+      initFilterJoin,
+    };
+  });
+
+  const reset = useCallback(() => {
+    const init = initRef.current;
+    setPrimaryTable(init.initPrimaryTable);
+    setActiveTableNames(init.initActiveTableNames);
+    setSelectedColumns(init.initSelectedColumns);
+    setOrderedProjectionKeys(init.initOrderedProjectionKeys);
+    setJoins(init.initJoins);
+    setFilters(init.initFilters);
+    setSorts(init.initSorts);
+    setIsDistinct(init.initIsDistinct);
+    setLimit(init.initLimit);
+    setDialect(init.initDialect);
+    setRawSql(init.initRawSql);
+    setIsRawMode(init.initIsRawMode);
+    setVectorSearch(init.initVectorSearch);
+    setHybridSearch(init.initHybridSearch);
+    setCtes(init.initCtes);
+    setWindowFunctions(init.initWindowFunctions);
+    setSemanticModels(init.initSemanticModels);
+    setFilterJoin(init.initFilterJoin);
+    // Clean snapshot must describe the values just restored, not the mount-time ones.
+    setCleanSnapshot(
+      computeSnapshot({
+        primaryTable: init.initPrimaryTable as string,
+        activeTableNames: init.initActiveTableNames as string[],
+        selectedColumns: init.initSelectedColumns as Record<string, VisualColumnSelect>,
+        orderedProjectionKeys: init.initOrderedProjectionKeys,
+        joins: init.initJoins as VisualJoin[],
+        filters: init.initFilters as VisualFilter[],
+        sorts: init.initSorts as VisualSort[],
+        isDistinct: init.initIsDistinct,
+        limit: init.initLimit,
+        dialect: init.initDialect,
+        rawSql: init.initRawSql,
+        isRawMode: init.initIsRawMode,
+      }),
+    );
+  }, []);
 
   const addTable = useCallback((tableName: SchemaTableNames<Schema>) => {
     setActiveTableNames((prev) => {
@@ -399,7 +663,7 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
       const remaining = prev.filter((t) => t !== tableName);
       setPrimaryTable((curPrimary) => {
         if (curPrimary === tableName) {
-          return remaining[0] || ("" as any);
+          return remaining[0] || ("" as SchemaTableNames<Schema>);
         }
         return curPrimary;
       });
@@ -543,166 +807,22 @@ export function useQueryBuilder<Schema extends DatabaseSchemaDefinition = any>(
   }, []);
 
   const loadSpec = useCallback((spec: Record<string, unknown> | QuerySpec<Schema>) => {
-    const s = spec as any;
-    const pTable = (s.table || s.primaryTable || "") as SchemaTableNames<Schema>;
-    if (pTable) {
-      setPrimaryTable(pTable);
-      setActiveTableNames((prev) =>
-        prev.includes(pTable as any) ? prev : [...prev, pTable],
-      );
-    }
-
-    if (Array.isArray(s.activeTables)) {
-      setActiveTableNames(s.activeTables as SchemaTableNames<Schema>[]);
-    } else if (pTable) {
-      setActiveTableNames([pTable]);
-    }
-
-    if (s.selectedColumns && typeof s.selectedColumns === "object") {
-      setSelectedColumns(s.selectedColumns as Record<string, VisualColumnSelect<Schema>>);
-      if (Array.isArray(s.orderedProjectionKeys)) {
-        setOrderedProjectionKeys(s.orderedProjectionKeys as string[]);
-      }
-    } else if (Array.isArray(s.columns)) {
-      const newSelected: Record<string, VisualColumnSelect<Schema>> = {};
-      const newKeys: string[] = [];
-      s.columns.forEach((colItem: any) => {
-        if (!colItem || colItem === "*") return;
-        if (typeof colItem === "string") {
-          let tbl = pTable as string;
-          let col = colItem;
-          if (colItem.includes(".")) {
-            const lastDot = colItem.lastIndexOf(".");
-            tbl = colItem.substring(0, lastDot);
-            col = colItem.substring(lastDot + 1);
-          }
-          const key = `${tbl}.${col}`;
-          newSelected[key] = {
-            table: tbl as any,
-            name: col,
-          };
-          newKeys.push(key);
-        } else if (typeof colItem === "object" && colItem.column) {
-          let tbl = pTable as string;
-          let col = colItem.column;
-          if (col.includes(".")) {
-            const lastDot = col.lastIndexOf(".");
-            tbl = col.substring(0, lastDot);
-            col = col.substring(lastDot + 1);
-          }
-          const key = `${tbl}.${col}`;
-          newSelected[key] = {
-            table: tbl as any,
-            name: col,
-            aggregate: colItem.agg ? colItem.agg.toUpperCase() : undefined,
-            alias: colItem.alias,
-          };
-          newKeys.push(key);
-        }
-      });
-      setSelectedColumns(newSelected);
-      setOrderedProjectionKeys(newKeys);
-    }
-
-    if (Array.isArray(s.joins)) {
-      const mappedJoins: VisualJoin<Schema>[] = s.joins.map((j: any, idx: number) => {
-        const jType = (j.type || "LEFT").toUpperCase();
-        const fullType = jType.endsWith(" JOIN") ? jType : `${jType} JOIN`;
-        let leftTbl = j.left_table;
-        let leftC = j.left_col;
-        if (!leftC && j.on?.[0]?.left) {
-          const lStr = j.on[0].left;
-          if (lStr.includes(".")) {
-            const lastDot = lStr.lastIndexOf(".");
-            if (!leftTbl) leftTbl = lStr.substring(0, lastDot);
-            leftC = lStr.substring(lastDot + 1);
-          } else {
-            leftC = lStr;
-          }
-        }
-        let rightC = j.right_col;
-        if (!rightC && j.on?.[0]?.right) {
-          const rStr = j.on[0].right;
-          rightC = rStr.includes(".") ? rStr.substring(rStr.lastIndexOf(".") + 1) : rStr;
-        }
-        return {
-          id: j.id || `join_${idx + 1}`,
-          table: j.table,
-          type: fullType as any,
-          left_table: leftTbl,
-          left_col: leftC || "id",
-          right_col: rightC || "id",
-        };
-      });
-      setJoins(mappedJoins);
-      setActiveTableNames((prev) => {
-        const joinTables = mappedJoins.map((j) => j.table);
-        return Array.from(new Set([...prev, ...joinTables])) as SchemaTableNames<Schema>[];
-      });
-    }
-    if (Array.isArray(s.filters)) {
-      const mappedFilters: VisualFilter<Schema>[] = s.filters.map((f: any, idx: number) => {
-        let op = f.operator || f.op || "=";
-        op = op.toUpperCase().replace(/_/g, " ");
-        return {
-          id: f.id || `filter_${idx + 1}`,
-          tablePrefix: (f.tablePrefix || f.table || pTable) as SchemaTableNames<Schema>,
-          column: f.column || "",
-          operator: op as any,
-          value: f.value ?? "",
-          combiner: f.combiner || "AND",
-        };
-      });
-      setFilters(mappedFilters);
-    }
-    if (Array.isArray(s.sorts)) {
-      setSorts(s.sorts as VisualSort<Schema>[]);
-    } else if (Array.isArray(s.order_by)) {
-      const mappedSorts: VisualSort<Schema>[] = s.order_by.map(
-        (ord: any, idx: number) => {
-          let col = ord.column || "";
-          let prefix = ord.tablePrefix;
-          if (!prefix && col.includes(".")) {
-            const lastDot = col.lastIndexOf(".");
-            prefix = col.substring(0, lastDot);
-            col = col.substring(lastDot + 1);
-          }
-          return {
-            id: `sort_${idx + 1}`,
-            tablePrefix: prefix || pTable,
-            column: col,
-            direction: ord.direction || "ASC",
-          };
-        },
-      );
-      setSorts(mappedSorts);
-    }
-    if (typeof (spec as any).isDistinct === "boolean") {
-      setIsDistinct((spec as any).isDistinct);
-    } else if (typeof (spec as any).distinct === "boolean") {
-      setIsDistinct((spec as any).distinct);
-    }
-    if (typeof spec.limit === "number") {
-      setLimit(spec.limit);
-    }
-    if ("vector_search" in s || "vectorSearch" in s) {
-      setVectorSearch(s.vector_search || s.vectorSearch || null);
-    }
-    if ("hybrid_search" in s || "hybridSearch" in s) {
-      setHybridSearch(s.hybrid_search || s.hybridSearch || null);
-    }
-    if ("ctes" in s) {
-      setCtes(s.ctes || null);
-    }
-    if ("window_functions" in s || "windowFunctions" in s) {
-      setWindowFunctions(s.window_functions || s.windowFunctions || null);
-    }
-    if ("semantic_models" in s || "semanticModels" in s) {
-      setSemanticModels(s.semantic_models || s.semanticModels || null);
-    }
-    if ("filter_join" in s || "filterJoin" in s) {
-      setFilterJoin(s.filter_join || s.filterJoin || "AND");
-    }
+    const patch = convertSpecToPatch<Schema>(spec as LooseQuerySpec);
+    if (patch.primaryTable !== undefined) setPrimaryTable(patch.primaryTable);
+    if (patch.activeTableNames) setActiveTableNames(patch.activeTableNames);
+    if (patch.selectedColumns) setSelectedColumns(patch.selectedColumns);
+    if (patch.orderedProjectionKeys) setOrderedProjectionKeys(patch.orderedProjectionKeys);
+    if (patch.joins) setJoins(patch.joins);
+    if (patch.filters) setFilters(patch.filters);
+    if (patch.sorts) setSorts(patch.sorts);
+    if (patch.isDistinct !== undefined) setIsDistinct(patch.isDistinct);
+    if (patch.limit !== undefined) setLimit(patch.limit);
+    if (patch.vectorSearch !== undefined) setVectorSearch(patch.vectorSearch);
+    if (patch.hybridSearch !== undefined) setHybridSearch(patch.hybridSearch);
+    if (patch.ctes !== undefined) setCtes(patch.ctes);
+    if (patch.windowFunctions !== undefined) setWindowFunctions(patch.windowFunctions);
+    if (patch.semanticModels !== undefined) setSemanticModels(patch.semanticModels);
+    if (patch.filterJoin !== undefined) setFilterJoin(patch.filterJoin);
     setIsRawMode(false);
   }, []);
 

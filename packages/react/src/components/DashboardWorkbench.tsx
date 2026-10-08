@@ -542,7 +542,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                                 if (firstCol) setCrossFilter(tile.id, firstCol, r[firstCol]);
                               }}
                             >
-                              {Object.values(r).map((val: any, cIdx) => (
+                              {Object.values(r).map((val, cIdx) => (
                                 <td key={cIdx} style={{ padding: "0.4rem 0.6rem" }}>
                                   {String(val)}
                                 </td>

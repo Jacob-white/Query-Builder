@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef } from "react";
+import { normalizeCombiner, resolveFilterCombiners } from "../utils/filterCombiners";
 import type {
   DatabaseSchemaDefinition,
   SchemaTableNames,
@@ -14,10 +15,12 @@ import type {
   HybridSearchSpec,
   CteSpec,
   WindowFunctionSpec,
+  LooseQuerySpec,
+  TimeGrain,
 } from "../types";
 import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
 
-export interface QueryState<Schema = any> {
+export interface QueryState<Schema = DatabaseSchemaDefinition> {
   primaryTable: SchemaTableNames<Schema>;
   activeTables: SchemaTableNames<Schema>[];
   selectedColumns: Record<string, VisualColumnSelect<Schema>>;
@@ -36,21 +39,21 @@ export interface QueryState<Schema = any> {
   windowFunctions: WindowFunctionSpec[];
 }
 
-export interface QueryHistory<Schema = any> {
+export interface QueryHistory<Schema = DatabaseSchemaDefinition> {
   past: QueryState<Schema>[];
   future: QueryState<Schema>[];
   canUndo: boolean;
   canRedo: boolean;
 }
 
-export interface QueryStateActions<Schema = any> {
+export interface QueryStateActions<Schema = DatabaseSchemaDefinition> {
   setTables: (tables: SchemaTableNames<Schema>[]) => void;
   setPrimaryTable: (table: SchemaTableNames<Schema>) => void;
   addTable: (table: SchemaTableNames<Schema>) => void;
   removeTable: (table: SchemaTableNames<Schema>) => void;
   toggleColumn: (
     table: SchemaTableNames<Schema>,
-    col: SchemaColumnNames<Schema, any> | string,
+    col: SchemaColumnNames<Schema, string> | string,
   ) => void;
   updateColumnSelect: (key: string, updates: Partial<VisualColumnSelect<Schema>>) => void;
   removeColumnProjection: (key: string) => void;
@@ -91,7 +94,7 @@ export interface QueryStateActions<Schema = any> {
   clearHistory: () => void;
 }
 
-export interface UseQueryStateReturn<Schema = any> {
+export interface UseQueryStateReturn<Schema = DatabaseSchemaDefinition> {
   state: QueryState<Schema>;
   actions: QueryStateActions<Schema>;
   history: QueryHistory<Schema>;
@@ -103,7 +106,7 @@ export const MAX_HISTORY_LENGTH = 50;
 /**
  * Converts internal QueryState to a serializable QuerySpec.
  */
-export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<Schema> {
+export function stateToSpec<Schema = DatabaseSchemaDefinition>(state: QueryState<Schema>): QuerySpec<Schema> {
   const columns: (string | { column: string; agg?: string; alias?: string })[] = [];
   const keys =
     state.orderedProjectionKeys.length > 0
@@ -137,11 +140,17 @@ export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<
     };
   });
 
-  const filters = (state.filters || []).map((f) => ({
+  // Resolve combiners ONCE so per-filter combiners and the aggregate filter_join always agree.
+  const resolvedCombiners = resolveFilterCombiners(state.filters || []);
+  const hasOrFilter = resolvedCombiners.hasOr;
+  const filters = (state.filters || []).map((f, i) => ({
     column: f.column,
     op: f.operator,
     value: f.value,
     tablePrefix: f.tablePrefix,
+    // With any OR present every filter states its combiner (see compileVisualState); AND-only
+    // specs carry none, which keeps their round-trip exact.
+    ...(hasOrFilter ? { combiner: resolvedCombiners.combiners[i] } : {}),
   }));
 
   const order_by = (state.sorts || []).map((s) => ({
@@ -154,7 +163,8 @@ export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<
     columns,
     joins,
     filters,
-    filter_join: "AND",
+    // Per-filter combiners are authoritative; the aggregate flag only mirrors them.
+    filter_join: resolvedCombiners.filterJoin,
     order_by,
     distinct: state.isDistinct,
     limit: state.limit,
@@ -182,11 +192,11 @@ export function stateToSpec<Schema = any>(state: QueryState<Schema>): QuerySpec<
 /**
  * Converts a QuerySpec or raw spec object to a partial QueryState.
  */
-export function specToState<Schema = any>(
-  spec: Partial<QuerySpec<Schema>> | Partial<QueryState<Schema>> | Record<string, any>,
+export function specToState<Schema = DatabaseSchemaDefinition>(
+  spec: Partial<QuerySpec<Schema>> | Partial<QueryState<Schema>> | LooseQuerySpec | Record<string, unknown>,
 ): Partial<QueryState<Schema>> {
   const partial: Partial<QueryState<Schema>> = {};
-  const s = spec as any;
+  const s = spec as LooseQuerySpec;
 
   const primary = (s.table as string) || (s.primaryTable as string) || "";
   if (primary) {
@@ -225,9 +235,9 @@ export function specToState<Schema = any>(
         selected[key] = {
           table: table as SchemaTableNames<Schema>,
           name: col,
-          aggregate: (c.agg as any) || undefined,
+          aggregate: (c.agg as VisualColumnSelect["aggregate"]) || undefined,
           alias: c.alias,
-          timeGrain: c.time_grain || c.timeGrain,
+          timeGrain: (c.time_grain || c.timeGrain) as TimeGrain | undefined,
           metric: c.metric,
           rawExpression: rawExpr,
         };
@@ -239,7 +249,7 @@ export function specToState<Schema = any>(
   }
 
   if (Array.isArray(s.joins)) {
-    partial.joins = s.joins.map((j: any, idx: number) => {
+    partial.joins = s.joins.map((j, idx): VisualJoin<Schema> => {
       let leftCol = j.left_col || "id";
       let rightCol = j.right_col || "id";
       let leftTable = j.left_table;
@@ -267,17 +277,20 @@ export function specToState<Schema = any>(
 
       return {
         id: j.id || `join_${idx + 1}`,
-        type: j.type || "LEFT JOIN",
-        left_table: leftTable,
-        table: j.table,
+        type: (j.type || "LEFT JOIN") as VisualJoin<Schema>["type"],
+        left_table: leftTable as SchemaTableNames<Schema> | undefined,
+        table: j.table as SchemaTableNames<Schema>,
         left_col: leftCol,
         right_col: rightCol,
       };
     });
   }
 
+  // Spec-level `filter_join` is the default combiner for filters without their own.
+  const specFilterJoin = normalizeCombiner(s.filter_join ?? s.filterJoin);
+
   if (Array.isArray(s.filters)) {
-    partial.filters = s.filters.map((f: any, idx: number) => {
+    partial.filters = s.filters.map((f, idx): VisualFilter<Schema> => {
       let col = f.column || "";
       let prefix = f.tablePrefix;
       if (!prefix && col.includes(".")) {
@@ -287,8 +300,8 @@ export function specToState<Schema = any>(
       }
       return {
         id: f.id || `filter_${idx + 1}`,
-        combiner: f.combiner || "AND",
-        tablePrefix: prefix,
+        combiner: normalizeCombiner(f.combiner, specFilterJoin),
+        tablePrefix: prefix as SchemaTableNames<Schema> | undefined,
         column: col,
         operator: (f.operator || f.op || "=").toUpperCase() === "RAW" ? "RAW" : (f.operator || f.op || "="),
         value: f.value ?? "",
@@ -298,7 +311,7 @@ export function specToState<Schema = any>(
   }
 
   if (Array.isArray(s.order_by)) {
-    partial.sorts = s.order_by.map((sortItem: any, idx: number) => {
+    partial.sorts = s.order_by.map((sortItem, idx): VisualSort<Schema> => {
       let col = sortItem.column || "";
       let prefix = sortItem.tablePrefix;
       if (!prefix && col.includes(".")) {
@@ -308,7 +321,7 @@ export function specToState<Schema = any>(
       }
       return {
         id: sortItem.id || `sort_${idx + 1}`,
-        tablePrefix: prefix,
+        tablePrefix: prefix as SchemaTableNames<Schema> | undefined,
         column: col,
         direction: sortItem.direction || "ASC",
       };
@@ -332,7 +345,7 @@ export function specToState<Schema = any>(
   }
 
   if (typeof s.dialect === "string") {
-    partial.dialect = s.dialect;
+    partial.dialect = s.dialect as SqlDialect;
   }
 
   if (s.vector_search || s.vectorSearch) {
@@ -348,7 +361,7 @@ export function specToState<Schema = any>(
   }
 
   if (Array.isArray(s.window_functions) || Array.isArray(s.windowFunctions)) {
-    partial.windowFunctions = s.window_functions || s.windowFunctions;
+    partial.windowFunctions = (s.window_functions || s.windowFunctions) as WindowFunctionSpec[];
   }
 
   return partial;
@@ -406,7 +419,7 @@ export function createInitialState<Schema>(
 /**
  * Headless state management hook for Query-Builder.
  */
-export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
+export function useQueryState<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition>(
   initialSpecOrState?: QuerySpec<Schema> | Partial<QueryState<Schema>> | Record<string, unknown>,
 ): UseQueryStateReturn<Schema> {
   const initialRef = useRef<QueryState<Schema>>(createInitialState<Schema>(initialSpecOrState));
@@ -444,7 +457,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     applyUpdate((prev) => ({
       ...prev,
       activeTables: tables,
-      primaryTable: tables.includes(prev.primaryTable) ? prev.primaryTable : tables[0] || ("" as any),
+      primaryTable: tables.includes(prev.primaryTable) ? prev.primaryTable : tables[0] || ("" as SchemaTableNames<Schema>),
     }));
   }, [applyUpdate]);
 
@@ -473,7 +486,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
     applyUpdate((prev) => {
       const nextActive = prev.activeTables.filter((t) => t !== table);
       const nextPrimary =
-        prev.primaryTable === table ? (nextActive[0] || ("" as any)) : prev.primaryTable;
+        prev.primaryTable === table ? (nextActive[0] || ("" as SchemaTableNames<Schema>)) : prev.primaryTable;
       const nextJoins = prev.joins.filter((j) => j.table !== table && j.left_table !== table);
       const nextSelected: Record<string, VisualColumnSelect<Schema>> = {};
       for (const [k, col] of Object.entries(prev.selectedColumns)) {
@@ -496,7 +509,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
   }, [applyUpdate]);
 
   const toggleColumn = useCallback(
-    (table: SchemaTableNames<Schema>, col: SchemaColumnNames<Schema, any> | string) => {
+    (table: SchemaTableNames<Schema>, col: SchemaColumnNames<Schema, string> | string) => {
       applyUpdate((prev) => {
         const key = `${table}.${col}`;
         const nextSelected = { ...prev.selectedColumns };
@@ -809,7 +822,7 @@ export function useQueryState<Schema extends DatabaseSchemaDefinition = any>(
   const loadSpec = useCallback(
     (spec: QuerySpec<Schema> | Record<string, unknown>) => {
       const parsed = specToState<Schema>(spec);
-      const isFullSpec = Boolean(parsed.primaryTable || (spec as any).table);
+      const isFullSpec = Boolean(parsed.primaryTable || (spec as LooseQuerySpec).table);
       applyUpdate((prev) => {
         const activeTables = parsed.activeTables || prev.activeTables;
 
