@@ -11,7 +11,7 @@ import json
 import threading
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +66,7 @@ class TemplateStore:
         if not self.storage_path or not self.storage_path.exists():
             return
         try:
-            with open(self.storage_path, "r", encoding="utf-8") as f:
+            with open(self.storage_path, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 for item in data.values():
@@ -115,7 +115,7 @@ class TemplateStore:
         if not tmpl_id:
             tmpl_id = uuid.uuid4().hex[:12]
 
-        now_str = datetime.now(timezone.utc).isoformat()
+        now_str = datetime.now(UTC).isoformat()
 
         with self._lock:
             existing = self._templates.get(tmpl_id)

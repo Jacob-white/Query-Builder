@@ -233,7 +233,7 @@ class AsyncH2Connector(AsyncBaseConnector):
             desc = cur.description or []
             col_names = [col[0] for col in desc]
             rows = cur.fetchall() or []
-            dict_rows = [dict(zip(col_names, r)) for r in rows]
+            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
             latency_ms = (time.perf_counter() - start) * 1000.0
             return col_names, dict_rows, latency_ms
         finally:

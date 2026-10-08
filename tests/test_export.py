@@ -438,6 +438,7 @@ def test_stream_export_dataset_json_and_jsonl():
 
 def test_stream_export_dataset_arrow_and_parquet():
     import polars as pl
+
     from query_builder.export import stream_export_dataset
 
     data = [{"a": 1, "b": 1.5}, {"a": 2, "b": 2.5}]
@@ -549,6 +550,7 @@ def test_stream_export_dataset_validations_and_errors():
 
 def test_export_edge_cases_and_exporter_direct():
     import polars as pl
+
     from query_builder.export import (
         ArrowStreamExporter,
         CsvStreamExporter,

@@ -7,6 +7,16 @@
 
 import type { ClientOlapEngine, DuckDBTableMeta } from "../types";
 
+/**
+ * Capability check by property access (no `in` operator) so Proxy / RPC-facade engines that only
+ * trap `get`, and function-target proxies (Comlink style), are recognised like plain objects.
+ */
+function isClientOlapEngine(value: unknown): value is ClientOlapEngine {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return false;
+  const candidate: { query?: unknown; ingestCsv?: unknown } = value;
+  return typeof candidate.query === "function" && typeof candidate.ingestCsv === "function";
+}
+
 export type IngestibleFormat = "csv" | "tsv" | "json" | "parquet" | "unknown";
 
 /**
@@ -34,7 +44,12 @@ export function detectFileFormat(file: { name: string; type?: string }): Ingesti
 export function sanitizeTableName(fileName: string): string {
   const base = fileName.replace(/\.[^/.]+$/, "");
   const sanitized = base.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
-  return sanitized.replace(/^_+|_+$/g, "") || "local_table";
+  // Strip leading/trailing underscores (linear-time `.replace(/^_+|_+$/g, "")`).
+  let first = 0;
+  let last = sanitized.length;
+  while (first < last && sanitized[first] === "_") first++;
+  while (last > first && sanitized[last - 1] === "_") last--;
+  return sanitized.slice(first, last) || "local_table";
 }
 
 /**
@@ -87,7 +102,7 @@ export async function ingestLocalFile(
   let file: File;
   let engine: ClientOlapEngine;
 
-  if (typeof (first as any)?.query === "function" && typeof (first as any)?.ingestCsv === "function") {
+  if (isClientOlapEngine(first)) {
     engine = first as ClientOlapEngine;
     file = second as File;
   } else {
@@ -122,7 +137,7 @@ export async function ingestLocalFile(
 
   if (format === "json") {
     const text = await readFileAsText(file);
-    let parsed: any;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
@@ -130,7 +145,7 @@ export async function ingestLocalFile(
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
       parsed = lines.map((l) => JSON.parse(l));
     }
-    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    const rows: Record<string, unknown>[] = Array.isArray(parsed) ? parsed : [parsed as Record<string, unknown>];
     const meta = await engine.ingestJson(tableName, rows);
     meta.fileSource = file.name;
     return meta;

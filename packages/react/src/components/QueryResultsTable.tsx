@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import type { QueryResultData, QueryBuilderClassNames } from "../types";
+import type { CellRenderer } from "../theme/QueryBuilderProvider";
 import { cx } from "../utils/classNames";
 
 export interface QueryResultsTableProps {
   results: QueryResultData | null;
   isLoading?: boolean;
   unstyled?: boolean;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  cellRenderers?: Record<string, CellRenderer>;
   pageSize?: number;
   className?: string;
   classNames?: QueryBuilderClassNames;

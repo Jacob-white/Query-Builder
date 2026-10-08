@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { CellRenderer } from "../../theme/QueryBuilderProvider";
 import type {
   QueryState,
   QueryStateActions,
@@ -45,7 +46,7 @@ export interface CompoundQueryBuilderContextValue {
   queryResults: QueryResultData | null;
   isRunning: boolean;
   error: Error | string | null;
-  executeQuery: (sql?: string, spec?: Record<string, unknown>) => Promise<QueryResultData | void>;
+  executeQuery: (sql?: string, spec?: QuerySpec | null) => Promise<QueryResultData | void>;
   setQueryResults: (results: QueryResultData | null) => void;
   client?: QueryBuilderClient;
   unstyled: boolean;
@@ -53,7 +54,7 @@ export interface CompoundQueryBuilderContextValue {
   classNames?: QueryBuilderClassNames;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  cellRenderers?: Record<string, CellRenderer>;
 }
 
 export const QueryBuilderCompoundContext =

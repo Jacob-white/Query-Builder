@@ -12,6 +12,45 @@ import {
   toSnakeCase,
 } from "./utils";
 
+const WS_CHAR = /\s/;
+const WORD_CHAR = /\w/;
+
+/**
+ * Linear-time equivalent of `code.split(/\n(?=\s*class\s+\w+)/)`: splits at every
+ * newline whose following whitespace run is directly followed by `class <name>`.
+ */
+function splitClassBlocks(code: string): string[] {
+  const blocks: string[] = [];
+  let last = 0;
+  let i = 0;
+  while (i < code.length) {
+    if (!WS_CHAR.test(code[i])) {
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (runEnd < code.length && WS_CHAR.test(code[runEnd])) runEnd++;
+    if (startsWithClassDecl(code, runEnd)) {
+      for (let p = i; p < runEnd; p++) {
+        if (code[p] === "\n") {
+          blocks.push(code.slice(last, p));
+          last = p + 1;
+        }
+      }
+    }
+    i = runEnd;
+  }
+  blocks.push(code.slice(last));
+  return blocks;
+}
+
+function startsWithClassDecl(code: string, pos: number): boolean {
+  if (!code.startsWith("class", pos)) return false;
+  let next = pos + 5;
+  while (next < code.length && WS_CHAR.test(code[next])) next++;
+  return next > pos + 5 && next < code.length && WORD_CHAR.test(code[next]);
+}
+
 
 const SQLALCHEMY_TYPE_MAP: Record<string, string> = {
   integer: "integer",
@@ -37,26 +76,50 @@ const SQLALCHEMY_TYPE_MAP: Record<string, string> = {
   largebinary: "bytes",
 };
 
+/** Minimal structural shapes of serialized SQLAlchemy metadata. */
+interface SqlAlchemyColumnDef {
+  name?: string;
+  is_primary?: boolean;
+  primary_key?: boolean;
+  isPrimary?: boolean;
+  data_type?: string;
+  dataType?: string;
+  type?: string;
+  is_nullable?: boolean;
+  default?: unknown;
+  comment?: string;
+  enums?: string[];
+}
+
+interface SqlAlchemyTableDef {
+  primary_keys?: string[];
+  foreign_keys?: ForeignKey[];
+  columns?: unknown;
+  schema?: string;
+  comment?: string;
+}
+
 export function fromSqlAlchemy(
-  source: string | Record<string, any>,
+  source: string | Record<string, unknown>,
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
 
   // 1. If source is an object / serialized metadata dict
   if (typeof source === "object" && source !== null) {
-    const rawTables = source.tables || source;
+    const rawTables = (source.tables || source) as Record<string, unknown>;
     const tables: TableSchema[] = [];
 
-    for (const [tblName, tblDef] of Object.entries(rawTables)) {
-      if (!tblDef || typeof tblDef !== "object") continue;
+    for (const [tblName, rawTblDef] of Object.entries(rawTables)) {
+      if (!rawTblDef || typeof rawTblDef !== "object") continue;
+      const tblDef = rawTblDef as SqlAlchemyTableDef;
       const columns: ColumnSchema[] = [];
-      const primaryKeys: string[] = (tblDef as any).primary_keys || [];
-      const foreignKeys: ForeignKey[] = (tblDef as any).foreign_keys || [];
+      const primaryKeys: string[] = tblDef.primary_keys || [];
+      const foreignKeys: ForeignKey[] = tblDef.foreign_keys || [];
 
-      const rawCols = (tblDef as any).columns;
+      const rawCols = tblDef.columns;
       if (Array.isArray(rawCols)) {
-        for (const c of rawCols) {
+        for (const c of rawCols as SqlAlchemyColumnDef[]) {
           const colName = c.name || "";
           const isPk = Boolean(c.is_primary || c.primary_key || c.isPrimary);
           if (isPk && !primaryKeys.includes(colName)) primaryKeys.push(colName);
@@ -79,11 +142,11 @@ export function fromSqlAlchemy(
 
       tables.push({
         name: tblName,
-        schema: (tblDef as any).schema || defaultSchema,
+        schema: tblDef.schema || defaultSchema,
         columns,
         primaryKeys,
         foreignKeys,
-        comment: (tblDef as any).comment,
+        comment: tblDef.comment,
       });
     }
 
@@ -95,7 +158,7 @@ export function fromSqlAlchemy(
   const tables: TableSchema[] = [];
 
   // Split into classes
-  const classBlocks = code.split(/\n(?=\s*class\s+\w+)/);
+  const classBlocks = splitClassBlocks(code);
 
   for (const block of classBlocks) {
     const classMatch = /class\s+(\w+)(?:\([^)]*\))?:/.exec(block);
@@ -131,7 +194,7 @@ export function fromSqlAlchemy(
 
       // e.g.: id = Column(Integer, primary_key=True)
       // or user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-      const assignMatch = /^(\w+)(?:\s*:\s*([^=]+))?\s*=\s*(?:Column|mapped_column)\((.*)\)$/.exec(line);
+      const assignMatch = /^(\w+)(?:\s*:([^=]+)|\s*)=\s*(?:Column|mapped_column)\((.*)\)$/.exec(line);
       if (!assignMatch) continue;
 
       const propName = assignMatch[1];
@@ -274,7 +337,7 @@ export function fromSqlAlchemy(
  * - ForeignKey constraints and relationship() definitions
  */
 export function toSqlAlchemy(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
 ): string {
   const { tables, foreignKeys } = extractSnapshotData(snapshot);
 

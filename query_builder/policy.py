@@ -98,6 +98,50 @@ class SecurityPolicy:
 SecurityGovernor = SecurityPolicy
 
 
+_ENFORCE_KEYS = ("_enforced", "enforced")
+
+
+def _drop_equivalent(
+    filters: list[Any],
+    column: str,
+    value: str,
+    table: str,
+    allow_unprefixed: bool = True,
+) -> None:
+    """Remove plain client ``column = value`` filters on ``table`` (no paren flags).
+
+    The enforced predicate injected right after supersedes them, so the client
+    cannot rely on its own copy (which it could OR away).
+    """
+    clean = table.split(".")[-1].lower()
+    keep: list[Any] = []
+    for flt in filters:
+        fd = (
+            flt
+            if isinstance(flt, dict)
+            else dict(vars(flt))
+            if hasattr(flt, "__dict__")
+            else None
+        )
+        if fd is not None:
+            pfx = fd.get("tablePrefix") or fd.get("table_prefix") or fd.get("table")
+            same = (
+                fd.get("column") == column
+                and str(fd.get("op", "eq")) == "eq"
+                and str(fd.get("value")) == value
+                and (
+                    (pfx is None and allow_unprefixed)
+                    or (pfx is not None and str(pfx).split(".")[-1].lower() == clean)
+                )
+                and not fd.get("parenOpen")
+                and not fd.get("parenClose")
+            )
+            if same:
+                continue
+        keep.append(flt)
+    filters[:] = keep
+
+
 def apply_security_policy(
     spec: dict[str, Any] | QuerySpec,
     schema: dict[str, Any] | SchemaSnapshot | None = None,
@@ -221,54 +265,42 @@ def apply_security_policy(
 
     filters = spec_dict.setdefault("filters", [])
 
+    # Client-supplied filters can never carry the internal enforcement marker.
+    # Only predicates injected below are flagged ``_enforced`` (AND-ed by the
+    # compiler outside the client's filter group).
+    for i, flt in enumerate(filters):
+        if isinstance(flt, dict):
+            if "_enforced" in flt or "enforced" in flt:
+                flt = {k: v for k, v in flt.items() if k not in _ENFORCE_KEYS}
+                filters[i] = flt
+        elif any(hasattr(flt, k) for k in _ENFORCE_KEYS):
+            for k in _ENFORCE_KEYS:
+                if hasattr(flt, k):
+                    try:
+                        delattr(flt, k)
+                    except AttributeError:
+                        pass
+
     # 3. Tenant isolation filter injection
     if active_policy.enforce_tenant_isolation and context and context.tenant_id:
         tenant_id_str = str(context.tenant_id).strip()
 
-        # Check if base table filter exists
-        has_base_tenant_filter = False
-        for flt in filters:
-            col = (
-                flt.get("column")
-                if isinstance(flt, dict)
-                else getattr(flt, "column", None)
-            )
-            tbl_pfx = (
-                flt.get("tablePrefix")
-                if isinstance(flt, dict)
-                else getattr(flt, "table_prefix", None)
-            )
-            if tbl_pfx is None and isinstance(flt, dict):
-                tbl_pfx = flt.get("table")
-            val = (
-                flt.get("value")
-                if isinstance(flt, dict)
-                else getattr(flt, "value", None)
-            )
-            op = flt.get("op") if isinstance(flt, dict) else getattr(flt, "op", "eq")
-            if (
-                col == active_policy.tenant_column
-                and op == "eq"
-                and str(val) == tenant_id_str
-                and (
-                    tbl_pfx is None
-                    or tbl_pfx == base_table
-                    or tbl_pfx.split(".")[-1].lower() == clean_base_table
-                )
-            ):
-                has_base_tenant_filter = True
-                break
-
-        if not has_base_tenant_filter:
-            filters.insert(
-                0,
-                {
-                    "column": active_policy.tenant_column,
-                    "op": "eq",
-                    "value": tenant_id_str,
-                    "table": base_table,
-                },
-            )
+        # Always inject an enforced predicate: a client-supplied equal predicate
+        # could be OR-ed away, so it never satisfies the requirement. An
+        # identical plain client predicate is folded into the enforced one.
+        _drop_equivalent(
+            filters, active_policy.tenant_column, tenant_id_str, base_table
+        )
+        filters.insert(
+            0,
+            {
+                "column": active_policy.tenant_column,
+                "op": "eq",
+                "value": tenant_id_str,
+                "table": base_table,
+                "_enforced": True,
+            },
+        )
 
         # Check join tables
         for join in spec_dict.get("joins", []):
@@ -304,51 +336,18 @@ def apply_security_policy(
                             has_col = False
 
             if has_col:
-                has_j_tenant_filter = False
-                for flt in filters:
-                    col = (
-                        flt.get("column")
-                        if isinstance(flt, dict)
-                        else getattr(flt, "column", None)
-                    )
-                    tbl_pfx = (
-                        flt.get("tablePrefix")
-                        if isinstance(flt, dict)
-                        else getattr(flt, "table_prefix", None)
-                    )
-                    if tbl_pfx is None and isinstance(flt, dict):
-                        tbl_pfx = flt.get("table")
-                    val = (
-                        flt.get("value")
-                        if isinstance(flt, dict)
-                        else getattr(flt, "value", None)
-                    )
-                    op = (
-                        flt.get("op")
-                        if isinstance(flt, dict)
-                        else getattr(flt, "op", "eq")
-                    )
-                    if (
-                        col == active_policy.tenant_column
-                        and op == "eq"
-                        and str(val) == tenant_id_str
-                        and (
-                            tbl_pfx == j_tbl
-                            or (tbl_pfx and tbl_pfx.split(".")[-1].lower() == clean_j)
-                        )
-                    ):
-                        has_j_tenant_filter = True
-                        break
-
-                if not has_j_tenant_filter:
-                    filters.append(
-                        {
-                            "column": active_policy.tenant_column,
-                            "op": "eq",
-                            "value": tenant_id_str,
-                            "table": j_tbl,
-                        }
-                    )
+                _drop_equivalent(
+                    filters, active_policy.tenant_column, tenant_id_str, j_tbl
+                )
+                filters.append(
+                    {
+                        "column": active_policy.tenant_column,
+                        "op": "eq",
+                        "value": tenant_id_str,
+                        "table": j_tbl,
+                        "_enforced": True,
+                    }
+                )
 
     # 4. Row-Level Security (RLS) Filter Injection
     if active_policy.row_level_filters:
@@ -380,6 +379,9 @@ def apply_security_policy(
                     and "table_prefix" not in rule_copy
                 ):
                     rule_copy["table"] = tbl
+                rule_copy.pop("enforced", None)
+                rule_copy.pop("combiner", None)
+                rule_copy["_enforced"] = True
                 filters.append(rule_copy)
 
     # 4.5. Column-Level Access Control (CLAC)

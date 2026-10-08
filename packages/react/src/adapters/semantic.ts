@@ -174,19 +174,75 @@ export function expandTimeGrainSql(
   return `DATE_TRUNC('${g}', ${expr})`;
 }
 
+/** Loose raw JSON shapes accepted by parseSemanticModelsJson (camelCase / snake_case aliases). */
+interface RawSemanticFilter {
+  field?: string;
+  column?: string;
+  operator?: string;
+  op?: string;
+  value?: unknown;
+}
+
+interface RawSemanticDimension {
+  name: string;
+  title?: string;
+  description?: string;
+  sqlExpression?: string;
+  sql_expression?: string;
+  sql?: string;
+  dataType?: string;
+  data_type?: string;
+  type?: string;
+  timeGrains?: TimeGrain[];
+  time_grains?: TimeGrain[];
+  table?: string;
+}
+
+interface RawSemanticMetric {
+  name: string;
+  title?: string;
+  description?: string;
+  sqlExpression?: string;
+  sql_expression?: string;
+  sql?: string;
+  aggregation?: MetricDefinition["aggregation"];
+  type?: MetricDefinition["aggregation"];
+  format?: MetricDefinition["format"];
+  filters?: RawSemanticFilter[];
+  table?: string;
+}
+
+interface RawSemanticModel {
+  name?: string;
+  model?: string;
+  tableName?: string;
+  table_name?: string;
+  table?: string;
+  description?: string;
+  primaryKey?: string;
+  primary_key?: string;
+  pk?: string;
+  defaultTimeDimension?: string;
+  default_time_dimension?: string;
+  dimensions?: RawSemanticDimension[];
+  metrics?: RawSemanticMetric[];
+  models?: RawSemanticModel[];
+  semantic_models?: RawSemanticModel[];
+}
+
 export function parseSemanticModelsJson(jsonContent: string): SemanticModel[] {
-  const parsed = JSON.parse(jsonContent);
-  const items = Array.isArray(parsed)
+  const parsed: RawSemanticModel | RawSemanticModel[] = JSON.parse(jsonContent);
+  const items: RawSemanticModel[] = Array.isArray(parsed)
     ? parsed
     : parsed.models || parsed.semantic_models || [parsed];
 
-  return items.map((m: any) => ({
+  return items.map((m): SemanticModel => ({
     name: m.name || m.model || "unnamed_model",
-    tableName: m.tableName || m.table_name || m.table || m.name,
+    tableName: (m.tableName || m.table_name || m.table || m.name) as string,
     description: m.description,
     primaryKey: m.primaryKey || m.primary_key || m.pk,
     defaultTimeDimension: m.defaultTimeDimension || m.default_time_dimension,
-    dimensions: (m.dimensions || []).map((d: any) => ({
+    dimensions: (m.dimensions || []).map((d): DimensionDefinition => ({
       name: d.name,
       title: d.title || d.name,
       description: d.description,
@@ -195,15 +251,15 @@ export function parseSemanticModelsJson(jsonContent: string): SemanticModel[] {
       timeGrains: d.timeGrains || d.time_grains || [],
       table: d.table,
     })),
-    metrics: (m.metrics || []).map((metric: any) => ({
+    metrics: (m.metrics || []).map((metric): MetricDefinition => ({
       name: metric.name,
       title: metric.title || metric.name,
       description: metric.description,
-      sqlExpression: metric.sqlExpression || metric.sql_expression || metric.sql,
+      sqlExpression: (metric.sqlExpression || metric.sql_expression || metric.sql) as string,
       aggregation: metric.aggregation || metric.type || "sum",
       format: metric.format || "number",
-      filters: (metric.filters || []).map((f: any) => ({
-        field: f.field || f.column,
+      filters: (metric.filters || []).map((f): MetricFilter => ({
+        field: (f.field || f.column) as string,
         operator: f.operator || f.op || "eq",
         value: f.value,
       })),

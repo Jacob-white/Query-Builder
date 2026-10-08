@@ -179,6 +179,12 @@ class NlqAstValidator:
                             if "tablePrefix" in f
                             else {}
                         ),
+                        **(
+                            {"combiner": comb}
+                            if (comb := str(f.get("combiner") or "").strip().upper())
+                            in {"AND", "OR"}
+                            else {}
+                        ),
                     }
                 )
 

@@ -121,6 +121,16 @@ class QuerySpec:
     pivot: PivotSpec | dict[str, Any] | None = None
 ```
 
+**Filter combiners.** Each filter may carry `combiner: "AND" | "OR"`, the operator
+joining it to the *previous* filter (the first filter's combiner is unused).
+Missing or invalid values fall back to the spec's `filter_join` (itself
+whitelisted to `AND`/`OR`). `parse_sql_to_spec` emits per-filter combiners once
+the `WHERE` clause contains an `OR`, so `a AND b OR c` round-trips with SQL
+precedence. Filters produced by `apply_security_policy` (tenant isolation and
+row-level rules) are marked with the internal key `_enforced`; the compiler
+emits them as standalone `AND`-ed `WHERE` predicates outside the client filter
+group, and any client-supplied `_enforced` / `enforced` key is stripped.
+
 ---
 
 ### `WindowFunctionSpec` (Alias: `WindowSpec`)

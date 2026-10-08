@@ -1045,6 +1045,7 @@ def test_edge_cases_all_adapters_and_introspection():
 
 def test_introspect_sqlite_quoted_table_name():
     import sqlite3
+
     from query_builder.connectors.introspection import introspect_sqlite
 
     conn = sqlite3.connect(":memory:")

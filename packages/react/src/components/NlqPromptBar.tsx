@@ -1,9 +1,11 @@
 import React, { useState } from "react";
-import type { QuerySpec, DatabaseSchemaDefinition, SchemaSnapshot } from "../types";
+import type { QuerySpec } from "../types";
+import type { ByoAiSchema } from "../ai/types";
+import { getSchemaTableNames } from "../utils/schemaUtils";
 import { useNlqQuery, type NlqProviderName } from "../hooks/useNlqQuery";
 
 export interface NlqPromptBarProps {
-  schema?: DatabaseSchemaDefinition | SchemaSnapshot | Record<string, any> | null;
+  schema?: ByoAiSchema;
   currentSpec?: QuerySpec;
   onApplySpec?: (spec: QuerySpec) => void;
   defaultProvider?: NlqProviderName;
@@ -66,7 +68,7 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
     onApply: onApplySpec,
   });
 
-  const schemaTableNames = schema?.tables ? Object.keys(schema.tables) : [];
+  const schemaTableNames = getSchemaTableNames(schema);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {

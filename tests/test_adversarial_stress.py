@@ -694,6 +694,9 @@ def challenge_telemetry() -> dict[str, Any]:
 
 def test_adversarial_empirical_suite():
     """Pytest entrypoint executing all empirical challenge suites."""
+    pytest.importorskip(
+        "duckdb"
+    )  # live-server challenge introspects a DuckDB connector
     assert challenge_connection_pool()["pool_status"] == "PASSED"
     assert challenge_security_policy()["security_status"] == "PASSED"
     assert challenge_export_engine()["export_status"] == "PASSED"

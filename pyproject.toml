@@ -7,7 +7,7 @@ name = "query-builder-engine"
 version = "1.0.0"
 description = "Universal, multi-dialect SQL query builder, declarative compiler, AST safety validator, and graph-based join path solver."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
     { name = "HobbyHabbit LLC", email = "support@hobbyhabbit.com" }
@@ -20,10 +20,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -35,7 +34,7 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "ruff>=0.1.0",
+    "ruff>=0.14,<0.17",
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
     "polars>=1.0.0",
@@ -217,7 +216,13 @@ filterwarnings = [
     "ignore::starlette.testclient.StarletteDeprecationWarning",
 ]
 
+[tool.coverage.run]
+source = ["query_builder"]
+branch = true
+
 [tool.coverage.report]
+# Floor set just under the measured value (99%); raise it as coverage improves.
+fail_under = 99
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
@@ -227,11 +232,19 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501", "E402", "E741", "E731"]
+select = ["E", "F", "W", "B", "I", "UP", "S"]
+ignore = [
+    "E501", "E402", "E741", "E731",
+    # Building SQL strings is this library's job; injection safety is enforced by the
+    # AST validator and bind parameters, so the generic string-SQL heuristic is noise.
+    "S608",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F811"]
+# Tests legitimately use assert, fixed temp paths, subprocess, etc.
+"tests/**" = ["S"]
+"examples/**" = ["S"]

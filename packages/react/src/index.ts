@@ -94,6 +94,18 @@ export {
   resetTemplateStorage,
 } from "./components/QueryTemplateManager";
 
+export type {
+  AgentToolDefinition,
+  AgentToolResult,
+  AgentToolParameters,
+  AgentSchemaInput,
+  OpenAiTool,
+  AnthropicTool,
+  GeminiTool,
+  LangChainTool,
+  McpTool,
+} from "./ai/tools";
+
 // First-Class API Client & Fluent Query Builder
 export * from "./client";
 

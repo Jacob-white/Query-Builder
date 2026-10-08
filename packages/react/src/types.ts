@@ -121,7 +121,7 @@ export interface DatabaseSchemaDefinition {
 
 export type SchemaTableNames<Schema> =
   Schema extends { tables: infer T }
-    ? T extends Record<string, any>
+    ? T extends object
       ? keyof T & string
       : string
     : string;
@@ -134,10 +134,10 @@ export type SchemaColumnNames<Schema, Table extends string> =
       };
     };
   }
-    ? C extends Record<string, any>
-      ? keyof C & string
-      : C extends Array<{ name: infer ColName extends string }>
-        ? ColName
+    ? C extends Array<{ name: infer ColName extends string }>
+      ? ColName
+      : C extends object
+        ? keyof C & string
         : string
     : string;
 
@@ -230,10 +230,36 @@ export type TimeGrain =
   | "quarter"
   | "year";
 
+/**
+ * Value accepted by a filter: scalars, `null` (for `IS` / `IS NOT`) or a list (for `IN` / `BETWEEN`).
+ */
+export type FilterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReadonlyArray<string | number | boolean | null>;
+
+/**
+ * Cell renderer callback. Declared with the method-bivariance pattern so consumer callbacks with a
+ * narrower parameter type (for example `(v: number) => ...`) stay assignable.
+ */
+export type CellRenderer = {
+  bivarianceHack(value: unknown, row: Record<string, unknown>, column: string): React.ReactNode;
+}["bivarianceHack"];
+
+/**
+ * Query execution callback. `spec` is `null` when raw-SQL mode holds SQL that cannot be mapped to a
+ * QuerySpec. Method-bivariant so handlers declared with a narrower `spec` type remain assignable.
+ */
+export type ExecuteQueryHandler = {
+  bivarianceHack(sql: string, spec?: QuerySpec | null): Promise<QueryResultData> | void;
+}["bivarianceHack"];
+
 export interface MetricFilter {
   field: string;
   operator: string;
-  value: any;
+  value: unknown;
 }
 
 export interface MetricDefinition {
@@ -267,7 +293,7 @@ export interface SemanticModel {
   metrics?: MetricDefinition[];
 }
 
-export interface VisualJoin<Schema = any> {
+export interface VisualJoin<Schema = DatabaseSchemaDefinition> {
   id: string;
   type: "LEFT JOIN" | "INNER JOIN" | "RIGHT JOIN" | "FULL JOIN";
   left_table?: SchemaTableNames<Schema>;
@@ -276,28 +302,28 @@ export interface VisualJoin<Schema = any> {
   right_col: string;
 }
 
-export interface VisualFilter<Schema = any> {
+export interface VisualFilter<Schema = DatabaseSchemaDefinition> {
   id: string;
   combiner?: "AND" | "OR";
   parenOpen?: string;
   tablePrefix?: SchemaTableNames<Schema>;
-  column: SchemaColumnNames<Schema, any> | string;
+  column: SchemaColumnNames<Schema, string> | string;
   operator: FilterOperator;
   value: string | number | boolean;
   parenClose?: string;
   rawExpression?: string;
 }
 
-export interface VisualSort<Schema = any> {
+export interface VisualSort<Schema = DatabaseSchemaDefinition> {
   id: string;
   tablePrefix?: SchemaTableNames<Schema>;
-  column: SchemaColumnNames<Schema, any> | string;
+  column: SchemaColumnNames<Schema, string> | string;
   direction: "ASC" | "DESC";
 }
 
-export interface VisualColumnSelect<Schema = any> {
+export interface VisualColumnSelect<Schema = DatabaseSchemaDefinition> {
   table: SchemaTableNames<Schema>;
-  name: SchemaColumnNames<Schema, any> | string;
+  name: SchemaColumnNames<Schema, string> | string;
   aggregate?: "" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
   alias?: string;
   timeGrain?: TimeGrain;
@@ -343,7 +369,7 @@ export interface QueryPlanNode {
 }
 
 export interface StreamingQueryState {
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   columns: string[];
   isStreaming: boolean;
   progress: {
@@ -358,21 +384,21 @@ export interface CaseWhenBranch {
   condition: {
     column: string;
     op: string;
-    value?: any;
+    value?: string | number | null;
     tablePrefix?: string;
   };
-  then_value?: any;
+  then_value?: string | number | null;
   then_column?: string;
 }
 
 export interface CaseWhenSpec {
   branches: CaseWhenBranch[];
-  else_value?: any;
+  else_value?: string | number | null;
   else_column?: string;
   alias?: string;
 }
 
-export interface SetOperationSpec<Schema = any> {
+export interface SetOperationSpec<Schema = DatabaseSchemaDefinition> {
   operation: "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT" | "MINUS";
   query: QuerySpec<Schema>;
 }
@@ -387,7 +413,7 @@ export interface CalculatedFieldSpec {
   dataType?: string;
 }
 
-export interface QuerySpec<Schema = any> {
+export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
   table: SchemaTableNames<Schema>;
   columns: (
     | string
@@ -410,8 +436,10 @@ export interface QuerySpec<Schema = any> {
   filters: {
     column: string;
     op: string;
-    value: string | number | boolean;
+    value: FilterValue;
     tablePrefix?: SchemaTableNames<Schema>;
+    combiner?: "AND" | "OR";
+    rawExpression?: string;
   }[];
   filter_join: "AND" | "OR";
   order_by: {
@@ -428,9 +456,83 @@ export interface QuerySpec<Schema = any> {
   window_functions?: WindowFunctionSpec[];
   set_operations?: SetOperationSpec<Schema>[];
   group_by?: string[];
-  having?: { column: string; op: string; value: any }[];
+  having?: { column: string; op: string; value: unknown }[];
   grouping_type?: "standard" | "rollup" | "cube" | "grouping_sets";
   grouping_sets?: string[][];
+}
+
+/**
+ * Loosely-typed view over the many spec shapes accepted at runtime
+ * (QuerySpec, QueryState, saved presets). Accepts snake_case and camelCase aliases.
+ */
+export interface LooseSpecColumn {
+  column?: string;
+  agg?: string;
+  alias?: string;
+  raw_expression?: string;
+  rawExpression?: string;
+  time_grain?: string;
+  timeGrain?: string;
+  metric?: boolean | string | MetricDefinition;
+}
+
+export interface LooseSpecJoin {
+  id?: string;
+  table: string;
+  type?: string;
+  left_table?: string;
+  left_col?: string;
+  right_col?: string;
+  on?: { left?: string; right?: string }[];
+}
+
+export interface LooseSpecFilter {
+  id?: string;
+  combiner?: "AND" | "OR";
+  tablePrefix?: string;
+  table?: string;
+  column?: string;
+  operator?: string;
+  op?: string;
+  value?: string | number | boolean | null;
+  raw_expression?: string;
+  rawExpression?: string;
+}
+
+export interface LooseSpecSort {
+  id?: string;
+  tablePrefix?: string;
+  column?: string;
+  direction?: "ASC" | "DESC";
+}
+
+export interface LooseQuerySpec {
+  table?: string;
+  primaryTable?: string;
+  activeTables?: (string | TableMeta)[];
+  selectedColumns?: Record<string, VisualColumnSelect>;
+  orderedProjectionKeys?: string[];
+  columns?: (string | LooseSpecColumn | null)[];
+  joins?: LooseSpecJoin[];
+  filters?: LooseSpecFilter[];
+  sorts?: VisualSort[];
+  order_by?: LooseSpecSort[];
+  filter_join?: "AND" | "OR";
+  filterJoin?: "AND" | "OR";
+  distinct?: boolean;
+  isDistinct?: boolean;
+  limit?: number;
+  offset?: number;
+  dialect?: string;
+  vector_search?: VectorSearchSpec | null;
+  vectorSearch?: VectorSearchSpec | null;
+  hybrid_search?: HybridSearchSpec | null;
+  hybridSearch?: HybridSearchSpec | null;
+  ctes?: CteSpec[] | null;
+  window_functions?: WindowFunctionSpec[] | null;
+  windowFunctions?: WindowFunctionSpec[] | null;
+  semantic_models?: SemanticModel[] | null;
+  semanticModels?: SemanticModel[] | null;
 }
 
 export interface WindowFrameSpec {
@@ -455,7 +557,7 @@ export interface WindowFunctionSpec {
 
 export interface CteSpec {
   name: string;
-  query: QuerySpec;
+  query: Partial<QuerySpec> & { sql?: string };
   columns?: string[];
   recursive?: boolean;
   materialized?: boolean;
@@ -620,7 +722,8 @@ export type SqlDialect =
 
 export interface VisualQueryBuilderRef {
   /** Gets the active serialized QuerySpec AST */
-  getSpec(): QuerySpec;
+  /** Current spec, or `null` while raw-SQL mode holds SQL that cannot be mapped to a spec. */
+  getSpec(): QuerySpec | null;
   /** Gets the current compiled or raw SQL string */
   getSql(): string;
   /** Sets and synchronizes a new QuerySpec AST into the visual state */
@@ -716,17 +819,20 @@ export type FeaturePreset = "simple" | "standard" | "power_user" | "all";
 
 export type ResolvedFeatureMap = Record<FeatureKey, FeatureTier>;
 
-export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = any> {
+export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   presets?: SqlPreset[];
   initialTable?: SchemaTableNames<Schema>;
   dialect?: SqlDialect;
   value?: QuerySpec<Schema>;
-  onChange?: (spec: QuerySpec<Schema>, sql: string) => void;
+  /** `spec` is `null` when raw-SQL mode holds SQL that cannot be mapped to a QuerySpec. */
+  onChange?: (spec: QuerySpec<Schema> | null, sql: string) => void;
   initialSpec?: QuerySpec<Schema>;
   client?: import("./client").QueryBuilderClient;
-  onExecuteQuery?: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData> | void;
-  onSaveQuery?: (title: string, sql: string, spec: Record<string, unknown>) => void;
+  onExecuteQuery?: ExecuteQueryHandler;
+  onSaveQuery?: {
+    bivarianceHack(title: string, sql: string, spec: QuerySpec | Record<string, unknown>): void;
+  }["bivarianceHack"];
   theme?: "dark" | "light" | "auto";
   readOnly?: boolean;
   unstyled?: boolean;
@@ -735,7 +841,7 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   classNames?: QueryBuilderClassNames;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
-  cellRenderers?: Record<string, (value: any, row: any, column: string) => React.ReactNode>;
+  cellRenderers?: Record<string, CellRenderer>;
   ai?: import("./ai/types").ByoAiConfig;
 
   // Advanced Feature Controls
@@ -828,7 +934,7 @@ export interface QueryTemplateManagerProps {
 // Playground Types
 // ==========================================
 
-export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = any> {
+export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   initialSpec?: QuerySpec<Schema> | Record<string, unknown>;
   initialTable?: string;
@@ -855,7 +961,7 @@ export interface DuckDBTableMeta {
 
 export interface DuckDBQueryResult {
   columns: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   rowCount: number;
   executionTimeMs: number;
 }
@@ -875,9 +981,9 @@ export interface ClientOlapEngine {
   activeTable?: string;
   query(sql: string): Promise<DuckDBQueryResult>;
   ingestCsv(tableName: string, csvContent: string, options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
-  ingestJson(tableName: string, rows: Record<string, any>[], options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
+  ingestJson(tableName: string, rows: Record<string, unknown>[], options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
   ingestParquet(tableName: string, buffer: Uint8Array, options?: DuckDBIngestOptions): Promise<DuckDBTableMeta>;
-  registerBackendResults(tableName: string, rows: Record<string, any>[]): Promise<DuckDBTableMeta>;
+  registerBackendResults(tableName: string, rows: Record<string, unknown>[]): Promise<DuckDBTableMeta>;
   dropTable(tableName: string): Promise<void>;
   clear(): Promise<void>;
   getSchemaSnapshot(): SchemaSnapshot;
@@ -913,13 +1019,13 @@ export interface PivotConfig {
 export interface GlobalFilter {
   field: string;
   operator: string;
-  value: any;
+  value: unknown;
 }
 
 export interface CrossFilterState {
   sourceTileId: string;
   field: string;
-  value: any;
+  value: unknown;
 }
 
 export interface DashboardTile {
@@ -929,7 +1035,7 @@ export interface DashboardTile {
   type: DashboardTileType;
   querySpec?: QuerySpec;
   sql?: string;
-  cachedRows?: Record<string, any>[];
+  cachedRows?: Record<string, unknown>[];
   layout: DashboardTileLayout;
   chartType?: ChartType;
   kpiConfig?: KpiConfig;

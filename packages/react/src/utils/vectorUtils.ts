@@ -1,9 +1,9 @@
-import type { QuerySpec, VectorSearchSpec, HybridSearchSpec } from "../types";
+import type { QuerySpec, VectorSearchSpec, HybridSearchSpec, DatabaseSchemaDefinition } from "../types";
 
 /**
  * Attaches or updates a vector search specification on an existing QuerySpec.
  */
-export function withVectorSearch<Schema = any>(
+export function withVectorSearch<Schema = DatabaseSchemaDefinition>(
   spec: QuerySpec<Schema>,
   vectorSearch: VectorSearchSpec
 ): QuerySpec<Schema> {
@@ -63,7 +63,7 @@ export function isValidVectorSearch(
 /**
  * Attaches or updates a hybrid search specification on an existing QuerySpec.
  */
-export function withHybridSearch<Schema = any>(
+export function withHybridSearch<Schema = DatabaseSchemaDefinition>(
   spec: QuerySpec<Schema>,
   hybridSearch: HybridSearchSpec
 ): QuerySpec<Schema> {

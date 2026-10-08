@@ -10,6 +10,7 @@ import {
   toSchemaSnapshot,
   type SchemaSnapshot,
   type QueryResultData,
+  type QuerySpec,
   type CustomFilterOperator,
 } from "@jacob-white/query-builder-react";
 
@@ -189,12 +190,12 @@ export function App() {
   // Execution handler talking to backend /api/execute
   const handleExecuteQuery = async (
     sql: string,
-    spec?: Record<string, unknown>,
+    spec?: QuerySpec | null,
   ): Promise<QueryResultData> => {
     const res = await fetch("/api/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec, sql }),
+      body: JSON.stringify({ spec: spec ?? undefined, sql }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -316,7 +317,7 @@ function HeadlessDemo({
   onExecuteQuery,
 }: {
   schema: SchemaSnapshot;
-  onExecuteQuery: (sql: string, spec?: Record<string, unknown>) => Promise<QueryResultData>;
+  onExecuteQuery: (sql: string, spec?: QuerySpec | null) => Promise<QueryResultData>;
 }) {
   const tableNames = useMemo(() => Object.keys(schema.tables || {}), [schema]);
   const defaultTable = tableNames.length > 0 ? tableNames[0] : "products";

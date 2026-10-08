@@ -3,7 +3,7 @@
  */
 
 import type { ByoAiToolFormat } from "./types";
-import type { QuerySpec } from "../types";
+import type { QuerySpec, SqlDialect } from "../types";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { compileSpecToSql } from "../utils/compiler";
 import { autoHealClientQuerySpec } from "./selfHealing";
@@ -86,10 +86,80 @@ export const REACT_AGENT_TOOL_SCHEMAS = [
   },
 ];
 
+/** Schema input accepted by agent tools: table list, snapshot-like object, or name-keyed map. */
+export type AgentSchemaInput = { name?: string }[] | { tables?: Record<string, unknown> } | Record<string, unknown>;
+
+/** JSON-schema object describing a tool's parameters. */
+export type AgentToolParameters = Record<string, unknown>;
+
+/** OpenAI / Azure OpenAI `tools[]` entry. */
+export interface OpenAiTool {
+  type: "function";
+  function: { name: string; description: string; parameters: AgentToolParameters };
+}
+
+/** Anthropic `tools[]` entry. */
+export interface AnthropicTool {
+  name: string;
+  description: string;
+  input_schema: AgentToolParameters;
+}
+
+/** Gemini function declaration. */
+export interface GeminiTool {
+  name: string;
+  description: string;
+  parameters: AgentToolParameters;
+}
+
+/** LangChain structured-tool descriptor. */
+export interface LangChainTool {
+  name: string;
+  description: string;
+  args_schema: AgentToolParameters;
+}
+
+/** Model Context Protocol tool descriptor. */
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: AgentToolParameters;
+}
+
+/** Provider-specific tool definition (OpenAI, Anthropic, Gemini, LangChain or MCP shape). */
+export type AgentToolDefinition = OpenAiTool | AnthropicTool | GeminiTool | LangChainTool | McpTool;
+
+/** JSON-serializable result returned from an agent tool call. */
+export interface AgentToolResult {
+  success: boolean;
+  error?: string;
+  valid?: boolean;
+  tool?: string;
+  sql?: string;
+  spec?: QuerySpec | Partial<QuerySpec>;
+  dialect?: string;
+  explanation?: string;
+  warnings?: string[];
+  security_violations?: string[];
+  [key: string]: unknown;
+}
+
+function resolveTableNames(schema: AgentSchemaInput): string[] {
+  if (Array.isArray(schema)) return schema.map((t) => t.name as string);
+  const withTables = schema as { tables?: Record<string, unknown> };
+  return withTables.tables ? Object.keys(withTables.tables) : Object.keys(schema);
+}
+
+export function getAgentToolDefinitions(format?: "openai", schema?: AgentSchemaInput): OpenAiTool[];
+export function getAgentToolDefinitions(format: "anthropic", schema?: AgentSchemaInput): AnthropicTool[];
+export function getAgentToolDefinitions(format: "gemini", schema?: AgentSchemaInput): GeminiTool[];
+export function getAgentToolDefinitions(format: "langchain", schema?: AgentSchemaInput): LangChainTool[];
+export function getAgentToolDefinitions(format: "mcp", schema?: AgentSchemaInput): McpTool[];
+export function getAgentToolDefinitions(format: ByoAiToolFormat | (string & {}), schema?: AgentSchemaInput): AgentToolDefinition[];
 export function getAgentToolDefinitions(
-  format: ByoAiToolFormat = "openai",
-  _schema?: any
-): any[] {
+  format: ByoAiToolFormat | (string & {}) = "openai",
+  _schema?: AgentSchemaInput
+): AgentToolDefinition[] {
   const fmt = format.toLowerCase().trim();
   const tools = REACT_AGENT_TOOL_SCHEMAS;
 
@@ -135,26 +205,27 @@ export function getAgentToolDefinitions(
 }
 
 export interface ExecuteAgentToolOptions {
-  schema?: any;
+  schema?: AgentSchemaInput;
   dialect?: string;
   onCompile?: (spec: QuerySpec, dialect: string) => string;
 }
 
 export function executeAgentToolCall(
   toolName: string,
-  args: Record<string, any> | string,
+  args: Record<string, unknown> | string,
   options: ExecuteAgentToolOptions = {}
-): Record<string, any> {
+): AgentToolResult {
   if (typeof toolName !== "string") {
     return { success: false, error: "Tool name must be a string." };
   }
-  let parsedArgs: Record<string, any>;
+  let parsedArgs: Record<string, unknown>;
   if (typeof args === "string") {
     try {
       const parsed = JSON.parse(args);
       parsedArgs = typeof parsed === "object" && parsed !== null ? parsed : {};
-    } catch (err: any) {
-      return { success: false, error: `Invalid JSON arguments: ${err?.message || "parse error"}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : undefined;
+      return { success: false, error: `Invalid JSON arguments: ${message || "parse error"}` };
     }
   } else if (typeof args === "object" && args !== null) {
     parsedArgs = args;
@@ -166,22 +237,18 @@ export function executeAgentToolCall(
   const schema = options.schema;
 
   if (toolName === "build_query") {
-    const intent = parsedArgs.intent;
+    const intent = parsedArgs.intent as string | undefined;
     if (!intent) {
       return { success: false, error: "Missing required argument 'intent'." };
     }
-    const targetDialect = parsedArgs.dialect || dialect;
-    const limit = parsedArgs.limit || 50;
+    const targetDialect = (parsedArgs.dialect as string | undefined) || dialect;
+    const limit = (parsedArgs.limit as number | undefined) || 50;
 
     // Build default query spec from intent
     const words = intent.toLowerCase().replace(/[^a-z0-9_\s]/g, "").split(/\s+/);
     let matchedTable = "users";
     if (schema) {
-      const tableNames = Array.isArray(schema)
-        ? schema.map((t: any) => t.name)
-        : schema.tables
-        ? Object.keys(schema.tables)
-        : Object.keys(schema);
+      const tableNames = resolveTableNames(schema);
 
       const found = tableNames.find((t: string) => words.includes(t.toLowerCase()));
       if (found) matchedTable = found;
@@ -200,7 +267,7 @@ export function executeAgentToolCall(
 
     const sql = options.onCompile
       ? options.onCompile(spec, targetDialect)
-      : compileSpecToSql(spec, targetDialect as any);
+      : compileSpecToSql(spec, targetDialect as SqlDialect);
 
     return {
       success: true,
@@ -215,7 +282,7 @@ export function executeAgentToolCall(
   if (toolName === "validate_and_compile_query") {
     let spec = parsedArgs.spec as Partial<QuerySpec> | undefined;
     const rawSql = parsedArgs.sql as string | undefined;
-    const targetDialect = parsedArgs.dialect || dialect;
+    const targetDialect = (parsedArgs.dialect as string | undefined) || dialect;
 
     if (!spec && !rawSql) {
       return {
@@ -253,7 +320,7 @@ export function executeAgentToolCall(
 
     const compiled = options.onCompile
       ? options.onCompile(finalSpec, targetDialect)
-      : compileSpecToSql(finalSpec, targetDialect as any);
+      : compileSpecToSql(finalSpec, targetDialect as SqlDialect);
 
     const compiledSafety = validateSqlSafety(compiled);
     if (!compiledSafety.valid) {
@@ -277,16 +344,12 @@ export function executeAgentToolCall(
   }
 
   if (toolName === "get_schema_catalog") {
-    const format = (parsedArgs.format || "markdown").toLowerCase();
+    const format = ((parsedArgs.format as string | undefined) || "markdown").toLowerCase();
     const filterTables = parsedArgs.tables as string[] | undefined;
 
     let tables: string[] = [];
     if (schema) {
-      tables = Array.isArray(schema)
-        ? schema.map((t: any) => t.name)
-        : schema.tables
-        ? Object.keys(schema.tables)
-        : Object.keys(schema);
+      tables = resolveTableNames(schema);
     }
 
     if (filterTables && Array.isArray(filterTables)) {

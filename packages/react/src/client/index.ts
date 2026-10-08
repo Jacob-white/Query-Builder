@@ -9,6 +9,7 @@
 
 import type {
   QuerySpec,
+  FilterValue,
   SchemaSnapshot,
   QueryResultData,
   SqlDialect,
@@ -74,18 +75,35 @@ export interface RequestOptions {
 
 export interface CompileResult {
   sql: string;
-  params: any[];
+  params: unknown[];
   count_sql?: string;
-  count_params?: any[];
+  count_params?: unknown[];
+}
+
+/** Loose shape of a JSON error body returned by backends. */
+interface ErrorPayload {
+  detail?: unknown;
+  message?: unknown;
+  error?: unknown;
+}
+
+/** Loose shape of schema responses that may wrap the snapshot under `schema`. */
+interface SchemaEnvelope {
+  schema?: SchemaSnapshot;
+  capabilities?: Record<string, string>;
+}
+
+interface CapabilitiesEnvelope {
+  capabilities?: Record<string, string>;
 }
 
 export class QueryBuilderApiError extends Error {
   public status: number;
   public statusText: string;
-  public data?: any;
+  public data?: unknown;
   public url: string;
 
-  constructor(message: string, status: number, statusText: string, data: any, url: string) {
+  constructor(message: string, status: number, statusText: string, data: unknown, url: string) {
     super(message);
     this.name = "QueryBuilderApiError";
     this.status = status;
@@ -146,7 +164,7 @@ export class FluentQuery {
     return this;
   }
 
-  where(column: string, op: string, value: any, tablePrefix?: string): this {
+  where(column: string, op: string, value: FilterValue, tablePrefix?: string): this {
     this._spec.filters.push({
       column,
       op,
@@ -161,7 +179,7 @@ export class FluentQuery {
     return this;
   }
 
-  having(column: string, op: string, value: any): this {
+  having(column: string, op: string, value: unknown): this {
     if (!this._spec.having) {
       this._spec.having = [];
     }
@@ -239,7 +257,7 @@ export interface QueryBuilderClient {
    * Executes a query specification or pre-compiled SQL query against the backend.
    */
   execute(
-    specOrSql: QuerySpec | { sql: string; params?: any[] },
+    specOrSql: QuerySpec | { sql: string; params?: unknown[] },
     options?: RequestOptions,
   ): Promise<QueryResultData>;
 
@@ -264,15 +282,24 @@ export interface QueryBuilderClient {
 
   /**
    * Directly executes an HTTP request via the client's configured transport and credentials.
+   * The response type defaults to `unknown` (it was `any` in earlier releases); pass the expected
+   * shape explicitly, e.g. `client.request<MyRow[]>("/rows")`. Clients returned by
+   * `createQueryBuilderClient` always provide this method.
    */
-  request?<T = any>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
+  request?<T = unknown>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
 }
 
 /**
  * Creates an official QueryBuilderClient instance.
  */
-export function createQueryBuilderClient(config: QueryBuilderClientConfig): QueryBuilderClient {
-  const cleanBaseUrl = (config.baseUrl || "").replace(/\/+$/, "");
+export function createQueryBuilderClient(
+  config: QueryBuilderClientConfig,
+): QueryBuilderClient & Required<Pick<QueryBuilderClient, "request">> {
+  const rawBaseUrl = config.baseUrl || "";
+  // Strip trailing slashes (linear-time `.replace(/\/+$/, "")`).
+  let baseUrlEnd = rawBaseUrl.length;
+  while (baseUrlEnd > 0 && rawBaseUrl[baseUrlEnd - 1] === "/") baseUrlEnd--;
+  const cleanBaseUrl = rawBaseUrl.slice(0, baseUrlEnd);
   const defaultTimeoutMs = config.timeoutMs ?? 30000;
   const fetchFn = config.fetchFn ?? globalThis.fetch;
 
@@ -321,7 +348,7 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
     return merged;
   }
 
-  async function makeRequest<T = any>(
+  async function makeRequest<T = unknown>(
     path: string,
     init: RequestInit,
     options?: RequestOptions,
@@ -335,7 +362,7 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
     const timeoutMs = options?.timeoutMs ?? defaultTimeoutMs;
 
     const controller = new AbortController();
-    let timeoutId: any = undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
     if (timeoutMs > 0 && timeoutMs !== Infinity) {
       timeoutId = setTimeout(() => {
@@ -363,7 +390,7 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
       });
 
       if (!response.ok) {
-        let errorData: any = null;
+        let errorData: ErrorPayload | null = null;
         let errorMessage = `QueryBuilderClient HTTP ${response.status}: ${response.statusText}`;
         try {
           const contentType = response.headers?.get ? response.headers.get("content-type") || "" : "";
@@ -413,16 +440,16 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
     }
   }
 
-  const client: QueryBuilderClient = {
+  const client: QueryBuilderClient & Required<Pick<QueryBuilderClient, "request">> = {
     async getSchema(options?: RequestOptions): Promise<SchemaSnapshot> {
       // First try standard GET /schema
       try {
-        const data = await makeRequest<any>("/schema", { method: "GET" }, options);
-        return data?.schema || data;
+        const data = await makeRequest<SchemaEnvelope>("/schema", { method: "GET" }, options);
+        return (data?.schema || data) as SchemaSnapshot;
       } catch (err) {
         // If 404 or method not allowed, try fallback POST /introspect or POST /schema
         if (err instanceof QueryBuilderApiError && (err.status === 404 || err.status === 405)) {
-          const fallbackData = await makeRequest<any>(
+          const fallbackData = await makeRequest<SchemaEnvelope>(
             "/introspect",
             {
               method: "POST",
@@ -430,7 +457,7 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
             },
             options,
           );
-          return fallbackData?.schema || fallbackData;
+          return (fallbackData?.schema || fallbackData) as SchemaSnapshot;
         }
         throw err;
       }
@@ -438,13 +465,14 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
 
     async getCapabilities(options?: RequestOptions): Promise<Record<string, string>> {
       try {
-        const data = await makeRequest<any>("/capabilities", { method: "GET" }, options);
-        return data?.capabilities || data;
+        const data = await makeRequest<CapabilitiesEnvelope>("/capabilities", { method: "GET" }, options);
+        return (data?.capabilities || data) as Record<string, string>;
       } catch (err) {
         try {
           const schema = await client.getSchema(options);
-          if ((schema as any)?.capabilities) {
-            return (schema as any).capabilities;
+          const schemaCapabilities = (schema as SchemaEnvelope | undefined)?.capabilities;
+          if (schemaCapabilities) {
+            return schemaCapabilities;
           }
         } catch {
           // ignore fallback error
@@ -480,11 +508,11 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
     },
 
     async execute(
-      specOrSql: QuerySpec | { sql: string; params?: any[] },
+      specOrSql: QuerySpec | { sql: string; params?: unknown[] },
       options?: RequestOptions,
     ): Promise<QueryResultData> {
-      const payload = "sql" in specOrSql && typeof (specOrSql as any).sql === "string"
-        ? { sql: (specOrSql as any).sql, params: (specOrSql as any).params || [] }
+      const payload = "sql" in specOrSql && typeof specOrSql.sql === "string"
+        ? { sql: specOrSql.sql, params: specOrSql.params || [] }
         : { spec: specOrSql };
 
       return makeRequest<QueryResultData>(
@@ -517,7 +545,7 @@ export function createQueryBuilderClient(config: QueryBuilderClientConfig): Quer
       return createQuery(table, client);
     },
 
-    request<T = any>(path: string, init: RequestInit = { method: "GET" }, options?: RequestOptions): Promise<T> {
+    request<T = unknown>(path: string, init: RequestInit = { method: "GET" }, options?: RequestOptions): Promise<T> {
       return makeRequest<T>(path, init, options);
     },
   };

@@ -3,12 +3,12 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import type { ByoAiConfig } from "../ai/types";
+import type { ByoAiConfig, ByoAiContext } from "../ai/types";
 import type { QuerySpec } from "../types";
 import { useBringYourOwnAi } from "../hooks/useBringYourOwnAi";
 
 export interface AiAssistantWidgetProps extends ByoAiConfig {
-  schema?: any;
+  schema?: ByoAiContext["schema"];
   currentSpec?: QuerySpec | null;
   onApplySpec?: (spec: QuerySpec) => void;
   isOpen?: boolean;

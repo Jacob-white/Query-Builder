@@ -573,18 +573,41 @@ DEFAULT_SCRUB_PATTERNS: list[str] = [
     r"(?i)(?:^|[\s-])key(?:$|[\s-])",
 ]
 
-URI_CREDENTIAL_REGEX = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^/:@]+:)([^@/]+)(@)")
+# A URI scheme starts with a letter, but only the first letter of a run of scheme
+# characters can start a match: anchoring at the run start (and absorbing its leading
+# digits/punctuation into group 1, which the replacement re-emits) keeps the scan linear.
+URI_CREDENTIAL_REGEX = re.compile(
+    r"(?<![a-zA-Z0-9+.-])([0-9+.-]*[a-zA-Z][a-zA-Z0-9+.-]*://[^/:@]+:)([^@/]+)(@)"
+)
 BEARER_TOKEN_REGEX = re.compile(r"(?i)\b(bearer\s+)[^\s,;'\"\]]+")
 KEY_VALUE_SECRET_REGEX = re.compile(
     r"(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|auth)\s*([:=])\s*([^\s,;'\"\]]+|[\"'][^\"']+[\"'])"
 )
 
 
+def _mask_uri(m: re.Match[str]) -> str:
+    return f"{m.group(1)}***{m.group(3)}"
+
+
+def _mask_bearer(m: re.Match[str]) -> str:
+    return f"{m.group(1)}***"
+
+
+def _mask_key_value(m: re.Match[str]) -> str:
+    return f"{m.group(1)}{m.group(2)}***"
+
+
 def _scrub_string(text: str) -> str:
-    """Sanitizes connection URI credentials, bearer tokens, and key-value secrets in text."""
-    text = URI_CREDENTIAL_REGEX.sub(r"\g<1>***\g<3>", text)
-    text = BEARER_TOKEN_REGEX.sub(r"\g<1>***", text)
-    text = KEY_VALUE_SECRET_REGEX.sub(r"\g<1>\g<2>***", text)
+    """Sanitizes connection URI credentials, bearer tokens, and key-value secrets in text.
+
+    Replacements are functions rather than template strings on purpose: on Python 3.11 and
+    earlier, ``re.sub`` with a template string imports a module through ``builtins.__import__``
+    while it runs, so scrubbing an error message while a caller (or a test) has that hook
+    patched would itself raise ImportError and mask the original error.
+    """
+    text = URI_CREDENTIAL_REGEX.sub(_mask_uri, text)
+    text = BEARER_TOKEN_REGEX.sub(_mask_bearer, text)
+    text = KEY_VALUE_SECRET_REGEX.sub(_mask_key_value, text)
     return text
 
 

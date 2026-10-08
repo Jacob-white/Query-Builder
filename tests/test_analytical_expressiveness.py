@@ -6,6 +6,7 @@ Tests for Analytical SQL Expressiveness:
 """
 
 import pytest
+
 from query_builder import (
     CaseWhenBranch,
     CaseWhenSpec,

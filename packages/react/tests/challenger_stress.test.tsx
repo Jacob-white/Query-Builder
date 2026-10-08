@@ -186,7 +186,7 @@ describe("Milestone 2 Empirical Stress & Edge Case Test Suite", () => {
       expect(screen.getByLabelText(/Arabic RTL/)).toBeTruthy();
       expect(screen.getByLabelText(/Chinese/)).toBeTruthy();
       // Script tags rendered safely as plain text in SVG, not interpreted
-      expect(screen.getByLabelText(/<script>/)).toBeTruthy();
+      expect(screen.getByLabelText((label) => label.toLowerCase().includes("<script"))).toBeTruthy();
     });
 
     it("correctly computes all aggregation functions (AVG, MIN, MAX, COUNT, SUM)", () => {

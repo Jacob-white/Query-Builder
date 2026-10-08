@@ -5,14 +5,14 @@ Measures:
 1. Query Compilation Throughput (queries/second)
 2. AST Safety Validation Latency and Throughput (validations/second)
 3. BFS Multi-Hop Graph Join Solver Scalability (100 - 1,000 tables)
-4. Secret Scrubbing Throughput (MB/second across nested structures)
+4. Payload Redaction Throughput (scrubs/second across nested structures)
 """
 
 from __future__ import annotations
 
-import json
 import time
-from query_builder import QueryCompiler, validate_sql_ast, scrub_secrets
+
+from query_builder import QueryCompiler, scrub_secrets, validate_sql_ast
 from query_builder.join_solver import find_join_path
 
 
@@ -132,7 +132,7 @@ def run_join_solver_benchmark(
     }
 
 
-def run_secret_scrubbing_benchmark(iterations: int = 5000) -> dict[str, float]:
+def run_redaction_benchmark(iterations: int = 5000) -> dict[str, float]:
     payload = {
         "connection_uri": "postgresql://admin:super_secret_password_123!@db.internal:5432/production",
         "api_key": "sk-proj-abc123xyz789SECRETTOKEN",
@@ -144,18 +144,16 @@ def run_secret_scrubbing_benchmark(iterations: int = 5000) -> dict[str, float]:
             ],
         },
     }
-    raw_size_bytes = len(json.dumps(payload)) * iterations
-
     start = time.perf_counter()
     for _ in range(iterations):
         scrub_secrets(payload)
     duration = time.perf_counter() - start
-    mb_per_sec = (raw_size_bytes / (1024 * 1024)) / duration
+    scrubs_per_sec = iterations / duration
 
     return {
         "iterations": iterations,
         "duration_sec": duration,
-        "throughput_mb_per_sec": mb_per_sec,
+        "throughput_scrubs_per_sec": scrubs_per_sec,
         "latency_us_per_scrub": (duration / iterations) * 1_000_000,
     }
 
@@ -182,10 +180,14 @@ def main():
     print(f"   -> Throughput: {join_res['throughput_ops']:.1f} solves/sec")
     print(f"   -> Average Latency: {join_res['latency_us_per_solve']:.2f} µs/solve")
 
-    print("\n4. Benchmarking Secret Scrubbing Throughput...")
-    scrub_res = run_secret_scrubbing_benchmark(iterations=3000)
-    print(f"   -> Throughput: {scrub_res['throughput_mb_per_sec']:.2f} MB/sec")
-    print(f"   -> Average Latency: {scrub_res['latency_us_per_scrub']:.2f} µs/scrub")
+    print("\n4. Benchmarking Payload Redaction Throughput...")
+    redaction_res = run_redaction_benchmark(iterations=3000)
+    print(
+        f"   -> Throughput: {redaction_res['throughput_scrubs_per_sec']:.1f} scrubs/sec"
+    )
+    print(
+        f"   -> Average Latency: {redaction_res['latency_us_per_scrub']:.2f} µs/scrub"
+    )
 
     print("\n" + "=" * 60)
     print("  Benchmark Run Complete. Engine Status: WORLD-CLASS.")

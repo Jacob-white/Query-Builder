@@ -1,9 +1,7 @@
+import { normalizeCombiner } from "./filterCombiners";
 import type {
   QuerySpec,
   SchemaSnapshot,
-  VisualJoin,
-  VisualFilter,
-  VisualSort,
   CteSpec,
   WindowFunctionSpec,
 } from "../types";
@@ -30,6 +28,187 @@ const ALLOWED_OPERATORS = [
 
 const AGGREGATE_FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"];
 
+/** True for any code unit matched by the regex class `\s` (computed without a regex). */
+function isWs(code: number): boolean {
+  return (
+    code === 32 ||
+    (code >= 9 && code <= 13) ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff
+  );
+}
+
+/** Index of the first non-whitespace character at or after `from` (or `s.length`). */
+function skipWs(s: string, from: number): number {
+  let i = from;
+  while (i < s.length && isWs(s.charCodeAt(i))) i++;
+  return i;
+}
+
+/** ASCII case-insensitive match of the upper-case `word` at `s[i]`. */
+function matchWordCI(s: string, i: number, word: string): boolean {
+  for (let k = 0; k < word.length; k++) {
+    let c = s.charCodeAt(i + k);
+    if (c >= 97 && c <= 122) c -= 32;
+    if (c !== word.charCodeAt(k)) return false;
+  }
+  return true;
+}
+
+/**
+ * Case-insensitively matches `words` at `s[i]`, separated by one or more whitespace characters.
+ * Returns the end index of the match, or -1.
+ */
+function matchWordsCI(s: string, i: number, words: string[]): number {
+  let pos = i;
+  for (let k = 0; k < words.length; k++) {
+    if (!matchWordCI(s, pos, words[k])) return -1;
+    pos += words[k].length;
+    if (k < words.length - 1) {
+      const next = skipWs(s, pos);
+      if (next === pos) return -1;
+      pos = next;
+    }
+  }
+  return pos;
+}
+
+/** Index of the first case-insensitive occurrence of `word` at or after `from`, or -1. */
+function findWordCI(s: string, word: string, from: number): number {
+  for (let i = from; i + word.length <= s.length; i++) {
+    if (matchWordCI(s, i, word)) return i;
+  }
+  return -1;
+}
+
+/** Removes `-- ...` line comments (up to, not including, the line terminator). */
+function stripLineComments(sql: string): string {
+  const parts: string[] = [];
+  let i = 0;
+  for (;;) {
+    const j = sql.indexOf("--", i);
+    if (j === -1) {
+      parts.push(sql.slice(i));
+      return parts.join("");
+    }
+    parts.push(sql.slice(i, j));
+    let k = j + 2;
+    while (k < sql.length) {
+      const c = sql.charCodeAt(k);
+      if (c === 10 || c === 13 || c === 0x2028 || c === 0x2029) break;
+      k++;
+    }
+    i = k;
+  }
+}
+
+/** Removes `/* ... *\/` block comments; an unterminated comment is left untouched. */
+function stripBlockComments(sql: string): string {
+  const parts: string[] = [];
+  let i = 0;
+  for (;;) {
+    const j = sql.indexOf("/*", i);
+    const end = j === -1 ? -1 : sql.indexOf("*/", j + 2);
+    if (end === -1) {
+      parts.push(sql.slice(i));
+      return parts.join("");
+    }
+    parts.push(sql.slice(i, j));
+    i = end + 2;
+  }
+}
+
+/** Drops all trailing commas. */
+function stripTrailingCommas(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 44) end--;
+  return s.slice(0, end);
+}
+
+/** Characters allowed in `a.b`-style column references: `[a-zA-Z0-9_".`[\]]`. */
+function isColumnRefChar(code: number): boolean {
+  return (
+    (code >= 97 && code <= 122) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 48 && code <= 57) ||
+    code === 95 ||
+    code === 34 ||
+    code === 46 ||
+    code === 96 ||
+    code === 91 ||
+    code === 93
+  );
+}
+
+/** Finds the first `<columnRef> = <columnRef>` (whitespace allowed around `=`) in `s`. */
+function matchColumnEquality(s: string): [string, string] | null {
+  let i = 0;
+  while (i < s.length) {
+    if (!isColumnRefChar(s.charCodeAt(i))) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < s.length && isColumnRefChar(s.charCodeAt(end))) end++;
+    const eq = skipWs(s, end);
+    if (s.charCodeAt(eq) === 61) {
+      const rhs = skipWs(s, eq + 1);
+      let rhsEnd = rhs;
+      while (rhsEnd < s.length && isColumnRefChar(s.charCodeAt(rhsEnd))) rhsEnd++;
+      if (rhsEnd > rhs) return [s.slice(i, end), s.slice(rhs, rhsEnd)];
+    }
+    // Every start inside this run ends at the same place, so none of them can match either.
+    i = end;
+  }
+  return null;
+}
+
+/** Equivalent of `/PARTITION\s+BY\s+(.*?)(?=\s+ORDER\s+BY|$)/i` for text without line terminators. */
+function extractPartitionBy(over: string): string | undefined {
+  let from = 0;
+  for (;;) {
+    const at = findWordCI(over, "PARTITION", from);
+    if (at === -1) return undefined;
+    const afterBy = matchWordsCI(over, at, ["PARTITION", "BY"]);
+    const start = afterBy === -1 ? -1 : skipWs(over, afterBy);
+    if (start === -1 || start === afterBy) {
+      from = at + 1;
+      continue;
+    }
+    for (let j = start; j < over.length; j++) {
+      if (isWs(over.charCodeAt(j)) && !isWs(over.charCodeAt(j - 1))) {
+        const orderAt = skipWs(over, j);
+        if (matchWordCI(over, orderAt, "ORDER") && matchWordsCI(over, orderAt, ["ORDER", "BY"]) !== -1) {
+          return over.slice(start, j);
+        }
+      }
+    }
+    return over.slice(start);
+  }
+}
+
+/** Equivalent of `/ORDER\s+BY\s+(.*?)$/i` for text without line terminators. */
+function extractOrderBy(over: string): string | undefined {
+  let from = 0;
+  for (;;) {
+    const at = findWordCI(over, "ORDER", from);
+    if (at === -1) return undefined;
+    const afterBy = matchWordsCI(over, at, ["ORDER", "BY"]);
+    if (afterBy !== -1) {
+      const start = skipWs(over, afterBy);
+      if (start > afterBy) return over.slice(start);
+    }
+    from = at + 1;
+  }
+}
+
 /**
  * Strips quotes/backticks/brackets from an identifier.
  */
@@ -48,6 +227,124 @@ export function cleanIdentifier(ident: string): string {
   // Remove surrounding quotes, backticks, or brackets
   clean = clean.replace(/^["'`\[]|["'`\]]$/g, "");
   return clean.trim();
+}
+
+/** Words that can never be an alias: clause starters and join introducers. */
+const RESERVED_NON_ALIAS = new Set([
+  "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "FETCH", "FOR", "UNION", "INTERSECT",
+  "EXCEPT", "ON", "USING", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "OUTER",
+  "WINDOW", "QUALIFY", "LATERAL", "RETURNING",
+]);
+
+/**
+ * Table-hint words that are legal aliases on their own (`JOIN orders final ON ...`) and only act
+ * as hints when the following token says so (`WITH (NOLOCK)`, `FORCE INDEX (...)`, ...).
+ */
+const HINT_WORDS = new Set([
+  "WITH", "USE", "FORCE", "IGNORE", "PARTITION", "TABLESAMPLE", "INDEXED", "PIVOT", "UNPIVOT",
+  "SAMPLE", "SETTINGS",
+]);
+
+/** True when `candidate` (at `tokens[idx]`) is a clause/hint keyword rather than an alias. */
+function isNonAliasToken(tokens: string[], idx: number): boolean {
+  const word = tokens[idx].toUpperCase();
+  if (RESERVED_NON_ALIAS.has(word)) return true;
+  if (!HINT_WORDS.has(word)) return false;
+  const next = tokens[idx + 1];
+  const nextUpper = (next || "").toUpperCase();
+  switch (word) {
+    case "INDEXED":
+      return nextUpper === "BY";
+    case "SAMPLE":
+      return /^[\d(.]/.test(next || "");
+    case "SETTINGS":
+      return Boolean(next) && next.includes("=");
+    case "WITH":
+    case "USE":
+    case "FORCE":
+    case "IGNORE":
+    case "PARTITION":
+    case "TABLESAMPLE":
+    case "PIVOT":
+    case "UNPIVOT":
+      return (
+        (next || "").startsWith("(") ||
+        nextUpper === "INDEX" ||
+        nextUpper === "KEY" ||
+        nextUpper.startsWith("INDEX(") ||
+        nextUpper.startsWith("KEY(")
+      );
+    /* c8 ignore next 2 */
+    default:
+      return false;
+  }
+}
+
+/** Splits a table reference into whitespace tokens, keeping quoted identifiers intact. */
+function tokenizeTableRef(ref: string): string[] {
+  // A token is any run of quoted segments and plain characters, so `[dbo].[users]` stays whole.
+  // Hand-scanned so an unterminated quote/bracket cannot trigger a rescan for every start position.
+  const tokens: string[] = [];
+  let noDoubleCloser = false;
+  let noBacktickCloser = false;
+  let noBracketCloser = false;
+  let i = 0;
+  while (i < ref.length) {
+    let pos = i;
+    while (pos < ref.length) {
+      const ch = ref[pos];
+      let next = -1;
+      if (ch === '"') {
+        const close = noDoubleCloser ? -1 : ref.indexOf('"', pos + 1);
+        if (close === -1) noDoubleCloser = true;
+        else next = close + 1;
+      } else if (ch === "`") {
+        const close = noBacktickCloser ? -1 : ref.indexOf("`", pos + 1);
+        if (close === -1) noBacktickCloser = true;
+        else next = close + 1;
+      } else if (ch === "[") {
+        const close = noBracketCloser ? -1 : ref.indexOf("]", pos + 1);
+        if (close === -1) noBracketCloser = true;
+        else next = close + 1;
+      } else if (ch !== "]" && !isWs(ref.charCodeAt(pos))) {
+        next = pos + 1;
+      }
+      if (next === -1) break;
+      pos = next;
+    }
+    if (pos > i) {
+      tokens.push(ref.slice(i, pos));
+      i = pos;
+    } else {
+      i++;
+    }
+  }
+  return tokens;
+}
+
+/** Extracts `<table> [AS] [alias]`, ignoring trailing clause keywords and non-identifier tokens. */
+function parseTableRef(ref: string): { table: string; alias: string } {
+  const tokens = tokenizeTableRef(ref.trim());
+  // Only the first item of a comma-joined list matters here; strip list separators.
+  const table = cleanIdentifier(stripTrailingCommas(tokens[0] || ""));
+  let candidateIdx = tokens[0]?.endsWith(",") ? -1 : 1;
+  let explicitAs = false;
+  if (candidateIdx >= 0 && tokens[candidateIdx] && tokens[candidateIdx].toUpperCase() === "AS") {
+    candidateIdx = 2;
+    explicitAs = true;
+  }
+  let candidate: string | undefined = candidateIdx >= 0 ? tokens[candidateIdx] : undefined;
+  if (candidate) candidate = stripTrailingCommas(candidate);
+  if (
+    !candidate ||
+    (explicitAs
+      ? RESERVED_NON_ALIAS.has(candidate.toUpperCase())
+      : isNonAliasToken(tokens, candidateIdx)) ||
+    !/^(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[^\s,()=;"`\[\]]+)$/.test(candidate)
+  ) {
+    return { table, alias: "" };
+  }
+  return { table, alias: cleanIdentifier(candidate) };
 }
 
 /**
@@ -231,6 +528,7 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
   let parenDepth = 0;
   let lastIndex = 0;
   let inBetween = false;
+  let noDelimiterUntil = 0;
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -262,29 +560,41 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
     }
 
     if (parenDepth === 0) {
-      const rest = text.slice(i);
-      if (!inBetween && /^\bBETWEEN\s+/i.test(rest)) {
+      if (!inBetween && matchWordCI(text, i, "BETWEEN") && isWs(text.charCodeAt(i + 7))) {
         inBetween = true;
         i += 7;
         continue;
       }
 
-      const match = rest.match(/^\s+(AND|OR)\s+/i);
-      if (match && match.index === 0) {
-        const delim = match[1].toUpperCase();
-        if (inBetween && delim === "AND") {
-          inBetween = false;
-          i += match[0].length - 1;
-          continue;
+      // `\s+(AND|OR)\s+` at i. A failed attempt at i fails for the rest of the whitespace run too.
+      if (i >= noDelimiterUntil && isWs(text.charCodeAt(i))) {
+        const wordAt = skipWs(text, i);
+        let delim = "";
+        let delimEnd = -1;
+        if (matchWordCI(text, wordAt, "AND") && isWs(text.charCodeAt(wordAt + 3))) {
+          delim = "AND";
+          delimEnd = skipWs(text, wordAt + 3);
+        } else if (matchWordCI(text, wordAt, "OR") && isWs(text.charCodeAt(wordAt + 2))) {
+          delim = "OR";
+          delimEnd = skipWs(text, wordAt + 2);
+        } else {
+          noDelimiterUntil = wordAt;
         }
+        if (delimEnd !== -1) {
+          if (inBetween && delim === "AND") {
+            inBetween = false;
+            i = delimEnd - 1;
+            continue;
+          }
 
-        parts.push({
-          value: text.slice(lastIndex, i).trim(),
-          delimiter: delim,
-        });
-        i += match[0].length - 1;
-        lastIndex = i + 1;
-        inBetween = false;
+          parts.push({
+            value: text.slice(lastIndex, i).trim(),
+            delimiter: delim,
+          });
+          i = delimEnd - 1;
+          lastIndex = i + 1;
+          inBetween = false;
+        }
       }
     }
   }
@@ -297,6 +607,12 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
 
   return parts.filter((p) => p.value.length > 0);
 }
+
+const OPERATOR_PATTERNS = ALLOWED_OPERATORS.map((op) => ({
+  op,
+  isSymbol: /^[><=!]+$/.test(op),
+  words: op.split(" "),
+}));
 
 /**
  * Finds top-level operator in a WHERE condition chunk, respecting parentheses and strings.
@@ -342,32 +658,28 @@ function findTopLevelOperator(
     }
 
     if (parenDepth === 0) {
-      const rest = condStr.slice(i);
-      for (const op of ALLOWED_OPERATORS) {
-        const isSymbol = /^[><=!]+$/.test(op);
+      // Operators may be preceded by whitespace; `opStart` is where the operator text would begin.
+      const opStart = skipWs(condStr, i);
+      for (const { op, isSymbol, words } of OPERATOR_PATTERNS) {
         let matched = false;
         let matchLen = 0;
-        let matchOffset = 0;
 
         if (isSymbol) {
-          const match = rest.match(new RegExp(`^\\s*(${op})(?![><=])`));
-          if (match && match.index === 0) {
-            matchOffset = match[0].indexOf(op);
+          const after = condStr[opStart + op.length];
+          if (condStr.startsWith(op, opStart) && after !== ">" && after !== "<" && after !== "=") {
             matchLen = op.length;
             matched = true;
           }
-        } else {
-          const escapedOp = op.replace(/\s+/g, "\\s+");
-          const match = rest.match(new RegExp(`^\\s+(${escapedOp})(\\s+|$)`, "i"));
-          if (match && match.index === 0) {
-            matchOffset = match[0].search(new RegExp(escapedOp, "i"));
-            matchLen = match[1].length;
+        } else if (opStart > i) {
+          const end = matchWordsCI(condStr, opStart, words);
+          if (end !== -1 && (end === condStr.length || isWs(condStr.charCodeAt(end)))) {
+            matchLen = end - opStart;
             matched = true;
           }
         }
 
         if (matched) {
-          const actualIndex = i + matchOffset;
+          const actualIndex = opStart;
           const leftPart = condStr.slice(0, actualIndex).trim();
           if (leftPart.length > 0) {
             return {
@@ -378,6 +690,8 @@ function findTopLevelOperator(
           }
         }
       }
+      // Every other start inside this whitespace run reaches the same `opStart`, so would fail too.
+      if (opStart > i) i = opStart - 1;
     }
   }
 
@@ -391,17 +705,16 @@ function findTopLevelOperator(
 export function parseSqlToSpec(
   sql: string,
   schema?: SchemaSnapshot | null,
-): Partial<QuerySpec> | null {
+): QuerySpec | null {
   if (!sql || typeof sql !== "string") return null;
 
   // Clean SQL comments
-  let cleanSql = sql
-    .replace(/--.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
+  let cleanSql = stripBlockComments(stripLineComments(sql)).trim();
 
-  // Strip trailing semicolons
-  cleanSql = cleanSql.replace(/;+\s*$/, "").trim();
+  // Strip trailing semicolons (the SQL is already trimmed, so they are the very last characters)
+  let sqlEnd = cleanSql.length;
+  while (sqlEnd > 0 && cleanSql.charCodeAt(sqlEnd - 1) === 59) sqlEnd--;
+  cleanSql = cleanSql.slice(0, sqlEnd).trim();
   if (!cleanSql) return null;
 
   // Must begin with SELECT or WITH
@@ -464,7 +777,7 @@ export function parseSqlToSpec(
       ctes = rawCteDefs.map((def) => {
         const text = def.value.trim();
         const asMatch = text.match(
-          /^([a-zA-Z0-9_"`\[\]]+)(?:\s*\(([^\)]+)\))?\s+AS\s*(?:(MATERIALIZED|NOT\s+MATERIALIZED)\s*)?\(\s*([\s\S]*)\s*\)$/i,
+          /^([a-zA-Z0-9_"`\[\]]+)(?:\s*\(([^\)]+)\))?\s+AS\s*(?:(MATERIALIZED|NOT\s+MATERIALIZED)\s*)?\(([\s\S]*)\)$/i,
         );
         if (asMatch) {
           const name = cleanIdentifier(asMatch[1]);
@@ -478,13 +791,13 @@ export function parseSqlToSpec(
             recursive: isRecursive,
             columns: cols,
             materialized,
-            query: { sql: querySql } as any,
+            query: { sql: querySql },
           };
         }
         return {
           name: cleanIdentifier(text.split(/\s+/)[0]),
           recursive: isRecursive,
-          query: { sql: text } as any,
+          query: { sql: text },
         };
       });
     } else {
@@ -522,17 +835,8 @@ export function parseSqlToSpec(
   if (!fromContent) {
     return null;
   }
-  const fromTokens = fromContent.split(/\s+/);
-  const primaryTable = cleanIdentifier(fromTokens[0]);
+  const { table: primaryTable, alias: primaryAlias } = parseTableRef(fromContent);
   if (!primaryTable) return null;
-  const primaryAlias =
-    fromTokens.length > 1
-      ? cleanIdentifier(
-          fromTokens[1].toUpperCase() === "AS" && fromTokens.length > 2
-            ? fromTokens[2]
-            : fromTokens[1],
-        )
-      : "";
 
   // 2. Projections & DISTINCT (SELECT)
   let selectContent = clauseMap["SELECT"] || "";
@@ -571,14 +875,14 @@ export function parseSqlToSpec(
         let partitionCols: string[] | undefined = undefined;
         let orderSpecs: { column: string; direction?: "ASC" | "DESC" }[] | undefined = undefined;
 
-        const partMatch = overClause.match(/PARTITION\s+BY\s+(.*?)(?=\s+ORDER\s+BY|$)/i);
-        if (partMatch) {
-          partitionCols = partMatch[1].split(",").map((c) => cleanIdentifier(c.trim()));
+        const partClause = extractPartitionBy(overClause);
+        if (partClause !== undefined) {
+          partitionCols = partClause.split(",").map((c) => cleanIdentifier(c.trim()));
         }
 
-        const ordMatch = overClause.match(/ORDER\s+BY\s+(.*?)$/i);
-        if (ordMatch) {
-          orderSpecs = ordMatch[1].split(",").map((o) => {
+        const ordClause = extractOrderBy(overClause);
+        if (ordClause !== undefined) {
+          orderSpecs = ordClause.split(",").map((o) => {
             const parts = o.trim().split(/\s+/);
             const col = cleanIdentifier(parts[0]);
             const dir = parts[1] && /^DESC$/i.test(parts[1]) ? "DESC" : "ASC";
@@ -588,7 +892,7 @@ export function parseSqlToSpec(
 
         if (!windowFunctions) windowFunctions = [];
         windowFunctions.push({
-          function: fnName as any,
+          function: fnName,
           arguments: argsStr ? argsStr.split(",").map((a) => cleanIdentifier(a.trim())) : [],
           partition_by: partitionCols,
           order_by: orderSpecs,
@@ -605,7 +909,7 @@ export function parseSqlToSpec(
       // Check for Time Grain Truncation:
       // DATE_TRUNC('month', created_at) [AS alias]
       const dateTruncMatch = colExpr.match(
-        /^DATE_TRUNC\s*\(\s*['"]?([a-zA-Z0-9_]+)['"]?\s*,\s*([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
+        /^DATE_TRUNC\s*\(\s*['"]?([a-zA-Z0-9_]+)['"]?\s*,([^\)]+)\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
       );
       if (dateTruncMatch) {
         const grain = dateTruncMatch[1].toLowerCase();
@@ -621,7 +925,7 @@ export function parseSqlToSpec(
 
       // DATETRUNC(month, created_at) [AS alias] (MSSQL)
       const datetruncMssqlMatch = colExpr.match(
-        /^DATETRUNC\s*\(\s*([a-zA-Z0-9_]+)\s*,\s*([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
+        /^DATETRUNC\s*\(\s*([a-zA-Z0-9_]+)\s*,([^\)]+)\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
       );
       if (datetruncMssqlMatch) {
         const grain = datetruncMssqlMatch[1].toLowerCase();
@@ -638,7 +942,7 @@ export function parseSqlToSpec(
       // Check for Aggregate with FILTER clause:
       // SUM(orders.amount) FILTER (WHERE orders.status = 'complete') [AS alias]
       const filterAggMatch = colExpr.match(
-        /^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([^\)]+)\s*\)\s+FILTER\s*\(\s*WHERE\s+([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
+        /^(COUNT|SUM|AVG|MIN|MAX)\s*\((?:\s*DISTINCT\s)?([^\)]+)\)\s+FILTER\s*\(\s*WHERE\s([^\)]+)\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
       );
       if (filterAggMatch) {
         const aggName = filterAggMatch[1].toUpperCase();
@@ -655,7 +959,7 @@ export function parseSqlToSpec(
 
       // Check for Aggregate Function: e.g. COUNT(users.id) AS cnt or COUNT(DISTINCT users.id)
       const aggMatch = colExpr.match(
-        /^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([^\)]+)\s*\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
+        /^(COUNT|SUM|AVG|MIN|MAX)\s*\((?:\s*DISTINCT\s)?([^\)]+)\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
       );
 
       if (aggMatch) {
@@ -721,17 +1025,9 @@ export function parseSqlToSpec(
     const onIndex = jc.content.toUpperCase().indexOf(" ON ");
     if (onIndex === -1) continue;
     const tablePart = jc.content.slice(0, onIndex).trim();
-    const targetTableTokens = tablePart.split(/\s+/);
-    const targetTable = cleanIdentifier(targetTableTokens[0]);
+    const { table: targetTable, alias: als } = parseTableRef(tablePart);
     aliasToTable[targetTable] = targetTable;
-    if (targetTableTokens.length > 1) {
-      const als = cleanIdentifier(
-        targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
-          ? targetTableTokens[2]
-          : targetTableTokens[1],
-      );
-      if (als) aliasToTable[als] = targetTable;
-    }
+    if (als) aliasToTable[als] = targetTable;
   }
 
   for (const jc of joinClauses) {
@@ -742,26 +1038,17 @@ export function parseSqlToSpec(
     const tablePart = jc.content.slice(0, onIndex).trim();
     const onPart = jc.content.slice(onIndex + 4).trim();
 
-    const targetTableTokens = tablePart.split(/\s+/);
-    const targetTable = cleanIdentifier(targetTableTokens[0]);
-    const targetAlias =
-      targetTableTokens.length > 1
-        ? cleanIdentifier(
-            targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
-              ? targetTableTokens[2]
-              : targetTableTokens[1],
-          )
-        : "";
+    const { table: targetTable, alias: targetAlias } = parseTableRef(tablePart);
 
     // Parse ON: e.g. users.id = orders.user_id or u.id = o.user_id
-    const onMatch = onPart.match(/([a-zA-Z0-9_".`\[\]]+)\s*=\s*([a-zA-Z0-9_".`\[\]]+)/);
+    const onMatch = matchColumnEquality(onPart);
     let leftTable = primaryTable;
     let leftCol = "id";
     let rightCol = "id";
 
     if (onMatch) {
-      const leftExpr = cleanIdentifier(onMatch[1]);
-      const rightExpr = cleanIdentifier(onMatch[2]);
+      const leftExpr = cleanIdentifier(onMatch[0]);
+      const rightExpr = cleanIdentifier(onMatch[1]);
 
       const lParts = leftExpr.split(".");
       const rParts = rightExpr.split(".");
@@ -808,10 +1095,13 @@ export function parseSqlToSpec(
     for (let cIdx = 0; cIdx < conditionChunks.length; cIdx++) {
       const chunk = conditionChunks[cIdx];
       const condStr = chunk.value.trim();
-      const combiner = (chunk.delimiter?.toUpperCase() as "AND" | "OR") || "AND";
+      const combiner = normalizeCombiner(chunk.delimiter);
       if (combiner === "OR") {
         filterJoin = "OR";
       }
+      // A chunk's delimiter follows it, so the operator joining this filter to the previous one
+      // is the previous chunk's delimiter.
+      const joinWithPrev = cIdx > 0 ? normalizeCombiner(conditionChunks[cIdx - 1].delimiter) : "AND";
 
       // Match top-level operator
       const foundOp = findTopLevelOperator(condStr);
@@ -846,6 +1136,7 @@ export function parseSqlToSpec(
           op: matchedOp === "<>" ? "!=" : matchedOp,
           value: val,
           tablePrefix,
+          combiner: joinWithPrev,
         });
       } else {
         filters.push({
@@ -854,7 +1145,8 @@ export function parseSqlToSpec(
           value: "",
           tablePrefix: primaryTable,
           rawExpression: condStr,
-        } as any);
+          combiner: joinWithPrev,
+        });
       }
     }
   }

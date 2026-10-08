@@ -250,6 +250,48 @@ export function extractCteRootWord(cleanSql: string): string {
   return "UNKNOWN";
 }
 
+const SAFETY_WS_CHAR = /\s/;
+
+/**
+ * Linear-time equivalent of `/\bWAITFOR(?:\s|\/\*.*?\*\/)+DELAY\b/i.test(sql)`.
+ *
+ * The regular expression backtracks exponentially on runs of block comments, so the
+ * gap between WAITFOR and DELAY is checked with a single dynamic-programming pass:
+ * `reach[j]` is true when some WAITFOR ends before `j` and the text up to `j` is a
+ * non-empty sequence of whitespace characters and `/* ... *\/` comments (a comment's
+ * body may not contain a line terminator, but may contain further `*\/` sequences).
+ */
+function isLineTerminator(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c === 0x0a || c === 0x0d || c === 0x2028 || c === 0x2029;
+}
+
+function hasWaitForDelay(sql: string): boolean {
+  const n = sql.length;
+  const waitForEnd = new Uint8Array(n + 1);
+  for (const m of sql.matchAll(/\bWAITFOR/gi)) {
+    waitForEnd[(m.index ?? 0) + m[0].length] = 1;
+  }
+  const reach = new Uint8Array(n + 1);
+  let commentOpen = false;
+  for (let j = 1; j <= n; j++) {
+    if (j >= 3 && isLineTerminator(sql[j - 3])) commentOpen = false;
+    if (j >= 4 && (waitForEnd[j - 4] === 1 || reach[j - 4] === 1) && sql.startsWith("/*", j - 4)) {
+      commentOpen = true;
+    }
+    const afterWhitespace =
+      (waitForEnd[j - 1] === 1 || reach[j - 1] === 1) && SAFETY_WS_CHAR.test(sql[j - 1]);
+    const closesComment = commentOpen && j >= 2 && sql.startsWith("*/", j - 2);
+    if (afterWhitespace || closesComment) {
+      reach[j] = 1;
+      if (sql.slice(j, j + 5).toUpperCase() === "DELAY" && !/\w/.test(sql[j + 5] ?? "")) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function validateSqlSafety(
   sql: string,
   allowedSchemas?: string[],
@@ -335,7 +377,7 @@ export function validateSqlSafety(
   // Handle parenthesized queries like ((SELECT 1))
   const unwrapped = stripped.replace(/^[()\s]+/, "");
   const firstWordMatch = unwrapped.match(/^[a-zA-Z_]+/i);
-  let firstWord = firstWordMatch ? firstWordMatch[0].toUpperCase() : "";
+  const firstWord = firstWordMatch ? firstWordMatch[0].toUpperCase() : "";
 
   let stmtType = firstWord || "UNKNOWN";
   const isCte = firstWord === "WITH";
@@ -371,7 +413,7 @@ export function validateSqlSafety(
     violations.push("Forbidden session modification keyword: SET");
   }
 
-  if (/\bWAITFOR(?:\s+|\/\*.*?\*\/)+DELAY\b/i.test(trimmed)) {
+  if (hasWaitForDelay(trimmed)) {
     violations.push("Forbidden time delay pattern detected: WAITFOR DELAY");
   }
 

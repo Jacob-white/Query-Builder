@@ -4,7 +4,6 @@ import io
 import json
 from unittest.mock import MagicMock, patch
 
-
 from query_builder.cli import main
 from query_builder.compiler import QueryCompiler
 from query_builder.dialects import BaseDialect

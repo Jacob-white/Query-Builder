@@ -7,6 +7,7 @@
 
 import type {
   FeatureKey,
+  VisualColumnSelect,
   FeatureTier,
   FeatureConfig,
   FeaturePreset,
@@ -162,15 +163,15 @@ export interface ActiveAdvancedClause {
  */
 export function detectActiveAdvancedClauses(
   state: {
-    ctes?: any[];
-    windowFunctions?: any[];
-    vectorSearch?: any;
-    hybridSearch?: any;
-    selectedColumns?: Record<string, any>;
-    rollup?: any;
-    cube?: any;
-    groupingSets?: any;
-    pivot?: any;
+    ctes?: unknown[] | null;
+    windowFunctions?: unknown[] | null;
+    vectorSearch?: unknown;
+    hybridSearch?: unknown;
+    selectedColumns?: Record<string, (VisualColumnSelect & { expression?: string }) | null | undefined>;
+    rollup?: unknown;
+    cube?: unknown;
+    groupingSets?: unknown;
+    pivot?: unknown;
   },
   resolvedFeatures: ResolvedFeatureMap,
 ): ActiveAdvancedClause[] {
@@ -207,7 +208,7 @@ export function detectActiveAdvancedClauses(
 
   if (state.selectedColumns && resolvedFeatures.calculated_fields === "advanced") {
     const hasCalculated = Object.values(state.selectedColumns).some(
-      (c) => c && (Boolean(c.rawExpression) || Boolean((c as any).expression)),
+      (c) => c && (Boolean(c.rawExpression) || Boolean(c.expression)),
     );
     if (hasCalculated) {
       active.push({ key: "calculated_fields", label: "Calculated Expressions" });

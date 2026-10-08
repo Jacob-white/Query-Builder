@@ -31,7 +31,7 @@ A complete, runnable, turnkey fullstack application demonstrating end-to-end int
 ## 🏃 Quickstart: Running the Application
 
 ### 1. Prerequisites
-Ensure you have Python 3.9+ and Node.js 18+ (with `pnpm`) installed.
+Ensure you have Python 3.11+ and Node.js 22.22.2+ (with `pnpm`) installed.
 
 ### 2. Start the Backend Server
 
