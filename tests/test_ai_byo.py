@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from query_builder.ai import (
@@ -25,7 +26,6 @@ from query_builder.ai import (
     get_agent_tool_definitions,
 )
 from query_builder.nlq.models import NlqProviderError
-
 
 SAMPLE_SCHEMA = {
     "tables": {

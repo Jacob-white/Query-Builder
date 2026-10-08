@@ -8,6 +8,7 @@ Parses Prisma schema definitions (.prisma files or strings) and Prisma DMMF
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from typing import Any
 
 from query_builder.adapters.utils import normalize_type_name, read_source
@@ -148,6 +149,133 @@ def _parse_prisma_dmmF(dmmf: dict[str, Any]) -> SchemaDict:
     return tables
 
 
+_ENUM_HEADER_RE = re.compile(r"enum\s+(\w+)\s*\{")
+_MODEL_HEADER_RE = re.compile(r"model\s+(\w+)\s*\{")
+
+
+def _find_blocks(text: str, header_re: re.Pattern[str]) -> list[tuple[str, str]]:
+    r"""Returns ``(name, body)`` for each ``<keyword> name { body }`` block, linearly.
+
+    Equivalent to ``re.findall(r"enum\s+(\w+)\s*\{([^}]*)\}", text)`` and to the former
+    ``model`` pattern ``model\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}``: the greedy
+    ``[^}]*`` always reaches the first ``}`` where the final ``\}`` matches at once, so
+    the nested-group part of the model pattern never participated in a successful match
+    and only caused catastrophic backtracking when no ``}`` followed (``"model a {" * n``
+    took minutes).  Once one header has no closing brace no later one has either, so the
+    scan stops instead of rescanning to the end of the text from every header.
+    """
+    blocks: list[tuple[str, str]] = []
+    pos = 0
+    while True:
+        header = header_re.search(text, pos)
+        if header is None:
+            return blocks
+        close = text.find("}", header.end())
+        if close < 0:
+            return blocks
+        blocks.append((header.group(1), text[header.end() : close]))
+        pos = close + 1
+
+
+_RELATION_START_RE = re.compile(r"@relation\(")
+_FIELDS_RE = re.compile(r"fields\s*:\s*\[")
+_REFERENCES_RE = re.compile(r"references\s*:\s*\[")
+
+
+def _match_relation(line: str) -> tuple[str, str] | None:
+    r"""Returns ``(fields, references)`` of the first ``@relation(...)`` on ``line``.
+
+    Linear-time equivalent of ``re.search`` with::
+
+        @relation\([^)]*fields\s*:\s*\[([^\]]+)\][^)]*references\s*:\s*\[([^\]]+)\][^)]*\)
+
+    whose three ``[^)]*`` gaps and two ``[^\]]+`` groups backtrack cubically.  A
+    ``[`` opens each list, which ends at the first ``]`` (non-empty), and the ``(``
+    gaps cannot cross a ``)``.  The regex prefers the last ``fields`` and then the last
+    ``references`` that lead to a match, and the leftmost ``@relation(`` that matches
+    wins.  A start that fails makes every start before the same ``)`` fail, so each
+    ``)``-delimited region is examined once.
+    """
+    close_parens = [i for i, ch in enumerate(line) if ch == ")"]
+    if not close_parens:
+        return None
+    close_brackets = [i for i, ch in enumerate(line) if ch == "]"]
+    length = len(line)
+
+    def first_after(positions: list[int], index: int) -> int:
+        at = bisect_left(positions, index)
+        return positions[at] if at < len(positions) else -1
+
+    def list_end(bracket: int) -> int:
+        """End of the list opened at ``bracket`` (-1 when empty / unterminated)."""
+        end = first_after(close_brackets, bracket + 1)
+        return end if end > bracket + 1 else -1
+
+    fields = [(m.start(), m.end() - 1) for m in _FIELDS_RE.finditer(line)]
+    field_starts = [start for start, _ in fields]
+    field_brackets = [bracket for _, bracket in fields]
+    references = [(m.start(), m.end() - 1) for m in _REFERENCES_RE.finditer(line)]
+    ref_starts = [start for start, _ in references]
+    ref_brackets = [bracket for _, bracket in references]
+    # A references list is usable when it is closed and a ")" follows it.
+    last_paren = close_parens[-1]
+    ref_ends = [list_end(bracket) for _, bracket in references]
+    usable = [end != -1 and end < last_paren for end in ref_ends]
+    previous_usable: list[int] = []
+    latest = -1
+    for index, ok in enumerate(usable):
+        latest = index if ok else latest
+        previous_usable.append(latest)
+
+    scanned_until = -1
+    for start in _RELATION_START_RE.finditer(line):
+        position = start.end()
+        if position < scanned_until:
+            continue  # same ")"-delimited region as a start that already failed
+        region_end = first_after(close_parens, position)
+        region_end = length if region_end == -1 else region_end
+        scanned_until = region_end
+        low = bisect_left(field_starts, position)
+        high = bisect_left(field_brackets, region_end)
+        for index in range(high - 1, low - 1, -1):
+            bracket = fields[index][1]
+            fields_end = list_end(bracket)
+            if fields_end == -1:
+                continue
+            gap_end = first_after(close_parens, fields_end + 1)
+            gap_end = length if gap_end == -1 else gap_end
+            first_ref = bisect_left(ref_starts, fields_end + 1)
+            last_ref = bisect_left(ref_brackets, gap_end) - 1
+            if last_ref < first_ref:
+                continue
+            chosen = previous_usable[last_ref]
+            if chosen >= first_ref:
+                ref_bracket = references[chosen][1]
+                return (
+                    line[bracket + 1 : fields_end],
+                    line[ref_bracket + 1 : ref_ends[chosen]],
+                )
+    return None
+
+
+_ID_LIST_RE = re.compile(r"@@id\(\s*\[([^\]]+)\]\s*\)")
+_CLOSE_PAREN_RE = re.compile(r"\s*\)")
+
+
+def _through_last_list_close(text: str) -> str:
+    r"""``text`` cut after the last ``]`` (and an immediately following ``\s*)``).
+
+    ``@@id\(\s*\[([^\]]+)\]\s*\)`` can only match up to there, and searching the
+    cut text is equivalent while guaranteeing every ``[^\]]+`` scan ends at a ``]``
+    (repeated ``@@id([`` starts without any ``]`` were otherwise quadratic).
+    """
+    cut = text.rfind("]") + 1
+    if not cut:
+        return ""
+    closing = _CLOSE_PAREN_RE.match(text, cut)
+    return text[: closing.end() if closing else cut]
+
+
 def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
     """
     Parses a Prisma schema definition string, file path, or DMMF dictionary
@@ -166,7 +294,7 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
 
     # 1. Parse Enums: enum <Name> { ... }
     enums: dict[str, list[str]] = {}
-    enum_blocks = re.findall(r"enum\s+(\w+)\s*\{([^}]*)\}", text, re.MULTILINE)
+    enum_blocks = _find_blocks(text, _ENUM_HEADER_RE)
     for enum_name, enum_body in enum_blocks:
         values = []
         for raw_line in enum_body.strip().splitlines():
@@ -176,9 +304,7 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
         enums[enum_name] = values
 
     # 2. Extract model name to @@map name
-    model_blocks = re.findall(
-        r"model\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}", text, re.MULTILINE
-    )
+    model_blocks = _find_blocks(text, _MODEL_HEADER_RE)
     model_to_table: dict[str, str] = {}
     for model_name, model_body in model_blocks:
         map_match = re.search(r'@@map\(\s*["\']([^"\']+)["\']\s*\)', model_body)
@@ -192,7 +318,7 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
 
         # Check composite primary keys: @@id([field1, field2])
         composite_pk: list[str] = []
-        pk_match = re.search(r"@@id\(\s*\[([^\]]+)\]\s*\)", model_body)
+        pk_match = _ID_LIST_RE.search(_through_last_list_close(model_body))
         if pk_match:
             composite_pk = [
                 f.strip() for f in pk_match.group(1).split(",") if f.strip()
@@ -201,26 +327,19 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
         # Scan relation directives
         # e.g.: user User @relation(fields: [userId], references: [id])
         relation_map: dict[str, tuple[str, str]] = {}
-        rel_pattern = re.compile(
-            r"@relation\([^)]*fields\s*:\s*\[([^\]]+)\][^)]*references\s*:\s*\[([^\]]+)\][^)]*\)"
-        )
 
         for line in model_body.splitlines():
             clean_line = line.split("//")[0].strip()
             if not clean_line or clean_line.startswith("@@"):
                 continue
-            rel_m = rel_pattern.search(clean_line)
+            rel_m = _match_relation(clean_line)
             if rel_m:
                 parts = clean_line.split()
                 if len(parts) >= 2:
                     rel_type = parts[1].replace("?", "").replace("[]", "")
                     target_table = model_to_table.get(rel_type, rel_type)
-                    from_fields = [
-                        f.strip() for f in rel_m.group(1).split(",") if f.strip()
-                    ]
-                    to_fields = [
-                        f.strip() for f in rel_m.group(2).split(",") if f.strip()
-                    ]
+                    from_fields = [f.strip() for f in rel_m[0].split(",") if f.strip()]
+                    to_fields = [f.strip() for f in rel_m[1].split(",") if f.strip()]
                     if from_fields and to_fields:
                         relation_map[from_fields[0]] = (target_table, to_fields[0])
 

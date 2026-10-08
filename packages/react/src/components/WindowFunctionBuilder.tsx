@@ -450,7 +450,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
                     id="wf-frame-type"
                     data-testid="wf-frame-type-select"
                     value={frameType}
-                    onChange={(e) => setFrameType(e.target.value as any)}
+                    onChange={(e) => setFrameType(e.target.value as "ROWS" | "RANGE" | "GROUPS")}
                     style={{ width: "100%", padding: "0.375rem", background: theme.colors.background || "#0f172a", color: theme.colors.text || "#f8fafc", border: `1px solid ${theme.colors.border || "#334155"}`, borderRadius: "4px" }}
                   >
                     <option value="ROWS">ROWS</option>

@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Install React package (needed by schema-converter TypeScript tests)
+        working-directory: packages/react
+        run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # `dev` covers pytest, ruff, duckdb, sqlalchemy, polars; the rest are framework
+          # integrations exercised by the integration test modules.
+          pip install -e ".[dev]" fastapi httpx django djangorestframework django-ninja
+      - name: Lint
+        run: ruff check .
+      - name: Format check
+        run: ruff format --check .
+      - name: Test with coverage
+        run: python -m pytest -q --cov --cov-report=term-missing:skip-covered
+
+  react:
+    name: React (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    defaults:
+      run:
+        working-directory: packages/react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+          cache-dependency-path: packages/react/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run build
+      - name: Test with coverage (build must exist for the consumer-simulation suite)
+        run: pnpm run test:coverage
+
+  starter-frontend:
+    name: Starter frontend builds against the package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the React package (the starter links to its dist)
+        working-directory: packages/react
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Build the starter frontend
+        working-directory: examples/fullstack_starter/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build

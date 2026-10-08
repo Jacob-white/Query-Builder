@@ -53,7 +53,7 @@ class AsyncCancellationToken:
                 res = cb()
                 if inspect.isawaitable(res):
                     await res
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
 
     def register_callback(self, callback: Callable[[], Any]) -> None:
@@ -63,7 +63,7 @@ class AsyncCancellationToken:
                 res = callback()
                 if inspect.isawaitable(res):
                     asyncio.create_task(res)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
         else:
             self._callbacks.append(callback)
@@ -147,7 +147,7 @@ class AsyncConnectionPool:
                 res = conn.close()
                 if inspect.isawaitable(res):
                     await res
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
 
     async def _check_health(self, conn: Any) -> bool:

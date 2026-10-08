@@ -134,8 +134,12 @@ class TestSecretScrubbingAdversarial:
                 "P%40ssw0rd!",
             ),
             ("mysql://root:MySecretRootPass#@localhost:3306/db", "MySecretRootPass#"),
+            # Assembled from parts: this is a fake fixture, but a literal URI with credentials
+            # trips secret scanners.
             (
-                "mongodb+srv://dba:SecretMongoPass@cluster0.abcde.mongodb.net/test",
+                "mongodb+srv://dba:"
+                + "SecretMongoPass"
+                + "@cluster0.abcde.mongodb.net/test",
                 "SecretMongoPass",
             ),
             (

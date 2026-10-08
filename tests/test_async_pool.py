@@ -3,7 +3,9 @@ Tests for AsyncConnectionPool, AsyncConnectionPoolManager, and AsyncCancellation
 """
 
 import asyncio
+
 import pytest
+
 from query_builder import (
     AsyncCancellationToken,
     AsyncConnectionPool,

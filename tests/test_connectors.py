@@ -363,6 +363,7 @@ def test_sqlite_connector_full_flow():
 
 
 def test_duckdb_connector_full_flow():
+    pytest.importorskip("duckdb")
     connector = DuckDBConnector(database=":memory:")
     # Re-connect when already connected
     d_conn1 = connector.connect()

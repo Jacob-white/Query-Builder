@@ -30,6 +30,7 @@ from query_builder.compiler import QueryCompiler
 from query_builder.config import SecurityConfig
 from query_builder.connectors.registry import get_connector
 from query_builder.export import export_dataset
+from query_builder.integrations._errors import public_error
 from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
 from query_builder.security import SecurityError
 
@@ -79,6 +80,9 @@ try:
 except Exception:  # noqa: BLE001
     NINJA_AVAILABLE = False
 
+
+# Kept as a module-level alias for type hints; the real class is imported lazily by
+# `_get_ninja()` so importing this module never requires (or configures) django-ninja.
 NinjaRouter = Any  # type: ignore[misc, assignment]
 
 
@@ -368,7 +372,7 @@ def create_django_urls(
             return JsonResponse(data, safe=False)
         except Exception as exc:  # noqa: BLE001
             return JsonResponse(
-                {"error": f"Schema introspection failed: {exc}"}, status=500
+                {"error": public_error("Schema introspection failed", exc)}, status=500
             )
 
     @csrf_exempt
@@ -414,7 +418,9 @@ def create_django_urls(
         except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
-            return JsonResponse({"error": f"Compilation failed: {exc}"}, status=400)
+            return JsonResponse(
+                {"error": public_error("Compilation failed", exc)}, status=400
+            )
 
     @csrf_exempt
     def validate_view(request: HttpRequest) -> HttpResponse:
@@ -428,7 +434,9 @@ def create_django_urls(
             res = validate_sql_ast(sql, allowed_schemas=body.get("allowed_schemas"))
             return JsonResponse(res, safe=False)
         except Exception as exc:  # noqa: BLE001
-            return JsonResponse({"error": f"Validation failed: {exc}"}, status=400)
+            return JsonResponse(
+                {"error": public_error("Validation failed", exc)}, status=400
+            )
 
     @csrf_exempt
     def execute_view(request: HttpRequest) -> HttpResponse:
@@ -517,7 +525,9 @@ def create_django_urls(
         except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
-            return JsonResponse({"error": f"Execution failed: {exc}"}, status=400)
+            return JsonResponse(
+                {"error": public_error("Execution failed", exc)}, status=400
+            )
 
     @csrf_exempt
     def export_view(request: HttpRequest) -> HttpResponse:
@@ -568,7 +578,9 @@ def create_django_urls(
         except (SecurityError, DisabledFeatureError) as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
-            return JsonResponse({"error": f"Export failed: {exc}"}, status=400)
+            return JsonResponse(
+                {"error": public_error("Export failed", exc)}, status=400
+            )
 
     return [
         path("schema/", schema_view, name="query-builder-schema"),

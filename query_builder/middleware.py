@@ -18,6 +18,7 @@ try:
 except ImportError:
     sqlparse = None  # type: ignore[assignment]
 
+from query_builder._regex_utils import strip_block_comments
 from query_builder.config import SecurityConfig, get_security_config
 from query_builder.policy import (
     SecurityPolicy,
@@ -58,7 +59,7 @@ def _is_mutating_sql(sql: str) -> bool:
     if sqlparse is None:
         stripped = re.sub(r"'(?:''|\\[\s\S]|[^'\\])*'", "", sql)
         stripped = re.sub(r"--[^\n]*", "", stripped)
-        stripped = re.sub(r"/\*[\s\S]*?\*/", "", stripped)
+        stripped = strip_block_comments(stripped)
         for kw in MUTATION_KEYWORDS:
             if re.search(rf"\b{kw}\b", stripped, re.IGNORECASE):
                 return True
@@ -285,7 +286,7 @@ class SecurityMiddleware(LifecycleInterceptor):
         # 5. Filter SQL comments if enabled
         if self.config.validation.filter_sql_comments and compilation.get("main_sql"):
             cleaned = re.sub(r"--[^\n]*", "", compilation["main_sql"])
-            cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
+            cleaned = strip_block_comments(cleaned)
             compilation["main_sql"] = cleaned.strip()
 
         return compilation

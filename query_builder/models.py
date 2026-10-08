@@ -8,7 +8,7 @@ joins, ordering, schema metadata, and validation results.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -231,6 +231,13 @@ class FilterSpec:
     op: str = "eq"  # eq, neq, gt, gte, lt, lte, contains, starts_with, ends_with, in, between, is_null, is_not_null
     value: Any = None
     table_prefix: str | None = None
+    # Operator joining this filter to the previous one ('AND' | 'OR').
+    combiner: Literal["AND", "OR"] | None = None
+
+    def __post_init__(self) -> None:
+        if self.combiner is not None:
+            norm = str(self.combiner).strip().upper()
+            self.combiner = "OR" if norm == "OR" else "AND" if norm == "AND" else None  # type: ignore[assignment]
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -240,6 +247,8 @@ class FilterSpec:
         }
         if self.table_prefix is not None:
             d["table_prefix"] = self.table_prefix
+        if self.combiner is not None:
+            d["combiner"] = self.combiner
         return d
 
 

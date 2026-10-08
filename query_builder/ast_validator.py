@@ -8,8 +8,10 @@ unauthorized schema access, and system/credential table references.
 
 from __future__ import annotations
 
+import itertools
 import re
-from typing import Any
+from functools import lru_cache
+from typing import Any, NamedTuple
 
 try:
     import sqlparse
@@ -44,7 +46,7 @@ FORBIDDEN_SQL_PATTERNS = [
     r"\b(?:XP_CMDSHELL|SP_EXECUTESQL|SP_MAKEWEBTASK)\b",
     r"\b(?:OPENROWSET|OPENDATASOURCE|OPENQUERY)\b",
     r"\b(?:PG_SLEEP|SLEEP|BENCHMARK)\s*\(",
-    r"\bWAITFOR(?:\s+|\/\*.*?\*\/)+DELAY\b",
+    r"\bWAITFOR\s+DELAY\b",
     r"\bSHUTDOWN\b",
     r"/\*!",
 ]
@@ -152,13 +154,59 @@ DEFAULT_RESTRICTED_SCHEMA_NAMES: set[str] = {
     "SNOWFLAKE",
 }
 
+# Unambiguous (no nested quantifiers over whitespace): every position has exactly one
+# way to match, and the dot/space run is possessive, so matching is linear.
 DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
-    r"(?:^|[^\w$])(?:[\"`\[]?)(PUBLIC|PG_CATALOG|INFORMATION_SCHEMA|MYSQL|PERFORMANCE_SCHEMA|SYS|MSDB|MASTER|SNOWFLAKE)(?:[\"`\]]?)(?:\s*\.\s*)+(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
+    r"(?<![\w$])[\"`\[]?(PUBLIC|PG_CATALOG|INFORMATION_SCHEMA|MYSQL|PERFORMANCE_SCHEMA|SYS|MSDB|MASTER|SNOWFLAKE)[\"`\]]?\s*\.[\s.]*+[\"`\[]?([a-zA-Z0-9_]+)[\"`\]]?",
 ]
 
 MAX_SQL_LENGTH = 100_000
 MAX_AST_TOKENS = 10_000
+# sqlparse grouping is quadratic in the number of comment tokens (1000 comments ~0.3s,
+# 4000 ~4s); no legitimate analytical query carries this many.
+MAX_COMMENTS = 500
 
+# Linear-time approximation of sqlparse's flattened token count.  Terminated quoted
+# strings / identifiers and comments are one token, a word run is one token, and every
+# other character (including each whitespace character, as sqlparse emits them) is one
+# token.  Unterminated quotes / block comments are NOT one token for sqlparse (it emits
+# one error token per character), so they are counted per character.
+_ESTIMATE_TOKEN_RE = re.compile(
+    r"""(?P<s>'(?:[^'\\]++|''|\\.?)*+(?:'|(?P<us>\Z)))"""
+    r"""|(?P<d>"(?:[^"\\]++|""|\\.?)*+(?:"|(?P<ud>\Z)))"""
+    r"|(?P<b>`[^`]*+(?:`|(?P<ub>\Z)))"
+    r"|(?P<c>--[^\r\n]*+)"
+    r"|(?P<m>/\*(?:(?!\*/).)*+(?:\*/|(?P<um>\Z)))"
+    r"|\w++"
+    r"|.",
+    re.DOTALL,
+)
+
+
+def _estimate_token_count(sql: str, limit: int) -> tuple[int, int]:
+    """Returns ``(estimated token count, number of comments)`` in one linear pass.
+
+    Stops counting as soon as the estimate exceeds ``limit``.
+    """
+    tokens = comments = 0
+    for m in _ESTIMATE_TOKEN_RE.finditer(sql):
+        kind = m.lastgroup
+        if kind is None:
+            tokens += 1
+            continue
+        if kind == "c" or kind == "m":
+            comments += 1
+        if kind in ("c", "w") or m.groupdict().get("u" + kind) is None:
+            tokens += 1
+        else:
+            tokens += len(m.group())
+        if tokens > limit:
+            break
+    return tokens, comments
+
+
+# `FROM` (not as a prefix of a longer identifier) plus optional ONLY/LATERAL modifiers.
+_FROM_PREFIX_RE = r"\bFROM(?![\w$])\s*(?:(?:ONLY|LATERAL)\b\s*)*"
 
 _IDENTIFIER_QUOTES: dict[str, str] = {'"': '"', "`": "`", "[": "]"}
 
@@ -166,6 +214,14 @@ _IDENTIFIER_QUOTES: dict[str, str] = {'"': '"', "`": "`", "[": "]"}
 def _clean_ident_part(p: str) -> str:
     """Strips all whitespace and quote/bracket characters from an identifier segment."""
     return p.strip().strip('"`[]').strip().upper()
+
+
+# Keywords that end a FROM clause body.  Matched in place (``match(sql, i)``) rather than
+# on a ``sql[i:]`` slice per character, which copied the rest of the text every time.
+_FROM_BODY_END_RE = re.compile(
+    r"(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
+    re.IGNORECASE,
+)
 
 
 def _extract_from_body(sql: str, start_idx: int) -> str:
@@ -189,14 +245,7 @@ def _extract_from_body(sql: str, start_idx: int) -> str:
                 depth -= 1
             else:
                 break
-        elif ch == ";" or (
-            depth == 0
-            and re.match(
-                r"^(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
-                sql[i:],
-                re.IGNORECASE,
-            )
-        ):
+        elif ch == ";" or (depth == 0 and _FROM_BODY_END_RE.match(sql, i)):
             break
         i += 1
     return sql[start_idx:i].strip()
@@ -230,19 +279,496 @@ def _split_from_items(from_body: str) -> list[str]:
     return items
 
 
+class _LexMode(NamedTuple):
+    """One lexical interpretation of the SQL text.
+
+    The validator has no dialect parameter and dialects disagree about these rules, so the
+    same text is lexed under every combination of the settings that could change what is
+    code and what is literal/comment (see ``_lex_variants``).
+    """
+
+    backslash: bool = True  # backslash escapes inside '..' and ".." (MySQL, PG E'..')
+    hash_comment: bool = False  # `#` starts a line comment (MySQL)
+    dollar: bool = False  # $tag$ .. $tag$ dollar-quoted strings (PostgreSQL, DuckDB)
+    bracket: bool = False  # [..] is a quoted identifier (SQL Server, SQLite)
+    nested: bool = False  # /* .. /* .. */ .. */ nests (PostgreSQL)
+    strict_dash: bool = (
+        False  # `--` is a comment only when followed by whitespace (MySQL)
+    )
+
+
+# Opens of a dollar-quote tag: $$ or $tag$ (the tag may not start with a digit).
+_DOLLAR_OPEN = r"(?<![\w$])\$(?:[^\W\d]\w*)?\$"
+_BLOCK_DELIMS_RE = re.compile(r"/\*|\*/")
+
+
+@lru_cache(maxsize=128)
+def _lex_pattern(mode: _LexMode) -> re.Pattern[str]:
+    """Builds the single left-to-right scanner for ``mode``.
+
+    Every alternative uses possessive quantifiers / atomic structure so that each input
+    position has exactly one way to match: scanning is linear (no ReDoS), and an
+    unterminated literal/comment/identifier deliberately swallows the rest of the text.
+    """
+    if mode.backslash:
+        string = r"(?P<str>'(?:[^'\\]++|''|\\.?)*+(?:'|(?P<ustr>\Z)))"
+        dquote = r'(?P<dq>"(?:[^"\\]++|""|\\.?)*+(?:"|(?P<udq>\Z)))'
+    else:
+        string = r"(?P<str>'(?:[^']++|'')*+(?:'|(?P<ustr>\Z)))"
+        dquote = r'(?P<dq>"(?:[^"]++|"")*+(?:"|(?P<udq>\Z)))'
+    parts = [
+        string,
+        dquote,
+        r"(?P<bt>`(?:[^`]++|``)*+(?:`|(?P<ubt>\Z)))",
+        r"(?P<bc>/\*)",
+    ]
+    if mode.strict_dash:
+        parts.append(r"(?P<lc>--(?=[\s\x00-\x1f]|\Z)[^\r\n]*+)")
+    else:
+        parts.append(r"(?P<lc>--[^\r\n]*+)")
+    if mode.hash_comment:
+        parts.append(r"(?P<hc>\#[^\r\n]*+)")
+    if mode.bracket:
+        # SQL Server / SQLite: anything up to `]` is an identifier.
+        parts.append(r"(?P<br>\[(?:[^\]]++|\]\])*+(?:\]|(?P<ubr>\Z)))")
+    else:
+        # Other dialects: `[` is an array subscript / plain punctuation, so only a
+        # simple bracketed word (no quotes, parens, `;`) is treated as an identifier;
+        # anything richer stays visible as code (and its quotes are lexed normally).
+        parts.append(r"""(?P<br>\[[^\]\[;'"`()]*+\])""")
+    if mode.dollar:
+        parts.append(f"(?P<dl>{_DOLLAR_OPEN})")
+    return re.compile("|".join(parts), re.DOTALL)
+
+
+def _skip_block_comment(sql: str, pos: int, nested: bool) -> tuple[int, bool]:
+    """Returns ``(index just past the block comment whose body starts at pos, closed)``."""
+    if not nested:
+        close = sql.find("*/", pos)
+        return (len(sql), False) if close < 0 else (close + 2, True)
+    depth = 1
+    for m in _BLOCK_DELIMS_RE.finditer(sql, pos):
+        depth += 1 if m.group() == "/*" else -1
+        if depth == 0:
+            return m.end(), True
+    return len(sql), False
+
+
+class _Lexed(NamedTuple):
+    """Result of lexing under one interpretation (see ``_lex``)."""
+
+    stripped: str
+    masked: str
+    terminated: bool
+    # For an unterminated interpretation: the (stripped, masked) text up to and including
+    # the last code `;` before the dangling construct, i.e. the only part an engine could
+    # execute (statements before the syntax error).  None when terminated.
+    executable: tuple[str, str] | None
+
+
+def _lex(sql: str, mode: _LexMode) -> _Lexed:
+    """Single-pass lexer for one interpretation.
+
+    Comments become a space and string / dollar-quoted literals become ``''``.
+    ``stripped`` keeps quoted identifiers verbatim (needed for table-name checks);
+    ``masked`` replaces them with ``"ident"`` so that nothing inside any quoting
+    construct can be mistaken for code (used for keyword / ``;`` checks).
+
+    When a string / identifier / dollar quote / block comment is still open at the end of
+    the text the interpretation is a syntax error for the dialect it models.  Its
+    ``stripped`` / ``masked`` then keep the unlexed remainder verbatim (fail-closed, used
+    only if *every* interpretation is unterminated) and ``executable`` holds the part
+    before the dangling construct that ends at its last ``;``.
+    """
+    search = _lex_pattern(mode).search
+    total = len(sql)
+    stripped: list[str] = []
+    masked: list[str] = []
+    last_semi: tuple[int, int] | None = None  # (part index, offset after the `;`)
+    dangling_at = -1
+    pos = 0
+    while pos < total:
+        m = search(sql, pos)
+        if m is None:
+            gap = sql[pos:]
+            if ";" in gap:
+                last_semi = (len(stripped), gap.rfind(";") + 1)
+            stripped.append(gap)
+            masked.append(gap)
+            break
+        if m.start() > pos:
+            gap = sql[pos : m.start()]
+            if ";" in gap:
+                last_semi = (len(stripped), gap.rfind(";") + 1)
+            stripped.append(gap)
+            masked.append(gap)
+        kind = m.lastgroup
+        end = m.end()
+        if kind == "str":
+            if m.group("ustr") is not None:
+                dangling_at = m.start()
+                break
+            stripped.append("''")
+            masked.append("''")
+        elif kind in ("dq", "bt", "br"):
+            if m.groupdict().get("u" + kind) is not None:
+                dangling_at = m.start()
+                break
+            stripped.append(m.group())
+            masked.append(' "ident" ')
+        elif kind == "dl":
+            tag = m.group()
+            close = sql.find(tag, end)
+            if close < 0:
+                dangling_at = m.start()
+                break
+            end = close + len(tag)
+            stripped.append("''")
+            masked.append("''")
+        else:  # line / hash / block comments
+            if kind == "bc":
+                end, closed = _skip_block_comment(sql, end, mode.nested)
+                if not closed:
+                    dangling_at = m.start()
+                    break
+            stripped.append(" ")
+            masked.append(" ")
+        pos = end
+
+    if dangling_at < 0:
+        return _Lexed("".join(stripped), "".join(masked), True, None)
+
+    executable: tuple[str, str] | None = None
+    if last_semi is not None:
+        idx, off = last_semi
+        executable = (
+            "".join(stripped[:idx]) + stripped[idx][:off],
+            "".join(masked[:idx]) + masked[idx][:off],
+        )
+    rest = sql[dangling_at:]
+    return _Lexed("".join(stripped) + rest, "".join(masked) + rest, False, executable)
+
+
+def _lex_variants(sql: str) -> list[tuple[str, str]]:
+    """Lexes ``sql`` under every dialect-dependent interpretation that could matter.
+
+    Only the settings whose trigger characters occur in the text are varied, and
+    interpretations that yield identical text are collapsed.  The caller validates every
+    distinct result and takes the union of violations (fail-closed).
+
+    An interpretation that leaves a quote or block comment open is a syntax error for the
+    dialect it models, e.g. ``'it\\'s'`` where a backslash is an ordinary character leaves
+    a dangling quote.  Such an engine can at most run the statements that precede the
+    error, so only that executable prefix is validated for it (this keeps a literal like
+    ``'it\\'s a drop'`` from being mistaken for code).  If every interpretation is
+    unterminated, their full text is validated instead.
+    """
+    dims = (
+        (True, False) if "\\" in sql else (True,),
+        (True, False) if "#" in sql else (False,),
+        (True, False) if "$" in sql else (False,),
+        (True, False) if "[" in sql else (False,),
+        (True, False) if sql.count("/*") > 1 else (False,),
+        (True, False) if "--" in sql else (False,),
+    )
+    complete: dict[tuple[str, str], None] = {}
+    prefixes: dict[tuple[str, str], None] = {}
+    dangling: dict[tuple[str, str], None] = {}
+    for combo in itertools.product(*dims):
+        lexed = _lex(sql, _LexMode(*combo))
+        if lexed.terminated:
+            complete.setdefault((lexed.stripped, lexed.masked), None)
+        else:
+            dangling.setdefault((lexed.stripped, lexed.masked), None)
+            if lexed.executable is not None and lexed.executable[1].strip(" ;\t\r\n"):
+                prefixes.setdefault(lexed.executable, None)
+    if complete:
+        return list(complete) + [p for p in prefixes if p not in complete]
+    return list(dangling)
+
+
 def strip_sql_comments_and_literals(sql: str) -> str:
     """
-    Strips single-line comments (-- ...), multiline comments (/* ... */),
-    and single-quoted string literals (handling '' and \\' escapes).
-    Replaces string literals with '' to preserve syntactical structure.
+    Strips comments (``--``, ``/* ... */``) and string literals (handling ``''`` and
+    backslash escapes) in one left-to-right pass, replacing literals with ``''``.
+    This is the default (MySQL-like backslash) interpretation; ``validate_sql_ast``
+    additionally checks the other dialect interpretations.
     """
-    # 1. Strip single-line comments
-    sql = re.sub(r"--[^\r\n]*", " ", sql)
-    # 2. Strip multiline comments
-    sql = re.sub(r"/\*[\s\S]*?\*/", " ", sql)
-    # 3. Strip single-quoted string literals including escaped quotes
-    sql = re.sub(r"'(?:''|\\[\s\S]|[^'\\])*'", "''", sql)
-    return sql
+    return _lex(sql, _LexMode())[0]
+
+
+# --------------------------------------------------------------------------------------
+# Token based relation / function extraction (linear time, no whitespace-ambiguous regex)
+# --------------------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(
+    r'(?P<q>"(?:[^"]++|"")*+(?:"|\Z)'
+    r"|`(?:[^`]++|``)*+(?:`|\Z)"
+    r"""|\[[^\]\[;'"`()]*+\])"""
+    r"|(?P<w>[\w$]++)"
+    r"|(?P<p>\S)"
+)
+
+# A token is (kind, value): kind 'w' word (value upper-cased), 'q' quoted identifier
+# (value unquoted + upper-cased), 'p' single punctuation / other character.
+_Token = tuple[str, str]
+
+_RELATION_ANCHORS = frozenset(
+    {"FROM", "JOIN", "APPLY", "STRAIGHT_JOIN", "TABLE", "LATERAL", "ONLY", "USING"}
+)
+_RELATION_MODIFIERS = frozenset({"ONLY", "LATERAL"})
+_FROM_LIST_TERMINATORS = frozenset(
+    {
+        "WHERE",
+        "GROUP",
+        "ORDER",
+        "HAVING",
+        "LIMIT",
+        "OFFSET",
+        "UNION",
+        "INTERSECT",
+        "EXCEPT",
+        "WINDOW",
+        "FETCH",
+        "FOR",
+        "QUALIFY",
+        "RETURNING",
+    }
+)
+
+# Functions that execute SQL passed as a string, or read arbitrary files / remote data.
+# Their arguments are string literals (stripped before the table checks), so the *call*
+# itself must be denied.  Matched against the final identifier before a `(`.
+_DENIED_FUNCTIONS = frozenset(
+    {
+        # PostgreSQL
+        "QUERY_TO_XML",
+        "QUERY_TO_XMLSCHEMA",
+        "QUERY_TO_XML_AND_XMLSCHEMA",
+        "CURSOR_TO_XML",
+        "CURSOR_TO_XMLSCHEMA",
+        "TABLE_TO_XML",
+        "TABLE_TO_XMLSCHEMA",
+        "TABLE_TO_XML_AND_XMLSCHEMA",
+        "SCHEMA_TO_XML",
+        "SCHEMA_TO_XMLSCHEMA",
+        "SCHEMA_TO_XML_AND_XMLSCHEMA",
+        "DATABASE_TO_XML",
+        "DATABASE_TO_XMLSCHEMA",
+        "DATABASE_TO_XML_AND_XMLSCHEMA",
+        "PG_READ_FILE",
+        "PG_READ_BINARY_FILE",
+        "PG_LS_DIR",
+        "PG_STAT_FILE",
+        "PG_EXECUTE_SERVER_PROGRAM",
+        "SET_CONFIG",
+        "PG_TERMINATE_BACKEND",
+        "PG_CANCEL_BACKEND",
+        "PG_RELOAD_CONF",
+        # MySQL / MariaDB
+        "LOAD_FILE",
+        "EXTRACTVALUE",
+        "UPDATEXML",
+        "SYS_EXEC",
+        "SYS_EVAL",
+        # SQLite
+        "LOAD_EXTENSION",
+        "READFILE",
+        "WRITEFILE",
+        "FTS3_TOKENIZER",
+        # SQL Server
+        "OPENROWSET",
+        "OPENQUERY",
+        "OPENDATASOURCE",
+        "OPENXML",
+        "SP_EXECUTESQL",
+        "SP_MAKEWEBTASK",
+        # DuckDB
+        "QUERY",
+        "QUERY_TABLE",
+        "SNIFF_CSV",
+        # ClickHouse table functions
+        "FILE",
+        "URL",
+        "S3",
+        "S3CLUSTER",
+        "REMOTE",
+        "REMOTESECURE",
+        "JDBC",
+        "ODBC",
+        "HDFS",
+        "EXECUTABLE",
+        "MYSQL",
+        "POSTGRESQL",
+        # Snowflake: resolves a table from a string
+        "IDENTIFIER",
+    }
+)
+_DENIED_FUNCTION_PREFIXES = (
+    "DBLINK",
+    "LO_",
+    "LOREAD",
+    "LOWRITE",
+    "PG_LS_",
+    "PG_READ_",
+    "DBMS_",
+    "UTL_",
+    "XP_",
+    "SP_OA",
+    "READ_CSV",
+    "READ_PARQUET",
+    "READ_JSON",
+    "READ_NDJSON",
+    "READ_TEXT",
+    "READ_BLOB",
+    "PARQUET_",
+    "SYSTEM$",
+)
+
+
+def _tokenize(text: str) -> list[_Token]:
+    tokens: list[_Token] = []
+    for m in _TOKEN_RE.finditer(text):
+        kind = m.lastgroup
+        if kind == "w":
+            tokens.append(("w", m.group().upper()))
+        elif kind == "q":
+            tokens.append(("q", _clean_ident_part(m.group())))
+        else:
+            tokens.append(("p", m.group()))
+    return tokens
+
+
+def _read_dotted_name(tokens: list[_Token], i: int) -> tuple[list[str], bool, int]:
+    """Reads ``a.b..c`` starting at ``i`` -> (parts, saw_double_dot, next_index)."""
+    parts = [tokens[i][1]]
+    double_dot = False
+    j = i + 1
+    n = len(tokens)
+    while j < n and tokens[j] == ("p", "."):
+        k = j
+        while k < n and tokens[k] == ("p", "."):
+            k += 1
+        if k >= n or tokens[k][0] == "p":
+            break
+        if k - j > 1:
+            double_dot = True
+        parts.append(tokens[k][1])
+        j = k + 1
+    return [p for p in parts if p], double_dot, j
+
+
+def _restricted_name(
+    parts: list[str], double_dot: bool, restricted: set[str], *, relation: bool
+) -> str | None:
+    """Returns the restricted table name matched by a dotted name, if any.
+
+    ``relation`` is True when the name is known to be in a table position (FROM/JOIN/...),
+    where the bare last part is enough; elsewhere a bare table is only a column/alias,
+    so a restricted table needs schema qualification (3+ parts or a double dot).
+    """
+    if not parts:
+        return None
+    for a, b in zip(parts, parts[1:], strict=False):
+        if f"{a}.{b}" in restricted:
+            return f"{a}.{b}"
+    base = parts[-1]
+    if base in restricted and (relation or len(parts) >= 3 or double_dot):
+        return base
+    return None
+
+
+_RESTRICTED_TABLE_MSG = (
+    "Access Denied: Table '{}' is restricted. "
+    "Authentication, credentials, and session data cannot be queried."
+)
+
+
+def _check_relations(
+    tokens: list[_Token], restricted: set[str], violations: list[str]
+) -> None:
+    """Flags restricted tables in every relation position of the token stream.
+
+    Relation positions: after FROM / JOIN / APPLY / STRAIGHT_JOIN / TABLE / LATERAL /
+    ONLY / USING, and after each top-level comma of a FROM list.  Also flags dotted
+    names anywhere (schema.table, db.schema.table, db..table).
+    """
+    n = len(tokens)
+
+    def check_relation_at(j: int) -> None:
+        while j < n and (
+            tokens[j] == ("p", "(")
+            or (tokens[j][0] == "w" and tokens[j][1] in _RELATION_MODIFIERS)
+        ):
+            j += 1
+        if j < n and tokens[j][0] != "p":
+            parts, dd, _ = _read_dotted_name(tokens, j)
+            hit = _restricted_name(parts, dd, restricted, relation=True)
+            if hit:
+                violations.append(_RESTRICTED_TABLE_MSG.format(hit))
+
+    depth = 0
+    from_list: dict[int, bool] = {}
+    for i, (kind, val) in enumerate(tokens):
+        if kind == "p":
+            if val == "(":
+                depth += 1
+            elif val == ")":
+                from_list.pop(depth, None)
+                depth = max(0, depth - 1)
+            elif val == "," and from_list.get(depth):
+                check_relation_at(i + 1)
+            elif val == ";":
+                from_list.clear()
+            continue
+        if kind != "w" or (i > 0 and tokens[i - 1] == ("p", ".")):
+            continue
+        if val in _RELATION_ANCHORS:
+            if val == "USING" and i + 1 < n and tokens[i + 1] == ("p", "("):
+                continue
+            check_relation_at(i + 1)
+            if val == "FROM":
+                from_list[depth] = True
+        elif val in _FROM_LIST_TERMINATORS:
+            from_list[depth] = False
+
+    # Dotted names anywhere (e.g. mysql.user, db.schema.auth_user, db..auth_user).
+    i = 0
+    while i < n:
+        if tokens[i][0] != "p":
+            parts, dd, nxt = _read_dotted_name(tokens, i)
+            if len(parts) >= 2:
+                hit = _restricted_name(parts, dd, restricted, relation=False)
+                if hit:
+                    violations.append(_RESTRICTED_TABLE_MSG.format(hit))
+            i = nxt
+        else:
+            i += 1
+
+
+def _check_denied_functions(tokens: list[_Token], violations: list[str]) -> None:
+    for i in range(len(tokens) - 1):
+        kind, val = tokens[i]
+        if kind == "p" or tokens[i + 1] != ("p", "("):
+            continue
+        # Check the function name and every qualifier before it (dbms_xmlgen.getxml(...),
+        # pg_catalog.pg_read_file(...)): either part may be the dangerous one.
+        names = [val]
+        j = i - 1
+        while j >= 1 and tokens[j] == ("p", ".") and tokens[j - 1][0] != "p":
+            names.append(tokens[j - 1][1])
+            j -= 2
+        for pos, name in enumerate(names):
+            # Only the final name is matched against the exact-name list; qualifiers
+            # (schemas / packages) are matched by prefix only, so an alias such as
+            # `url` or `file` is not mistaken for a table function.
+            if name.startswith(_DENIED_FUNCTION_PREFIXES) or (
+                pos == 0 and name in _DENIED_FUNCTIONS
+            ):
+                violations.append(
+                    f"Access Denied: Function '{name}' can execute arbitrary SQL or read "
+                    "external files/data and is not permitted."
+                )
 
 
 def _extract_cte_root_statement(stmt: sqlparse.sql.Statement) -> str:
@@ -303,6 +829,98 @@ def _extract_cte_root_statement(stmt: sqlparse.sql.Statement) -> str:
             return v
         idx += 1
     return "UNKNOWN"
+
+
+def _check_variant(
+    stripped: str,
+    masked: str,
+    violations: list[str],
+    *,
+    effective_keywords: set[str],
+    effective_tables: set[str],
+    schema_patterns: list[str],
+    allowed_upper: set[str],
+) -> None:
+    """Runs every text-based check on one lexical interpretation of the query."""
+    # Restricted system/security schemas
+    schema_denied = False
+    for pattern in schema_patterns:
+        for m in re.finditer(pattern, stripped, re.IGNORECASE):
+            if m.lastindex and m.lastindex >= 1:
+                matched_schema = _clean_ident_part(m.group(1))
+            else:
+                matched_schema = _clean_ident_part(m.group(0).split(".", 1)[0])
+            if allowed_upper and matched_schema in allowed_upper:
+                continue
+            schema_denied = True
+            break
+        if schema_denied:
+            break
+    if schema_denied:
+        violations.append(
+            "Access Denied: Queries may only target allowed analytical datasets."
+        )
+
+    tokens = _tokenize(stripped)
+    for kind, val in tokens:
+        if kind == "w" and val in effective_keywords:
+            violations.append(f"Forbidden mutation keyword: '{val}'")
+    _check_relations(tokens, effective_tables, violations)
+    _check_denied_functions(tokens, violations)
+
+    # Regex safety fallback against obfuscated mutations (quoted identifiers masked)
+    for pattern in FORBIDDEN_SQL_PATTERNS:
+        match = re.search(pattern, masked, re.IGNORECASE)
+        if match:
+            matched_kw = " ".join(match.group(0).upper().split())
+            if f"Forbidden mutation keyword: '{matched_kw}'" not in violations:
+                violations.append(
+                    f"Forbidden mutation pattern detected: '{matched_kw}'"
+                )
+
+
+def _finalize(
+    violations: list[str],
+    stmt_type: str,
+    is_cte: bool,
+    cte_root: str,
+    first_val: str,
+) -> dict[str, Any]:
+    unique_violations = list(dict.fromkeys(violations))
+    is_valid = len(unique_violations) == 0
+    detected_type = (
+        "SELECT"
+        if (stmt_type == "SELECT" or (is_cte and cte_root == "SELECT"))
+        else (stmt_type or first_val or "UNKNOWN")
+    )
+
+    risk = "NONE"
+    if not is_valid:
+        if any(
+            "MUTATION" in v.upper()
+            or "KEYWORD" in v.upper()
+            or "CHAINING" in v.upper()
+            or "DENIED" in v.upper()
+            or "SEPARATOR" in v.upper()
+            or "COMMENT" in v.upper()
+            or "NULL BYTE" in v.upper()
+            for v in unique_violations
+        ):
+            risk = "CRITICAL"
+        else:
+            risk = "HIGH"
+
+    return {
+        "valid": is_valid,
+        "ast_validated": True,
+        "statement_type": detected_type,
+        "is_read_only": is_valid,
+        "violations": unique_violations,
+        "injection_risk": risk,
+        "message": "Query passed AST validation and read-only policy."
+        if is_valid
+        else unique_violations[0],
+    }
 
 
 def validate_sql_ast(
@@ -388,6 +1006,21 @@ def validate_sql_ast(
             "injection_risk": "HIGH",
             "message": "AST validation unavailable: sqlparse package not found.",
         }
+
+    # sqlparse's grouping is super-linear in the token count, so bound the work BEFORE
+    # parsing with a cheap linear estimate (never rejects less than the exact check below).
+    estimated_tokens, comment_count = _estimate_token_count(clean, max_ast_tokens)
+    if estimated_tokens > max_ast_tokens:
+        violations.append(
+            f"Query AST token count ({estimated_tokens}) exceeds safety threshold ({max_ast_tokens})."
+        )
+        return _finalize(violations, "UNKNOWN", False, "", "")
+    if comment_count > MAX_COMMENTS:
+        violations.append(
+            f"Query contains too many comments (more than {MAX_COMMENTS}); "
+            "comment-heavy input is rejected to bound parsing cost."
+        )
+        return _finalize(violations, "UNKNOWN", False, "", "")
 
     try:
         parsed = sqlparse.parse(clean)
@@ -490,37 +1123,6 @@ def validate_sql_ast(
             f"Restricted statement type: {detected_name}. Only SELECT queries are permitted."
         )
 
-    # Cleaned SQL stripped of comments and literals for robust pattern matching
-    clean_stripped = strip_sql_comments_and_literals(clean)
-
-    # Check for restricted system/security schema access
-    schema_patterns = (
-        restricted_schema_patterns
-        if restricted_schema_patterns is not None
-        else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
-    )
-    for pattern in schema_patterns:
-        for m in re.finditer(pattern, clean_stripped, re.IGNORECASE):
-            if m.lastindex and m.lastindex >= 1:
-                matched_schema = _clean_ident_part(m.group(1))
-            else:
-                matched_schema = _clean_ident_part(
-                    re.split(r"(?:\s*\.\s*)+", m.group(0).rstrip("."))[0]
-                )
-            if allowed_schemas:
-                allowed_upper = {
-                    _clean_ident_part(s.rstrip(".")) for s in allowed_schemas
-                }
-                if matched_schema in allowed_upper:
-                    continue
-            violations.append(
-                "Access Denied: Queries may only target allowed analytical datasets."
-            )
-            break
-        if any("analytical" in v.lower() for v in violations):
-            break
-
-    # Deep token inspection for mutation keywords
     effective_keywords = (
         restricted_keywords
         if restricted_keywords is not None
@@ -531,13 +1133,44 @@ def validate_sql_ast(
         if restricted_tables is not None
         else RESTRICTED_SECURITY_TABLES
     )
+    schema_patterns = (
+        restricted_schema_patterns
+        if restricted_schema_patterns is not None
+        else DEFAULT_RESTRICTED_SCHEMA_PATTERNS
+    )
+    allowed_upper = (
+        {_clean_ident_part(s.rstrip(".")) for s in allowed_schemas}
+        if allowed_schemas
+        else set()
+    )
 
     tokens_list = list(stmt.flatten())
     if len(tokens_list) > max_ast_tokens:
+        # Early return: do not spend more CPU on an input that is already rejected.
         violations.append(
             f"Query AST token count ({len(tokens_list)}) exceeds safety threshold ({max_ast_tokens})."
         )
+        return _finalize(violations, stmt_type, is_cte, cte_root, first_val)
 
+    # Lex ONCE per dialect interpretation (backslash escapes, `#` comments, dollar
+    # quoting, [bracket] identifiers, nested comments, MySQL `--` rule) and validate
+    # every distinct interpretation; the union of violations is reported (fail-closed).
+    variants = _lex_variants(clean)
+    for _stripped, masked in variants:
+        # A `;` that is code (not inside any literal/comment/quoted identifier) under ANY
+        # interpretation, followed by more code, is a stacked statement.
+        if len([seg for seg in masked.split(";") if seg.strip()]) > 1:
+            violations.append(
+                "Multiple statements detected. Semicolon query chaining is not permitted."
+            )
+            break
+
+    set_scope_ok = all(
+        re.search(r"\bSET\s+(?:TRANSACTION|LOCAL)\b", stripped, re.IGNORECASE)
+        for stripped, _masked in variants
+    )
+
+    # Deep token inspection for mutation keywords (sqlparse's own lexing of the raw text)
     for tok in tokens_list:
         if tok.is_whitespace or tok.ttype in (
             sqlparse.tokens.Comment,
@@ -565,161 +1198,21 @@ def validate_sql_ast(
         ):
             if val in effective_keywords:
                 violations.append(f"Forbidden mutation keyword: '{val}'")
-            elif val == "SET" and not re.search(
-                r"\bSET\s+(?:TRANSACTION|LOCAL)\b", clean_stripped, re.IGNORECASE
-            ):
+            elif val == "SET" and not set_scope_ok:
                 violations.append("Forbidden session modification keyword: 'SET'")
 
-    # Check tables referenced in FROM, JOIN, and APPLY clauses (supporting 1, 2, 3+ part names and double dots)
-    table_pattern = re.compile(
-        r"\b(?:FROM|JOIN|APPLY)\s*(?:\(\s*)*(?:(?:ONLY|LATERAL)\b\s*)*(?:\(\s*)*([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)*)",
-        re.IGNORECASE,
-    )
-    for m in table_pattern.finditer(clean_stripped):
-        raw_target = m.group(1).strip()
-        parts = [
-            _clean_ident_part(p)
-            for p in re.split(r"(?:\s*\.\s*)+", raw_target)
-            if _clean_ident_part(p)
-        ]
-        if not parts:
-            continue
-        base_tbl = parts[-1]
-        qual_tbl = f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
-        if base_tbl in effective_tables or qual_tbl in effective_tables:
-            matched_name = qual_tbl if qual_tbl in effective_tables else base_tbl
-            violations.append(
-                f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
-            )
+    for stripped, masked in variants:
+        _check_variant(
+            stripped,
+            masked,
+            violations,
+            effective_keywords=effective_keywords,
+            effective_tables=effective_tables,
+            schema_patterns=schema_patterns,
+            allowed_upper=allowed_upper,
+        )
 
-    # Check comma-separated FROM tables
-    from_clause_pattern = re.compile(
-        r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*([^;]+?)(?:\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\bOFFSET\b|\bUNION\b|;|$)",
-        re.IGNORECASE,
-    )
-    target_bodies: list[str] = []
-    for fm in from_clause_pattern.finditer(clean_stripped):
-        raw_body = fm.group(1)
-        if raw_body.count("(") > raw_body.count(")"):
-            body = _extract_from_body(
-                clean_stripped,
-                fm.start()
-                + len(
-                    re.match(
-                        r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*",
-                        clean_stripped[fm.start() :],
-                        re.IGNORECASE,
-                    ).group(0)
-                ),
-            )
-        else:
-            body = raw_body
-        target_bodies.append(body)
-        if re.search(r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*", body, re.IGNORECASE):
-            for sub_fm in from_clause_pattern.finditer(body):
-                target_bodies.append(sub_fm.group(1))
-
-    for from_body in target_bodies:
-        if "," in from_body:
-            for item in _split_from_items(from_body):
-                tbl_m = re.match(
-                    r"\s*(?:\(\s*)*(?:(?:ONLY|LATERAL)\b\s*)*(?:\(\s*)*([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)*)",
-                    item,
-                    re.IGNORECASE,
-                )
-                if tbl_m:
-                    raw_target = tbl_m.group(1).strip()
-                    parts = [
-                        _clean_ident_part(p)
-                        for p in re.split(r"(?:\s*\.\s*)+", raw_target)
-                        if _clean_ident_part(p)
-                    ]
-                    if not parts:
-                        continue
-                    base_tbl = parts[-1]
-                    qual_tbl = (
-                        f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
-                    )
-                    if base_tbl in effective_tables or qual_tbl in effective_tables:
-                        matched_name = (
-                            qual_tbl if qual_tbl in effective_tables else base_tbl
-                        )
-                        violations.append(
-                            f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
-                        )
-
-    # Check multi-part qualified table names like db.schema.auth_user, mysql.user, etc.
-    for m in re.finditer(
-        r"(?:^|[^\w$])([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)+)",
-        clean_stripped,
-    ):
-        raw_match = m.group(1).strip()
-        parts = [
-            _clean_ident_part(p)
-            for p in re.split(r"(?:\s*\.\s*)+", raw_match)
-            if _clean_ident_part(p)
-        ]
-        if not parts:
-            continue
-        base_tbl = parts[-1]
-        qual_tbl = f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
-        is_double_dot = bool(re.search(r"\.\s*\.", raw_match))
-        if qual_tbl in effective_tables or (
-            base_tbl in effective_tables and (len(parts) >= 3 or is_double_dot)
-        ):
-            matched_name = qual_tbl if qual_tbl in effective_tables else base_tbl
-            violations.append(
-                f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
-            )
-
-    # Regex safety fallback against obfuscated mutations
-    clean_no_quoted_idents = re.sub(
-        r'("[^"\\]*"|`[^`\\]*`|\[[^\]]*\])', ' "ident" ', clean_stripped
-    )
-    for pattern in FORBIDDEN_SQL_PATTERNS:
-        match = re.search(pattern, clean_no_quoted_idents, re.IGNORECASE)
-        if match:
-            matched_kw = match.group(0).upper()
-            if f"Forbidden mutation keyword: '{matched_kw}'" not in violations:
-                violations.append(
-                    f"Forbidden mutation pattern detected: '{matched_kw}'"
-                )
-
-    unique_violations = list(dict.fromkeys(violations))
-    is_valid = len(unique_violations) == 0
-    detected_type = (
-        "SELECT"
-        if (stmt_type == "SELECT" or (is_cte and cte_root == "SELECT"))
-        else (stmt_type or first_val or "UNKNOWN")
-    )
-
-    risk = "NONE"
-    if not is_valid:
-        if any(
-            "MUTATION" in v.upper()
-            or "KEYWORD" in v.upper()
-            or "CHAINING" in v.upper()
-            or "DENIED" in v.upper()
-            or "SEPARATOR" in v.upper()
-            or "COMMENT" in v.upper()
-            or "NULL BYTE" in v.upper()
-            for v in unique_violations
-        ):
-            risk = "CRITICAL"
-        else:
-            risk = "HIGH"
-
-    return {
-        "valid": is_valid,
-        "ast_validated": True,
-        "statement_type": detected_type,
-        "is_read_only": is_valid,
-        "violations": unique_violations,
-        "injection_risk": risk,
-        "message": "Query passed AST validation and read-only policy."
-        if is_valid
-        else unique_violations[0],
-    }
+    return _finalize(violations, stmt_type, is_cte, cte_root, first_val)
 
 
 SUPPORTED_WINDOW_FUNCTIONS: set[str] = {

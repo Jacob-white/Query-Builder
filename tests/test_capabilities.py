@@ -3,10 +3,11 @@ Tests for EngineCapabilities, FeatureTier, DisabledFeatureError, and compiler in
 """
 
 import pytest
+
 from query_builder import (
+    DisabledFeatureError,
     EngineCapabilities,
     FeatureTier,
-    DisabledFeatureError,
     QueryCompiler,
 )
 
@@ -136,11 +137,13 @@ def test_compiler_blocks_calculated_fields_when_disabled():
 
 def test_fastapi_capabilities_integration():
     try:
+        import sqlite3
+
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from query_builder.integrations.fastapi import create_query_builder_router
+
         from query_builder.connectors.sqlite import SQLiteConnector
-        import sqlite3
+        from query_builder.integrations.fastapi import create_query_builder_router
     except ImportError:
         pytest.skip("FastAPI not installed")
 

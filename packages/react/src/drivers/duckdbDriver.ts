@@ -22,6 +22,132 @@ export interface DuckDBDriverConfig {
   enableExternalDuckDB?: boolean;
 }
 
+const WS_CHAR = /\s/;
+const WORD_CHAR = /\w/;
+
+function hasLineTerminator(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x0a || c === 0x0d || c === 0x2028 || c === 0x2029) return true;
+  }
+  return false;
+}
+
+function isWs(ch: string | undefined): boolean {
+  return ch !== undefined && WS_CHAR.test(ch);
+}
+
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && WORD_CHAR.test(ch);
+}
+
+/** True when `word` (upper case) appears case-insensitively at `pos`. */
+function hasWordAt(text: string, pos: number, word: string): boolean {
+  return text.slice(pos, pos + word.length).toUpperCase() === word;
+}
+
+/** True when the keyword appears at `pos` and ends on a word boundary. */
+function hasKeywordAt(text: string, pos: number, word: string): boolean {
+  return hasWordAt(text, pos, word) && !isWordChar(text[pos + word.length]);
+}
+
+/**
+ * Removes a trailing run of semicolons that is followed only by whitespace
+ * (linear-time equivalent of `.replace(/;+\s*$/, "")`).
+ */
+function stripTrailingSemicolons(text: string): string {
+  const trimmed = text.trimEnd();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === ";") end--;
+  return end === trimmed.length ? text : trimmed.slice(0, end);
+}
+
+/**
+ * Linear-time equivalent of `text.split(/\s+AND\s+/i)`.
+ */
+function splitOnAnd(text: string): string[] {
+  const parts: string[] = [];
+  let last = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (!isWs(text[i])) {
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (isWs(text[runEnd])) runEnd++;
+    if (hasWordAt(text, runEnd, "AND") && isWs(text[runEnd + 3])) {
+      let next = runEnd + 3;
+      while (isWs(text[next])) next++;
+      parts.push(text.slice(last, i));
+      last = next;
+      i = next;
+    } else {
+      i = runEnd;
+    }
+  }
+  parts.push(text.slice(last));
+  return parts;
+}
+
+/**
+ * Linear-time equivalent of
+ * `/^(.*?)\s+(?:AS\s+)?([a-zA-Z0-9_]+)$/i` (group 1 may not contain line terminators).
+ */
+function matchAlias(text: string): { expr: string; alias: string } | null {
+  let wordStart = text.length;
+  while (wordStart > 0 && /[a-zA-Z0-9_]/.test(text[wordStart - 1])) wordStart--;
+  if (wordStart === text.length) return null;
+  let gapStart = wordStart;
+  while (gapStart > 0 && isWs(text[gapStart - 1])) gapStart--;
+  if (gapStart === wordStart) return null;
+  let exprEnd = gapStart;
+  if (gapStart >= 2 && hasWordAt(text, gapStart - 2, "AS")) {
+    let beforeAs = gapStart - 2;
+    while (beforeAs > 0 && isWs(text[beforeAs - 1])) beforeAs--;
+    if (beforeAs < gapStart - 2) exprEnd = beforeAs;
+  }
+  const expr = text.slice(0, exprEnd);
+  if (hasLineTerminator(expr)) return null;
+  return { expr, alias: text.slice(wordStart) };
+}
+
+/**
+ * Linear-time equivalent of
+ * `/^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(.*?)\s*\)$/i`; returns the trimmed argument.
+ */
+function matchAggregate(text: string): { fn: string; arg: string } | null {
+  const head = /^(COUNT|SUM|AVG|MIN|MAX)\s*\(/i.exec(text);
+  if (!head || !text.endsWith(")") || text.length <= head[0].length) return null;
+  const arg = text.slice(head[0].length, -1).trim();
+  if (hasLineTerminator(arg)) return null;
+  return { fn: head[1], arg };
+}
+
+/**
+ * Linear-time equivalent of `/^SELECT\s+([\s\S]+?)\s+\bFROM\b/i`; returns the raw list.
+ */
+function matchSelectList(sql: string): string | null {
+  if (!hasWordAt(sql, 0, "SELECT")) return null;
+  const listFrom = 6;
+  let start = listFrom;
+  while (isWs(sql[start])) start++;
+  if (start === listFrom || start >= sql.length) return null;
+  let i = start;
+  while (i < sql.length) {
+    if (!isWs(sql[i])) {
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (isWs(sql[runEnd])) runEnd++;
+    if (hasKeywordAt(sql, runEnd, "FROM")) return sql.slice(start, i);
+    i = runEnd;
+  }
+  // Legacy quirk: three or more spaces directly before FROM yield a blank list.
+  return start - listFrom >= 3 && hasKeywordAt(sql, start, "FROM") ? " " : null;
+}
+
 /**
  * Normalizes an identifier by trimming quotes and whitespace.
  */
@@ -33,10 +159,10 @@ function cleanIdent(ident: string): string {
  * Evaluates a single row against a WHERE condition.
  */
 export function evaluateCondition(
-  row: Record<string, any>,
+  row: Record<string, unknown>,
   col: string,
   op: string,
-  val: any,
+  val: unknown,
 ): boolean {
   const cell = row[col];
   const upperOp = op.toUpperCase().trim();
@@ -92,7 +218,7 @@ export function evaluateCondition(
       return !arr.some((item) => String(item) === String(cell));
     }
     case "BETWEEN": {
-      const parts = String(val).split(/\s+AND\s+/i);
+      const parts = splitOnAnd(String(val));
       if (parts.length === 2) {
         const num = Number(cell);
         return num >= Number(parts[0]) && num <= Number(parts[1]);
@@ -114,7 +240,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
   tables: Record<string, DuckDBTableMeta> = {};
   activeTable?: string;
 
-  private tableData: Map<string, Record<string, any>[]> = new Map();
+  private tableData: Map<string, Record<string, unknown>[]> = new Map();
   private config: DuckDBDriverConfig;
 
   constructor(config: DuckDBDriverConfig = {}) {
@@ -123,7 +249,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
   async query(sql: string): Promise<DuckDBQueryResult> {
     const start = performance.now();
-    const cleanSql = sql.trim().replace(/;+\s*$/, "");
+    const cleanSql = stripTrailingSemicolons(sql.trim());
 
     // 1. Check for SHOW TABLES
     if (/^SHOW\s+TABLES\b/i.test(cleanSql)) {
@@ -151,15 +277,15 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     let resultRows = [...dataset];
 
     // 3. Apply WHERE filtering
-    const whereMatch = cleanSql.match(/\bWHERE\s+([\s\S]+?)(?=\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)/i);
+    const whereMatch = cleanSql.match(/\bWHERE(?:\s+(\S[\s\S]*?)(?=\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)|\s{2,}$)/i);
     if (whereMatch) {
-      const whereBody = whereMatch[1].trim();
+      const whereBody = (whereMatch[1] ?? "").trim();
       const chunks = splitWhereConditions(whereBody);
 
       for (const chunk of chunks) {
         const cond = chunk.value.trim();
         const opMatch = cond.match(
-          /([a-zA-Z0-9_".`\[\]]+)\s*(=|!=|<>|>=|<=|>|<|\bIS\s+NOT\s+NULL\b|\bIS\s+NULL\b|\bIN\b|\bNOT\s+IN\b|\bLIKE\b|\bILIKE\b|\bBETWEEN\b)\s*([\s\S]*)/i,
+          /(?<![a-zA-Z0-9_".`\[\]])([a-zA-Z0-9_".`\[\]]+)\s*(=|!=|<>|>=|<=|>|<|\bIS\s+NOT\s+NULL\b|\bIS\s+NULL\b|\bIN\b|\bNOT\s+IN\b|\bLIKE\b|\bILIKE\b|\bBETWEEN\b)\s*([\s\S]*)/i,
         );
         if (opMatch) {
           const col = cleanIdent(opMatch[1]);
@@ -174,21 +300,21 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     }
 
     // 4. Projections & Aggregations
-    const selectMatch = cleanSql.match(/^SELECT\s+([\s\S]+?)\s+\bFROM\b/i);
-    const selectClause = selectMatch ? selectMatch[1].trim() : "*";
+    const selectList = matchSelectList(cleanSql);
+    const selectClause = selectList !== null ? selectList.trim() : "*";
 
     let finalColumns: string[] = [];
-    let finalRows: Record<string, any>[] = [];
+    let finalRows: Record<string, unknown>[] = [];
 
     // Check GROUP BY
-    const groupMatch = cleanSql.match(/\bGROUP\s+BY\s+([\s\S]+?)(?=\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)/i);
+    const groupMatch = cleanSql.match(/\bGROUP\s+BY(?:\s+(\S[\s\S]*?)(?=\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)|\s{2,}$)/i);
     const groupCols = groupMatch
-      ? groupMatch[1].split(",").map((c) => cleanIdent(c.trim()))
+      ? (groupMatch[1] ?? " ").split(",").map((c) => cleanIdent(c.trim()))
       : [];
 
     if (groupCols.length > 0 || /\b(COUNT|SUM|AVG|MIN|MAX)\s*\(/i.test(selectClause)) {
       // Grouping / Aggregate Mode
-      const groups = new Map<string, Record<string, any>[]>();
+      const groups = new Map<string, Record<string, unknown>[]>();
 
       if (groupCols.length > 0) {
         for (const row of resultRows) {
@@ -205,16 +331,16 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       const aggSpecs: { colName: string; agg?: string; srcCol?: string; alias: string }[] = [];
 
       for (const item of projItems) {
-        const asMatch = item.match(/^(.*?)\s+(?:AS\s+)?([a-zA-Z0-9_]+)$/i);
-        const expr = asMatch ? asMatch[1].trim() : item;
-        const alias = asMatch ? asMatch[2].trim() : cleanIdent(item);
+        const asMatch = matchAlias(item);
+        const expr = asMatch ? asMatch.expr.trim() : item;
+        const alias = asMatch ? asMatch.alias.trim() : cleanIdent(item);
 
-        const aggMatch = expr.match(/^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(.*?)\s*\)$/i);
+        const aggMatch = matchAggregate(expr);
         if (aggMatch) {
           aggSpecs.push({
             colName: alias,
-            agg: aggMatch[1].toUpperCase(),
-            srcCol: cleanIdent(aggMatch[2]),
+            agg: aggMatch.fn.toUpperCase(),
+            srcCol: cleanIdent(aggMatch.arg),
             alias,
           });
         } else {
@@ -228,7 +354,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       finalColumns = aggSpecs.map((s) => s.alias);
 
       for (const [, bucket] of groups) {
-        const aggregatedRow: Record<string, any> = {};
+        const aggregatedRow: Record<string, unknown> = {};
 
         for (const spec of aggSpecs) {
           if (!spec.agg) {
@@ -269,9 +395,9 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       const projItems = selectClause.split(",").map((p) => p.trim());
       const colMap: { src: string; dest: string }[] = [];
       for (const p of projItems) {
-        const asMatch = p.match(/^(.*?)\s+(?:AS\s+)?([a-zA-Z0-9_]+)$/i);
+        const asMatch = matchAlias(p);
         if (asMatch) {
-          colMap.push({ src: cleanIdent(asMatch[1]), dest: asMatch[2] });
+          colMap.push({ src: cleanIdent(asMatch.expr), dest: asMatch.alias });
         } else {
           const c = cleanIdent(p);
           colMap.push({ src: c, dest: c });
@@ -279,7 +405,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
       }
       finalColumns = colMap.map((c) => c.dest);
       finalRows = resultRows.map((r) => {
-        const mapped: Record<string, any> = {};
+        const mapped: Record<string, unknown> = {};
         for (const cm of colMap) {
           mapped[cm.dest] = r[cm.src];
         }
@@ -288,9 +414,9 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     }
 
     // 5. ORDER BY
-    const orderMatch = cleanSql.match(/\bORDER\s+BY\s+([\s\S]+?)(?=\bLIMIT\b|\bOFFSET\b|$)/i);
+    const orderMatch = cleanSql.match(/\bORDER\s+BY(?:\s+(\S[\s\S]*?)(?=\bLIMIT\b|\bOFFSET\b|$)|\s{2,}$)/i);
     if (orderMatch) {
-      const orderItems = orderMatch[1].split(",").map((s) => s.trim());
+      const orderItems = (orderMatch[1] ?? " ").split(",").map((s) => s.trim());
       finalRows.sort((a, b) => {
         for (const item of orderItems) {
           const parts = item.split(/\s+/);
@@ -353,10 +479,10 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
     const delimiter = options.delimiter || (lines[0].includes("\t") ? "\t" : ",");
     const rawHeaders = lines[0].split(delimiter).map((h) => cleanIdent(h));
 
-    const rows: Record<string, any>[] = [];
+    const rows: Record<string, unknown>[] = [];
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(delimiter);
-      const row: Record<string, any> = {};
+      const row: Record<string, unknown> = {};
       for (let j = 0; j < rawHeaders.length; j++) {
         const val = parts[j] !== undefined ? parts[j].trim() : "";
         if (options.inferTypes !== false) {
@@ -405,7 +531,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
   async ingestJson(
     tableName: string,
-    rows: Record<string, any>[],
+    rows: Record<string, unknown>[],
     options: DuckDBIngestOptions = {},
   ): Promise<DuckDBTableMeta> {
     const cleanName = cleanIdent(tableName);
@@ -490,7 +616,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
 
   async registerBackendResults(
     tableName: string,
-    rows: Record<string, any>[],
+    rows: Record<string, unknown>[],
   ): Promise<DuckDBTableMeta> {
     const meta = await this.ingestJson(tableName, rows);
     meta.sourceType = "query_cache";

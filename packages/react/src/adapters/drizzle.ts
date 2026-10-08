@@ -43,24 +43,56 @@ const DRIZZLE_TYPE_MAP: Record<string, string> = {
   bytes: "bytes",
 };
 
+/** Minimal structural shape of a Drizzle runtime column. */
+interface DrizzleColumnLike {
+  name?: string;
+  primary?: boolean;
+  isPrimaryKey?: boolean;
+  notNull?: boolean;
+  dataType?: string;
+  columnType?: string;
+  enumValues?: string[];
+  references?: () => DrizzleRefTarget | null | undefined;
+  default?: unknown;
+}
+
+interface DrizzleTableRef {
+  [key: symbol]: unknown;
+  _?: { name?: string };
+  name?: string;
+}
+
+interface DrizzleRefTarget {
+  table?: DrizzleTableRef;
+  name?: string;
+  column?: { name?: string };
+}
+
+/** Minimal structural shape of a Drizzle runtime table. */
+interface DrizzleTableLike {
+  [key: symbol]: unknown;
+  _?: { name?: string; columns?: Record<string, unknown> };
+  name?: string;
+}
+
 function parseRuntimeDrizzleTable(
   nameOrKey: string,
-  tableObj: any,
+  tableObj: unknown,
   defaultSchema: string,
 ): TableSchema | null {
   if (!tableObj || typeof tableObj !== "object") return null;
+  const table = tableObj as DrizzleTableLike;
 
   // Resolve table name
   const nameSymbol = Symbol.for("drizzle:Name");
-  const tableName =
-    tableObj[nameSymbol] ||
-    tableObj._?.name ||
-    tableObj.name ||
-    nameOrKey;
+  const tableName = (table[nameSymbol] ||
+    table._?.name ||
+    table.name ||
+    nameOrKey) as string;
 
   // Resolve columns
   const colsSymbol = Symbol.for("drizzle:Columns");
-  const rawCols = tableObj[colsSymbol] || tableObj._?.columns || tableObj;
+  const rawCols = (table[colsSymbol] || table._?.columns || table) as Record<string, unknown>;
 
   const columns: ColumnSchema[] = [];
   const foreignKeys: ForeignKey[] = [];
@@ -70,15 +102,16 @@ function parseRuntimeDrizzleTable(
     if (!col || typeof col !== "object" || key.startsWith("_") || key.startsWith("$")) {
       continue;
     }
-    const colName = (col as any).name || key;
-    const isPk = Boolean((col as any).primary || (col as any).isPrimaryKey);
+    const colObj = col as DrizzleColumnLike;
+    const colName = colObj.name || key;
+    const isPk = Boolean(colObj.primary || colObj.isPrimaryKey);
     if (isPk) primaryKeys.push(colName);
 
-    const isNotNull = Boolean((col as any).notNull || isPk);
+    const isNotNull = Boolean(colObj.notNull || isPk);
     const isNullable = !isNotNull;
 
-    const rawType = (col as any).dataType || (col as any).columnType || "text";
-    const enumValues = (col as any).enumValues as string[] | undefined;
+    const rawType = colObj.dataType || colObj.columnType || "text";
+    const enumValues = colObj.enumValues;
 
     let dataType: string;
     let enums: string[] | undefined;
@@ -90,11 +123,11 @@ function parseRuntimeDrizzleTable(
     }
 
     let fk: ForeignKey | undefined;
-    if (typeof (col as any).references === "function") {
+    if (typeof colObj.references === "function") {
       try {
-        const refTarget = (col as any).references();
+        const refTarget = colObj.references();
         if (refTarget && typeof refTarget === "object") {
-          const targetTable = refTarget.table?.[nameSymbol] || refTarget.table?._?.name || refTarget.table?.name || "unknown";
+          const targetTable = (refTarget.table?.[nameSymbol] || refTarget.table?._?.name || refTarget.table?.name || "unknown") as string;
           const targetCol = refTarget.name || refTarget.column?.name || "id";
           fk = {
             table: tableName,
@@ -117,7 +150,7 @@ function parseRuntimeDrizzleTable(
       is_nullable: isNullable,
       isPrimary: isPk,
       is_primary: isPk,
-      default: (col as any).default,
+      default: colObj.default,
       enums,
       foreignKey: fk,
       foreign_key: fk,
@@ -141,8 +174,160 @@ function parseRuntimeDrizzleTable(
   };
 }
 
+type DrizzleScanMode = "enum" | "varTable" | "table";
+
+interface DrizzleCall {
+  /** `const NAME` the call is assigned to ("" when there is none; only possible in "table" mode). */
+  varName: string;
+  /** Quoted first argument: the DB enum / table name. */
+  name: string;
+  /** Index of the "(" that opens the call's argument list. */
+  parenIdx: number;
+  /** Raw text between "[" and "]" for enum calls. */
+  enumBody?: string;
+}
+
+// Same character classes as the regex escapes \s and \w.
+function isRegexSpace(c: number): boolean {
+  return (
+    (c >= 9 && c <= 13) ||
+    c === 32 ||
+    c === 160 ||
+    c === 0x1680 ||
+    (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 ||
+    c === 0x2029 ||
+    c === 0x202f ||
+    c === 0x205f ||
+    c === 0x3000 ||
+    c === 0xfeff
+  );
+}
+
+function isWordChar(c: number): boolean {
+  return (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+}
+
+function isQuoteChar(c: number): boolean {
+  return c === 34 || c === 39 || c === 96;
+}
+
+/**
+ * Wraps a "next index at or after `from`" search with a one-entry cache: a miss ("nothing after
+ * from") and a hit that is still ahead of the next query are both reused, so repeated queries
+ * from increasing start positions scan each character of the input at most once overall.
+ */
+function cachedFinder(find: (from: number) => number): (from: number) => number {
+  let lastFrom = -1;
+  let lastRes = -1;
+  return (from) => {
+    if (lastFrom !== -1 && from >= lastFrom && (lastRes === -1 || from <= lastRes)) return lastRes;
+    lastFrom = from;
+    lastRes = find(from);
+    return lastRes;
+  };
+}
+
+/**
+ * Linear-time scanner for drizzle `pgTable("name", ...)` / `pgEnum("name", [...])` calls (and the
+ * mysql / sqlite variants), optionally preceded by `[export] const NAME [: Type] =`.
+ *
+ * It replaces three unanchored regexes whose `[^=]+` / `\s*` runs followed by a terminator that
+ * may be missing backtracked polynomially. Here every keyword occurrence is located with a
+ * quantifier-free regex, the call is parsed with charCodeAt / cached indexOf, and the optional
+ * `const` head is recovered by looking backwards from the keyword.
+ *
+ * - "enum":     `KwEnum(` directly followed by a quoted name, `,` and a non-empty `[...]`; head required.
+ * - "varTable": `KwTable(` directly followed by a quoted name; head required.
+ * - "table":    `KwTable` + optional whitespace + `(` + quoted name; head optional.
+ *
+ * Like the global regexes they replace, matches never overlap and are reported left to right.
+ */
+function scanDrizzleCalls(code: string, mode: DrizzleScanMode): DrizzleCall[] {
+  const out: DrizzleCall[] = [];
+  const wantEnum = mode === "enum";
+  const nextQuote = cachedFinder((from) => {
+    for (let i = from; i < code.length; i++) {
+      if (isQuoteChar(code.charCodeAt(i))) return i;
+    }
+    return -1;
+  });
+  const nextClose = cachedFinder((from) => code.indexOf("]", from));
+  const nextConst = cachedFinder((from) => code.indexOf("const", from));
+
+  const skipSpace = (from: number): number => {
+    let i = from;
+    while (i < code.length && isRegexSpace(code.charCodeAt(i))) i++;
+    return i;
+  };
+
+  // Recover `const NAME [: Type] =` ending right before the keyword at `kwIdx`. Only the
+  // whitespace-then-"=" immediately before the keyword can end a head, and its type annotation
+  // cannot contain another "=", so the candidates are the "const" tokens between the previous
+  // "=" and this one; the leftmost valid one wins.
+  const findHead = (kwIdx: number, lo: number): string | null => {
+    let eq = kwIdx - 1;
+    while (eq >= lo && isRegexSpace(code.charCodeAt(eq))) eq--;
+    if (eq < lo || eq === 0 || code.charCodeAt(eq) !== 61) return null;
+    const regionStart = Math.max(lo, code.lastIndexOf("=", eq - 1) + 1);
+    for (let p = nextConst(regionStart); p !== -1 && p < eq; p = nextConst(p + 1)) {
+      let i = p + 5;
+      const afterConst = i;
+      i = skipSpace(i);
+      if (i === afterConst) continue;
+      const identStart = i;
+      while (i < eq && isWordChar(code.charCodeAt(i))) i++;
+      if (i === identStart) continue;
+      const identEnd = i;
+      i = skipSpace(i);
+      if (i === eq || (code.charCodeAt(i) === 58 && i + 1 < eq)) {
+        return code.slice(identStart, identEnd);
+      }
+    }
+    return null;
+  };
+
+  const kwRe = /(?:pg|mysql|sqlite)(Enum|Table)/g;
+  let lo = 0;
+  let m: RegExpExecArray | null;
+  while ((m = kwRe.exec(code)) !== null) {
+    const k = m.index;
+    if (k < lo || (m[1] === "Enum") !== wantEnum) continue;
+
+    let i = k + m[0].length;
+    if (mode === "table") i = skipSpace(i);
+    if (code.charCodeAt(i) !== 40) continue;
+    const parenIdx = i;
+    i = skipSpace(i + 1);
+    if (!isQuoteChar(code.charCodeAt(i))) continue;
+    const nameStart = i + 1;
+    const nameEnd = nextQuote(nameStart);
+    if (nameEnd <= nameStart) continue;
+    let end = nameEnd + 1;
+
+    let enumBody: string | undefined;
+    if (wantEnum) {
+      i = skipSpace(end);
+      if (code.charCodeAt(i) !== 44) continue;
+      i = skipSpace(i + 1);
+      if (code.charCodeAt(i) !== 91) continue;
+      const bodyStart = i + 1;
+      const close = nextClose(bodyStart);
+      if (close <= bodyStart) continue;
+      enumBody = code.slice(bodyStart, close);
+      end = close + 1;
+    }
+
+    const head = findHead(k, lo);
+    if (head === null && mode !== "table") continue;
+    out.push({ varName: head ?? "", name: code.slice(nameStart, nameEnd), parenIdx, enumBody });
+    lo = end;
+  }
+  return out;
+}
+
 export function fromDrizzle(
-  source: string | Record<string, any> | any[],
+  source: string | Record<string, unknown> | unknown[],
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
@@ -155,7 +340,7 @@ export function fromDrizzle(
         const parsed = parseRuntimeDrizzleTable(`table_${i}`, source[i], defaultSchema);
         if (parsed) tables.push(parsed);
       }
-    } else if ((source as any)[Symbol.for("drizzle:Name")] || (source as any)._?.name) {
+    } else if ((source as DrizzleTableLike)[Symbol.for("drizzle:Name")] || (source as DrizzleTableLike)._?.name) {
       // Single table
       const parsed = parseRuntimeDrizzleTable("table", source, defaultSchema);
       if (parsed) tables.push(parsed);
@@ -174,35 +359,27 @@ export function fromDrizzle(
 
   // Extract Enums
   const enums: Record<string, string[]> = {};
-  const enumRegex = /(?:export\s+)?const\s+(\w+)\s*=\s*(?:pgEnum|mysqlEnum|sqliteEnum)\(\s*['"`]([^'"`]+)['"`]\s*,\s*\[([^\]]+)\]/g;
-  let enumM: RegExpExecArray | null;
-  while ((enumM = enumRegex.exec(code)) !== null) {
-    const varName = enumM[1];
-    const enumDbName = enumM[2];
-    const vals = enumM[3]
+  for (const call of scanDrizzleCalls(code, "enum")) {
+    const vals = (call.enumBody ?? "")
       .split(",")
       .map((v) => v.trim().replace(/^['"`]|['"`]$/g, ""))
       .filter(Boolean);
-    enums[varName] = vals;
-    enums[enumDbName] = vals;
+    enums[call.varName] = vals;
+    enums[call.name] = vals;
   }
 
   // Map variable names to table names
   const tableVarToName: Record<string, string> = {};
-  const varTableRegex = /(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*(?:pgTable|mysqlTable|sqliteTable)\(\s*['"`]([^'"`]+)['"`]/g;
-  let varM: RegExpExecArray | null;
-  while ((varM = varTableRegex.exec(code)) !== null) {
-    tableVarToName[varM[1]] = varM[2];
+  for (const call of scanDrizzleCalls(code, "varTable")) {
+    tableVarToName[call.varName] = call.name;
   }
 
   const tables: TableSchema[] = [];
-  const tableHeaderRegex = /(?:(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*)?(?:pgTable|mysqlTable|sqliteTable)\s*\(\s*['"`]([^'"`]+)['"`]/g;
 
-  let headerMatch: RegExpExecArray | null;
-  while ((headerMatch = tableHeaderRegex.exec(code)) !== null) {
-    const varName = headerMatch[1] || "";
-    const tableName = headerMatch[2];
-    const callStartIdx = code.indexOf("(", headerMatch.index);
+  for (const header of scanDrizzleCalls(code, "table")) {
+    const varName = header.varName;
+    const tableName = header.name;
+    const callStartIdx = header.parenIdx;
 
     // Balance parentheses to find full call
     let depth = 0;
@@ -296,7 +473,7 @@ export function fromDrizzle(
       const propName = propNameRaw.trim();
       const expr = (exprRaw || "").trim();
 
-      const callM = /(\w+)\s*\(\s*(?:['"`]([^'"`]*)['"`])?/.exec(expr);
+      const callM = /(?<!\w)(\w+)\s*\(\s*(?:['"`]([^'"`]*)['"`])?/.exec(expr);
       if (!callM) continue;
 
       const rawType = callM[1];
@@ -456,7 +633,7 @@ export const DRIZZLE_DIALECT_ALIASES: Record<string, string> = {
  * - .notNull() chained modifiers
  */
 export function toDrizzle(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
   options?: ToDrizzleOptions | string,
 ): string {
   const rawDialect =

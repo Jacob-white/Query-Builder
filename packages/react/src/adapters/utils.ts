@@ -139,7 +139,13 @@ export function toCamelCase(name: string): string {
 export function toSnakeCase(name: string): string {
   const s1 = name.replace(/(.)([A-Z][a-z]+)/g, "$1_$2");
   const s2 = s1.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
-  let s3 = s2.replace(/[^a-zA-Z0-9]+/g, "_").toLowerCase().replace(/^_+|_+$/g, "");
+  let s3 = s2.replace(/[^a-zA-Z0-9]+/g, "_").toLowerCase();
+  // Strip leading/trailing underscores (linear-time `.replace(/^_+|_+$/g, "")`).
+  let first = 0;
+  let last = s3.length;
+  while (first < last && s3[first] === "_") first++;
+  while (last > first && s3[last - 1] === "_") last--;
+  s3 = s3.slice(first, last);
   if (!s3) return "col";
   if (/^[0-9]/.test(s3)) {
     s3 = `col_${s3}`;
@@ -168,15 +174,55 @@ export interface ExtractedForeignKey {
   foreign_column: string;
 }
 
+/** Loose shapes of raw snapshot input (camelCase or snake_case variants). */
+interface RawColumn {
+  name?: string;
+  dataType?: string;
+  data_type?: string;
+  isNullable?: boolean;
+  is_nullable?: boolean;
+  isPrimary?: boolean;
+  is_primary?: boolean;
+  comment?: string | null;
+}
+
+interface RawTable {
+  name?: string;
+  comment?: string | null;
+  columns?: unknown;
+  foreignKeys?: unknown;
+  foreign_keys?: unknown;
+}
+
+interface RawForeignKey {
+  table?: string;
+  column?: string;
+  foreignTable?: string;
+  foreign_table?: string;
+  foreignColumn?: string;
+  foreign_column?: string;
+}
+
+interface RawRelationship {
+  source_table?: string;
+  sourceTable?: string;
+  source_column?: string;
+  sourceColumn?: string;
+  target_table?: string;
+  targetTable?: string;
+  target_column?: string;
+  targetColumn?: string;
+}
+
 export function extractSnapshotData(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
 ): {
   tables: Record<string, ExtractedTable>;
   foreignKeys: ExtractedForeignKey[];
 } {
-  let rawTables: Record<string, any> = {};
-  const rawFks: any[] = [];
-  const rawRels: any[] = [];
+  let rawTables: Record<string, unknown> = {};
+  const rawFks: unknown[] = [];
+  const rawRels: unknown[] = [];
 
   if (Array.isArray(snapshot)) {
     for (const t of snapshot) {
@@ -188,20 +234,25 @@ export function extractSnapshotData(
     }
   } else if (typeof snapshot === "object" && snapshot !== null) {
     if ("tables" in snapshot && typeof snapshot.tables === "object" && snapshot.tables !== null) {
-      rawTables = snapshot.tables;
-      const snapAny = snapshot as any;
-      if (Array.isArray(snapAny.foreign_keys)) rawFks.push(...snapAny.foreign_keys);
-      if (Array.isArray(snapAny.foreignKeys)) rawFks.push(...snapAny.foreignKeys);
-      if (Array.isArray(snapAny.relationships)) rawRels.push(...snapAny.relationships);
+      rawTables = snapshot.tables as Record<string, unknown>;
+      const snap = snapshot as {
+        foreign_keys?: unknown;
+        foreignKeys?: unknown;
+        relationships?: unknown;
+      };
+      if (Array.isArray(snap.foreign_keys)) rawFks.push(...snap.foreign_keys);
+      if (Array.isArray(snap.foreignKeys)) rawFks.push(...snap.foreignKeys);
+      if (Array.isArray(snap.relationships)) rawRels.push(...snap.relationships);
 
     } else {
-      rawTables = snapshot;
+      rawTables = snapshot as Record<string, unknown>;
     }
   }
 
   const tables: Record<string, ExtractedTable> = {};
-  for (const [tblName, tblInfo] of Object.entries(rawTables)) {
-    if (!tblInfo || typeof tblInfo !== "object") continue;
+  for (const [tblName, rawTblInfo] of Object.entries(rawTables)) {
+    if (!rawTblInfo || typeof rawTblInfo !== "object") continue;
+    const tblInfo = rawTblInfo as RawTable;
     const tName = tblInfo.name || tblName;
     const tComment = tblInfo.comment || null;
     const colsSource = Array.isArray(tblInfo.columns) ? tblInfo.columns : [];
@@ -213,7 +264,8 @@ export function extractSnapshotData(
     }
 
     const columns: ExtractedColumn[] = [];
-    for (const col of colsSource) {
+    for (const rawCol of colsSource as unknown[]) {
+      const col = rawCol as RawColumn | string | null;
       if (typeof col === "string") {
         columns.push({
           name: col,
@@ -248,8 +300,9 @@ export function extractSnapshotData(
   const seenFks = new Set<string>();
   const foreignKeys: ExtractedForeignKey[] = [];
 
-  for (const fk of rawFks) {
-    if (!fk || typeof fk !== "object") continue;
+  for (const rawFk of rawFks) {
+    if (!rawFk || typeof rawFk !== "object") continue;
+    const fk = rawFk as RawForeignKey;
     const srcTbl = fk.table || "";
     const srcCol = fk.column || "";
     const tgtTbl = fk.foreignTable || fk.foreign_table || "";
@@ -266,8 +319,9 @@ export function extractSnapshotData(
     }
   }
 
-  for (const rel of rawRels) {
-    if (!rel || typeof rel !== "object") continue;
+  for (const rawRel of rawRels) {
+    if (!rawRel || typeof rawRel !== "object") continue;
+    const rel = rawRel as RawRelationship;
     const srcTbl = rel.source_table || rel.sourceTable || "";
     const srcCol = rel.source_column || rel.sourceColumn || "";
     const tgtTbl = rel.target_table || rel.targetTable || "";

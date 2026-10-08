@@ -73,8 +73,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# A factory gives every request its own SQLite connection. A single shared connection is
+# bound to the thread that created it and is not safe to share across concurrent requests.
+def connector() -> SQLiteConnector:
+    return SQLiteConnector(database=str(db_path))
+
+
 # Turnkey Query-Builder APIRouter mounted at /api
-connector = SQLiteConnector(database=str(db_path))
 router = create_query_builder_router(
     connector=connector,
     prefix="/api",

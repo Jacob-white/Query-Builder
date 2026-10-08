@@ -40,7 +40,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
     ],
   );
   const [elseValue, setElseValue] = useState<string>(
-    initialField?.case_when?.else_value ?? "",
+    String(initialField?.case_when?.else_value ?? ""),
   );
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
   const handleUpdateBranch = (
     index: number,
     field: "column" | "op" | "value" | "then_value",
-    val: any,
+    val: string,
   ) => {
     const updated = [...branches];
     if (field === "then_value") {

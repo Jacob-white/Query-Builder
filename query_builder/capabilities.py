@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-class FeatureTier(str, Enum):
+# Not StrEnum on purpose: StrEnum changes str()/format() output (value vs "FeatureTier.X"),
+# which would silently alter serialized output for existing callers.
+class FeatureTier(str, Enum):  # noqa: UP042
     """Classification tier for a query builder engine feature."""
 
     STANDARD = "standard"
@@ -26,7 +28,7 @@ class DisabledFeatureError(ValueError):
     explicitly disabled in the active EngineCapabilities.
     """
 
-    def __init__(self, feature_name: str, message: Optional[str] = None):
+    def __init__(self, feature_name: str, message: str | None = None):
         self.feature_name = feature_name
         self.message = (
             message
@@ -57,7 +59,7 @@ class EngineCapabilities:
     query_plan: FeatureTier = FeatureTier.ADVANCED
     calculated_fields: FeatureTier = FeatureTier.ADVANCED
     schema_tools: FeatureTier = FeatureTier.ADVANCED
-    custom_overrides: Dict[str, FeatureTier] = field(default_factory=dict)
+    custom_overrides: dict[str, FeatureTier] = field(default_factory=dict)
 
     def get_tier(self, feature_name: str) -> FeatureTier:
         """Returns the FeatureTier for a given feature key."""
@@ -80,9 +82,9 @@ class EngineCapabilities:
         if not self.is_enabled(feature_name):
             raise DisabledFeatureError(feature_name)
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         """Serializes capabilities to a dictionary of string values."""
-        res: Dict[str, str] = {
+        res: dict[str, str] = {
             "projections": self.projections.value,
             "filters": self.filters.value,
             "sorts": self.sorts.value,
@@ -103,10 +105,10 @@ class EngineCapabilities:
         return res
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> EngineCapabilities:
+    def from_dict(cls, data: dict[str, Any]) -> EngineCapabilities:
         """Constructs an EngineCapabilities instance from a dictionary."""
-        kwargs: Dict[str, Any] = {}
-        overrides: Dict[str, FeatureTier] = {}
+        kwargs: dict[str, Any] = {}
+        overrides: dict[str, FeatureTier] = {}
 
         def parse_tier(val: Any) -> FeatureTier:
             if isinstance(val, FeatureTier):

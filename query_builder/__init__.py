@@ -18,6 +18,11 @@ from query_builder.adapters import (
     from_prisma,
     from_sqlalchemy,
 )
+from query_builder.advisor import (
+    analyze_query_performance,
+    estimate_cloud_cost,
+    recommend_indexes,
+)
 from query_builder.ai import (
     AiQueryResult,
     BringYourOwnAiProvider,
@@ -31,6 +36,15 @@ from query_builder.ast_validator import (
     RESTRICTED_MUTATION_KEYWORDS,
     RESTRICTED_SECURITY_TABLES,
     validate_sql_ast,
+)
+from query_builder.async_pool import (
+    AsyncCancellationToken,
+    AsyncConnectionPool,
+    AsyncConnectionPoolManager,
+    AsyncQueryPool,
+    AsyncStreamingExecutor,
+    get_async_connection_pool_manager,
+    reset_async_connection_pool_manager,
 )
 from query_builder.cache import (
     BaseQueryCache,
@@ -444,8 +458,8 @@ from query_builder.export import (
     CsvStreamExporter,
     ExcelStreamExporter,
     ExportError,
-    JsonStreamExporter,
     JsonlStreamExporter,
+    JsonStreamExporter,
     ParquetStreamExporter,
     export_dataset,
     stream_export_dataset,
@@ -454,9 +468,18 @@ from query_builder.fusion import (
     linear_combination_fusion,
     reciprocal_rank_fusion,
 )
+from query_builder.integrations import (
+    create_django_urls,
+    create_drf_views,
+    create_ninja_router,
+    create_query_builder_router,
+)
 from query_builder.join_solver import (
     find_best_join_condition,
     find_join_path,
+)
+from query_builder.mcp_server import (
+    McpServer,
 )
 from query_builder.middleware import (
     LifecycleInterceptor,
@@ -513,11 +536,6 @@ from query_builder.nlq import (
     register_nlq_provider,
     serialize_schema_for_prompt,
 )
-from query_builder.advisor import (
-    analyze_query_performance,
-    estimate_cloud_cost,
-    recommend_indexes,
-)
 from query_builder.parser import (
     clean_identifier,
     find_top_level_clauses,
@@ -549,29 +567,6 @@ from query_builder.pool import (
     mask_credentials,
     reset_connection_pool_manager,
 )
-from query_builder.async_pool import (
-    AsyncCancellationToken,
-    AsyncConnectionPool,
-    AsyncConnectionPoolManager,
-    AsyncQueryPool,
-    AsyncStreamingExecutor,
-    get_async_connection_pool_manager,
-    reset_async_connection_pool_manager,
-)
-from query_builder.semantic import (
-    DimensionDefinition,
-    MetricDefinition,
-    MetricFilter,
-    SemanticError,
-    SemanticModel,
-    SemanticRegistry,
-    expand_metric_sql,
-    expand_time_grain_sql,
-    get_global_semantic_registry,
-    load_semantic_models_from_dict,
-    load_semantic_models_from_yaml,
-    reset_global_semantic_registry,
-)
 from query_builder.schema import (
     explore_schema,
     format_schema_tree,
@@ -591,8 +586,19 @@ from query_builder.security import (
     scrub_secrets,
     validate_network_target,
 )
-from query_builder.mcp_server import (
-    McpServer,
+from query_builder.semantic import (
+    DimensionDefinition,
+    MetricDefinition,
+    MetricFilter,
+    SemanticError,
+    SemanticModel,
+    SemanticRegistry,
+    expand_metric_sql,
+    expand_time_grain_sql,
+    get_global_semantic_registry,
+    load_semantic_models_from_dict,
+    load_semantic_models_from_yaml,
+    reset_global_semantic_registry,
 )
 from query_builder.server import (
     create_server,
@@ -611,12 +617,6 @@ from query_builder.templates import (
     TemplateNotFoundError,
     TemplateStore,
     TemplateValidationError,
-)
-from query_builder.integrations import (
-    create_django_urls,
-    create_drf_views,
-    create_ninja_router,
-    create_query_builder_router,
 )
 
 __all__ = [

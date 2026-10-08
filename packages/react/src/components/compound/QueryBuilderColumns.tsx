@@ -1,5 +1,5 @@
 import React from "react";
-import type { QueryBuilderClassNames, VisualColumnSelect } from "../../types";
+import type { QueryBuilderClassNames, TimeGrain, VisualColumnSelect } from "../../types";
 import { useCompoundQueryBuilder } from "./QueryBuilderContext";
 import { cx } from "../../utils/classNames";
 
@@ -294,7 +294,7 @@ export const QueryBuilderColumns: React.FC<QueryBuilderColumnsProps> = ({
                   aria-label={`Time grain for ${key}`}
                   onChange={(e) =>
                     actions.updateColumnSelect(key, {
-                      timeGrain: (e.target.value as any) || undefined,
+                      timeGrain: (e.target.value as TimeGrain) || undefined,
                     })
                   }
                   className={cx(classNames?.projectionSelect)}

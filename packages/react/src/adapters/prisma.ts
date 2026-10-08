@@ -25,23 +25,117 @@ const PRISMA_TYPE_MAP: Record<string, string> = {
   bytes: "bytes",
 };
 
+/** Minimal structural shapes of the Prisma DMMF read by this adapter. */
+interface PrismaDmmfField {
+  kind?: string;
+  name: string;
+  dbName?: string | null;
+  type?: string;
+  isRequired?: boolean;
+  isId?: boolean;
+  default?: unknown;
+  documentation?: string;
+  relationFromFields?: string[];
+  relationToFields?: string[];
+}
+
+interface PrismaDmmfModel {
+  name?: string;
+  dbName?: string | null;
+  documentation?: string;
+  primaryKey?: { fields?: string[] } | null;
+  fields?: PrismaDmmfField[];
+}
+
+interface PrismaDmmfEnum {
+  name?: string;
+  values?: unknown[];
+}
+
+interface PrismaDatamodel {
+  enums?: unknown;
+  models?: unknown;
+  datamodel?: PrismaDatamodel;
+}
+
+/**
+ * Linear-time scanner for `enum NAME { ... }` blocks (`enum` + whitespace + identifier +
+ * optional whitespace + "{" + body up to the first "}"). It replaces an unanchored regex whose
+ * body run backtracked polynomially when the closing brace was missing. Matches never overlap and
+ * are reported left to right; the position of the next "}" is cached so a missing terminator is
+ * discovered once instead of once per "enum" keyword.
+ */
+function scanPrismaEnums(text: string): { name: string; body: string }[] {
+  const out: { name: string; body: string }[] = [];
+  const isSpace = (c: number): boolean =>
+    (c >= 9 && c <= 13) ||
+    c === 32 ||
+    c === 160 ||
+    c === 0x1680 ||
+    (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 ||
+    c === 0x2029 ||
+    c === 0x202f ||
+    c === 0x205f ||
+    c === 0x3000 ||
+    c === 0xfeff;
+  const isWord = (c: number): boolean =>
+    (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+  const skipSpace = (from: number): number => {
+    let i = from;
+    while (i < text.length && isSpace(text.charCodeAt(i))) i++;
+    return i;
+  };
+
+  let closeFrom = -1;
+  let closeAt = -1;
+  const nextClose = (from: number): number => {
+    if (closeFrom === -1 || from < closeFrom || (closeAt !== -1 && from > closeAt)) {
+      closeFrom = from;
+      closeAt = text.indexOf("}", from);
+    }
+    return closeAt;
+  };
+
+  let pos = text.indexOf("enum");
+  while (pos !== -1) {
+    let i = skipSpace(pos + 4);
+    const identStart = i;
+    if (i > pos + 4) {
+      while (i < text.length && isWord(text.charCodeAt(i))) i++;
+      const identEnd = i;
+      i = skipSpace(i);
+      if (identEnd > identStart && text.charCodeAt(i) === 123) {
+        const close = nextClose(i + 1);
+        if (close === -1) return out;
+        out.push({ name: text.slice(identStart, identEnd), body: text.slice(i + 1, close) });
+        pos = text.indexOf("enum", close + 1);
+        continue;
+      }
+    }
+    pos = text.indexOf("enum", pos + 1);
+  }
+  return out;
+}
+
 export function fromPrisma(
-  source: string | Record<string, any>,
+  source: string | Record<string, unknown>,
   options?: AdapterOptions,
 ): TableSchema[] {
   const defaultSchema = options?.defaultSchema || "public";
 
   // Check if source is DMMF object
   if (typeof source === "object" && source !== null) {
-    const datamodel = source.datamodel || source;
-    const rawEnums = Array.isArray(datamodel.enums) ? datamodel.enums : [];
-    const rawModels = Array.isArray(datamodel.models) ? datamodel.models : [];
+    const dmmf = source as PrismaDatamodel;
+    const datamodel = dmmf.datamodel || dmmf;
+    const rawEnums: PrismaDmmfEnum[] = Array.isArray(datamodel.enums) ? datamodel.enums : [];
+    const rawModels: PrismaDmmfModel[] = Array.isArray(datamodel.models) ? datamodel.models : [];
 
     const enums: Record<string, string[]> = {};
     for (const e of rawEnums) {
       if (!e || !e.name) continue;
-      enums[e.name] = (e.values || []).map((v: any) =>
-        typeof v === "object" && v !== null ? v.name : String(v),
+      enums[e.name] = (e.values || []).map((v: unknown) =>
+        typeof v === "object" && v !== null ? (v as { name: string }).name : String(v),
       );
     }
 
@@ -91,8 +185,12 @@ export function fromPrisma(
         }
 
         let defaultVal = f.default;
-        if (typeof defaultVal === "object" && defaultVal !== null && defaultVal.name) {
-          defaultVal = `${defaultVal.name}()`;
+        if (
+          typeof defaultVal === "object" &&
+          defaultVal !== null &&
+          (defaultVal as { name?: string }).name
+        ) {
+          defaultVal = `${(defaultVal as { name: string }).name}()`;
         }
 
         let colEnums: string[] | undefined;
@@ -157,11 +255,7 @@ export function fromPrisma(
 
   // 1. Parse Enums
   const enums: Record<string, string[]> = {};
-  const enumRegex = /enum\s+(\w+)\s*\{([^}]*)\}/g;
-  let enumMatch: RegExpExecArray | null;
-  while ((enumMatch = enumRegex.exec(text)) !== null) {
-    const enumName = enumMatch[1];
-    const enumBody = enumMatch[2];
+  for (const { name: enumName, body: enumBody } of scanPrismaEnums(text)) {
     const values: string[] = [];
     for (const line of enumBody.split("\n")) {
       const clean = line.split("//")[0].trim();
@@ -172,10 +266,13 @@ export function fromPrisma(
 
   // 2. Map model name to table name
   const modelToTable: Record<string, string> = {};
-  const modelRegex = /model\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
+  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
   const modelsFound: { name: string; body: string }[] = [];
   let modelMatch: RegExpExecArray | null;
-  while ((modelMatch = modelRegex.exec(text)) !== null) {
+  // A model must end with "}", so nothing after the last "}" can match; trimming it keeps
+  // unterminated "model X {" runs from being rescanned to the end of the text per header.
+  const modelText = text.slice(0, text.lastIndexOf("}") + 1);
+  while ((modelMatch = modelRegex.exec(modelText)) !== null) {
     const modelName = modelMatch[1];
     const modelBody = modelMatch[2];
     modelsFound.push({ name: modelName, body: modelBody });
@@ -364,7 +461,7 @@ export const PRISMA_PROVIDER_ALIASES: Record<string, string> = {
  * - Field-level @map and model-level @@map attributes
  */
 export function toPrisma(
-  snapshot: TableSchema[] | SchemaSnapshot | Record<string, any>,
+  snapshot: TableSchema[] | SchemaSnapshot | Record<string, unknown>,
   options?: ToPrismaOptions | string,
 ): string {
   const rawProvider =

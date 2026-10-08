@@ -2,7 +2,20 @@
  * Bring Your Own AI (BYO-AI) Type Definitions for Query-Builder React SDK.
  */
 
-import type { DatabaseSchemaDefinition, QuerySpec, SchemaSnapshot } from "../types";
+import type { DatabaseSchemaDefinition, QuerySpec, SchemaSnapshot, TableSchema } from "../types";
+
+/**
+ * Every schema representation accepted by the AI / NLQ surface: the visual-builder schema,
+ * a `SchemaSnapshot`, the `TableSchema[]` returned by the adapters (`fromPrisma`, `fromDrizzle`...),
+ * or any other JSON-serializable schema object.
+ */
+export type ByoAiSchema =
+  | DatabaseSchemaDefinition
+  | SchemaSnapshot
+  | TableSchema[]
+  | { name?: string }[]
+  | Record<string, unknown>
+  | null;
 
 export type ByoAiToolFormat = "openai" | "anthropic" | "gemini" | "langchain" | "mcp";
 
@@ -19,7 +32,7 @@ export interface ByoAiMessage {
 
 export interface ByoAiContext {
   prompt: string;
-  schema?: DatabaseSchemaDefinition | SchemaSnapshot | Record<string, any> | null;
+  schema?: ByoAiSchema;
   currentSpec?: QuerySpec | null;
   dialect?: string;
   history?: ByoAiMessage[];
