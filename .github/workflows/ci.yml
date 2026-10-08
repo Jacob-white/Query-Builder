@@ -72,3 +72,25 @@ jobs:
       - run: pnpm run build
       - name: Test with coverage (build must exist for the consumer-simulation suite)
         run: pnpm run test:coverage
+
+  starter-frontend:
+    name: Starter frontend builds against the package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the React package (the starter links to its dist)
+        working-directory: packages/react
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Build the starter frontend
+        working-directory: examples/fullstack_starter/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
