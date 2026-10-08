@@ -619,7 +619,9 @@ def test_async_drill_connector():
 
 def test_yugabyte_connector_lifecycle():
     # Missing driver
-    with patch.dict(sys.modules, {"psycopg": None}):
+    with patch.dict(
+        sys.modules, {"psycopg2": None, "psycopg": None, "yugabytedb": None}
+    ):
         conn = YugabyteDBConnector()
         with pytest.raises(DriverNotInstalledError):
             conn.connect()
@@ -627,7 +629,7 @@ def test_yugabyte_connector_lifecycle():
     # Driver connect failure
     mock_driver = MagicMock()
     mock_driver.connect.side_effect = RuntimeError("YugabyteDB connection refused")
-    with patch.dict(sys.modules, {"psycopg": mock_driver}):
+    with patch.dict(sys.modules, {"psycopg2": None, "psycopg": mock_driver}):
         conn = YugabyteDBConnector()
         with pytest.raises(ConnectionFailedError):
             conn.connect()
@@ -636,7 +638,7 @@ def test_yugabyte_connector_lifecycle():
     mock_yb_conn = MagicMock()
     mock_driver.connect.side_effect = None
     mock_driver.connect.return_value = mock_yb_conn
-    with patch.dict(sys.modules, {"psycopg": mock_driver}):
+    with patch.dict(sys.modules, {"psycopg2": None, "psycopg": mock_driver}):
         conn = YugabyteDBConnector(dbname="yugabyte")
         assert conn.connect() is mock_yb_conn
         assert conn.connect() is mock_yb_conn
@@ -665,7 +667,7 @@ def test_yugabyte_connector_lifecycle():
 
 def test_async_yugabyte_connector():
     # Missing driver
-    with patch.dict(sys.modules, {"psycopg": None}):
+    with patch.dict(sys.modules, {"asyncpg": None, "psycopg": None, "psycopg2": None}):
         aconn = AsyncYugabyteDBConnector()
         with pytest.raises(DriverNotInstalledError):
             asyncio.run(aconn.connect())
@@ -674,7 +676,7 @@ def test_async_yugabyte_connector():
     mock_yb_conn = MagicMock()
     mock_driver.connect = MagicMock(return_value=mock_yb_conn)
 
-    with patch.dict(sys.modules, {"psycopg": mock_driver}):
+    with patch.dict(sys.modules, {"asyncpg": None, "psycopg": mock_driver}):
         aconn = AsyncYugabyteDBConnector(dbname="yugabyte")
 
         async def _test():

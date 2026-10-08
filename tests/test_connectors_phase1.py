@@ -137,6 +137,11 @@ def test_monetdb_dialect():
     assert "sys.fkeys" in q and p == ["sys"]
 
 
+# H2 tries psycopg2/psycopg (PostgreSQL wire mode) before jaydebeapi; hide them so these tests
+# exercise the intended driver regardless of what is installed locally.
+_NO_PG_DRIVERS = {"psycopg2": None, "psycopg": None}
+
+
 def test_h2_dialect():
     d = get_dialect("h2")
     assert isinstance(d, H2Dialect)
@@ -725,7 +730,10 @@ def test_h2_connector_registry_and_sync():
 
     # Missing driver
     with (
-        patch.dict(sys.modules, {"jaydebeapi": None, "h2": None, "pypyodbc": None}),
+        patch.dict(
+            sys.modules,
+            {**_NO_PG_DRIVERS, "jaydebeapi": None, "h2": None, "pypyodbc": None},
+        ),
         pytest.raises(DriverNotInstalledError, match="jaydebeapi"),
     ):
         conn.connect()
@@ -734,7 +742,7 @@ def test_h2_connector_registry_and_sync():
     mock_drv = MagicMock()
     mock_drv.connect.side_effect = RuntimeError("H2 connect refused")
     with (
-        patch.dict(sys.modules, {"jaydebeapi": mock_drv}),
+        patch.dict(sys.modules, {**_NO_PG_DRIVERS, "jaydebeapi": mock_drv}),
         pytest.raises(ConnectionFailedError),
     ):
         conn.connect()
@@ -742,7 +750,7 @@ def test_h2_connector_registry_and_sync():
     # Successful connect
     mock_drv.connect.side_effect = None
     mock_drv.connect.return_value = existing_conn
-    with patch.dict(sys.modules, {"jaydebeapi": mock_drv}):
+    with patch.dict(sys.modules, {**_NO_PG_DRIVERS, "jaydebeapi": mock_drv}):
         c2 = H2Connector()
         assert c2.connect() is existing_conn
 
@@ -805,7 +813,10 @@ def test_async_h2_connector():
 
         # Missing driver
         with (
-            patch.dict(sys.modules, {"jaydebeapi": None, "h2": None, "pypyodbc": None}),
+            patch.dict(
+                sys.modules,
+                {**_NO_PG_DRIVERS, "jaydebeapi": None, "h2": None, "pypyodbc": None},
+            ),
             pytest.raises(DriverNotInstalledError),
         ):
             await conn.connect()
@@ -814,7 +825,7 @@ def test_async_h2_connector():
         mock_drv = MagicMock()
         mock_drv.connect.side_effect = RuntimeError("H2 async fail")
         with (
-            patch.dict(sys.modules, {"jaydebeapi": mock_drv}),
+            patch.dict(sys.modules, {**_NO_PG_DRIVERS, "jaydebeapi": mock_drv}),
             pytest.raises(ConnectionFailedError),
         ):
             await conn.connect()
@@ -1873,7 +1884,7 @@ def test_async_connectors_connect_success():
             assert await c.connect() is mock_conn
 
         # H2
-        with patch.dict(sys.modules, {"jaydebeapi": mock_driver}):
+        with patch.dict(sys.modules, {**_NO_PG_DRIVERS, "jaydebeapi": mock_driver}):
             c = AsyncH2Connector()
             assert await c.connect() is mock_conn
 

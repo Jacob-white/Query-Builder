@@ -6,6 +6,7 @@ Tests for Enterprise Governance & Fine-Grained Security:
 """
 
 import pytest
+
 from query_builder import (
     SecurityPolicy,
     TenantContext,

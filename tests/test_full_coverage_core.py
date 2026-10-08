@@ -1,6 +1,16 @@
-import pytest
 from unittest.mock import patch
 
+import pytest
+
+import query_builder.ast_validator as ast_validator
+import query_builder.middleware as middleware
+from query_builder.config import (
+    ExecutionSecurityConfig,
+    QueryBuilderConfig,
+    configure_query_builder,
+    load_security_config_from_env,
+)
+from query_builder.join_solver import find_best_join_condition, find_join_path
 from query_builder.models import (
     ColumnSchema,
     ForeignKey,
@@ -11,15 +21,6 @@ from query_builder.models import (
 )
 from query_builder.schema import explore_schema
 from query_builder.schema_converters import _extract_snapshot
-import query_builder.ast_validator as ast_validator
-import query_builder.middleware as middleware
-from query_builder.join_solver import find_best_join_condition, find_join_path
-from query_builder.config import (
-    ExecutionSecurityConfig,
-    QueryBuilderConfig,
-    configure_query_builder,
-    load_security_config_from_env,
-)
 
 
 def test_models_foreign_keys_and_enums_mapping():

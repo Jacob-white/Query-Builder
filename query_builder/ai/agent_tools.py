@@ -20,7 +20,6 @@ from query_builder.nlq.prompt import serialize_schema_for_prompt
 from query_builder.nlq.service import NlqService
 from query_builder.nlq.validator import NlqAstValidator
 
-
 TOOL_SCHEMAS_BASE = [
     {
         "name": "build_query",

@@ -79,6 +79,9 @@ try:
 except Exception:  # noqa: BLE001
     NINJA_AVAILABLE = False
 
+
+# Kept as a module-level alias for type hints; the real class is imported lazily by
+# `_get_ninja()` so importing this module never requires (or configures) django-ninja.
 NinjaRouter = Any  # type: ignore[misc, assignment]
 
 

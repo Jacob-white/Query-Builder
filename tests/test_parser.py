@@ -6,7 +6,6 @@ Covers 100% of statements, branches, and functions in query_builder/parser.py.
 
 from __future__ import annotations
 
-
 from query_builder.models import QuerySpec
 from query_builder.parser import (
     clean_identifier,

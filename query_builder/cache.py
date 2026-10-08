@@ -8,9 +8,9 @@ Zero required external dependencies.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
+import re
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -158,6 +158,46 @@ class InMemoryLRUCache(BaseQueryCache):
             }
 
 
+# Names of redis-py exceptions that mean "the server is unreachable / unhealthy right now".
+_OUTAGE_ERROR_NAMES = frozenset(
+    {
+        "ConnectionError",
+        "TimeoutError",
+        "BusyLoadingError",
+        "AuthenticationError",
+        "MaxConnectionsError",
+    }
+)
+
+# Redis glob metacharacters that must be escaped when a literal prefix is used in SCAN MATCH.
+_GLOB_META = re.compile(r"([\\*?\[\]])")
+
+
+def _escape_glob(text: str) -> str:
+    return _GLOB_META.sub(lambda m: "\\" + m.group(1), text)
+
+
+# Keys deleted per round trip by ``RedisQueryCache.clear``.
+_CLEAR_BATCH_SIZE = 500
+
+
+def _is_outage_error(exc: BaseException) -> bool:
+    """True for failures that indicate Redis is down/unreachable (not payload bugs)."""
+    if isinstance(exc, (OSError, TimeoutError)):
+        return True
+    try:
+        from redis import exceptions as redis_exceptions
+    except ImportError:
+        pass
+    else:
+        for name in _OUTAGE_ERROR_NAMES:
+            cls = getattr(redis_exceptions, name, None)
+            if isinstance(cls, type) and isinstance(exc, cls):
+                return True
+    # Duck-typed fallback for clients/stubs that raise look-alike classes (or subclasses of them).
+    return any(cls.__name__ in _OUTAGE_ERROR_NAMES for cls in type(exc).__mro__)
+
+
 class RedisQueryCache(BaseQueryCache):
     """Redis-backed query cache adapter with TTL support.
 
@@ -171,74 +211,154 @@ class RedisQueryCache(BaseQueryCache):
         redis_url: str = "redis://localhost:6379/0",
         prefix: str = "qb:cache:",
         default_ttl: int | None = 300,
+        connect_timeout: float = 2.0,
+        command_timeout: float | None = 30.0,
     ) -> None:
         self.prefix = prefix
         self.default_ttl = default_ttl
         self._hits = 0
         self._misses = 0
+        self._down_until = 0.0
+        self._health: tuple[float, bool] | None = None  # (checked_at, reachable)
         if client is not None or redis_client is not None:
             self.client = client if client is not None else redis_client
         else:
             try:
                 import redis
 
-                self.client = redis.from_url(redis_url)
+                # A short *connect* timeout makes an unreachable server degrade quickly; commands
+                # get a larger budget so slow-but-healthy ones are not mistaken for an outage.
+                self.client = redis.from_url(
+                    redis_url,
+                    socket_connect_timeout=connect_timeout,
+                    socket_timeout=command_timeout,
+                )
             except ImportError:
                 self.client = None
 
     def _format_key(self, key: str) -> str:
         return f"{self.prefix}{key}"
 
+    # After a connection failure, skip Redis for this long instead of stalling every call.
+    _RETRY_AFTER_SECONDS = 30.0
+    # How long a `stats()` connectivity probe result is reused.
+    _HEALTH_TTL_SECONDS = 5.0
+
+    def _usable(self) -> bool:
+        return self.client is not None and time.monotonic() >= self._down_until
+
+    def _note_failure(self, exc: Exception) -> None:
+        if _is_outage_error(exc):
+            self._down_until = time.monotonic() + self._RETRY_AFTER_SECONDS
+
     def get(self, key: str) -> Any | None:
-        if self.client is None:
+        if not self._usable():
             self._misses += 1
             return None
-        with contextlib.suppress(Exception):
+        try:
             val = self.client.get(self._format_key(key))
             if val is not None:
                 self._hits += 1
                 return json.loads(
                     val.decode("utf-8") if isinstance(val, bytes) else str(val)
                 )
+        except Exception as exc:  # noqa: BLE001
+            self._note_failure(exc)
         self._misses += 1
         return None
 
     def set(self, key: str, value: Any, ttl: int | None = None) -> None:
-        if self.client is None:
+        if not self._usable():
             return
         effective_ttl = ttl if ttl is not None else self.default_ttl
-        with contextlib.suppress(Exception):
+        try:
             encoded = json.dumps(value, default=str)
             r_key = self._format_key(key)
             if effective_ttl and effective_ttl > 0:
-                self.client.setex(r_key, int(effective_ttl), encoded)
+                self.client.set(r_key, encoded, ex=int(effective_ttl))
             else:
                 self.client.set(r_key, encoded)
+        except Exception as exc:  # noqa: BLE001
+            self._note_failure(exc)
+
+    # delete()/clear() are invalidations: they are ALWAYS attempted, even during the read
+    # back-off, because dropping one would let stale entries be served once Redis recovers.
+    # A failure still extends the back-off for reads; a success proves Redis is reachable.
 
     def delete(self, key: str) -> bool:
         if self.client is None:
             return False
-        with contextlib.suppress(Exception):
-            res = self.client.delete(self._format_key(key))
-            return bool(res)
-        return False
+        try:
+            removed = bool(self.client.delete(self._format_key(key)))
+        except Exception as exc:  # noqa: BLE001
+            self._note_failure(exc)
+            return False
+        self._down_until = 0.0
+        return removed
+
+    def _delete_batch(self, keys: list[Any]) -> None:
+        # UNLINK frees memory asynchronously, keeping each call O(batch) for the server.
+        remover = getattr(self.client, "unlink", None) or self.client.delete
+        remover(*keys)
 
     def clear(self) -> None:
         if self.client is None:
             return
-        with contextlib.suppress(Exception):
-            keys = self.client.keys(f"{self.prefix}*")
-            if keys:
-                self.client.delete(*keys)
+        pattern = f"{_escape_glob(self.prefix)}*"
+        try:
+            # SCAN iterates incrementally (KEYS would block a large keyspace) and keys are
+            # removed in bounded batches, never one giant DEL.
+            scan = getattr(self.client, "scan_iter", None)
+            if scan:
+                key_iter: Any = scan(match=pattern, count=_CLEAR_BATCH_SIZE)
+            else:
+                key_iter = self.client.keys(pattern)
+            batch: list[Any] = []
+            for key in key_iter:
+                batch.append(key)
+                if len(batch) >= _CLEAR_BATCH_SIZE:
+                    self._delete_batch(batch)
+                    batch = []
+            if batch:
+                self._delete_batch(batch)
+        except Exception as exc:  # noqa: BLE001
+            # Keep counters: the cache was not (fully) cleared.
+            self._note_failure(exc)
+            return
+        self._down_until = 0.0
         self._hits = 0
         self._misses = 0
+
+    def _is_connected(self) -> bool:
+        """True only if a client exists and the server answers a PING."""
+        # Read-only health probe: never starts the back-off itself, and clients without
+        # `ping` (duck-typed/minimal clients) are assumed reachable.
+        if not self._usable():
+            return False
+        ping = getattr(self.client, "ping", None)
+        if ping is None:
+            return True
+        # Cache the result briefly so a polled health endpoint never pays a network round
+        # trip (or a full socket timeout while Redis is down) on every call.
+        now = time.monotonic()
+        if (
+            self._health is not None
+            and now - self._health[0] < self._HEALTH_TTL_SECONDS
+        ):
+            return self._health[1]
+        try:
+            reachable = bool(ping())
+        except Exception:  # noqa: BLE001
+            reachable = False
+        self._health = (time.monotonic(), reachable)
+        return reachable
 
     def stats(self) -> dict[str, Any]:
         total = self._hits + self._misses
         hit_ratio = round(self._hits / total, 4) if total > 0 else 0.0
         return {
             "type": "redis",
-            "connected": self.client is not None,
+            "connected": self._is_connected(),
             "hits": self._hits,
             "misses": self._misses,
             "hit_ratio": hit_ratio,

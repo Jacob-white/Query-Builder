@@ -196,7 +196,7 @@ def test_template_disk_persistence(tmp_path: Path):
     # Clear also updates disk
     store2.clear()
     assert len(store2.list()) == 0
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
     assert data == {}
 
@@ -240,7 +240,7 @@ def test_template_delete_with_storage_path(tmp_path: Path):
     tmpl = store.save({"id": "d1", "title": "Delete Me", "spec": {"table": "t"}})
     assert store.delete(tmpl.id) is True
     assert store.get(tmpl.id) is None
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
     assert data == {}
 

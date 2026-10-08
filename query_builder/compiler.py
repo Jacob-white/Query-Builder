@@ -9,7 +9,8 @@ derived GROUP BY, HAVING, ordering, and pagination.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from query_builder.dialects import IDENTIFIER_REGEX, BaseDialect, get_dialect
 from query_builder.exceptions import (
@@ -97,6 +98,7 @@ ALLOWED_FILTER_KEYS = {
     "combiner",
     "parenOpen",
     "parenClose",
+    "_enforced",
 }
 ALLOWED_HAVING_KEYS = {"column", "agg", "aggregate", "op", "operator", "value"}
 ALLOWED_ORDER_BY_KEYS = {
@@ -1835,16 +1837,24 @@ class QueryCompiler:
 
         # 4. Process Filters
         filters_spec = self.spec.get("filters", [])
-        filter_join = self.spec.get("filter_join", "AND").upper()
+        filter_join = str(self.spec.get("filter_join") or "AND").strip().upper()
         if filter_join not in ("AND", "OR"):
             filter_join = "AND"
 
         client_filter_tokens: list[str] = []
+        # Policy-injected predicates (tenant / RLS) carry ``_enforced`` and are
+        # emitted as standalone AND-ed WHERE clauses outside the client group.
+        enforced_clauses: list[str] = []
+        enforced_params: list[Any] = []
+        client_params: list[Any] = []
+        paren_depth = 0
         for raw_flt in filters_spec:
             if hasattr(raw_flt, "__dict__"):
                 flt = {k: v for k, v in raw_flt.__dict__.items()}
             else:
                 flt = raw_flt
+            is_enforced = flt.get("_enforced") is True
+            params_start = len(self.params)
 
             op = str(flt.get("op", flt.get("operator", "eq"))).strip().lower()
             val = flt.get("value")
@@ -2061,8 +2071,16 @@ class QueryCompiler:
             else:
                 raise CompilationError(f"Unsupported filter operator: '{op}'")
 
+            seg = self.params[params_start:]
+            del self.params[params_start:]
+            if is_enforced:
+                enforced_clauses.append(clause_str)
+                enforced_params.extend(seg)
+                continue
+            client_params.extend(seg)
+
             comb = flt.get("combiner") or filter_join
-            comb = comb.upper() if isinstance(comb, str) else filter_join
+            comb = comb.strip().upper() if isinstance(comb, str) else filter_join
             if comb not in ("AND", "OR"):
                 comb = filter_join
 
@@ -2070,23 +2088,30 @@ class QueryCompiler:
             p_open = flt.get("parenOpen")
             if p_open:
                 if isinstance(p_open, bool):
-                    open_p = "("
+                    n_open = 1
                 elif isinstance(p_open, int):
-                    open_p = "(" * p_open
+                    n_open = max(p_open, 0)
                 else:
-                    s_open = str(p_open)
-                    open_p = "(" * (s_open.count("(") or 1)
+                    n_open = str(p_open).count("(") or 1
+                n_open = min(n_open, 16)
+                open_p = "(" * n_open
+                paren_depth += n_open
 
             close_p = ""
             p_close = flt.get("parenClose")
             if p_close:
                 if isinstance(p_close, bool):
-                    close_p = ")"
+                    n_close = 1
                 elif isinstance(p_close, int):
-                    close_p = ")" * p_close
+                    n_close = max(p_close, 0)
                 else:
-                    s_close = str(p_close)
-                    close_p = ")" * (s_close.count(")") or 1)
+                    n_close = str(p_close).count(")") or 1
+                # Never close more groups than are open: an unbalanced ')' would
+                # terminate the wrapping client group and let a trailing OR
+                # escape the enforced (tenant/RLS) predicates.
+                n_close = min(n_close, paren_depth)
+                close_p = ")" * n_close
+                paren_depth -= n_close
 
             token = f"{open_p}{clause_str}{close_p}"
             if client_filter_tokens:
@@ -2094,9 +2119,14 @@ class QueryCompiler:
             else:
                 client_filter_tokens.append(token)
 
+        self.where_clauses.extend(enforced_clauses)
+        self.params.extend(enforced_params)
         if client_filter_tokens:
+            if paren_depth > 0:
+                client_filter_tokens[-1] += ")" * paren_depth
             combined_filters = f"({' '.join(client_filter_tokens)})"
             self.where_clauses.append(combined_filters)
+            self.params.extend(client_params)
 
         # 5. Process Having
         having_spec = self.spec.get("having", [])

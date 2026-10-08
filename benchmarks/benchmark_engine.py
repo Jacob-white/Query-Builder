@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import time
-from query_builder import QueryCompiler, validate_sql_ast, scrub_secrets
+
+from query_builder import QueryCompiler, scrub_secrets, validate_sql_ast
 from query_builder.join_solver import find_join_path
 
 
