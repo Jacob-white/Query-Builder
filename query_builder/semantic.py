@@ -323,7 +323,7 @@ def parse_simple_yaml_or_json(content: str) -> dict[str, Any]:
         if isinstance(parsed, list):
             return {"models": parsed}
         return {}
-    except (ImportError, Exception):
+    except (ImportError, Exception):  # noqa: S110
         pass
 
     # Lightweight regex/indent parser for clean basic YAML documents

@@ -408,7 +408,7 @@ class AsyncBaseConnector(ABC):
                         self.execute_raw(main_sql, main_params),
                         timeout=timeout_sec,
                     )
-                except (TimeoutError, asyncio.TimeoutError) as exc:
+                except TimeoutError as exc:
                     raise TimeoutError(
                         f"Query execution timed out after {timeout}ms"
                     ) from exc
@@ -536,7 +536,7 @@ class AsyncBaseConnector(ABC):
                         self.execute_raw(main_sql, main_params),
                         timeout=timeout_sec,
                     )
-                except (TimeoutError, asyncio.TimeoutError) as exc:
+                except TimeoutError as exc:
                     raise TimeoutError(
                         f"Query execution timed out after {timeout}ms"
                     ) from exc

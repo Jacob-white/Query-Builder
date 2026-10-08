@@ -536,7 +536,9 @@ def introspect_via_sqlalchemy(
                 referred_cols = fk.get("referred_columns", [])
 
                 if referred_table and constrained_cols and referred_cols:
-                    for src_c, tgt_c in zip(constrained_cols, referred_cols):
+                    for src_c, tgt_c in zip(
+                        constrained_cols, referred_cols, strict=False
+                    ):
                         foreign_keys.append(
                             {
                                 "table": tbl,

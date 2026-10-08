@@ -7,6 +7,7 @@ YAML/JSON loading, SQL expansion across dialects, and QueryCompiler integration.
 
 import json
 from pathlib import Path
+
 import pytest
 
 from query_builder.compiler import QueryCompiler

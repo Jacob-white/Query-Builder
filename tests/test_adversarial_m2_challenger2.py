@@ -32,9 +32,11 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -51,10 +53,21 @@ from query_builder.schema_converters import (
 # ============================================================================
 
 
+_TS_MODULE_PATH = str(
+    Path(__file__).resolve().parents[1]
+    / "packages"
+    / "react"
+    / "node_modules"
+    / "typescript"
+)
+
+
 def verify_typescript_syntax(ts_code: str) -> None:
     """Verifies TypeScript code syntax using the installed TypeScript compiler AST parser."""
+    if shutil.which("node") is None or not Path(_TS_MODULE_PATH).exists():
+        pytest.skip("node and packages/react/node_modules/typescript are required")
     node_script = f"""
-    const ts = require('/home/jwhite/Query-Builder/packages/react/node_modules/typescript');
+    const ts = require({json.dumps(_TS_MODULE_PATH)});
     const code = {json.dumps(ts_code)};
     const sf = ts.createSourceFile('schema.ts', code, ts.ScriptTarget.Latest, true);
     if (sf.parseDiagnostics && sf.parseDiagnostics.length > 0) {{

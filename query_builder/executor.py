@@ -43,7 +43,7 @@ def execute_cursor_query(
     raw_rows = cursor.fetchall()
     latency_ms = (time.perf_counter() - start_time) * 1000.0
 
-    dict_rows = [dict(zip(col_names, row)) for row in raw_rows]
+    dict_rows = [dict(zip(col_names, row, strict=False)) for row in raw_rows]
     return col_names, dict_rows, latency_ms
 
 

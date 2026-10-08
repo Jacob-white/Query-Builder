@@ -95,7 +95,7 @@ class CancellationToken:
         for cb in callbacks_to_run:
             try:
                 cb()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
 
     def register_callback(self, callback: Callable[[], None]) -> None:
@@ -110,7 +110,7 @@ class CancellationToken:
         if should_run_now:
             try:
                 callback()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
 
     def throw_if_cancelled(self) -> None:
@@ -513,7 +513,9 @@ class ConnectionPoolManager:
                     finally:
                         cur.close()
 
-                    dict_rows = [dict(zip(col_names, row)) for row in raw_rows]
+                    dict_rows = [
+                        dict(zip(col_names, row, strict=False)) for row in raw_rows
+                    ]
                     latency_ms = (time.perf_counter() - start_time) * 1000.0
 
                     return {

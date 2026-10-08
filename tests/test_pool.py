@@ -532,6 +532,7 @@ def test_connection_pool_manager_execution_and_cancellation():
 
     # Execute spec via ConnectorRegistry fallback
     from unittest.mock import MagicMock, patch
+
     from query_builder.connectors.registry import ConnectorRegistry
 
     mock_conn = MagicMock()
@@ -548,6 +549,7 @@ def test_connection_pool_manager_execution_and_cancellation():
 
 def test_connection_pool_manager_singleton():
     from unittest.mock import patch
+
     import query_builder.pool as pool_mod
     from query_builder.pool import (
         ConnectionPoolManager,

@@ -800,10 +800,15 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
     where_content = clause_map.get("WHERE")
     if where_content:
         condition_chunks = split_where_conditions(where_content)
+        # A filter's combiner is the operator joining it to the PREVIOUS filter
+        # (the delimiter that followed the previous chunk); the first is 'AND'.
+        prev_delimiter = "AND"
         for chunk in condition_chunks:
             cond_str = chunk["value"].strip()
-            combiner = chunk.get("delimiter", "AND").upper() or "AND"
-            if combiner == "OR":
+            combiner = prev_delimiter
+            next_delim = str(chunk.get("delimiter") or "AND").upper()
+            prev_delimiter = "OR" if next_delim == "OR" else "AND"
+            if prev_delimiter == "OR":
                 filter_join = "OR"
 
             found_op = find_top_level_operator(cond_str)
@@ -838,6 +843,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                         op=matched_op,
                         value=val,
                         table_prefix=table_prefix,
+                        combiner=combiner,
                     )
                 )
             else:
@@ -847,8 +853,15 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                         op="RAW",
                         value="",
                         table_prefix=primary_table,
+                        combiner=combiner,
                     )
                 )
+
+        # Mirror the client contract: per-filter combiners are only emitted once
+        # the expression actually mixes in OR.
+        if filter_join != "OR":
+            for f in filters:
+                f.combiner = None
 
     # 5. Order By
     order_by: list[OrderBySpec] = []

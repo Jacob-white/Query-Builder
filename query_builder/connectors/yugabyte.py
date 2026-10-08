@@ -159,7 +159,7 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
                 desc = cur.description or []
                 col_names = [col[0] for col in desc]
                 rows = cur.fetchall() or []
-                dict_rows = [dict(zip(col_names, r)) for r in rows]
+                dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
                 latency_ms = (time.perf_counter() - start) * 1000.0
                 return col_names, dict_rows, latency_ms
             finally:
@@ -189,7 +189,7 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
             if hasattr(raw_rows, "__await__"):
                 raw_rows = await raw_rows
             dict_rows = [
-                dict(zip(col_names, r)) if not isinstance(r, dict) else r
+                dict(zip(col_names, r, strict=False)) if not isinstance(r, dict) else r
                 for r in (raw_rows or [])
             ]
             latency_ms = (time.perf_counter() - start) * 1000.0

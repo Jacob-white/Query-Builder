@@ -66,7 +66,8 @@ def sqlite_test_db(tmp_path):
     )
     raw_conn.commit()
     raw_conn.close()
-    return SQLiteConnector(database=str(db_file))
+    # TestClient serves requests from its own thread, so the connection must not be thread-bound.
+    return SQLiteConnector(database=str(db_file), check_same_thread=False)
 
 
 # ==============================================================================

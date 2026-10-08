@@ -358,12 +358,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.spec.startswith("{"):
                 spec_data = json.loads(args.spec)
             else:
-                with open(args.spec, "r", encoding="utf-8") as f:
+                with open(args.spec, encoding="utf-8") as f:
                     spec_data = json.load(f)
 
             schema_data = None
             if args.schema:
-                with open(args.schema, "r", encoding="utf-8") as f:
+                with open(args.schema, encoding="utf-8") as f:
                     schema_data = json.load(f)
 
             if getattr(args, "vector", None):
@@ -477,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if os.path.isfile(target):
                 if target.endswith(".json"):
-                    with open(target, "r", encoding="utf-8") as f:
+                    with open(target, encoding="utf-8") as f:
                         spec_data = json.load(f)
                     if (
                         isinstance(spec_data, dict)
@@ -489,7 +489,7 @@ def main(argv: list[str] | None = None) -> int:
                         compiler = QueryCompiler(spec_data)
                         raw_sql, _, _, _ = compiler.compile()
                 else:
-                    with open(target, "r", encoding="utf-8") as f:
+                    with open(target, encoding="utf-8") as f:
                         raw_sql = f.read()
             elif target.startswith("{"):
                 spec_data = json.loads(target)
@@ -563,7 +563,7 @@ def main(argv: list[str] | None = None) -> int:
             config: dict[str, Any] = {}
             if args.config:
                 if os.path.isfile(args.config):
-                    with open(args.config, "r", encoding="utf-8") as f:
+                    with open(args.config, encoding="utf-8") as f:
                         config = json.load(f)
                 else:
                     config = json.loads(args.config)
@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
             config = {}
             if args.config:
                 if os.path.isfile(args.config):
-                    with open(args.config, "r", encoding="utf-8") as f:
+                    with open(args.config, encoding="utf-8") as f:
                         config = json.load(f)
                 else:
                     config = json.loads(args.config)
@@ -670,7 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.schema.startswith("{"):
                 schema_data = json.loads(args.schema)
             else:
-                with open(args.schema, "r", encoding="utf-8") as f:
+                with open(args.schema, encoding="utf-8") as f:
                     schema_data = json.load(f)
 
             fmt = args.format.lower().strip()
@@ -736,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.schema.startswith("{"):
                     schema_data = json.loads(args.schema)
                 else:
-                    with open(args.schema, "r", encoding="utf-8") as f:
+                    with open(args.schema, encoding="utf-8") as f:
                         schema_data = json.load(f)
 
             path = find_join_path(active, args.target, schema_data)
@@ -754,7 +754,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.schema.startswith("{"):
                 schema_data = json.loads(args.schema)
             else:
-                with open(args.schema, "r", encoding="utf-8") as f:
+                with open(args.schema, encoding="utf-8") as f:
                     schema_data = json.load(f)
 
             from query_builder.schema import explore_schema, format_schema_tree
@@ -1098,7 +1098,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # 1. Environment checks
             py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-            py_supported = sys.version_info >= (3, 10)
+            py_supported = sys.version_info >= (3, 11)
             os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
 
             env_checks = {
@@ -1181,7 +1181,7 @@ def main(argv: list[str] | None = None) -> int:
             conn_config = {}
             if getattr(args, "config", None):
                 if os.path.isfile(args.config):
-                    with open(args.config, "r", encoding="utf-8") as f:
+                    with open(args.config, encoding="utf-8") as f:
                         conn_config = json.load(f)
                 else:
                     conn_config = json.loads(args.config)
