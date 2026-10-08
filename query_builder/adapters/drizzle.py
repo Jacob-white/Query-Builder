@@ -53,6 +53,14 @@ DRIZZLE_TYPE_MAP: dict[str, str] = {
 _COLUMN_CALL_RE = re.compile(r"(?<!\w)(\w+)\s*\(\s*(?:['\"`]([^'\"`]*)['\"`])?")
 
 
+_ENUM_DECL_RE = re.compile(
+    r"(?:export\s+)?const\s+(\w+)\s*=\s*(?:pgEnum|mysqlEnum|sqliteEnum)\(\s*['\"`]([^'\"`]+)['\"`]\s*,\s*\[([^\]]+)\]",
+    re.MULTILINE,
+)
+# These searches only see text cut after the last closing character (``_through_last``).
+_DEFAULT_CALL_RE = re.compile(r"\.default\(([^)]+)\)")
+_COLUMNS_LIST_RE = re.compile(r"columns\s*:\s*\[([^\]]+)\]")
+_PRIMARY_KEY_CALL_RE = re.compile(r"primaryKey\(([^)]+)\)")
 _TABLE_KEYWORD = r"(?:pgTable|mysqlTable|sqliteTable)"
 _QUOTED_NAME = r"['\"`]([^'\"`]+)['\"`]"
 # ``= pgTable('name'`` (strict: no space before the parenthesis) as used for the
@@ -295,12 +303,8 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
     # export const roleEnum = pgEnum('role', ['admin', 'customer', 'guest']);
     # or mysqlEnum('role', ['admin', 'customer'])
     enums: dict[str, list[str]] = {}
-    enum_pattern = re.compile(
-        r"(?:export\s+)?const\s+(\w+)\s*=\s*(?:pgEnum|mysqlEnum|sqliteEnum)\(\s*['\"`]([^'\"`]+)['\"`]\s*,\s*\[([^\]]+)\]",
-        re.MULTILINE,
-    )
     # (the pattern ends with "]", so nothing after the last "]" can take part)
-    for var_name, enum_db_name, raw_vals in enum_pattern.findall(
+    for var_name, enum_db_name, raw_vals in _ENUM_DECL_RE.findall(
         _through_last(code, "]")
     ):
         vals = [
@@ -325,7 +329,12 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
     call_starts = [code.find("(", h.start) for h in headers]
     call_ends = _balanced_call_ends(code, [c for c in call_starts if c != -1])
 
+    # A header inside the argument list of a call that was already parsed is not a new
+    # table: skipping it keeps the whole pass linear (every argument list is parsed once).
+    consumed_end = 0
     for header_match, call_start_idx in zip(headers, call_starts, strict=True):
+        if header_match.start < consumed_end:
+            continue
         var_name = header_match.variable or ""
         table_name = header_match.table
         if call_start_idx == -1:  # pragma: no cover
@@ -336,6 +345,7 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
 
         if call_end_idx == -1:
             continue
+        consumed_end = call_end_idx + 1
 
         args_content = code[call_start_idx + 1 : call_end_idx]
         args = []
@@ -434,7 +444,7 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
             if ".defaultNow(" in expr:
                 default_val = "now()"
             else:
-                def_m = re.search(r"\.default\(([^)]+)\)", _through_last(expr, ")"))
+                def_m = _DEFAULT_CALL_RE.search(_through_last(expr, ")"))
                 if def_m:
                     raw_def = def_m.group(1).strip()
                     if (raw_def.startswith('"') and raw_def.endswith('"')) or (
@@ -493,15 +503,11 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
         # or primaryKey(table.orderId, table.productId)
         if extra_block and "primaryKey(" in extra_block:
             raw_cols = ""
-            col_list_m = re.search(
-                r"columns\s*:\s*\[([^\]]+)\]", _through_last(extra_block, "]")
-            )
+            col_list_m = _COLUMNS_LIST_RE.search(_through_last(extra_block, "]"))
             if col_list_m:
                 raw_cols = col_list_m.group(1)
             else:
-                pk_pos_m = re.search(
-                    r"primaryKey\(([^)]+)\)", _through_last(extra_block, ")")
-                )
+                pk_pos_m = _PRIMARY_KEY_CALL_RE.search(_through_last(extra_block, ")"))
                 if pk_pos_m:
                     raw_cols = pk_pos_m.group(1)
             if raw_cols:

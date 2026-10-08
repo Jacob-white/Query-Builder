@@ -1,47 +1,23 @@
-"""``_extract_from_body`` matches the original slice-per-character implementation."""
+"""Golden-snapshot tests for ``_extract_from_body``.
+
+Expected values (the table below and ``regex_golden_adapters.json`` ``from_body``) were
+captured from the original slice-per-character implementation before the rewrite; the
+original code is intentionally not kept in the repository.
+"""
 
 from __future__ import annotations
 
-import random
-import re
+import json
 import time
+from pathlib import Path
 
-from query_builder.ast_validator import _IDENTIFIER_QUOTES, _extract_from_body
+from query_builder.ast_validator import _extract_from_body
 
-
-def _old_extract_from_body(sql: str, start_idx: int) -> str:
-    """The original implementation (verbatim): re.match on ``sql[i:]`` per character."""
-    depth = 0
-    i = start_idx
-    length = len(sql)
-    while i < length:
-        ch = sql[i]
-        if ch in _IDENTIFIER_QUOTES:
-            quote_close = _IDENTIFIER_QUOTES[ch]
-            j = i + 1
-            while j < length and sql[j] != quote_close:
-                j += 1
-            i = j + 1
-            continue
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            if depth > 0:
-                depth -= 1
-            else:
-                break
-        elif ch == ";" or (
-            depth == 0
-            and re.match(
-                r"^(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
-                sql[i:],
-                re.IGNORECASE,
-            )
-        ):
-            break
-        i += 1
-    return sql[start_idx:i].strip()
-
+CORPUS = json.loads(
+    (Path(__file__).parent / "fixtures" / "regex_golden_adapters.json").read_text(
+        encoding="utf-8"
+    )
+)["from_body"]
 
 TABLE = [
     ("users, auth_user) s", 0, "users, auth_user"),
@@ -55,40 +31,15 @@ TABLE = [
 ]
 
 
-def test_table_from_original() -> None:
+def test_table() -> None:
     for sql, start, expected in TABLE:
-        assert _old_extract_from_body(sql, start) == expected
         assert _extract_from_body(sql, start) == expected
 
 
-def test_random_matches_original() -> None:
-    rng = random.Random(61)
-    atoms = [
-        "WHERE",
-        "where",
-        "GROUP  BY",
-        "ORDER\tBY",
-        "FOR",
-        "format",
-        "FETCH",
-        "(",
-        ")",
-        ";",
-        '"',
-        "`",
-        "[",
-        "]",
-        "a",
-        " ",
-        ",",
-        "LIMIT",
-        "x1",
-        "\n",
-    ]
-    for _ in range(8000):
-        sql = "".join(rng.choice(atoms) for _ in range(rng.randint(1, 16)))
-        start = rng.randint(0, 2)
-        assert _extract_from_body(sql, start) == _old_extract_from_body(sql, start)
+def test_golden_corpus() -> None:
+    assert len(CORPUS) >= 300
+    for (sql, start), expected in CORPUS:
+        assert _extract_from_body(sql, start) == expected, sql
 
 
 def test_long_input_is_linear() -> None:

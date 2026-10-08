@@ -258,6 +258,7 @@ def _match_relation(line: str) -> tuple[str, str] | None:
     return None
 
 
+_ID_LIST_RE = re.compile(r"@@id\(\s*\[([^\]]+)\]\s*\)")
 _CLOSE_PAREN_RE = re.compile(r"\s*\)")
 
 
@@ -317,9 +318,7 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
 
         # Check composite primary keys: @@id([field1, field2])
         composite_pk: list[str] = []
-        pk_match = re.search(
-            r"@@id\(\s*\[([^\]]+)\]\s*\)", _through_last_list_close(model_body)
-        )
+        pk_match = _ID_LIST_RE.search(_through_last_list_close(model_body))
         if pk_match:
             composite_pk = [
                 f.strip() for f in pk_match.group(1).split(",") if f.strip()
