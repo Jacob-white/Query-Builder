@@ -313,7 +313,7 @@ def test_nested_exceptions_in_lifecycle_hooks():
         ("post_execute", IndexError, "Explosion in on_post_execute"),
     ]
 
-    for stage, err_cls, err_msg in stages_and_errors:
+    for stage, err_cls, _err_msg in stages_and_errors:
         catcher = ErrorCatcher()
         exploder = StageExploder(stage)
         pipeline = MiddlewarePipeline([exploder, catcher])

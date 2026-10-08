@@ -1286,9 +1286,13 @@ class QueryCompiler:
 
         # 2. Process Joins
         joins_spec = self.spec.get("joins", [])
-        for join in joins_spec:
-            if hasattr(join, "__dict__"):
-                join = {k: v for k, v in join.__dict__.items() if not k.startswith("_")}
+        for raw_join in joins_spec:
+            if hasattr(raw_join, "__dict__"):
+                join = {
+                    k: v for k, v in raw_join.__dict__.items() if not k.startswith("_")
+                }
+            else:
+                join = raw_join
 
             target_table = join.get("table")
             if not target_table:
@@ -1330,9 +1334,11 @@ class QueryCompiler:
             on_spec = join.get("on", [])
 
             if on_spec:
-                for cond in on_spec:
-                    if hasattr(cond, "__dict__"):
-                        cond = {k: v for k, v in cond.__dict__.items()}
+                for raw_cond in on_spec:
+                    if hasattr(raw_cond, "__dict__"):
+                        cond = {k: v for k, v in raw_cond.__dict__.items()}
+                    else:
+                        cond = raw_cond
                     left_ref = cond.get("left")
                     right_ref = cond.get("right")
                     _, _, quoted_left = self._resolve_column_ref(
@@ -1763,9 +1769,11 @@ class QueryCompiler:
             wf_orders = wf.get("order_by", [])
             if wf_orders:
                 quoted_orders = []
-                for ord_item in wf_orders:
-                    if hasattr(ord_item, "__dict__"):
-                        ord_item = {k: v for k, v in ord_item.__dict__.items()}
+                for raw_ord in wf_orders:
+                    if hasattr(raw_ord, "__dict__"):
+                        ord_item = {k: v for k, v in raw_ord.__dict__.items()}
+                    else:
+                        ord_item = raw_ord
                     col_ref = ord_item.get("column")
                     if not col_ref:
                         continue
@@ -1832,9 +1840,11 @@ class QueryCompiler:
             filter_join = "AND"
 
         client_filter_tokens: list[str] = []
-        for flt in filters_spec:
-            if hasattr(flt, "__dict__"):
-                flt = {k: v for k, v in flt.__dict__.items()}
+        for raw_flt in filters_spec:
+            if hasattr(raw_flt, "__dict__"):
+                flt = {k: v for k, v in raw_flt.__dict__.items()}
+            else:
+                flt = raw_flt
 
             op = str(flt.get("op", flt.get("operator", "eq"))).strip().lower()
             val = flt.get("value")
@@ -2090,9 +2100,11 @@ class QueryCompiler:
 
         # 5. Process Having
         having_spec = self.spec.get("having", [])
-        for hvg in having_spec:
-            if hasattr(hvg, "__dict__"):
-                hvg = {k: v for k, v in hvg.__dict__.items()}
+        for raw_hvg in having_spec:
+            if hasattr(raw_hvg, "__dict__"):
+                hvg = {k: v for k, v in raw_hvg.__dict__.items()}
+            else:
+                hvg = raw_hvg
 
             col_ref = hvg.get("column")
             agg = str(hvg.get("agg", hvg.get("aggregate", "count"))).lower()
@@ -2123,9 +2135,11 @@ class QueryCompiler:
 
         # 6. Process Order By
         order_spec = self.spec.get("order_by", [])
-        for ord_item in order_spec:
-            if hasattr(ord_item, "__dict__"):
-                ord_item = {k: v for k, v in ord_item.__dict__.items()}
+        for raw_ord in order_spec:
+            if hasattr(raw_ord, "__dict__"):
+                ord_item = {k: v for k, v in raw_ord.__dict__.items()}
+            else:
+                ord_item = raw_ord
 
             col_ref = ord_item.get("column")
             if not col_ref:

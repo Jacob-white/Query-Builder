@@ -442,10 +442,25 @@ export const VisualQueryBuilder = React.forwardRef<
   const isDistinct = state.isDistinct;
   const limit = state.limit;
 
+  const [rawSql, setRawSql] = useState<string>("");
+  const [isRawMode, setIsRawMode] = useState<boolean>(false);
+
   const setLimit = actions.setLimit;
   const setIsDistinct = actions.setDistinct;
-  const setSorts = actions.setSorts;
-  const setFilters = actions.setFilters;
+  const setSorts = useCallback(
+    (newSorts: VisualSort[]) => {
+      setIsRawMode(false);
+      actions.setSorts(newSorts);
+    },
+    [actions],
+  );
+  const setFilters = useCallback(
+    (newFilters: VisualFilter[]) => {
+      setIsRawMode(false);
+      actions.setFilters(newFilters);
+    },
+    [actions],
+  );
   const setJoins = actions.setJoins;
   const setPrimaryTable = actions.setPrimaryTable;
   const setActiveTableNames = actions.setTables;
@@ -456,8 +471,6 @@ export const VisualQueryBuilder = React.forwardRef<
     "visual" | "sql" | "results" | "chart" | "plan" | "pipeline"
   >("visual");
 
-  const [rawSql, setRawSql] = useState<string>("");
-  const [isRawMode, setIsRawMode] = useState<boolean>(false);
   const [isErdOpen, setIsErdOpen] = useState<boolean>(false);
   const [isSchemaExplorerOpen, setIsSchemaExplorerOpen] = useState<boolean>(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState<boolean>(false);
@@ -619,6 +632,7 @@ export const VisualQueryBuilder = React.forwardRef<
 
   // Handle column selection toggle
   const handleToggleColumn = (tableName: string, colName: string) => {
+    setIsRawMode(false);
     const key = `${tableName}.${colName}`;
     const nextSelected = { ...state.selectedColumns };
     let nextKeys = [...state.orderedProjectionKeys];
@@ -643,16 +657,19 @@ export const VisualQueryBuilder = React.forwardRef<
   // Add table to canvas
   const handleAddTableToCanvas = (tableName: string) => {
     if (!tableName) return;
+    setIsRawMode(false);
     actions.addTable(tableName);
   };
 
   // Remove table from canvas
   const handleRemoveTable = (tableName: string) => {
+    setIsRawMode(false);
     actions.removeTable(tableName);
   };
 
   // Synchronize Joins and active table names
   const handleJoinsChange = (newJoins: VisualJoin[]) => {
+    setIsRawMode(false);
     actions.setJoins(newJoins);
     const set = new Set(state.activeTables);
     for (const j of newJoins) {
@@ -751,18 +768,22 @@ export const VisualQueryBuilder = React.forwardRef<
       getSpec: () => getActiveSpec(),
       getSql: () => currentSql,
       setSpec: (newSpec: QuerySpec) => {
+        setIsRawMode(false);
         actions.loadSpec(newSpec);
       },
       reset: () => {
+        setIsRawMode(false);
         actions.reset();
       },
       execute: async () => {
         return handleRunQuery();
       },
       undo: () => {
+        setIsRawMode(false);
         actions.undo();
       },
       redo: () => {
+        setIsRawMode(false);
         actions.redo();
       },
       canUndo: () => history.canUndo,
@@ -1998,6 +2019,7 @@ export const VisualQueryBuilder = React.forwardRef<
         onClose={() => setIsErdOpen(false)}
         schema={normalizedSchema}
         onSelectTable={(tbl) => handleAddTableToCanvas(tbl)}
+        onAddJoins={(newJoins) => handleJoinsChange([...state.joins, ...newJoins])}
       />
 
       {/* Schema Explorer Modal */}

@@ -618,7 +618,7 @@ def test_memory_and_loop_stability():
     conn = AdversarialInventoryConnector()
     ctx: dict[str, Any] = {}
 
-    for i in range(500):
+    for _ in range(500):
         res = conn.execute({"table": "inventory", "limit": 1}, context=ctx)
         assert res["count"] == 3
 

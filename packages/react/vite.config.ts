@@ -25,7 +25,7 @@ export default defineConfig({
           'react-dom': 'ReactDOM',
         },
         banner: (chunk) => {
-          if (chunk.isEntry && chunk.name === 'index') {
+          if (chunk.isEntry && (chunk.name === 'index' || chunk.name === 'hooks')) {
             return '"use client";\n';
           }
           return '';

@@ -111,6 +111,7 @@ export function useStreamingQuery(
       setStats({});
 
       const startTime = performance.now();
+      let hasCompleted = false;
 
       try {
         const bodyPayload = {
@@ -207,11 +208,15 @@ export function useStreamingQuery(
                 });
               } else if (eventName === "done") {
                 setIsStreaming(false);
-                onComplete?.(accumulatedRows.length);
+                if (!hasCompleted) {
+                  hasCompleted = true;
+                  onComplete?.(accumulatedRows.length);
+                }
               } else if (eventName === "error") {
                 const errText = parsed.message || "Stream error";
                 setError(errText);
                 setIsStreaming(false);
+                hasCompleted = true;
                 onError?.(new Error(errText));
               }
             } catch {
@@ -221,8 +226,12 @@ export function useStreamingQuery(
         }
 
         setIsStreaming(false);
-        onComplete?.(accumulatedRows.length);
+        if (!hasCompleted) {
+          hasCompleted = true;
+          onComplete?.(accumulatedRows.length);
+        }
       } catch (err: any) {
+        hasCompleted = true;
         if (err.name === "AbortError") {
           // User aborted stream intentionally
           setIsStreaming(false);

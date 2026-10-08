@@ -553,7 +553,7 @@ def challenge_live_http_server() -> dict[str, Any]:
         )
         try:
             with urllib.request.urlopen(req) as r:
-                assert False, "Should have failed with 400"
+                pytest.fail("Should have failed with 400")
         except urllib.error.HTTPError as e:
             assert e.code == 400
             err = json.loads(e.read().decode())
@@ -571,14 +571,14 @@ def challenge_live_http_server() -> dict[str, Any]:
         )
         try:
             with urllib.request.urlopen(req) as r:
-                assert False, "Should fail on invalid Content-Length"
+                pytest.fail("Should fail on invalid Content-Length")
         except urllib.error.HTTPError as e:
             assert e.code == 400
 
         # Fuzz 3: Non-existent endpoint
         try:
             with urllib.request.urlopen(f"{base_url}/api/v1/nonexistent") as r:
-                assert False, "Should fail with 404"
+                pytest.fail("Should fail with 404")
         except urllib.error.HTTPError as e:
             assert e.code == 404
 

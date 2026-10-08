@@ -88,6 +88,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
         </span>
         <button
           type="button"
+          aria-label="Add sort"
           onClick={handleAddSort}
           data-qb="btn-add-sort"
           className={cx(classNames?.sortAddButton)}
@@ -155,6 +156,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
             >
               <select
                 value={`${s.tablePrefix}.${s.column}`}
+                aria-label="Sort column"
                 data-qb="sort-column"
                 onChange={(e) => {
                   const val = e.target.value;
@@ -188,6 +190,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
 
               <button
                 type="button"
+                aria-label="Toggle sort direction"
                 data-qb="sort-direction"
                 onClick={() =>
                   handleUpdate(s.id, {
@@ -217,6 +220,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
 
               <button
                 type="button"
+                aria-label="Remove sort"
                 onClick={() => handleRemove(s.id)}
                 data-qb="btn-remove-sort"
                 style={

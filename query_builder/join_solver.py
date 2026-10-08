@@ -42,11 +42,11 @@ MAX_FOREIGN_KEYS = 5000
 
 
 def _clean_table_name(tbl: Any) -> str:
-    """Strips schema prefixes such as 'production.' or 'public.'."""
+    """Strips catalog and schema prefixes such as 'production.' or 'db.public.'."""
     if not tbl or not isinstance(tbl, str):
         return ""
     if "." in tbl:
-        return tbl.split(".", 1)[1]
+        return tbl.rsplit(".", 1)[-1]
     return tbl
 
 

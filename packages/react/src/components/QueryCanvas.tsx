@@ -156,6 +156,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           {availableToAdd.length > 0 && (
             <select
               defaultValue=""
+              aria-label="Add table to canvas"
               data-qb="select-add-table"
               onChange={(e) => {
                 if (e.target.value) {
@@ -329,6 +330,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   </span>
                   <select
                     value={limit}
+                    aria-label="Query row limit"
                     data-qb="input-limit"
                     onChange={(e) => onLimitChange(Number(e.target.value))}
                     style={
@@ -564,6 +566,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
 
                   <button
                     type="button"
+                    aria-label={`Remove projection ${key}`}
                     onClick={() => onRemoveColumnProjection(key)}
                     style={
                       unstyled

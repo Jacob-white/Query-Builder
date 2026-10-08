@@ -175,23 +175,24 @@ class SelfHealingQueryEngine:
         )
         if isinstance(schema_tables, dict):
             new_columns = []
-            for c in healed.get("columns", []):
-                if isinstance(c, dict):
-                    raw_col = c.get("column", "")
+            for col_item in healed.get("columns", []):
+                if isinstance(col_item, dict):
+                    raw_col = col_item.get("column", "")
                     tbl, col_name = _extract_table_and_column(raw_col, primary_table)
                     table_meta = schema_tables.get(tbl, {})
                     cols_list = self._get_column_names(table_meta)
+                    c = col_item
                     if (
                         cols_list
                         and col_name not in cols_list
-                        and not c.get("raw_expression")
+                        and not col_item.get("raw_expression")
                     ):
                         match = difflib.get_close_matches(
                             col_name, cols_list, n=1, cutoff=0.7
                         )
                         if match:
                             fixed_col = match[0]
-                            c = dict(c)
+                            c = dict(col_item)
                             c["column"] = (
                                 f"{tbl}.{fixed_col}" if "." in raw_col else fixed_col
                             )
@@ -200,7 +201,7 @@ class SelfHealingQueryEngine:
                             )
                     new_columns.append(c)
                 else:
-                    col_str = str(c)
+                    col_str = str(col_item)
                     if col_str != "*":
                         tbl, col_name = _extract_table_and_column(
                             col_str, primary_table

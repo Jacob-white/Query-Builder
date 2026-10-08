@@ -44,9 +44,11 @@ def _parse_table_schema(
     columns: list[ColumnSchema] = []
     foreign_keys: list[ForeignKey] = []
 
-    for prop_name, prop_def in properties.items():
-        if not isinstance(prop_def, dict):
-            prop_def = {"type": str(prop_def)}
+    for prop_name, raw_prop in properties.items():
+        if not isinstance(raw_prop, dict):
+            prop_def = {"type": str(raw_prop)}
+        else:
+            prop_def = raw_prop
 
         # Handle $ref
         ref_fk: ForeignKey | None = None

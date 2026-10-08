@@ -494,7 +494,7 @@ def validate_network_target(
         try:
             parsed_url = urllib.parse.urlsplit(url)
         except ValueError as exc:
-            raise SecurityError(f"Invalid network target URL '{url}': {exc}")
+            raise SecurityError(f"Invalid network target URL '{url}': {exc}") from exc
 
     # 4. Enforce TLS settings
     if network_config.enforce_tls:
@@ -527,7 +527,7 @@ def validate_network_target(
             if parsed_url.port is not None:
                 url_port = parsed_url.port
         except ValueError as exc:
-            raise SecurityError(f"Invalid network target URL port: {exc}")
+            raise SecurityError(f"Invalid network target URL port: {exc}") from exc
 
     # 6. Default host and port from URL if not specified
     if host is None:
@@ -541,8 +541,8 @@ def validate_network_target(
             port_num = int(port)
             if not (1 <= port_num <= 65535):
                 raise ValueError()
-        except (ValueError, TypeError):
-            raise SecurityError(f"Invalid network port: {port}")
+        except (ValueError, TypeError) as exc:
+            raise SecurityError(f"Invalid network port: {port}") from exc
 
     # Validate distinct URL port if both were provided
     if url_port is not None and url_port != port and not (1 <= url_port <= 65535):

@@ -72,14 +72,31 @@ def _get_drf() -> tuple[type[Exception], type[Exception], Any, Any, type[Any]]:
 
 
 try:
-    import ninja  # noqa: F401
-    from ninja import Router as NinjaRouter
-    from ninja.errors import HttpError
+    import importlib.util
 
-    NINJA_AVAILABLE = True
-except (ImportError, Exception):  # noqa: BLE001
+    _ninja_spec = importlib.util.find_spec("ninja")
+    NINJA_AVAILABLE = _ninja_spec is not None
+except Exception:  # noqa: BLE001
     NINJA_AVAILABLE = False
-    NinjaRouter = Any  # type: ignore[misc, assignment]
+
+NinjaRouter = Any  # type: ignore[misc, assignment]
+
+
+def _get_ninja() -> tuple[type[Any], type[Exception]]:
+    try:
+        import ninja  # noqa: F401
+        from ninja import Router as NinjaRouter
+        from ninja.errors import HttpError
+
+        return NinjaRouter, HttpError
+    except ImportError as exc:
+        raise ImportError(
+            "Django Ninja is not installed. Install via 'pip install django-ninja' to use create_ninja_router."
+        ) from exc
+    except Exception as exc:
+        raise ImportError(
+            f"Django Ninja could not be loaded: {exc}. Ensure Django settings are configured."
+        ) from exc
 
 
 def _resolve_conn(connector: Any) -> Any:
@@ -783,6 +800,7 @@ def create_ninja_router(
             "Django Ninja is not installed. Install via 'pip install django-ninja' to use create_ninja_router."
         )
 
+    NinjaRouter, HttpError = _get_ninja()
     router = NinjaRouter(tags=tags or ["Query Builder"])
     policy = _get_effective_policy(security, tenant_resolver is not None)
     effective_capabilities: EngineCapabilities = (

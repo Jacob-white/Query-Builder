@@ -525,6 +525,14 @@ export function parseSqlToSpec(
   const fromTokens = fromContent.split(/\s+/);
   const primaryTable = cleanIdentifier(fromTokens[0]);
   if (!primaryTable) return null;
+  const primaryAlias =
+    fromTokens.length > 1
+      ? cleanIdentifier(
+          fromTokens[1].toUpperCase() === "AS" && fromTokens.length > 2
+            ? fromTokens[2]
+            : fromTokens[1],
+        )
+      : "";
 
   // 2. Projections & DISTINCT (SELECT)
   let selectContent = clauseMap["SELECT"] || "";
@@ -703,6 +711,29 @@ export function parseSqlToSpec(
 
   // 3. Joins
   const joins: QuerySpec["joins"] = [];
+  const aliasToTable: Record<string, string> = {};
+  if (primaryAlias) {
+    aliasToTable[primaryAlias] = primaryTable;
+  }
+  aliasToTable[primaryTable] = primaryTable;
+
+  for (const jc of joinClauses) {
+    const onIndex = jc.content.toUpperCase().indexOf(" ON ");
+    if (onIndex === -1) continue;
+    const tablePart = jc.content.slice(0, onIndex).trim();
+    const targetTableTokens = tablePart.split(/\s+/);
+    const targetTable = cleanIdentifier(targetTableTokens[0]);
+    aliasToTable[targetTable] = targetTable;
+    if (targetTableTokens.length > 1) {
+      const als = cleanIdentifier(
+        targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
+          ? targetTableTokens[2]
+          : targetTableTokens[1],
+      );
+      if (als) aliasToTable[als] = targetTable;
+    }
+  }
+
   for (const jc of joinClauses) {
     // Expected format: <tableName> [AS <alias>] ON <left> = <right>
     const onIndex = jc.content.toUpperCase().indexOf(" ON ");
@@ -713,8 +744,16 @@ export function parseSqlToSpec(
 
     const targetTableTokens = tablePart.split(/\s+/);
     const targetTable = cleanIdentifier(targetTableTokens[0]);
+    const targetAlias =
+      targetTableTokens.length > 1
+        ? cleanIdentifier(
+            targetTableTokens[1].toUpperCase() === "AS" && targetTableTokens.length > 2
+              ? targetTableTokens[2]
+              : targetTableTokens[1],
+          )
+        : "";
 
-    // Parse ON: e.g. users.id = orders.user_id
+    // Parse ON: e.g. users.id = orders.user_id or u.id = o.user_id
     const onMatch = onPart.match(/([a-zA-Z0-9_".`\[\]]+)\s*=\s*([a-zA-Z0-9_".`\[\]]+)/);
     let leftTable = primaryTable;
     let leftCol = "id";
@@ -727,12 +766,19 @@ export function parseSqlToSpec(
       const lParts = leftExpr.split(".");
       const rParts = rightExpr.split(".");
 
-      if (rParts[0] === targetTable && lParts.length > 1) {
-        leftTable = lParts[0];
+      const isRightTarget =
+        rParts[0] === targetTable || (targetAlias !== "" && rParts[0] === targetAlias);
+      const isLeftTarget =
+        lParts[0] === targetTable || (targetAlias !== "" && lParts[0] === targetAlias);
+
+      if (isRightTarget && lParts.length > 1) {
+        const leftT = aliasToTable[lParts[0]] || lParts[0];
+        leftTable = leftT;
         leftCol = lParts[1];
         rightCol = rParts[1];
-      } else if (lParts[0] === targetTable && rParts.length > 1) {
-        leftTable = rParts[0];
+      } else if (isLeftTarget && rParts.length > 1) {
+        const leftT = aliasToTable[rParts[0]] || rParts[0];
+        leftTable = leftT;
         leftCol = rParts[1];
         rightCol = lParts[1];
       } else {

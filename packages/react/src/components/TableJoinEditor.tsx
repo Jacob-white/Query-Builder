@@ -104,6 +104,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
           >
             <select
               defaultValue=""
+              aria-label="Join table"
               data-qb="select-add-join"
               onChange={(e) => {
                 if (e.target.value) {
@@ -186,6 +187,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               {/* Join type */}
               <select
                 value={j.type}
+                aria-label="Join type"
                 data-qb="join-type"
                 onChange={(e) =>
                   handleUpdate(j.id, {
@@ -229,6 +231,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               {/* Left col */}
               <input
                 type="text"
+                aria-label="Join left column"
                 data-qb="join-left-col"
                 value={`${j.left_table || activeTables[0]?.name}.${j.left_col}`}
                 onChange={(e) => {
@@ -263,6 +266,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               {/* Right col */}
               <input
                 type="text"
+                aria-label="Join right column"
                 data-qb="join-right-col"
                 value={`${j.table}.${j.right_col}`}
                 onChange={(e) => {
@@ -289,6 +293,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
 
               <button
                 type="button"
+                aria-label="Remove join"
                 onClick={() => handleRemove(j.id)}
                 data-qb="btn-remove-join"
                 style={

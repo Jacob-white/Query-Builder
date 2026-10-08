@@ -300,6 +300,7 @@ class BaseConnector(ABC):
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
         """Hook for dialect-specific statement timeout configuration."""
         # Base implementation is a no-op; subclasses override with dialect-specific SQL.
+        return None
 
     def test_connection(self) -> dict[str, Any]:
         """Validates connection health and returns dialect and engine metadata."""

@@ -39,7 +39,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
       const base: QueryBuilderTheme = explicitTheme
         ? mergeTheme(fallback, explicitTheme as DeepPartial<QueryBuilderTheme>)
         : fallback;
-      return customTokens ? mergeTheme(base, customTokens) : base;
+      const withTokens = customTokens ? mergeTheme(base, customTokens) : base;
+      return {
+        ...withTokens,
+        mode: activeMode,
+      };
     },
     [customTokens],
   );
@@ -54,21 +58,17 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
 
   const setMode = useCallback(
     (newMode: "dark" | "light") => {
-      setActiveTheme((prev) => {
-        const base = newMode === "light" ? lightTheme : darkTheme;
-        return customTokens ? mergeTheme(base, customTokens) : base;
-      });
+      setActiveTheme(computeTheme(propTheme, newMode));
     },
-    [customTokens],
+    [computeTheme, propTheme],
   );
 
   const toggleMode = useCallback(() => {
     setActiveTheme((prev) => {
       const nextMode = prev.mode === "dark" ? "light" : "dark";
-      const base = nextMode === "light" ? lightTheme : darkTheme;
-      return customTokens ? mergeTheme(base, customTokens) : base;
+      return computeTheme(propTheme, nextMode);
     });
-  }, [customTokens]);
+  }, [computeTheme, propTheme]);
 
   const setTheme = useCallback((newTheme: QueryBuilderTheme) => {
     setActiveTheme(newTheme);

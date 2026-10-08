@@ -212,6 +212,10 @@ include = ["query_builder*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    "ignore::starlette.testclient.StarletteDeprecationWarning",
+]
 
 [tool.coverage.report]
 exclude_lines = [

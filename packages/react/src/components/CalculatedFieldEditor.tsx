@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type {
   CalculatedFieldSpec,
   CaseWhenBranch,
@@ -42,6 +42,17 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
   const [elseValue, setElseValue] = useState<string>(
     initialField?.case_when?.else_value ?? "",
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 

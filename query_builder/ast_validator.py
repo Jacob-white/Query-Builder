@@ -153,7 +153,7 @@ DEFAULT_RESTRICTED_SCHEMA_NAMES: set[str] = {
 }
 
 DEFAULT_RESTRICTED_SCHEMA_PATTERNS: list[str] = [
-    r"(?:^|[^\w$])(?:[\"`\[]?)(PUBLIC|PG_CATALOG|INFORMATION_SCHEMA|MYSQL|PERFORMANCE_SCHEMA|SYS|MSDB|MASTER|SNOWFLAKE)(?:[\"`\]]?)\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
+    r"(?:^|[^\w$])(?:[\"`\[]?)(PUBLIC|PG_CATALOG|INFORMATION_SCHEMA|MYSQL|PERFORMANCE_SCHEMA|SYS|MSDB|MASTER|SNOWFLAKE)(?:[\"`\]]?)(?:\s*\.\s*)+(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
 ]
 
 MAX_SQL_LENGTH = 100_000
@@ -161,6 +161,11 @@ MAX_AST_TOKENS = 10_000
 
 
 _IDENTIFIER_QUOTES: dict[str, str] = {'"': '"', "`": "`", "[": "]"}
+
+
+def _clean_ident_part(p: str) -> str:
+    """Strips all whitespace and quote/bracket characters from an identifier segment."""
+    return p.strip().strip('"`[]').strip().upper()
 
 
 def _extract_from_body(sql: str, start_idx: int) -> str:
@@ -497,19 +502,14 @@ def validate_sql_ast(
     for pattern in schema_patterns:
         for m in re.finditer(pattern, clean_stripped, re.IGNORECASE):
             if m.lastindex and m.lastindex >= 1:
-                matched_schema = m.group(1).upper()
+                matched_schema = _clean_ident_part(m.group(1))
             else:
-                matched_schema = (
-                    m.group(0)
-                    .rstrip(".")
-                    .strip(' "`[]')
-                    .split(".")[0]
-                    .strip(' "`[]')
-                    .upper()
+                matched_schema = _clean_ident_part(
+                    re.split(r"(?:\s*\.\s*)+", m.group(0).rstrip("."))[0]
                 )
             if allowed_schemas:
                 allowed_upper = {
-                    s.upper().rstrip(".").strip(' "`[]') for s in allowed_schemas
+                    _clean_ident_part(s.rstrip(".")) for s in allowed_schemas
                 }
                 if matched_schema in allowed_upper:
                     continue
@@ -570,33 +570,31 @@ def validate_sql_ast(
             ):
                 violations.append("Forbidden session modification keyword: 'SET'")
 
-    # Check tables referenced in FROM and JOIN clauses
+    # Check tables referenced in FROM, JOIN, and APPLY clauses (supporting 1, 2, 3+ part names and double dots)
     table_pattern = re.compile(
-        r"\b(?:FROM|JOIN)\s+(?:\(\s*)*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)(?:\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?))?",
+        r"\b(?:FROM|JOIN|APPLY)\s*(?:\(\s*)*(?:(?:ONLY|LATERAL)\b\s*)*(?:\(\s*)*([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)*)",
         re.IGNORECASE,
     )
     for m in table_pattern.finditer(clean_stripped):
-        p1 = m.group(1).upper()
-        p2 = m.group(2).upper() if m.group(2) else None
-        if p2:
-            tbl_qualified = f"{p1}.{p2}"
-            if tbl_qualified in effective_tables:
-                violations.append(
-                    f"Access Denied: Table '{tbl_qualified}' is restricted. Authentication, credentials, and session data cannot be queried."
-                )
-            elif p2 in effective_tables:
-                violations.append(
-                    f"Access Denied: Table '{p2}' is restricted. Authentication, credentials, and session data cannot be queried."
-                )
-        else:
-            if p1 in effective_tables:
-                violations.append(
-                    f"Access Denied: Table '{p1}' is restricted. Authentication, credentials, and session data cannot be queried."
-                )
+        raw_target = m.group(1).strip()
+        parts = [
+            _clean_ident_part(p)
+            for p in re.split(r"(?:\s*\.\s*)+", raw_target)
+            if _clean_ident_part(p)
+        ]
+        if not parts:
+            continue
+        base_tbl = parts[-1]
+        qual_tbl = f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
+        if base_tbl in effective_tables or qual_tbl in effective_tables:
+            matched_name = qual_tbl if qual_tbl in effective_tables else base_tbl
+            violations.append(
+                f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
+            )
 
     # Check comma-separated FROM tables
     from_clause_pattern = re.compile(
-        r"\bFROM\s+([^;]+?)(?:\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\bOFFSET\b|\bUNION\b|;|$)",
+        r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*([^;]+?)(?:\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\bOFFSET\b|\bUNION\b|;|$)",
         re.IGNORECASE,
     )
     target_bodies: list[str] = []
@@ -608,14 +606,16 @@ def validate_sql_ast(
                 fm.start()
                 + len(
                     re.match(
-                        r"\bFROM\s+", clean_stripped[fm.start() :], re.IGNORECASE
+                        r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*",
+                        clean_stripped[fm.start() :],
+                        re.IGNORECASE,
                     ).group(0)
                 ),
             )
         else:
             body = raw_body
         target_bodies.append(body)
-        if re.search(r"\bFROM\s+", body, re.IGNORECASE):
+        if re.search(r"\bFROM\s*(?:(?:ONLY|LATERAL)\b\s*)*", body, re.IGNORECASE):
             for sub_fm in from_clause_pattern.finditer(body):
                 target_bodies.append(sub_fm.group(1))
 
@@ -623,38 +623,53 @@ def validate_sql_ast(
         if "," in from_body:
             for item in _split_from_items(from_body):
                 tbl_m = re.match(
-                    r"\s*(?:\(\s*)*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)(?:\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?))?",
+                    r"\s*(?:\(\s*)*(?:(?:ONLY|LATERAL)\b\s*)*(?:\(\s*)*([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)*)",
                     item,
+                    re.IGNORECASE,
                 )
                 if tbl_m:
-                    cp1 = tbl_m.group(1).upper()
-                    cp2 = tbl_m.group(2).upper() if tbl_m.group(2) else None
-                    if cp2:
-                        c_qual = f"{cp1}.{cp2}"
-                        if c_qual in effective_tables:
-                            violations.append(
-                                f"Access Denied: Table '{c_qual}' is restricted. Authentication, credentials, and session data cannot be queried."
-                            )
-                        elif cp2 in effective_tables:
-                            violations.append(
-                                f"Access Denied: Table '{cp2}' is restricted. Authentication, credentials, and session data cannot be queried."
-                            )
-                    else:
-                        if cp1 in effective_tables:
-                            violations.append(
-                                f"Access Denied: Table '{cp1}' is restricted. Authentication, credentials, and session data cannot be queried."
-                            )
+                    raw_target = tbl_m.group(1).strip()
+                    parts = [
+                        _clean_ident_part(p)
+                        for p in re.split(r"(?:\s*\.\s*)+", raw_target)
+                        if _clean_ident_part(p)
+                    ]
+                    if not parts:
+                        continue
+                    base_tbl = parts[-1]
+                    qual_tbl = (
+                        f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
+                    )
+                    if base_tbl in effective_tables or qual_tbl in effective_tables:
+                        matched_name = (
+                            qual_tbl if qual_tbl in effective_tables else base_tbl
+                        )
+                        violations.append(
+                            f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
+                        )
 
-    # Check qualified table names like mysql.user, sys.objects, etc.
+    # Check multi-part qualified table names like db.schema.auth_user, mysql.user, etc.
     for m in re.finditer(
-        r"(?:^|[^\w$])(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)\s*\.\s*(?:[\"`\[]?)([a-zA-Z0-9_]+)(?:[\"`\]]?)",
+        r"(?:^|[^\w$])([a-zA-Z0-9_\"`\[\]]+(?:(?:\s*\.\s*)+[a-zA-Z0-9_\"`\[\]]+)+)",
         clean_stripped,
     ):
-        s_part, t_part = m.group(1).upper(), m.group(2).upper()
-        qualified_tbl = f"{s_part}.{t_part}"
-        if qualified_tbl in effective_tables:
+        raw_match = m.group(1).strip()
+        parts = [
+            _clean_ident_part(p)
+            for p in re.split(r"(?:\s*\.\s*)+", raw_match)
+            if _clean_ident_part(p)
+        ]
+        if not parts:
+            continue
+        base_tbl = parts[-1]
+        qual_tbl = f"{parts[-2]}.{base_tbl}" if len(parts) >= 2 else base_tbl
+        is_double_dot = bool(re.search(r"\.\s*\.", raw_match))
+        if qual_tbl in effective_tables or (
+            base_tbl in effective_tables and (len(parts) >= 3 or is_double_dot)
+        ):
+            matched_name = qual_tbl if qual_tbl in effective_tables else base_tbl
             violations.append(
-                f"Access Denied: Table '{qualified_tbl}' is restricted. Authentication, credentials, and session data cannot be queried."
+                f"Access Denied: Table '{matched_name}' is restricted. Authentication, credentials, and session data cannot be queried."
             )
 
     # Regex safety fallback against obfuscated mutations
