@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
@@ -29,6 +29,88 @@ def _has_attr(target: Any, attr: str) -> bool:
             return hasattr(target, attr)
         return attr in target._mock_children
     return hasattr(target, attr)
+
+
+_LONG_WHITESPACE_RE = re.compile(r"\s{4,}")
+
+# Whitespace runs are capped at three characters before matching (see
+# ``_match_simple_select``), so every ``\s+`` of the original pattern is the bounded
+# ``\s{1,3}``.  With unbounded ``\s+`` next to the lazy ``.+?`` groups the original
+# pattern backtracked polynomially on long whitespace runs.
+_SIMPLE_SELECT_RE = re.compile(
+    r"^SELECT\s{1,3}(?P<select>.+?)\s{1,3}FROM\s{1,3}(?P<from>[^\s]+(?:\s{1,3}[^\s]+)?)"
+    r"(?:\s{1,3}WHERE\s{1,3}(?P<where>.+?))?"
+    r"(?:\s{1,3}ORDER\s{1,3}BY\s{1,3}(?P<order>.+?))?"
+    r"(?:\s{1,3}SKIP\s{1,3}(?P<skip>[^\s]+))?"
+    r"(?:\s{1,3}LIMIT\s{1,3}(?P<limit>[^\s]+))?"
+    r"(?:\s{1,3}OFFSET\s{1,3}(?P<offset>[^\s]+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+class _SimpleSelect(NamedTuple):
+    select: str
+    from_: str
+    where: str | None
+    order: str | None
+    skip: str | None
+    limit: str | None
+    offset: str | None
+
+
+def _match_simple_select(sql: str) -> _SimpleSelect | None:
+    r"""Matches ``SELECT .. FROM t [alias] [WHERE ..] [ORDER BY ..] [SKIP|LIMIT|OFFSET n]``.
+
+    Equivalent to matching the original unbounded-``\s+`` pattern against ``sql``:
+    whitespace runs longer than three characters behave exactly like runs of three (a
+    run can be split at most into a leading ``\s+``, a whitespace-only lazy group and a
+    trailing ``\s+``), so the input is capped to three characters per run, matched with
+    bounded quantifiers, and the free-text groups are mapped back to the original text.
+    Free-text groups are returned stripped (a whitespace-only group is returned as a
+    single space so that it stays truthy like the original group did).
+    """
+    runs = list(_LONG_WHITESPACE_RE.finditer(sql))
+    if runs:
+        pieces: list[str] = []
+        origin: list[int] = []
+        pos = 0
+        for run in runs:
+            keep_end = run.start() + 3
+            pieces.append(sql[pos:keep_end])
+            origin.extend(range(pos, keep_end))
+            pos = run.end()
+        pieces.append(sql[pos:])
+        origin.extend(range(pos, len(sql)))
+        capped = "".join(pieces)
+    else:
+        capped = sql
+        origin = []
+    match = _SIMPLE_SELECT_RE.match(capped)
+    if match is None:
+        return None
+
+    def text(name: str) -> str | None:
+        start, end = match.span(name)
+        if start < 0:
+            return None
+        segment = capped[start:end]
+        core = segment.strip()
+        if not core:
+            return " "
+        if not origin:
+            return core
+        first = start + len(segment) - len(segment.lstrip())
+        return sql[origin[first] : origin[first + len(core) - 1] + 1]
+
+    return _SimpleSelect(
+        select=text("select") or "",
+        from_=text("from") or "",
+        where=text("where"),
+        order=text("order"),
+        skip=match.group("skip"),
+        limit=match.group("limit"),
+        offset=match.group("offset"),
+    )
 
 
 class _Neo4jCursorAdapter:
@@ -58,23 +140,14 @@ class _Neo4jCursorAdapter:
                 "UNWIND",
             )
         ):
-            m = re.match(
-                r"^SELECT\s+(?P<select>.+?)\s+FROM\s+(?P<from>[^\s]+(?:\s+[^\s]+)?)"
-                r"(?:\s+WHERE\s+(?P<where>.+?))?"
-                r"(?:\s+ORDER\s+BY\s+(?P<order>.+?))?"
-                r"(?:\s+SKIP\s+(?P<skip>[^\s]+))?"
-                r"(?:\s+LIMIT\s+(?P<limit>[^\s]+))?"
-                r"(?:\s+OFFSET\s+(?P<offset>[^\s]+))?$",
-                clean,
-                re.IGNORECASE | re.DOTALL,
-            )
+            m = _match_simple_select(clean)
             if m:
-                select_p = m.group("select").strip()
-                from_p = m.group("from").strip()
-                where_p = m.group("where")
-                order_p = m.group("order")
-                skip_p = m.group("skip") or m.group("offset")
-                limit_p = m.group("limit")
+                select_p = m.select.strip()
+                from_p = m.from_.strip()
+                where_p = m.where
+                order_p = m.order
+                skip_p = m.skip or m.offset
+                limit_p = m.limit
 
                 from_tokens = from_p.replace("`", "").replace('"', "").split()
                 tbl = from_tokens[0]

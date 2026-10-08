@@ -216,6 +216,14 @@ def _clean_ident_part(p: str) -> str:
     return p.strip().strip('"`[]').strip().upper()
 
 
+# Keywords that end a FROM clause body.  Matched in place (``match(sql, i)``) rather than
+# on a ``sql[i:]`` slice per character, which copied the rest of the text every time.
+_FROM_BODY_END_RE = re.compile(
+    r"(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
+    re.IGNORECASE,
+)
+
+
 def _extract_from_body(sql: str, start_idx: int) -> str:
     """Extracts the body of a FROM clause starting at start_idx with balanced parentheses."""
     depth = 0
@@ -237,14 +245,7 @@ def _extract_from_body(sql: str, start_idx: int) -> str:
                 depth -= 1
             else:
                 break
-        elif ch == ";" or (
-            depth == 0
-            and re.match(
-                r"^(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|WINDOW|FETCH|FOR)\b",
-                sql[i:],
-                re.IGNORECASE,
-            )
-        ):
+        elif ch == ";" or (depth == 0 and _FROM_BODY_END_RE.match(sql, i)):
             break
         i += 1
     return sql[start_idx:i].strip()

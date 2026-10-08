@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import re
 from typing import Any
 
 from query_builder.nlq.models import NlqProviderError
@@ -32,6 +31,19 @@ from query_builder.nlq.providers import (
     _strip_markdown_code_blocks,
     register_nlq_provider,
 )
+
+
+def _find_json_object_text(text: str) -> str | None:
+    r"""Returns the span from the first ``{`` to the last ``}`` (``re.search(r"\{.*\}", DOTALL)``).
+
+    A regex rescans the whole text from every ``{`` when there is no closing ``}``
+    (quadratic); two ``str`` searches are linear.
+    """
+    first = text.find("{")
+    last = text.rfind("}")
+    if first == -1 or last <= first:
+        return None
+    return text[first : last + 1]
 
 
 class BringYourOwnAiProvider(NlqProvider):
@@ -214,10 +226,10 @@ class BringYourOwnAiProvider(NlqProvider):
         except json.JSONDecodeError:
             pass
 
-        match = re.search(r"\{.*\}", clean, re.DOTALL)
-        if match:
+        json_text = _find_json_object_text(clean)
+        if json_text is not None:
             try:
-                parsed = json.loads(match.group(0))
+                parsed = json.loads(json_text)
                 if isinstance(parsed, dict):
                     return parsed, tokens_used
             except json.JSONDecodeError as exc:

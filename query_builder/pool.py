@@ -49,7 +49,13 @@ def mask_credentials(data: Any) -> Any:
     Ensures secrets are never exposed in logs, exceptions, or JSON serializations.
     """
     if isinstance(data, str):
-        return _URI_PASSWORD_REGEX.sub(r"\1***\3", data)
+        # A credential match always ends at an "@", so the text after the last "@" can
+        # never be part of one.  Without this bound every "://" start scans to the end of
+        # a string that has no "@" (quadratic).
+        end = data.rfind("@") + 1
+        if not end:
+            return data
+        return _URI_PASSWORD_REGEX.sub(r"\1***\3", data[:end]) + data[end:]
     if isinstance(data, dict):
         masked: dict[str, Any] = {}
         for k, v in data.items():

@@ -573,7 +573,12 @@ DEFAULT_SCRUB_PATTERNS: list[str] = [
     r"(?i)(?:^|[\s-])key(?:$|[\s-])",
 ]
 
-URI_CREDENTIAL_REGEX = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^/:@]+:)([^@/]+)(@)")
+# A URI scheme starts with a letter, but only the first letter of a run of scheme
+# characters can start a match: anchoring at the run start (and absorbing its leading
+# digits/punctuation into group 1, which the replacement re-emits) keeps the scan linear.
+URI_CREDENTIAL_REGEX = re.compile(
+    r"(?<![a-zA-Z0-9+.-])([0-9+.-]*[a-zA-Z][a-zA-Z0-9+.-]*://[^/:@]+:)([^@/]+)(@)"
+)
 BEARER_TOKEN_REGEX = re.compile(r"(?i)\b(bearer\s+)[^\s,;'\"\]]+")
 KEY_VALUE_SECRET_REGEX = re.compile(
     r"(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|auth)\s*([:=])\s*([^\s,;'\"\]]+|[\"'][^\"']+[\"'])"
