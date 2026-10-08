@@ -9,9 +9,12 @@ unauthorized schema access, and system/credential table references.
 from __future__ import annotations
 
 import itertools
+import logging
 import re
 from functools import lru_cache
 from typing import Any, NamedTuple
+
+logger = logging.getLogger(__name__)
 
 try:
     import sqlparse
@@ -1024,13 +1027,16 @@ def validate_sql_ast(
 
     try:
         parsed = sqlparse.parse(clean)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        # The result is returned to API clients, so it must not carry parser internals; the
+        # exception is available to operators through debug logging.
+        logger.debug("sqlparse failed to parse validated SQL", exc_info=True)
         return {
             "valid": False,
             "ast_validated": False,
             "statement_type": "ERROR",
             "is_read_only": False,
-            "violations": [f"Malformed SQL failed AST parsing: {exc}"],
+            "violations": ["Malformed SQL failed AST parsing."],
             "injection_risk": "CRITICAL",
             "message": "Query failed AST parsing.",
         }
