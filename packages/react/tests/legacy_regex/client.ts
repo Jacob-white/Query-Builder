@@ -14,7 +14,7 @@ import type {
   QueryResultData,
   SqlDialect,
   SqlSafetyValidation,
-} from "../types";
+} from "../../src/types";
 
 export type {
   QuerySpec,
@@ -295,11 +295,7 @@ export interface QueryBuilderClient {
 export function createQueryBuilderClient(
   config: QueryBuilderClientConfig,
 ): QueryBuilderClient & Required<Pick<QueryBuilderClient, "request">> {
-  const rawBaseUrl = config.baseUrl || "";
-  // Strip trailing slashes (linear-time `.replace(/\/+$/, "")`).
-  let baseUrlEnd = rawBaseUrl.length;
-  while (baseUrlEnd > 0 && rawBaseUrl[baseUrlEnd - 1] === "/") baseUrlEnd--;
-  const cleanBaseUrl = rawBaseUrl.slice(0, baseUrlEnd);
+  const cleanBaseUrl = (config.baseUrl || "").replace(/\/+$/, "");
   const defaultTimeoutMs = config.timeoutMs ?? 30000;
   const fetchFn = config.fetchFn ?? globalThis.fetch;
 

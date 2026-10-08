@@ -5,7 +5,7 @@
  * table registration for CSV, TSV, JSON, and Parquet files into the ClientOlapEngine.
  */
 
-import type { ClientOlapEngine, DuckDBTableMeta } from "../types";
+import type { ClientOlapEngine, DuckDBTableMeta } from "../../src/types";
 
 /**
  * Capability check by property access (no `in` operator) so Proxy / RPC-facade engines that only
@@ -44,12 +44,7 @@ export function detectFileFormat(file: { name: string; type?: string }): Ingesti
 export function sanitizeTableName(fileName: string): string {
   const base = fileName.replace(/\.[^/.]+$/, "");
   const sanitized = base.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
-  // Strip leading/trailing underscores (linear-time `.replace(/^_+|_+$/g, "")`).
-  let first = 0;
-  let last = sanitized.length;
-  while (first < last && sanitized[first] === "_") first++;
-  while (last > first && sanitized[last - 1] === "_") last--;
-  return sanitized.slice(first, last) || "local_table";
+  return sanitized.replace(/^_+|_+$/g, "") || "local_table";
 }
 
 /**

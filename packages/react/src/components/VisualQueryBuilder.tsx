@@ -101,7 +101,7 @@ export function fastCanonicalSpec(obj: unknown): string {
  * String literals are kept verbatim so edits inside them still count as changes.
  */
 function normalizeSqlForCompare(sql: string): string {
-  return sql
+  const joined = sql
     .split(/('(?:[^']|'')*')/)
     .map((seg, i) =>
       i % 2 === 1
@@ -110,12 +110,20 @@ function normalizeSqlForCompare(sql: string): string {
             .replace(/["`]/g, "")
             .replace(/\[([A-Za-z_][\w ]*)\]/g, "$1")
             .replace(/\s+/g, " ")
-            .replace(/\s*([(),=])\s*/g, "$1")
+            // Whitespace was collapsed to single spaces just above, so " ?" covers "\s*".
+            .replace(/ ?([(),=]) ?/g, "$1")
             .toLowerCase(),
     )
-    .join("")
-    .replace(/;+\s*$/, "")
-    .trim();
+    .join("");
+  return stripTrailingSemicolons(joined).trim();
+}
+
+// Linear-time equivalent of `.replace(/;+\s*$/, "")`.
+function stripTrailingSemicolons(text: string): string {
+  const trimmed = text.trimEnd();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === ";") end--;
+  return end === trimmed.length ? text : trimmed.slice(0, end);
 }
 
 // True when the SQL carries line or block comments (outside string literals) that the visual model cannot represent.

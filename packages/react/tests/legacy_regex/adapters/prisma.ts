@@ -3,8 +3,8 @@
  * Converts Prisma schema definitions (.prisma text or DMMF objects) into TableSchema[].
  */
 
-import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../types";
-import type { AdapterOptions, ToPrismaOptions } from "./types";
+import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../../../src/types";
+import type { AdapterOptions, ToPrismaOptions } from "../../../src/adapters/types";
 import {
   extractSnapshotData,
   normalizeDataType,
@@ -210,13 +210,10 @@ export function fromPrisma(
 
   // 2. Map model name to table name
   const modelToTable: Record<string, string> = {};
-  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
+  const modelRegex = /model\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
   const modelsFound: { name: string; body: string }[] = [];
   let modelMatch: RegExpExecArray | null;
-  // A model must end with "}", so nothing after the last "}" can match; trimming it keeps
-  // unterminated "model X {" runs from being rescanned to the end of the text per header.
-  const modelText = text.slice(0, text.lastIndexOf("}") + 1);
-  while ((modelMatch = modelRegex.exec(modelText)) !== null) {
+  while ((modelMatch = modelRegex.exec(text)) !== null) {
     const modelName = modelMatch[1];
     const modelBody = modelMatch[2];
     modelsFound.push({ name: modelName, body: modelBody });

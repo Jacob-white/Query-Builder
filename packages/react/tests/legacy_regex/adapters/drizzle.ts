@@ -3,8 +3,8 @@
  * Converts Drizzle runtime table objects or TypeScript source code into TableSchema[].
  */
 
-import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../types";
-import type { AdapterOptions, ToDrizzleOptions } from "./types";
+import type { ColumnSchema, ForeignKey, SchemaSnapshot, TableSchema } from "../../../src/types";
+import type { AdapterOptions, ToDrizzleOptions } from "../../../src/adapters/types";
 import {
   extractSnapshotData,
   normalizeDataType,
@@ -222,14 +222,14 @@ export function fromDrizzle(
 
   // Map variable names to table names
   const tableVarToName: Record<string, string> = {};
-  const varTableRegex = /(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(?:pgTable|mysqlTable|sqliteTable)\(\s*['"`]([^'"`]+)['"`]/g;
+  const varTableRegex = /(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*(?:pgTable|mysqlTable|sqliteTable)\(\s*['"`]([^'"`]+)['"`]/g;
   let varM: RegExpExecArray | null;
   while ((varM = varTableRegex.exec(code)) !== null) {
     tableVarToName[varM[1]] = varM[2];
   }
 
   const tables: TableSchema[] = [];
-  const tableHeaderRegex = /(?:(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*)?(?:pgTable|mysqlTable|sqliteTable)\s*\(\s*['"`]([^'"`]+)['"`]/g;
+  const tableHeaderRegex = /(?:(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?=\s*)?(?:pgTable|mysqlTable|sqliteTable)\s*\(\s*['"`]([^'"`]+)['"`]/g;
 
   let headerMatch: RegExpExecArray | null;
   while ((headerMatch = tableHeaderRegex.exec(code)) !== null) {
@@ -329,7 +329,7 @@ export function fromDrizzle(
       const propName = propNameRaw.trim();
       const expr = (exprRaw || "").trim();
 
-      const callM = /(?<!\w)(\w+)\s*\(\s*(?:['"`]([^'"`]*)['"`])?/.exec(expr);
+      const callM = /(\w+)\s*\(\s*(?:['"`]([^'"`]*)['"`])?/.exec(expr);
       if (!callM) continue;
 
       const rawType = callM[1];
