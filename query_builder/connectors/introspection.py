@@ -243,47 +243,78 @@ _MYSQL_FOREIGN_KEY_SQL = """
 """
 
 
+# SQL Server's constraint_column_usage lists the REFERENCING column for a foreign
+# key, so the referenced side must come from referential_constraints instead.
+_MSSQL_FOREIGN_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name, pk.table_name, pk.column_name
+    FROM information_schema.referential_constraints AS rc
+    JOIN information_schema.key_column_usage AS kcu
+        ON kcu.constraint_name = rc.constraint_name
+        AND kcu.constraint_schema = rc.constraint_schema
+    JOIN information_schema.key_column_usage AS pk
+        ON pk.constraint_name = rc.unique_constraint_name
+        AND pk.constraint_schema = rc.unique_constraint_schema
+        AND pk.ordinal_position = kcu.ordinal_position
+    WHERE kcu.table_schema = %s;
+"""
+
+
 def introspect_information_schema(
     cursor: Any,
     schema_name: str = "public",
     filter_sensitive: bool = True,
     fk_style: str = "ansi",
+    placeholder: str = "%s",
+    pk_guess: bool = True,
 ) -> dict[str, Any]:
     """
     Introspects standard ANSI/PostgreSQL/MySQL/MSSQL schemas via information_schema catalogs.
 
     Primary keys come from the catalog (``table_constraints``); only when the
-    engine lacks that catalog does it fall back to treating a column named
-    ``id`` as the key. ``fk_style="mysql"`` reads foreign keys the MySQL way.
+    engine lacks that catalog does it fall back (``pk_guess``) to treating a
+    column named ``id`` as the key. ``fk_style="mysql"`` / ``"mssql"`` read
+    foreign keys the way those engines expose them. ``placeholder`` is the
+    driver's bind marker (``?`` for Trino/Presto); statements are sent without a
+    trailing semicolon, which Trino and Presto reject.
     """
+
+    def _sql(text: str) -> str:
+        return text.strip().rstrip(";").replace("%s", placeholder)
+
     try:
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = %s AND table_type = 'BASE TABLE'
             ORDER BY table_name;
-            """,
+            """
+            ),
             [schema_name],
         )
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_schema = %s
             ORDER BY table_name, ordinal_position;
-            """,
+            """
+            ),
             [schema_name],
         )
         col_rows = cursor.fetchall()
 
         pk_cols: set[tuple[str, str]] | None = None
         with contextlib.suppress(Exception):
-            cursor.execute(_PRIMARY_KEY_SQL, [schema_name])
+            cursor.execute(_sql(_PRIMARY_KEY_SQL), [schema_name])
             pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+        if pk_cols is None and not pk_guess:
+            pk_cols = set()
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
@@ -306,6 +337,8 @@ def introspect_information_schema(
         fk_sql = (
             _MYSQL_FOREIGN_KEY_SQL
             if fk_style == "mysql"
+            else _MSSQL_FOREIGN_KEY_SQL
+            if fk_style == "mssql"
             else """
                 SELECT
                     kcu.table_name AS src_table,
@@ -324,7 +357,7 @@ def introspect_information_schema(
                 """
         )
         with contextlib.suppress(Exception):
-            cursor.execute(fk_sql, [schema_name])
+            cursor.execute(_sql(fk_sql), [schema_name])
             for fk_row in cursor.fetchall():
                 src_tbl, src_col, tgt_tbl, tgt_col = (
                     str(fk_row[0]),

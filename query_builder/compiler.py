@@ -1010,6 +1010,20 @@ class QueryCompiler:
                 if getattr(c, "expression", None) or getattr(c, "case_when", None):
                     self.capabilities.require_feature("calculated_fields")
 
+    def _aggregate_template(self, agg: str) -> str:
+        if agg in ("avg", "count_distinct"):
+            return getattr(self.dialect, f"{agg}_template", AGGREGATE_MAP[agg])
+        return AGGREGATE_MAP[agg]
+
+    def _unpaginated_nested(self) -> bool:
+        """True for a CTE/subquery body that asked for no LIMIT/OFFSET."""
+        return bool(
+            self.inner
+            and "limit" not in self.spec
+            and not self.spec.get("offset")
+            and not (self.has_vector_search or self.has_hybrid_search)
+        )
+
     def _generate_unique_alias(self) -> str:
         self._alias_counter += 1
         alias = f"t{self._alias_counter}"
@@ -1573,7 +1587,7 @@ class QueryCompiler:
 
                 if agg in AGGREGATE_MAP:
                     self.has_aggregation = True
-                    agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
+                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
                     alias_label = alias or f"{agg}_{raw_col_ref.replace('.', '_')}"
                     self.select_clause_items.append(
                         f"{agg_expr} AS {self.dialect.quote_alias(alias_label)}"
@@ -2160,7 +2174,7 @@ class QueryCompiler:
             else:
                 _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
                 if agg in AGGREGATE_MAP:
-                    agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
+                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
                 else:
                     continue
 
@@ -2285,6 +2299,13 @@ class QueryCompiler:
                     self.params.append(self._hybrid_text_param)
         elif (
             getattr(self.dialect, "requires_order_by_for_pagination", False)
+            and self._unpaginated_nested()
+        ):
+            # SQL Server rejects ORDER BY in a subquery/CTE unless TOP/OFFSET is
+            # present, and an unpaginated nested query needs none.
+            order_by_str = ""
+        elif (
+            getattr(self.dialect, "requires_order_by_for_pagination", False)
             and not self.order_by_items
         ):
             order_by_str = "ORDER BY (SELECT NULL)"
@@ -2317,12 +2338,7 @@ class QueryCompiler:
             max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET
         )
 
-        if (
-            self.inner
-            and "limit" not in self.spec
-            and not offset
-            and not (self.has_vector_search or self.has_hybrid_search)
-        ):
+        if self._unpaginated_nested():
             limit_offset_str, limit_params = "", []
         else:
             limit_offset_str, limit_params = self.dialect.format_limit_offset(
@@ -2371,7 +2387,8 @@ class QueryCompiler:
             count_query_parts.append(where_str)
 
         if group_by_str:
-            subquery_parts = ["SELECT 1", from_str]
+            # derived-table columns need a name (SQL Server error 8155)
+            subquery_parts = ["SELECT 1 AS qb_one", from_str]
             if joins_str:
                 subquery_parts.append(joins_str)
             if where_str:

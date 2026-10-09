@@ -75,7 +75,8 @@ def test_introspection_finds_seeded_tables_and_columns(
         c["name"].lower(): c["is_nullable"] for c in tables[ds.T_EMP.lower()]["columns"]
     }
     assert nullable["email"] is True
-    assert nullable["id"] is False or engine.family == "sqlite"
+    if "introspect_not_null" not in engine.unsupported:
+        assert nullable["id"] is False, "NOT NULL column reported nullable"
 
 
 def test_introspection_primary_keys(conn: Any, engine: Engine) -> None:

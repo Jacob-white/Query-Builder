@@ -145,6 +145,8 @@ for _id, _col, _op, _val, _ids_expected in _FILTERS:
             f"filter-{_id}",
             _flt(_col, _op, _val),
             _ids(*_ids_expected),
+            # engines where NULL compares as an ordinary value (QuestDB)
+            requires=("sql_null_semantics",) if _id == "neq" else (),
             group="filter",
         )
     )
@@ -193,6 +195,7 @@ add(
             ]
         ),
         _ids(3, 4),
+        requires=("in_subquery",),
         group="filter",
     )
 )
@@ -312,6 +315,7 @@ add(
         },
         [r for r in _GROUPED if r["total"] > 150],
         ordered=False,
+        requires=("having",),
         group="aggregate",
     )
 )
