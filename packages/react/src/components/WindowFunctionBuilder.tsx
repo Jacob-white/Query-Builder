@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import type { WindowFunctionSpec, WindowFrameSpec } from "../types";
+import type { WindowFunctionSpec } from "../types";
 import { useTheme } from "../theme/ThemeProvider";
 
 export const SUPPORTED_WINDOW_FUNCTIONS = [

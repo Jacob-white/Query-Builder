@@ -2,6 +2,7 @@ import React, { createRef } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
+import { makeSpec } from "./helpers";
 import type { QuerySpec, QueryResultData, SchemaSnapshot, VisualQueryBuilderRef } from "../src/types";
 
 /**
@@ -154,7 +155,7 @@ describe("VisualQueryBuilder characterization: raw SQL mode", () => {
     expect(document.querySelector('[data-qb="raw-sql-discarded-notice"]')).toBeNull();
 
     act(() => {
-      ref.current?.setSpec({ table: "orders", columns: ["orders.id"] });
+      ref.current?.setSpec(makeSpec({ table: "orders", columns: ["orders.id"] }));
     });
     // Back in raw mode on re-entry? Restore flow: put raw SQL back via the editor first.
     fireEvent.change(sqlEditor(), { target: { value: "SELECT 2" } });
@@ -209,7 +210,7 @@ describe("VisualQueryBuilder characterization: undo/redo shortcuts", () => {
     const redo = screen.getByLabelText(/Redo query changes/) as HTMLButtonElement;
     expect(undo.disabled).toBe(true);
     act(() => {
-      ref.current?.setSpec({ table: "orders", columns: ["orders.id"], limit: 5 });
+      ref.current?.setSpec(makeSpec({ table: "orders", columns: ["orders.id"], limit: 5 }));
     });
     expect(undo.disabled).toBe(false);
     expect(ref.current?.canUndo()).toBe(true);
@@ -232,7 +233,7 @@ describe("VisualQueryBuilder characterization: undo/redo shortcuts", () => {
     const ref = createRef<VisualQueryBuilderRef>();
     render(<VisualQueryBuilder ref={ref} schema={schema} initialTable="users" />);
     act(() => {
-      ref.current?.setSpec({ table: "orders", columns: ["orders.id"] });
+      ref.current?.setSpec(makeSpec({ table: "orders", columns: ["orders.id"] }));
     });
     fireEvent.click(tab("sql"));
     fireEvent.keyDown(sqlEditor(), { key: "z", ctrlKey: true });
@@ -343,7 +344,7 @@ describe("VisualQueryBuilder characterization: controlled value and onChange", (
   it("syncs a changed value prop, ignores equivalent re-renders, and reports user edits", async () => {
     const onChange = vi.fn();
     const ref = createRef<VisualQueryBuilderRef>();
-    const a: QuerySpec = { table: "orders", columns: ["orders.id"], limit: 10 };
+    const a: QuerySpec = makeSpec({ table: "orders", columns: ["orders.id"], limit: 10 });
     const { rerender } = render(
       <VisualQueryBuilder ref={ref} schema={schema} value={a} onChange={onChange} />,
     );
@@ -356,13 +357,13 @@ describe("VisualQueryBuilder characterization: controlled value and onChange", (
     );
     expect(onChange).not.toHaveBeenCalled();
 
-    const b: QuerySpec = { table: "orders", columns: ["orders.id", "orders.amount"], limit: 99 };
+    const b: QuerySpec = makeSpec({ table: "orders", columns: ["orders.id", "orders.amount"], limit: 99 });
     rerender(<VisualQueryBuilder ref={ref} schema={schema} value={b} onChange={onChange} />);
     await waitFor(() => expect(ref.current?.getSpec()?.limit).toBe(99));
     expect(onChange).not.toHaveBeenCalled();
 
     act(() => {
-      ref.current?.setSpec({ table: "users", columns: ["users.id"] });
+      ref.current?.setSpec(makeSpec({ table: "users", columns: ["users.id"] }));
     });
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     const [spec, sql] = onChange.mock.calls[onChange.mock.calls.length - 1];
@@ -391,7 +392,7 @@ describe("VisualQueryBuilder characterization: imperative ref API", () => {
     expect(ref.current?.canUndo()).toBe(false);
 
     act(() => {
-      ref.current?.setSpec({ table: "orders", columns: ["orders.amount"] });
+      ref.current?.setSpec(makeSpec({ table: "orders", columns: ["orders.amount"] }));
     });
     expect(ref.current?.getSpec()?.table).toBe("orders");
     act(() => {

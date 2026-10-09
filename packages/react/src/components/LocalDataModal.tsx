@@ -8,7 +8,6 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { useClientOlap } from "../hooks/useClientOlap";
-import type { DuckDBTableMeta } from "../types";
 
 export interface LocalDataModalProps {
   isOpen: boolean;

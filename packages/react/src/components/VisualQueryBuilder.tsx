@@ -7,7 +7,6 @@ import React, {
   useCallback,
 } from "react";
 import type {
-  VisualQueryBuilderProps,
   VisualQueryBuilderRef,
   TableMeta,
   QueryTemplate,
@@ -20,24 +19,22 @@ import type {
 import {
   resolveFeatureConfig,
   isFeatureVisible as checkFeatureVisible,
-  detectActiveAdvancedClauses,
 } from "../utils/featureUtils";
+import type { ExtendedVisualQueryBuilderProps } from "./visual-query-builder/props";
+import { useAdvancedClauses } from "./visual-query-builder/useAdvancedClauses";
+import { useCompiledQuery } from "./visual-query-builder/useCompiledQuery";
 import { SchemaErdModal } from "./SchemaErdModal";
 import { SchemaExplorerModal } from "./SchemaExplorerModal";
 import { QueryTemplateManager } from "./QueryTemplateManager";
 import { LiveExecutionBar } from "./LiveExecutionBar";
 import { WindowFunctionBuilder } from "./WindowFunctionBuilder";
 import { AiAssistantWidget } from "./AiAssistantWidget";
-import type { LiveExecutionResult } from "../hooks/useLiveExecution";
-import { estimateClientPlan, compileVisualState } from "../utils/compiler";
+import { estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { useQueryState } from "../hooks/useQueryState";
 import { cx } from "../utils/classNames";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
-import type { QueryBuilderTheme } from "../theme/tokens";
-import type { NlqProviderName } from "../hooks/useNlqQuery";
-import type { QueryPlanNode, CteSpec, WindowFunctionSpec, SemanticModel } from "../types";
 import { fastCanonicalSpec } from "../utils/canonicalSpec";
 import { useBuilderTheme, rootStyle } from "./visual-query-builder/useBuilderTheme";
 import { useClientBootstrap } from "./visual-query-builder/useClientBootstrap";
@@ -69,30 +66,8 @@ import {
   ResultsPanel,
 } from "./visual-query-builder/TabPanels";
 
-export type { VisualQueryBuilderRef };
+export type { VisualQueryBuilderRef, ExtendedVisualQueryBuilderProps };
 export { fastCanonicalSpec };
-
-export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> = Omit<
-  VisualQueryBuilderProps<Schema>,
-  "theme"
-> & {
-  theme?: "dark" | "light" | "auto" | QueryBuilderTheme;
-  unstyled?: boolean;
-  queryPlan?: QueryPlanNode;
-  showPlanTab?: boolean;
-  showNlqBar?: boolean;
-  nlqApiUrl?: string;
-  nlqDefaultProvider?: NlqProviderName;
-  showLiveExecutionBar?: boolean;
-  liveExecutionApiUrl?: string;
-  liveExecutionConnectionId?: string;
-  onLiveExecutionSuccess?: (results: LiveExecutionResult) => void;
-  onLiveExecutionError?: (error: Error) => void;
-  initialCtes?: CteSpec[];
-  initialWindowFunctions?: WindowFunctionSpec[];
-  showPipelineTab?: boolean;
-  semanticModels?: SemanticModel[];
-};
 
 export const VisualQueryBuilder = React.forwardRef<
   VisualQueryBuilderRef,
@@ -211,37 +186,12 @@ export const VisualQueryBuilder = React.forwardRef<
   const vectorSearch = state.vectorSearch || null;
   const hybridSearch = state.hybridSearch || null;
 
-  const activeAdvancedClauses = useMemo(() => {
-    if (isAdvancedMode) return [];
-    return detectActiveAdvancedClauses(
-      { ctes, windowFunctions, vectorSearch, hybridSearch, selectedColumns: state.selectedColumns },
-      resolvedFeatures,
-    );
-  }, [
+  const { activeAdvancedClauses, clearAdvancedClauses } = useAdvancedClauses(
+    state,
+    actions,
     isAdvancedMode,
-    ctes,
-    windowFunctions,
-    vectorSearch,
-    hybridSearch,
-    state.selectedColumns,
     resolvedFeatures,
-  ]);
-
-  const handleClearAdvancedClauses = useCallback(() => {
-    if (ctes.length > 0) actions.setCtes([]);
-    if (windowFunctions.length > 0) actions.setWindowFunctions([]);
-    if (vectorSearch) actions.setVectorSearch(null);
-    if (hybridSearch) actions.setHybridSearch(null);
-    const cleanedCols = { ...state.selectedColumns };
-    let hasCleaned = false;
-    for (const [k, v] of Object.entries(cleanedCols)) {
-      if (v && (v.rawExpression || (v as { expression?: unknown }).expression)) {
-        delete cleanedCols[k];
-        hasCleaned = true;
-      }
-    }
-    if (hasCleaned) actions.setSelectedColumns(cleanedCols);
-  }, [ctes, windowFunctions, vectorSearch, hybridSearch, state.selectedColumns, actions]);
+  );
 
   const augmentedSchema = useAugmentedSchema(normalizedSchema, ctes, activeStageName, semanticModels);
 
@@ -275,45 +225,7 @@ export const VisualQueryBuilder = React.forwardRef<
       .filter((t): t is TableMeta => Boolean(t));
   }, [activeTableNames, augmentedSchema]);
 
-  // Compiled visual query
-  const compiled = useMemo(() => {
-    return compileVisualState(
-      primaryTable,
-      state.selectedColumns,
-      state.orderedProjectionKeys,
-      state.joins,
-      state.filters,
-      state.sorts,
-      state.isDistinct,
-      state.limit,
-      augmentedSchema,
-      dialect,
-      "AND",
-      customOperators,
-      vectorSearch,
-      hybridSearch,
-      ctes,
-      windowFunctions,
-      semanticModels,
-    );
-  }, [
-    primaryTable,
-    state.selectedColumns,
-    state.orderedProjectionKeys,
-    state.joins,
-    state.filters,
-    state.sorts,
-    state.isDistinct,
-    state.limit,
-    augmentedSchema,
-    dialect,
-    customOperators,
-    vectorSearch,
-    hybridSearch,
-    ctes,
-    windowFunctions,
-    semanticModels,
-  ]);
+  const compiled = useCompiledQuery(state, augmentedSchema, dialect, customOperators, semanticModels);
 
   const raw = useRawSqlMode({
     compiled,
@@ -528,7 +440,7 @@ export const VisualQueryBuilder = React.forwardRef<
         <AdvancedClausesBanner
           labels={activeAdvancedClauses.map((c) => c.label)}
           onViewAdvanced={() => toggleAdvanced(true)}
-          onClear={handleClearAdvancedClauses}
+          onClear={clearAdvancedClauses}
           unstyled={unstyled}
           theme={activeTheme}
         />
