@@ -12,6 +12,7 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 | Tier | Meaning | Classes |
 | --- | --- | --- |
 | `certified` | The live conformance suite (`tests/integration`) ran against a real engine through this class and passed in the latest recorded run. | 21 |
+| `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 0 |
 | `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 117 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
