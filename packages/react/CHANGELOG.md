@@ -13,6 +13,24 @@
 - The npm tarball ships `dist/`, `README.md`, `CHANGELOG.md` and `LICENSE` only (no `src/`).
 - New scripts: `clean`, `check:package`, `prepublishOnly` (clean, typecheck, build, test, check).
 
+### Spec types and hook consolidation
+
+- New exported `SerializedQuerySpec` (the documented, loosely-typed serialized spec: snake_case
+  `QuerySpec`, the hooks' own camelCase state shape, or a saved preset) and `narrowSerializedSpec(input: unknown)`
+  which validates/narrows untrusted input (non-objects become `{}`, wrongly-typed top-level fields are dropped).
+- **Type change:** the loose `Record<string, unknown>` spec parameters are now `SerializedQuerySpec`:
+  `useQueryBuilder({ initialSpec })`, `actions.loadSpec` (both hooks), `QueryTemplate.spec`, `SqlPreset.spec`,
+  `QueryTemplateManagerProps.currentSpec`, `QueryPlaygroundProps.initialSpec`, `onSaveQuery`'s `spec`,
+  `compileSpecToSql`, `estimateClientPlan` and `useSqlCompiler`. Object literals and `QuerySpec`s keep compiling;
+  a value typed as an arbitrary `Record<string, unknown>` must be narrowed with `narrowSerializedSpec` first.
+  `useQueryState` / `createInitialState` take the new `QueryStateInit` union (also accepts `Partial<QuerySpec>`).
+- `stateToSpec` now takes the structural `SpecSourceState` (any `QueryState` / builder-like state still fits).
+- Runtime: `loadSpec(null | undefined | non-object)` is now ignored instead of throwing, and `toggleColumn` no
+  longer duplicates an already-present projection key.
+- Internal: `useQueryBuilder` and `useQueryState` share one pure module (`utils/queryStateTransitions.ts`) for
+  table/column/join/filter/sort/auto-join transitions and spec conversion; `specToState`/`stateToSpec` moved
+  there (still exported from the package root and from `hooks/useQueryState`).
+
 ### Type tightenings (`any` removal) - breaking-change note for the next major release
 
 The `any` -> `unknown` cleanup narrowed several public types. Wherever it could be done without

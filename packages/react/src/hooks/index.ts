@@ -11,6 +11,7 @@ export {
   type QueryState,
   type QueryHistory,
   type QueryStateActions,
+  type QueryStateInit,
   type UseQueryStateReturn,
   stateToSpec,
   specToState,

@@ -26,8 +26,6 @@ const ALLOWED_OPERATORS = [
   "<",
 ];
 
-const AGGREGATE_FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"];
-
 /** True for any code unit matched by the regex class `\s` (computed without a regex). */
 function isWs(code: number): boolean {
   return (
@@ -704,7 +702,7 @@ function findTopLevelOperator(
  */
 export function parseSqlToSpec(
   sql: string,
-  schema?: SchemaSnapshot | null,
+  _schema?: SchemaSnapshot | null,
 ): QuerySpec | null {
   if (!sql || typeof sql !== "string") return null;
 
