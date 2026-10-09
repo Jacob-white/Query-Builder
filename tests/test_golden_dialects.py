@@ -10,6 +10,7 @@ Regenerate deliberately with ``python tests/test_golden_dialects.py --update``.
 
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -60,6 +61,13 @@ def _call(fn: Any, *args: Any) -> Any:
 def snapshot() -> dict[str, Any]:
     snap: dict[str, Any] = {
         "names": sorted(d.DIALECTS),
+        # Every importable name (classes, helpers, constants, private helpers),
+        # excluding submodules and the incidental ``Any`` import.
+        "module_names": sorted(
+            n
+            for n, v in vars(d).items()
+            if not n.startswith("__") and not inspect.ismodule(v) and v is not Any
+        ),
         "distinct_instances": len({id(v) for v in d.DIALECTS.values()}),
         "dialects": {},
     }
@@ -134,6 +142,7 @@ def test_dialects_match_golden_snapshot() -> None:
     expected = json.loads(GOLDEN.read_text(encoding="utf-8"))
     actual = json.loads(json.dumps(snapshot()))
     assert actual["names"] == expected["names"]
+    assert actual["module_names"] == expected["module_names"]
     assert actual["distinct_instances"] == expected["distinct_instances"]
     assert actual["helpers"] == expected["helpers"]
     for name, rec in expected["dialects"].items():
