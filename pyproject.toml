@@ -68,6 +68,8 @@ dev = [
     "httpx>=0.27.0",
     "hypothesis>=6.100.0",
     "pglast>=6.0",
+    "mypy>=1.10",
+    "types-PyYAML",
 ]
 server = ["fastapi>=0.110.0", "starlette>=0.37.0", "uvicorn>=0.29.0", "httpx>=0.27.0"]
 django = ["django>=4.2", "djangorestframework>=3.14.0", "django-ninja>=1.0.0"]
@@ -343,3 +345,72 @@ ignore = [
 "examples/**" = ["S"]
 # Developer tooling that deliberately drives docker and subprocesses.
 "scripts/**" = ["S603", "S607"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["query_builder"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+
+# Optional runtime dependencies that may be absent (or untyped) where mypy runs.
+# Scoped to these modules only; never a global ignore_missing_imports.
+[[tool.mypy.overrides]]
+module = ["redis", "redis.*", "yaml"]
+ignore_missing_imports = true
+
+# --- Typing ratchet (see docs/TYPING.md) -------------------------------------
+# Graduated modules: fully strict. A module listed here must stay clean.
+[[tool.mypy.overrides]]
+module = [
+    "query_builder",
+    "query_builder._regex_utils",
+    "query_builder.models",
+    "query_builder.config",
+    "query_builder.security",
+    "query_builder.policy",
+    "query_builder.telemetry",
+    "query_builder.cache",
+    "query_builder.export",
+    "query_builder.middleware",
+    "query_builder.pool",
+    "query_builder.async_pool",
+    "query_builder.join_solver",
+    "query_builder.schema",
+    "query_builder.schema_converters",
+    "query_builder.templates",
+    "query_builder.advisor",
+    "query_builder.explain",
+    "query_builder.fusion",
+    "query_builder.semantic",
+    "query_builder.capabilities",
+    "query_builder.exceptions",
+    "query_builder.executor",
+    "query_builder.mcp_server",
+    "query_builder.adapters.*",
+    "query_builder.ai.*",
+    "query_builder.nlq.*",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+
+# BASELINE: modules NOT yet type-checked. This list may only shrink; it is
+# mirrored in docs/typing_baseline.txt and enforced by tests/test_typing_ratchet.py.
+# To graduate a module, fix its errors, move it to the strict block above, and
+# delete it from both this list and docs/typing_baseline.txt.
+[[tool.mypy.overrides]]
+module = [
+    "query_builder.compiler",
+    "query_builder.dialects",
+    "query_builder.parser",
+    "query_builder.cli",
+    "query_builder.server",
+    "query_builder.ast_validator",
+    "query_builder.sql_ast",
+    "query_builder.integrations.*",
+    "query_builder.connectors.*",
+]
+ignore_errors = true

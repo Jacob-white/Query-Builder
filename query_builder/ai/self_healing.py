@@ -174,7 +174,7 @@ class SelfHealingQueryEngine:
             else {}
         )
         if isinstance(schema_tables, dict):
-            new_columns = []
+            new_columns: list[dict[str, Any] | str] = []
             for col_item in healed.get("columns", []):
                 if isinstance(col_item, dict):
                     raw_col = col_item.get("column", "")

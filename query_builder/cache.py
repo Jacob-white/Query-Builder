@@ -28,7 +28,7 @@ def compute_cache_key(
 ) -> str:
     """Computes a deterministic SHA256 cache key from a QuerySpec or dict."""
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore
+        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
     elif isinstance(spec, dict):
         spec_dict = dict(spec)
     else:
@@ -252,11 +252,12 @@ class RedisQueryCache(BaseQueryCache):
             self._down_until = time.monotonic() + self._RETRY_AFTER_SECONDS
 
     def get(self, key: str) -> Any | None:
-        if not self._usable():
+        client = self.client
+        if client is None or not self._usable():
             self._misses += 1
             return None
         try:
-            val = self.client.get(self._format_key(key))
+            val = client.get(self._format_key(key))
             if val is not None:
                 self._hits += 1
                 return json.loads(
@@ -268,16 +269,17 @@ class RedisQueryCache(BaseQueryCache):
         return None
 
     def set(self, key: str, value: Any, ttl: int | None = None) -> None:
-        if not self._usable():
+        client = self.client
+        if client is None or not self._usable():
             return
         effective_ttl = ttl if ttl is not None else self.default_ttl
         try:
             encoded = json.dumps(value, default=str)
             r_key = self._format_key(key)
             if effective_ttl and effective_ttl > 0:
-                self.client.set(r_key, encoded, ex=int(effective_ttl))
+                client.set(r_key, encoded, ex=int(effective_ttl))
             else:
-                self.client.set(r_key, encoded)
+                client.set(r_key, encoded)
         except Exception as exc:  # noqa: BLE001
             self._note_failure(exc)
 
@@ -286,10 +288,11 @@ class RedisQueryCache(BaseQueryCache):
     # A failure still extends the back-off for reads; a success proves Redis is reachable.
 
     def delete(self, key: str) -> bool:
-        if self.client is None:
+        client = self.client
+        if client is None:
             return False
         try:
-            removed = bool(self.client.delete(self._format_key(key)))
+            removed = bool(client.delete(self._format_key(key)))
         except Exception as exc:  # noqa: BLE001
             self._note_failure(exc)
             return False
@@ -298,7 +301,10 @@ class RedisQueryCache(BaseQueryCache):
 
     def _delete_batch(self, keys: list[Any]) -> None:
         # UNLINK frees memory asynchronously, keeping each call O(batch) for the server.
-        remover = getattr(self.client, "unlink", None) or self.client.delete
+        client = self.client
+        if client is None:  # pragma: no cover - callers check for a client first
+            return
+        remover = getattr(client, "unlink", None) or client.delete
         remover(*keys)
 
     def clear(self) -> None:

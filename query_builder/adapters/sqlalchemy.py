@@ -44,7 +44,7 @@ def _reflect_live_sqlalchemy(target: Any) -> SchemaDict | None:
     """Reflects live SQLAlchemy MetaData, Table, or Model objects."""
     # Check if target is or contains Table objects
     tables = SchemaDict()
-    live_tables = []
+    live_tables: list[Any] = []
 
     if hasattr(target, "tables") and isinstance(target.tables, dict):
         # MetaData instance
