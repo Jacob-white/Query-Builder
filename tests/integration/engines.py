@@ -898,6 +898,10 @@ _register(
         password="",
         connector_factory=_kw_trino,
         native_factory=_trino_native,
+        slow_sql=(
+            "SELECT count(*) FROM (SELECT x FROM unnest(sequence(1, 1000000)) t(x)) a "
+            "CROSS JOIN (SELECT y FROM unnest(sequence(1, 1000000)) t(y)) b"
+        ),
         unsupported={
             "introspect_pk": Limitation(
                 "Trino memory catalog has no primary keys",
@@ -925,7 +929,6 @@ _register(
             "case_sensitive_identifiers": Limitation(
                 "Trino folds identifiers to lower case", probe=case_probe()
             ),
-            "statement_timeout": "Trino timeouts are session properties, not applied",
             "db_read_only": "no read-only login in the memory catalog",
         },
     )

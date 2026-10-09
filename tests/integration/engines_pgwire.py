@@ -93,7 +93,7 @@ register(
         drivers=("psycopg", "psycopg2"),
         pip="'psycopg[binary]'",
         port=40900,
-        user="postgres",
+        user="supabase_admin",  # the image's `postgres` role cannot CREATE in schema public
         connector_factory=_kw_postgres,
         native_factory=_pg_native,
         ro_native=_pg_ro,
@@ -200,7 +200,12 @@ register(
 # RisingWave (PostgreSQL wire, streaming): no foreign keys
 # --------------------------------------------------------------------------
 dataset.FAMILIES["risingwave"] = dataset.Ddl(
-    int_t="INT", nint_t="INT", str_t="VARCHAR", nstr_t="VARCHAR", fk=False
+    int_t="INT",
+    nint_t="INT",
+    str_t="VARCHAR",
+    nstr_t="VARCHAR",
+    fk=False,
+    not_null="",  # RisingWave: column constraints "NOT NULL" are not implemented
 )
 
 
@@ -295,12 +300,12 @@ def _seed_greptime(e: Engine) -> None:
     try:
         native.run("DROP TABLE IF EXISTS qbit_people")
         native.run(
-            "CREATE TABLE qbit_people (id INT, name STRING, age INT, "
-            "ts TIMESTAMP TIME INDEX, PRIMARY KEY (id))"
+            'CREATE TABLE qbit_people ("id" INT, name STRING, age INT, '
+            'ts TIMESTAMP TIME INDEX, PRIMARY KEY ("id"))'
         )
         for pid, name, age in smoke.PEOPLE:
             native.run(
-                "INSERT INTO qbit_people (id, name, age, ts) VALUES "
+                'INSERT INTO qbit_people ("id", name, age, ts) VALUES '
                 f"({pid}, '{name}', {age}, {pid})"
             )
     finally:

@@ -690,7 +690,7 @@ def introspect_cratedb(
             """
             SELECT table_name
             FROM information_schema.tables
-            WHERE table_schema = %s
+            WHERE table_schema = ?
             ORDER BY table_name;
             """,
             [schema_name],
@@ -702,12 +702,34 @@ def introspect_cratedb(
             """
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = %s
+            WHERE table_schema = ?
             ORDER BY table_name, ordinal_position;
             """,
             [schema_name],
         )
         col_rows = cursor.fetchall()
+
+        # real primary keys from the catalog; engines/versions without the catalog views
+        # fall back to the old "a column named id" guess (flagged by pk_known=False)
+        pk_cols: dict[str, set[str]] = {}
+        pk_known = True
+        try:
+            cursor.execute(
+                """
+                SELECT k.table_name, k.column_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS k
+                  ON k.constraint_name = tc.constraint_name
+                 AND k.table_schema = tc.table_schema
+                 AND k.table_name = tc.table_name
+                WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;
+                """,
+                [schema_name],
+            )
+            for pk_row in cursor.fetchall():
+                pk_cols.setdefault(str(pk_row[0]), set()).add(str(pk_row[1]))
+        except Exception:  # noqa: BLE001 - catalog views not available
+            pk_known = False
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
@@ -717,7 +739,11 @@ def introspect_cratedb(
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": is_null.upper() == "YES",
-                    "is_primary": c_name == "id",
+                    "is_primary": (
+                        c_name in pk_cols.get(t_name, set())
+                        if pk_known
+                        else c_name == "id"
+                    ),
                     "comment": None,
                 }
             )

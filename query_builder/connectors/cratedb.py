@@ -44,7 +44,7 @@ class CrateDBConnector(BaseConnector):
             return self._connection
 
         driver = None
-        for mod_name in ("crate.client", "psycopg2", "psycopg"):
+        for mod_name in ("crate.client",):
             try:
                 driver = __import__(mod_name, fromlist=["client"])
                 break
@@ -53,7 +53,7 @@ class CrateDBConnector(BaseConnector):
 
         if driver is None:
             raise DriverNotInstalledError(
-                "Neither 'crate' nor 'psycopg2' is installed. "
+                "'crate' is not installed (its qmark parameter style is what the CrateDB dialect emits). "
                 "Install with: pip install 'query-builder-engine[cratedb]'"
             )
 
@@ -115,7 +115,7 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
             return self._connection
 
         driver = None
-        for mod_name in ("crate.client", "psycopg2", "psycopg"):
+        for mod_name in ("crate.client",):
             try:
                 driver = __import__(mod_name, fromlist=["client"])
                 break
@@ -124,7 +124,7 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
 
         if driver is None:
             raise DriverNotInstalledError(
-                "Neither 'crate' nor 'psycopg2' is installed. "
+                "'crate' is not installed (its qmark parameter style is what the CrateDB dialect emits). "
                 "Install with: pip install 'query-builder-engine[cratedb]'"
             )
 

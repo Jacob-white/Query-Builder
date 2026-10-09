@@ -235,8 +235,10 @@ def run_batch(args: argparse.Namespace) -> int:
             print("[it_batch] tearing down (compose down -v)", flush=True)
             # No --remove-orphans: several people/agents share the compose project, and
             # containers started from OTHER compose files would count as orphans here.
+            # `--profile "*"`: `down` otherwise ignores services that sit behind a profile
+            # (they were started by explicit name), leaving their containers running.
             subprocess.run(
-                base + ["down", "-v"],
+                compose_cmd(compose_files, ["*"]) + ["down", "-v"],
                 cwd=ROOT,
                 check=False,
                 capture_output=True,

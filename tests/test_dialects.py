@@ -339,7 +339,7 @@ def test_new_dialects_behavior():
     crate = get_dialect("cratedb")
     assert crate.name == "cratedb"
     assert get_dialect("crate").name == "cratedb"
-    assert crate.format_ilike('"c"') == '"c" ILIKE %s'
+    assert crate.format_ilike('"c"') == '"c" ILIKE ?'
 
     influx = get_dialect("influxdb")
     assert influx.name == "influxdb"

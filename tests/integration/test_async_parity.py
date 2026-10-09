@@ -80,6 +80,15 @@ def test_async_introspection_matches_sync(async_engine: Engine) -> None:
         assert got.get(table) == expected[table], (table, got.get(table))
 
 
+#: columns whose value is the time of the read itself, so two reads can never agree on it
+#: (Prometheus instant queries stamp samples with the evaluation time)
+_VOLATILE_COLUMNS: dict[str, frozenset[str]] = {"prometheus": frozenset({"timestamp"})}
+
+
+def _stable(rows: list[dict[str, Any]], drop: frozenset[str]) -> list[dict[str, Any]]:
+    return [{k: v for k, v in r.items() if k not in drop} for r in rows]
+
+
 def test_async_reads_match_sync(async_engine: Engine) -> None:
     if async_engine.name in smoke.SMOKE:
         spec = smoke.SMOKE[async_engine.name]
@@ -94,7 +103,10 @@ def test_async_reads_match_sync(async_engine: Engine) -> None:
             want = sync.execute(sql=spec.read, validate_ast=False)["rows"]
         finally:
             sync.close()
-        assert sorted(map(str, rows)) == sorted(map(str, want))
+        drop = _VOLATILE_COLUMNS.get(async_engine.name, frozenset())
+        assert sorted(map(str, _stable(rows, drop))) == sorted(
+            map(str, _stable(want, drop))
+        )
         return
 
     chosen = [
