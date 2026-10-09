@@ -14,7 +14,9 @@ import os
 import re
 import socket
 import urllib.parse
-from dataclasses import asdict
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from query_builder.config import SecurityProfile  # noqa: F401
@@ -206,12 +208,39 @@ IPV6_ULA_NETWORK = ipaddress.ip_network("fc00::/7")
 IPV6_LINK_LOCAL_NETWORK = ipaddress.ip_network("fe80::/10")
 
 
+IPV6_SITE_LOCAL_NETWORK = ipaddress.ip_network("fec0::/10")
+IPV6_NAT64_NETWORK = ipaddress.ip_network("64:ff9b::/96")
+IPV6_NAT64_LOCAL_NETWORK = ipaddress.ip_network("64:ff9b:1::/48")
+IPV6_IPV4_COMPAT_NETWORK = ipaddress.ip_network("::/96")
+IPV6_6TO4_NETWORK = ipaddress.ip_network("2002::/16")
+IPV6_TEREDO_NETWORK = ipaddress.ip_network("2001::/32")
+
+
+def _embedded_ipv4(
+    ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> list[ipaddress.IPv4Address]:
+    """IPv4 addresses an IPv6 address can tunnel to (mapped, NAT64, 6to4, Teredo, compat)."""
+    if not isinstance(ip_obj, ipaddress.IPv6Address):
+        return []
+    out: list[ipaddress.IPv4Address] = []
+    if ip_obj.ipv4_mapped is not None:
+        out.append(ip_obj.ipv4_mapped)
+    raw = int(ip_obj)
+    if ip_obj in IPV6_NAT64_NETWORK or ip_obj in IPV6_IPV4_COMPAT_NETWORK:
+        out.append(ipaddress.IPv4Address(raw & 0xFFFFFFFF))
+    if ip_obj.sixtofour is not None:
+        out.append(ip_obj.sixtofour)
+    teredo = ip_obj.teredo
+    if teredo is not None:
+        out.extend(teredo)
+    return out
+
+
 def _is_cloud_metadata(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Checks if IP corresponds to known cloud instance metadata endpoints."""
+    """Checks if IP (or any IPv4 it embeds) is a known cloud instance metadata endpoint."""
     if ip_obj in CLOUD_METADATA_IPS:
         return True
-    mapped = getattr(ip_obj, "ipv4_mapped", None)
-    return bool(mapped is not None and mapped in CLOUD_METADATA_IPS)
+    return any(v4 in CLOUD_METADATA_IPS for v4 in _embedded_ipv4(ip_obj))
 
 
 def _is_private_or_restricted(
@@ -221,9 +250,8 @@ def _is_private_or_restricted(
     if _is_cloud_metadata(ip_obj):
         return True
 
-    mapped = getattr(ip_obj, "ipv4_mapped", None)
-    if mapped is not None:
-        return _is_private_or_restricted(mapped)
+    if any(_is_private_or_restricted(v4) for v4 in _embedded_ipv4(ip_obj)):
+        return True
 
     if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local:
         return True
@@ -234,7 +262,116 @@ def _is_private_or_restricted(
         return True
     return bool(
         isinstance(ip_obj, ipaddress.IPv6Address)
-        and (ip_obj in IPV6_ULA_NETWORK or ip_obj in IPV6_LINK_LOCAL_NETWORK)
+        and (
+            ip_obj in IPV6_ULA_NETWORK
+            or ip_obj in IPV6_LINK_LOCAL_NETWORK
+            or ip_obj in IPV6_SITE_LOCAL_NETWORK
+            or ip_obj in IPV6_NAT64_LOCAL_NETWORK
+            or ip_obj in IPV6_TEREDO_NETWORK
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# DNS resolution (single, injectable) and address pinning
+# ---------------------------------------------------------------------------
+
+Resolver = Callable[[str, int], list[str]]
+
+
+def _default_resolver(host: str, port: int) -> list[str]:
+    """System resolver: every address (IPv4 and IPv6) the host currently maps to."""
+    infos = socket.getaddrinfo(host, port or 0, proto=socket.IPPROTO_TCP)
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+_resolver: Resolver = _default_resolver
+
+
+def set_dns_resolver(resolver: Resolver | None) -> Resolver:
+    """Replaces the process-wide resolver (None restores the system one); returns the
+    previous one.  Used by tests (fake / rebinding resolvers) and by deployments that
+    resolve through a vetted internal DNS service."""
+    global _resolver
+    previous = _resolver
+    _resolver = resolver or _default_resolver
+    return previous
+
+
+@contextmanager
+def dns_resolver(resolver: Resolver) -> Iterator[None]:
+    previous = set_dns_resolver(resolver)
+    try:
+        yield
+    finally:
+        set_dns_resolver(previous)
+
+
+_UNICODE_DOTS = str.maketrans({"\u3002": ".", "\uff0e": ".", "\uff61": "."})
+
+
+def _normalize_host(host: Any) -> str:
+    """Lower-cases, folds ideographic dots and drops a trailing root dot
+    (``metadata.google.internal.`` is the same name as ``metadata.google.internal``)."""
+    h = str(host).strip().lower().translate(_UNICODE_DOTS)
+    while h.endswith(".") and len(h) > 1:
+        h = h[:-1]
+    return h
+
+
+@dataclass(frozen=True)
+class ResolvedTarget:
+    """Outcome of resolving and validating a network target ONCE.
+
+    ``addresses`` are all addresses the name resolved to; every one of them passed the
+    egress policy.  ``pinned_address`` is the address a connection must use (so the
+    validated DNS answer and the connected-to address cannot differ: no TOCTOU /
+    DNS-rebinding window).  It is ``None`` when the host is an IP literal / localhost
+    (nothing to pin) or the name did not resolve and ``fail_closed`` was not requested.
+    """
+
+    host: str
+    port: int | None
+    addresses: tuple[str, ...] = ()
+    pinned_address: str | None = None
+
+
+def resolve_and_validate_target(
+    host: str,
+    port: int | None = None,
+    network_config: Any | None = None,
+    *,
+    resolver: Resolver | None = None,
+    fail_closed: bool = False,
+) -> ResolvedTarget:
+    """Resolves ``host`` exactly once, validates EVERY resolved address, and returns the
+    validated address to connect to.
+
+    Unlike :func:`validate_network_target` (which validates and lets the driver resolve
+    again), the caller connects to ``ResolvedTarget.pinned_address`` and so can never see
+    a different DNS answer than the one that was validated.  ``fail_closed`` turns an
+    unresolvable name into a ``SecurityError`` instead of the legacy "let the driver
+    fail" fallback (which would leave a rebinding window: NXDOMAIN now, 10.0.0.5 later).
+    """
+    if network_config is None:
+        from query_builder.config import get_security_config
+
+        network_config = get_security_config().network
+    collected: list[str] = []
+    _validate_host_target(
+        host,
+        port,
+        network_config,
+        resolver=resolver,
+        collect=collected,
+        fail_closed=fail_closed,
+    )
+    pinned = collected[0] if collected else None
+    return ResolvedTarget(
+        host=_normalize_host(host),
+        port=port,
+        addresses=tuple(collected),
+        pinned_address=pinned,
     )
 
 
@@ -242,9 +379,17 @@ def _validate_host_target(
     host: str,
     port: int | None,
     network_config: Any,
+    *,
+    resolver: Resolver | None = None,
+    collect: list[str] | None = None,
+    fail_closed: bool = False,
 ) -> None:
-    """Validates an individual host/IP network egress target against SSRF rules."""
-    clean_host = str(host).strip().lower()
+    """Validates an individual host/IP network egress target against SSRF rules.
+
+    When ``collect`` is given, the validated addresses (the IP literal, or every address
+    the name resolved to) are appended to it so the caller can pin the connection.
+    """
+    clean_host = _normalize_host(host)
     if not clean_host:
         return
 
@@ -315,6 +460,8 @@ def _validate_host_target(
             raise SecurityError(
                 f"Access to private/internal network target '{host}' is forbidden."
             )
+        if collect is not None:
+            collect.append(str(ip_obj))
         return
 
     # Localhost check for hostnames
@@ -328,13 +475,13 @@ def _validate_host_target(
             )
         return
 
-    # DNS Resolution with graceful offline fallback
+    # DNS resolution: every returned address must pass.  The legacy path falls back to
+    # "let the driver fail" for unresolvable names; ``fail_closed`` rejects them instead.
     try:
-        addr_info = socket.getaddrinfo(
-            unbracketed_host, port or 0, proto=socket.IPPROTO_TCP
-        )
-        for _, _, _, _, sockaddr in addr_info:
-            resolved_ip_str = sockaddr[0]
+        resolved_strs = (resolver or _resolver)(unbracketed_host, port or 0)
+        if fail_closed and not resolved_strs:
+            raise SecurityError(f"Host '{host}' did not resolve to any address.")
+        for resolved_ip_str in resolved_strs:
             resolved_ip = ipaddress.ip_address(resolved_ip_str)
             if _is_cloud_metadata(resolved_ip):
                 raise SecurityError(
@@ -346,9 +493,12 @@ def _validate_host_target(
                 raise SecurityError(
                     f"Host '{host}' resolves to forbidden private/internal IP '{resolved_ip_str}'."
                 )
-    except (socket.gaierror, socket.herror, OSError):
+            if collect is not None:
+                collect.append(str(resolved_ip))
+    except (socket.gaierror, socket.herror, OSError) as exc:
+        if fail_closed:
+            raise SecurityError(f"Host '{host}' could not be resolved.") from exc
         # Graceful offline fallback for unresolvable test or mock hostnames
-        pass
 
 
 def validate_network_target(
