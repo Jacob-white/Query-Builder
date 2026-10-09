@@ -604,7 +604,7 @@ def _filter_modules() -> dict[str, Any]:
         def all_of(parts: list[Any]) -> Any:
             return ("all", parts)
 
-    q =types.ModuleType("weaviate.classes.query")
+    q = types.ModuleType("weaviate.classes.query")
     q.Filter = Filter  # type: ignore[attr-defined]
     q.Sort = type(
         "Sort",
