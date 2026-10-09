@@ -50,6 +50,9 @@ class AsyncBaseConnector(ABC):
     dialect_name: str = "postgres"
     default_timeout_ms: int = 5000
 
+    #: See ``BaseConnector.read_only_support``.
+    read_only_support: str = "none"
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if "connect" in cls.__dict__:
@@ -62,7 +65,9 @@ class AsyncBaseConnector(ABC):
                 ) -> Any:
                     self._validate_network_target()
                     try:
-                        return await orig_connect(self, *args, **kw)
+                        conn = await orig_connect(self, *args, **kw)
+                        await self._ensure_read_only(conn)
+                        return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
                         if scrubbed is exc:
@@ -233,6 +238,21 @@ class AsyncBaseConnector(ABC):
     @abstractmethod
     async def connect(self) -> Any:
         """Establishes or returns an active database connection asynchronously."""
+
+    async def apply_read_only(self, connection: Any) -> None:
+        """Hook: make ``connection`` refuse writes at the database (see the sync base)."""
+        return None
+
+    async def _ensure_read_only(self, connection: Any) -> None:
+        if connection is None:
+            return
+        sec = getattr(self, "security", None)
+        if sec is None or not sec.execution.enforce_read_only_session:
+            return
+        if getattr(self, "_read_only_applied_to", None) is connection:
+            return
+        await self.apply_read_only(connection)
+        self._read_only_applied_to = connection
 
     async def close(self) -> None:
         """Closes the active connection if managed by this connector."""

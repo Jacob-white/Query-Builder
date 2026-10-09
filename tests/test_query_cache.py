@@ -254,9 +254,19 @@ def test_global_cache_singleton_management():
     assert isinstance(get_global_cache(), InMemoryLRUCache)
 
 
+def _writable_security():
+    """These tests build their fixtures through the connector, so they opt out of the
+    database-side read-only session (which now really refuses writes)."""
+    from query_builder.config import SecurityConfig
+
+    sec = SecurityConfig()
+    sec.execution.enforce_read_only_session = False
+    return sec
+
+
 def test_sqlite_connector_caching_integration():
     reset_global_cache()
-    conn = SQLiteConnector(":memory:")
+    conn = SQLiteConnector(":memory:", security=_writable_security())
     conn.execute_raw("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);")
     conn.execute_raw("INSERT INTO items (name) VALUES ('Widget A'), ('Widget B');")
 
@@ -280,7 +290,7 @@ def test_sqlite_connector_caching_integration():
 def test_server_execute_caching_and_sse_streaming(tmp_path):
     reset_global_cache()
     db_file = tmp_path / "test_stream.db"
-    conn = SQLiteConnector(str(db_file))
+    conn = SQLiteConnector(str(db_file), security=_writable_security())
     conn.execute_raw("CREATE TABLE products (id INTEGER, name TEXT);")
     for i in range(15):
         conn.execute_raw(f"INSERT INTO products VALUES ({i}, 'Prod {i}');")

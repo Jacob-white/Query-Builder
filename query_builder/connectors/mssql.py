@@ -20,6 +20,10 @@ class MSSQLConnector(BaseConnector):
     """Connector for Microsoft SQL Server databases."""
 
     dialect_name = "mssql"
+    # SQL Server has no per-session read-only mode.  `ApplicationIntent=ReadOnly` only
+    # routes to a readable AG secondary (it does not block writes on a primary) and is not
+    # supported by pymssql, so nothing is claimed: use a db_datareader-only login.
+    read_only_support = "none"
 
     def __init__(
         self,

@@ -20,6 +20,17 @@ class ClickHouseConnector(BaseConnector):
     """Connector for ClickHouse columnar database."""
 
     dialect_name = "clickhouse"
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """``readonly = 2``: no writes/DDL, and the ``readonly`` setting itself cannot be
+        changed, but per-query settings (the statement timeout) remain adjustable.
+        ``readonly = 1`` would reject the connector's own ``SET max_execution_time``."""
+        setter = getattr(connection, "set_client_setting", None)
+        if setter is not None:
+            setter("readonly", 2)
+        else:
+            connection.command("SET readonly = 2")
 
     def __init__(
         self,

@@ -71,6 +71,12 @@ class BaseConnector(ABC):
     dialect_name: str = "postgres"
     default_timeout_ms: int = 5000
 
+    #: How strongly the engine can enforce a read-only session (see ``apply_read_only``):
+    #: ``"enforced"`` (the engine refuses writes), ``"best_effort"`` (the statement is sent
+    #: but the engine/driver may not honour it), ``"none"`` (no mechanism available; rely
+    #: on a read-only database role).  Documented per engine in docs/THREAT_MODEL.md.
+    read_only_support: str = "none"
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if "connect" in cls.__dict__:
@@ -81,7 +87,9 @@ class BaseConnector(ABC):
                 def wrapped_connect(self: Any, *args: Any, **kw: Any) -> Any:
                     self._validate_network_target()
                     try:
-                        return orig_connect(self, *args, **kw)
+                        conn = orig_connect(self, *args, **kw)
+                        self._ensure_read_only(conn)
+                        return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
                         if scrubbed is exc:
@@ -296,6 +304,27 @@ class BaseConnector(ABC):
                     cur.close()
         else:
             yield conn
+
+    def apply_read_only(self, connection: Any) -> None:
+        """Hook: make ``connection`` refuse writes at the DATABASE (defense in depth).
+
+        Called automatically from the wrapped ``connect()`` whenever
+        ``security.execution.enforce_read_only_session`` is on, once per connection object,
+        so a connector cannot forget it.  Engines without a mechanism keep this no-op
+        (``read_only_support == "none"``).  Raising here fails the connection closed.
+        """
+        return None
+
+    def _ensure_read_only(self, connection: Any) -> None:
+        if connection is None:
+            return
+        sec = getattr(self, "security", None)
+        if sec is None or not sec.execution.enforce_read_only_session:
+            return
+        if getattr(self, "_read_only_applied_to", None) is connection:
+            return
+        self.apply_read_only(connection)
+        self._read_only_applied_to = connection
 
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
         """Hook for dialect-specific statement timeout configuration."""
