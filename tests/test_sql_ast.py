@@ -214,3 +214,21 @@ def test_allowed_schemas_unblocks_public() -> None:
     assert validate_sql_ast("SELECT * FROM public.orders", allowed_schemas=["public"])[
         "valid"
     ]
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "'" + "'" * 30000,
+        '"' + '\\"' * 30000,
+        "SELECT 1 /*" + "a/*" * 30000,
+        "'" * 60000,
+    ],
+)
+def test_literal_and_comment_scanning_is_linear_on_hostile_input(hostile):
+    """Unterminated quotes/comments must not trigger polynomial regex backtracking."""
+    import time
+
+    start = time.perf_counter()
+    analyze_sql(hostile, "postgres")
+    assert time.perf_counter() - start < 2.0
