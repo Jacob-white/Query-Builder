@@ -152,9 +152,9 @@ class PrometheusConnector(BaseConnector):
             )
 
         try:
-            if hasattr(driver, "Client"):  # httpx
+            if mod_name == "httpx":
                 self._connection = driver.Client(base_url=self.url, **self.config)
-            elif hasattr(driver, "Session"):  # requests
+            elif mod_name == "requests":
                 self._connection = RequestsBase(self.url, **self.config)
             elif hasattr(driver, "PrometheusConnect"):
                 self._connection = driver.PrometheusConnect(url=self.url, **self.config)
@@ -262,7 +262,7 @@ class AsyncPrometheusConnector(AsyncBaseConnector):
             )
 
         try:
-            if hasattr(driver, "AsyncClient"):  # httpx
+            if mod_name == "httpx":
                 self._connection = driver.AsyncClient(base_url=self.url, **self.config)
             elif hasattr(driver, "PrometheusConnect"):
                 self._connection = driver.PrometheusConnect(url=self.url, **self.config)

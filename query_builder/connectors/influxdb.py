@@ -8,6 +8,8 @@ time-series measurement querying, and schema introspection.
 from __future__ import annotations
 
 import contextlib
+import re
+import urllib.request
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -18,6 +20,8 @@ from query_builder.connectors.base import (
 )
 from query_builder.connectors.introspection import introspect_information_schema
 from query_builder.connectors.registry import register_connector
+
+_PLACEHOLDER = re.compile(r"%s")
 
 
 class _InfluxCursorAdapter:
@@ -30,7 +34,18 @@ class _InfluxCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         if hasattr(self.client, "query"):
-            table_or_res = self.client.query(sql)
+            if params and type(self.client).__module__.startswith("influxdb_client_3"):
+                # InfluxDB 3 binds named parameters ($p0) through ``query_parameters``;
+                # it has no positional ``%s`` style, and silently dropping them would run
+                # the statement with unbound placeholders.
+                counter = iter(range(len(params)))
+                sql = _PLACEHOLDER.sub(lambda _m: f"$p{next(counter)}", sql)
+                table_or_res = self.client.query(
+                    sql,
+                    query_parameters={f"p{i}": v for i, v in enumerate(params)},
+                )
+            else:
+                table_or_res = self.client.query(sql)
             if hasattr(table_or_res, "column_names") and hasattr(
                 table_or_res, "to_pylist"
             ):
@@ -88,7 +103,7 @@ class InfluxDBConnector(BaseConnector):
         database: str = "default",
         connection: Any = None,
         cursor: Any = None,
-        schema_name: str = "public",
+        schema_name: str = "iox",
         **config: Any,
     ) -> None:
         super().__init__(connection=connection, cursor=cursor, **config)
@@ -108,6 +123,7 @@ class InfluxDBConnector(BaseConnector):
 
         driver = None
         for mod_name in (
+            "influxdb_client_3",
             "influxdb3_python",
             "influxdb3_client",
             "flightsql",
@@ -129,7 +145,7 @@ class InfluxDBConnector(BaseConnector):
             cfg = {
                 k: v
                 for k, v in self.config.items()
-                if k not in ("host", "token", "database")
+                if k not in ("host", "token", "database", "schema_name")
             }
             if hasattr(driver, "connect"):
                 self._connection = driver.connect(
@@ -174,16 +190,26 @@ class InfluxDBConnector(BaseConnector):
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        info["engine_version"] = "InfluxDB 3.0 / IOx SQL Engine"
+        info["engine_version"] = self._server_version()
         info["database"] = self.database
         return info
+
+    def _server_version(self) -> str:
+        """Server version from the ``/ping`` response header (falls back to the product name)."""
+        base = self.host if "//" in self.host else f"http://{self.host}"
+        try:
+            with urllib.request.urlopen(base.rstrip("/") + "/ping", timeout=5) as res:  # noqa: S310
+                version = res.headers.get("x-influxdb-version")
+        except Exception:  # noqa: BLE001 - version is informational
+            version = None
+        return f"InfluxDB {version}" if version else "InfluxDB 3.0 / IOx SQL Engine"
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
             try:
                 return introspect_information_schema(
                     cur,
-                    schema_name="public",
+                    schema_name=self.schema_name,
                     filter_sensitive=filter_sensitive,
                 )
             except Exception as exc:

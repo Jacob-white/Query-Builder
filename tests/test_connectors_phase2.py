@@ -720,7 +720,10 @@ def test_prometheus_connector_lifecycle():
     mock_drv = MagicMock()
     mock_drv.PrometheusConnect.side_effect = RuntimeError("Prometheus refused")
     with (
-        patch.dict(sys.modules, {"prometheus_api_client": mock_drv}),
+        patch.dict(
+            sys.modules,
+            {"prometheus_api_client": mock_drv, "httpx": None, "requests": None},
+        ),
         pytest.raises(ConnectionFailedError),
     ):
         PrometheusConnector().connect()
@@ -730,7 +733,10 @@ def test_prometheus_connector_lifecycle():
     mock_client.all_metrics.return_value = ["cpu"]
     mock_drv.PrometheusConnect.side_effect = None
     mock_drv.PrometheusConnect.return_value = mock_client
-    with patch.dict(sys.modules, {"prometheus_api_client": mock_drv}):
+    with patch.dict(
+        sys.modules,
+        {"prometheus_api_client": mock_drv, "httpx": None, "requests": None},
+    ):
         c = PrometheusConnector()
         assert c.connect() is mock_client
 
@@ -783,7 +789,10 @@ def test_prometheus_connector_lifecycle():
 
     # Connect when driver does not have PrometheusConnect
     raw_driver = MagicMock(spec=["get"])
-    with patch.dict(sys.modules, {"prometheus_api_client": raw_driver}):
+    with patch.dict(
+        sys.modules,
+        {"prometheus_api_client": raw_driver, "httpx": None, "requests": None},
+    ):
         c_raw = PrometheusConnector()
         assert c_raw.connect() is raw_driver
 
@@ -811,7 +820,10 @@ def test_async_prometheus_connector_lifecycle():
         mock_drv = MagicMock()
         mock_drv.PrometheusConnect.side_effect = RuntimeError("Prom async fail")
         with (
-            patch.dict(sys.modules, {"prometheus_api_client": mock_drv}),
+            patch.dict(
+                sys.modules,
+                {"prometheus_api_client": mock_drv, "httpx": None, "requests": None},
+            ),
             pytest.raises(ConnectionFailedError),
         ):
             await conn.connect()
@@ -824,7 +836,10 @@ def test_async_prometheus_connector_lifecycle():
         mock_client.cursor.return_value = mock_cur
         mock_drv.PrometheusConnect.side_effect = None
         mock_drv.PrometheusConnect.return_value = mock_client
-        with patch.dict(sys.modules, {"prometheus_api_client": mock_drv}):
+        with patch.dict(
+            sys.modules,
+            {"prometheus_api_client": mock_drv, "httpx": None, "requests": None},
+        ):
             c_exec = AsyncPrometheusConnector()
             cols, rows, lat = await c_exec.execute_raw("up", [1])
             assert cols == ["metric"]
@@ -863,7 +878,10 @@ def test_async_prometheus_connector_lifecycle():
 
         # Connect when driver does not have PrometheusConnect
         raw_driver = MagicMock(spec=["get"])
-        with patch.dict(sys.modules, {"prometheus_api_client": raw_driver}):
+        with patch.dict(
+            sys.modules,
+            {"prometheus_api_client": raw_driver, "httpx": None, "requests": None},
+        ):
             c_raw = AsyncPrometheusConnector()
             assert await c_raw.connect() is raw_driver
 

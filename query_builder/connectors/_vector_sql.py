@@ -67,7 +67,7 @@ class VectorQuery:
             return None
         names = {src for _, src in self.columns if src not in ("_distance",)}
         names |= {c.column for c in self.conds}
-        names |= {n for n, _ in self.order_by}
+        names |= {n for n, _ in self.order_by if n != "_distance"}
         return sorted(names)
 
 
@@ -156,6 +156,7 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
         raise VectorQueryError("a single collection in FROM is required")
     vq = VectorQuery(table=str(table.name))
 
+    distance_aliases: set[str] = set()
     for item in tree.expressions:
         inner = item.this if isinstance(item, exp.Alias) else item
         alias = item.alias if isinstance(item, exp.Alias) else None
@@ -166,6 +167,7 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
             vq.count_only = True
         elif func is not None:
             vq.columns.append((alias or "_distance", "_distance"))
+            distance_aliases.add(alias or "_distance")
             _set_vector(vq, func, value_of(_func_args(inner)[1]), _arg_col(inner))
         elif isinstance(inner, exp.Column):
             vq.columns.append((alias or inner.name, inner.name))
@@ -190,7 +192,7 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
                     _arg_col(target),
                 )
             elif isinstance(target, exp.Column):
-                name = target.name
+                name = "_distance" if target.name in distance_aliases else target.name
             else:
                 raise VectorQueryError(f"unsupported ORDER BY: {target.sql()}")
             vq.order_by.append((name, bool(o.args.get("desc"))))
@@ -281,7 +283,9 @@ def _read_condition(
         vq.conds.append(Cond(col_name(node.this), "in", vals))
         return
     if isinstance(node, exp.Is) and isinstance(node.expression, exp.Null):
-        vq.conds.append(Cond(col_name(node.this), "is_null"))
+        # newer sqlglot parses ``x IS NOT NULL`` as Is(negate=True), older as Not(Is(...))
+        op = "is_not_null" if node.args.get("negate") else "is_null"
+        vq.conds.append(Cond(col_name(node.this), op))
         return
     if isinstance(node, exp.Not):
         inner = node.this
@@ -382,7 +386,12 @@ def drive_sync(plan: Any, client: Any) -> Any:
         request = next(plan)
         while True:
             name, kwargs = request
-            request = plan.send(_resolve(client, name)(**kwargs))
+            try:
+                result = _resolve(client, name)(**kwargs)
+            except Exception as exc:  # noqa: BLE001 - let the plan decide
+                request = plan.throw(exc)
+                continue
+            request = plan.send(result)
     except StopIteration as done:
         return done.value
 
@@ -394,11 +403,15 @@ async def drive_async(plan: Any, client: Any) -> Any:
         request = next(plan)
         while True:
             name, kwargs = request
-            result = _resolve(client, name)(**kwargs)
-            if inspect.isawaitable(result):
-                result = await result
-            if hasattr(result, "__aiter__"):  # async generator: collect it
-                result = [item async for item in result]
+            try:
+                result = _resolve(client, name)(**kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                if hasattr(result, "__aiter__"):  # async generator: collect it
+                    result = [item async for item in result]
+            except Exception as exc:  # noqa: BLE001 - let the plan decide
+                request = plan.throw(exc)
+                continue
             request = plan.send(result)
     except StopIteration as done:
         return done.value

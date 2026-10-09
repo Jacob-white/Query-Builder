@@ -72,24 +72,13 @@ class _TDengineCursorAdapter:
         pass
 
 
-def _load_driver() -> Any:
-    """First importable TDengine driver.
-
-    ``taos`` (native) imports fine as a package but raises ``InterfaceError`` -- not
+def _no_driver_error(failures: list[str]) -> DriverNotInstalledError:
+    """``taos`` (native) imports as a package but raises ``InterfaceError`` -- not
     ``ImportError`` -- when the ``libtaos`` client library is missing (every pip-only install
-    and every Windows host without the TDengine client), so every failure has to fall through
-    to the REST driver ``taosrest`` instead of aborting.
-    """
-    failures: list[str] = []
-    for mod_name in ("taos", "taosrest"):
-        try:
-            return __import__(mod_name, fromlist=["connect"])
-        except ImportError:
-            continue
-        except Exception as exc:  # noqa: BLE001 - native client library missing
-            failures.append(f"{mod_name}: {exc}")
+    and every Windows host without the TDengine client); the connect loops below treat any
+    failure as "try the REST driver ``taosrest``" instead of aborting."""
     detail = f" ({'; '.join(failures)})" if failures else ""
-    raise DriverNotInstalledError(
+    return DriverNotInstalledError(
         "No usable TDengine driver: install 'taospy' with the TDengine client library "
         "(native 'taos') or use its REST driver ('taosrest', pass url=...). "
         f"Install with: pip install 'query-builder-engine[tdengine]'{detail}"
@@ -117,7 +106,19 @@ class TDengineConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = _load_driver()
+        driver = None
+        failures: list[str] = []
+        for mod_name in ("taos", "taosrest"):
+            try:
+                driver = __import__(mod_name, fromlist=["connect"])
+                break
+            except ImportError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - native client library missing
+                failures.append(f"{mod_name}: {exc}")
+
+        if driver is None:
+            raise _no_driver_error(failures)
 
         try:
             self._connection = driver.connect(database=self.database, **self.config)
@@ -151,7 +152,7 @@ class TDengineConnector(BaseConnector):
             cur.execute("SELECT SERVER_VERSION()")
             row = cur.fetchone()
         latency_ms = (time.perf_counter() - start) * 1000.0
-        version = row[0] if row else None
+        version = row[0] if row and isinstance(row[0], str) else None
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
@@ -194,7 +195,19 @@ class AsyncTDengineConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = _load_driver()
+        driver = None
+        failures: list[str] = []
+        for mod_name in ("taos", "taosrest"):
+            try:
+                driver = __import__(mod_name, fromlist=["connect"])
+                break
+            except ImportError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - native client library missing
+                failures.append(f"{mod_name}: {exc}")
+
+        if driver is None:
+            raise _no_driver_error(failures)
 
         try:
             self._connection = driver.connect(database=self.database, **self.config)
@@ -225,6 +238,7 @@ class AsyncTDengineConnector(AsyncBaseConnector):
         start = time.perf_counter()
         _, rows, _ = await self.execute_raw("SELECT SERVER_VERSION()")
         version = next(iter(rows[0].values()), None) if rows else None
+        version = version if isinstance(version, str) else None
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",

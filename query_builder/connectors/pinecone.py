@@ -66,7 +66,8 @@ def _pinecone_filter(conds: list[Any]) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
     for c in conds:
         if c.op in ("is_null", "is_not_null"):
-            raise VectorQueryError("Pinecone metadata filters cannot test for NULL")
+            out.setdefault(c.column, {})["$exists"] = c.op == "is_not_null"
+            continue
         out.setdefault(c.column, {})[_OPS[c.op]] = c.value
     return out
 
@@ -87,8 +88,11 @@ def _index_plan(conn_is_index: bool, table: str, make_index: str) -> Any:
 
 
 def _resolve_table(names: list[str], wanted: str) -> str:
+    # Pinecone index names cannot contain '_' (lowercase alphanumerics and '-'), while the
+    # compiler only emits identifiers made of '_': treat them as the same name.
+    norm = wanted.lower().replace("_", "-")
     for n in names:
-        if n == wanted or n.lower() == wanted.lower():
+        if n == wanted or n.lower().replace("_", "-") == norm:
             return n
     raise VectorQueryError(f"index {wanted!r} does not exist; have {sorted(names)}")
 
