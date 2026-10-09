@@ -523,6 +523,16 @@ _Token = tuple[str, str]
 _RELATION_ANCHORS = frozenset(
     {"FROM", "JOIN", "APPLY", "STRAIGHT_JOIN", "TABLE", "LATERAL", "ONLY", "USING"}
 )
+_STRING_RELATION_ANCHORS = frozenset(
+    {"FROM", "JOIN", "APPLY", "STRAIGHT_JOIN", "TABLE"}
+)
+_FROM_FUNCTION_TOKENS = frozenset(
+    ("w", f) for f in ("EXTRACT", "SUBSTRING", "SUBSTR", "TRIM", "OVERLAY", "POSITION")
+)
+_STRING_RELATION_MSG = (
+    "Access Denied: A string literal in a table position (file or URL scan) "
+    "is not permitted."
+)
 _RELATION_MODIFIERS = frozenset({"ONLY", "LATERAL"})
 _FROM_LIST_TERMINATORS = frozenset(
     {
@@ -703,12 +713,17 @@ def _check_relations(
     """
     n = len(tokens)
 
-    def check_relation_at(j: int) -> None:
+    def check_relation_at(j: int, *, string_is_file: bool = True) -> None:
         while j < n and (
             tokens[j] == ("p", "(")
             or (tokens[j][0] == "w" and tokens[j][1] in _RELATION_MODIFIERS)
         ):
             j += 1
+        if string_is_file and j + 1 < n and tokens[j] == ("p", "'"):
+            # A string literal in a table position is a file / URL replacement scan
+            # (DuckDB `FROM 'x.csv'` / `FROM $$x.csv$$`) or an identifier fallback
+            # (SQLite `FROM 'auth_user'`, whose name the lexer has already masked).
+            violations.append(_STRING_RELATION_MSG)
         if j < n and tokens[j][0] != "p":
             parts, dd, _ = _read_dotted_name(tokens, j)
             hit = _restricted_name(parts, dd, restricted, relation=True)
@@ -717,13 +732,19 @@ def _check_relations(
 
     depth = 0
     from_list: dict[int, bool] = {}
+    # For each open paren: is it the argument list of EXTRACT/SUBSTRING/TRIM/... whose
+    # `FROM <string>` is not a table position?
+    fn_stack: list[bool] = []
     for i, (kind, val) in enumerate(tokens):
         if kind == "p":
             if val == "(":
                 depth += 1
+                fn_stack.append(i > 0 and tokens[i - 1] in _FROM_FUNCTION_TOKENS)
             elif val == ")":
                 from_list.pop(depth, None)
                 depth = max(0, depth - 1)
+                if fn_stack:
+                    fn_stack.pop()
             elif val == "," and from_list.get(depth):
                 check_relation_at(i + 1)
             elif val == ";":
@@ -734,7 +755,16 @@ def _check_relations(
         if val in _RELATION_ANCHORS:
             if val == "USING" and i + 1 < n and tokens[i + 1] == ("p", "("):
                 continue
-            check_relation_at(i + 1)
+            in_fn_from = bool(fn_stack and fn_stack[-1]) and val == "FROM"
+            after_distinct = (
+                val == "FROM" and i > 0 and tokens[i - 1] == ("w", "DISTINCT")
+            )
+            check_relation_at(
+                i + 1,
+                string_is_file=val in _STRING_RELATION_ANCHORS
+                and not in_fn_from
+                and not after_distinct,
+            )
             if val == "FROM":
                 from_list[depth] = True
         elif val in _FROM_LIST_TERMINATORS:

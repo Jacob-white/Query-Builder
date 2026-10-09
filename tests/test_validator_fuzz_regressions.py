@@ -48,3 +48,38 @@ def test_pragma_table_valued_functions_are_denied(sql: str) -> None:
     restricted tables (the authorizer reports a PRAGMA action)."""
     for dialect in (None, "sqlite"):
         assert not validate_sql_ast(sql, dialect=dialect)["valid"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM $$data.csv$$",
+        "SELECT * FROM $$/tmp/x.parquet$$",
+        "SELECT * FROM 'data.csv'",
+        "SELECT * FROM 's3://bucket/key.parquet'",
+        "SELECT * FROM t, 'a.csv'",
+        "SELECT * FROM t JOIN 'a.csv' ON 1=1",
+    ],
+)
+def test_string_literal_in_table_position_is_rejected(sql: str) -> None:
+    """Found by the DuckDB oracle: ``FROM $$data.csv$$`` is a file read in DuckDB, but every
+    sqlglot dialect that parses it (MySQL, SQLite, ...) sees an odd identifier, and the
+    dialects that would read the file (DuckDB, PostgreSQL) cannot tokenize it, so the union
+    over dialects accepted it.  The legacy layer now rejects any string literal in a table
+    position."""
+    for dialect in (None, "duckdb"):
+        assert not validate_sql_ast(sql, dialect=dialect)["valid"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT EXTRACT(YEAR FROM '2024-01-02') FROM t",
+        "SELECT SUBSTRING('abc' FROM 2) FROM t",
+        "SELECT TRIM(BOTH 'x' FROM col) FROM t",
+        "SELECT * FROM t WHERE a IS DISTINCT FROM 'x'",
+        "SELECT * FROM t WHERE a IS NOT DISTINCT FROM 'x'",
+    ],
+)
+def test_string_after_from_in_function_syntax_stays_valid(sql: str) -> None:
+    assert validate_sql_ast(sql, dialect="postgres")["valid"], sql
