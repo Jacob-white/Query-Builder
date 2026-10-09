@@ -436,9 +436,34 @@ def _normalize_placeholders(sql: str) -> str:
     return sql
 
 
+# sqlglot (as of 30.x) cannot parse a comment between the words of a multi-word keyword
+# (`GROUP /* c */ BY`).  When the original text fails to parse we retry once with comments
+# replaced by a space.  Comment recognition here is the standard `--` / non-nested
+# `/* */` one; text a nesting dialect would hide stays visible, which only makes the
+# analysis stricter (more code is inspected, or the parse fails and we fail closed).
+_COMMENT_RE = re.compile(
+    r"""(?P<skip>'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`)"""
+    r"""|(?P<cm>--[^\r\n]*|/\*.*?(?:\*/|\Z))""",
+    re.DOTALL,
+)
+
+
+def _strip_comments(sql: str) -> str:
+    return _COMMENT_RE.sub(lambda m: m.group("skip") or " ", sql)
+
+
+def _parse(sql: str, dialect: str | None):
+    return sqlglot.parse(_normalize_placeholders(sql), read=dialect)
+
+
 def _analyze_one(sql: str, dialect: str | None) -> tuple[dict[str, object], str | None]:
     try:
-        statements = sqlglot.parse(_normalize_placeholders(sql), read=dialect)
+        try:
+            statements = _parse(sql, dialect)
+        except SqlglotError:
+            if "--" not in sql and "/*" not in sql:
+                raise
+            statements = _parse(_strip_comments(sql), dialect)
     except RecursionError:
         return {}, "recursion limit exceeded while parsing"
     except SqlglotError as exc:
@@ -656,6 +681,8 @@ def evaluate_policy(
                 or ref.name.startswith(denied_function_prefixes)
             ):
                 out.append(f"Table function '{ref.name}' is not permitted.")
+        elif ref.name.upper().startswith("PRAGMA_"):
+            out.append(f"Relation '{ref.name}' is a SQLite pragma table function.")
         elif _FILE_LIKE_RE.search(ref.name):
             out.append(
                 f"Relation '{ref.name}' looks like a file path or URL; file access is not permitted."

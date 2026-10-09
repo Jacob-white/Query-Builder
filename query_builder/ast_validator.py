@@ -434,10 +434,10 @@ def _lex(sql: str, mode: _LexMode) -> _Lexed:
             masked.append("''")
         else:  # line / hash / block comments
             if kind == "bc":
-                end, closed = _skip_block_comment(sql, end, mode.nested)
-                if not closed:
-                    dangling_at = m.start()
-                    break
+                # An unterminated block comment runs to the end of the input: SQLite
+                # (and others) accept that as a comment, so it is NOT a syntax error and
+                # nothing after it is code (found by the SQLite differential fuzzer).
+                end, _closed = _skip_block_comment(sql, end, mode.nested)
             stripped.append(" ")
             masked.append(" ")
         pos = end
@@ -629,6 +629,7 @@ _DENIED_FUNCTION_PREFIXES = (
     "READ_TEXT",
     "READ_BLOB",
     "PARQUET_",
+    "PRAGMA_",
     "SYSTEM$",
 )
 

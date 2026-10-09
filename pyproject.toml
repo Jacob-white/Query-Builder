@@ -212,6 +212,7 @@ where = ["."]
 include = ["query_builder*"]
 
 [tool.pytest.ini_options]
+markers = ["fuzz: differential/fuzz suites against real parsers (HYPOTHESIS_PROFILE=deep for the long run)", "integration: needs a live database; skipped when unreachable"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 filterwarnings = [
