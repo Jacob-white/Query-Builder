@@ -165,11 +165,15 @@ is a `Limitation(reason, probe=...)`:
 ```python
 from tests.integration.engines import Engine, Limitation, register
 
-unsupported={
+unsupported = {
     # statement probe: run through the NATIVE driver; the engine must raise
-    "statement_timeout": Limitation("no server-side timeout", probe="SET statement_timeout = 1000"),
+    "statement_timeout": Limitation(
+        "no server-side timeout", probe="SET statement_timeout = 1000"
+    ),
     # callable probe: (engine) -> bool, True when the feature WORKED (= the declaration is wrong)
-    "case_sensitive_identifiers": Limitation("folds identifiers", probe=probe_case_sensitive_identifiers),
+    "case_sensitive_identifiers": Limitation(
+        "folds identifiers", probe=probe_case_sensitive_identifiers
+    ),
     # plain string: still accepted, but UNVERIFIED (no probe)
     "introspect_fk": "no foreign keys",
 }
