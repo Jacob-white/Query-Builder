@@ -33,6 +33,11 @@ from query_builder.telemetry import TelemetryCollector
 from query_builder.templates import TemplateStore
 
 GOLDEN = Path(__file__).parent / "golden" / "server.json"
+_BUILTIN_DIALECTS = set(
+    json.loads((Path(__file__).parent / "golden" / "dialects.json").read_text("utf-8"))[
+        "names"
+    ]
+)
 
 _VOLATILE = re.compile(
     r'"(latency_ms|elapsed_ms|created_at|updated_at|timestamp|execution_id|'
@@ -54,6 +59,9 @@ _HEADERS = (
 
 def _norm(text: str, db_path: str) -> str:
     text = text.replace(db_path, "<DB>").replace(db_path.replace("\\", "\\\\"), "<DB>")
+    # Registries are process-global: other tests may register extra connectors,
+    # dialects or providers, so enumerations of "Available: [...]" are masked.
+    text = re.sub(r"(Available(?: connectors)?): \[[^\]]*\]", r"\g<1>: [<LIST>]", text)
     text = re.sub(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<UUID>", text
     )
@@ -144,6 +152,9 @@ def _scenarios(c: _Client) -> dict[str, dict[str, Any]]:
     # -- GET routes ------------------------------------------------------
     rec("get_health", "GET", "/health")
     rec("get_health_query", "GET", "/health?x=1")
+    for key in ("get_health", "get_health_query"):  # other tests may register more
+        body = out[key]["body"]
+        body["dialects"] = [x for x in body["dialects"] if x in _BUILTIN_DIALECTS]
     rec("get_openapi", "GET", "/openapi.json", raw=True)
     rec("get_docs", "GET", "/docs", raw=True)
     rec("get_telemetry_empty", "GET", "/api/v1/telemetry")
