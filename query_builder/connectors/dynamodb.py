@@ -199,7 +199,9 @@ class DynamoDBConnector(BaseConnector):
 
     @staticmethod
     def _unmarshal_value(v: Any) -> Any:
-        if not isinstance(v, dict) or not v:
+        if not isinstance(v, dict):
+            return v
+        if not v:
             return None
         if "S" in v:
             return v["S"]

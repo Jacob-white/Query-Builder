@@ -721,6 +721,107 @@ smoke.SMOKE["couchbase"] = smoke.Smoke(
 )
 
 
+# =====================================================================  Cosmos DB (Linux emulator)
+# The emulator's documented, published well-known key (not a secret).
+COSMOS_KEY = (
+    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+)
+
+
+def _cosmos_client(e: Engine) -> Any:
+    from azure.cosmos import CosmosClient
+
+    return CosmosClient(
+        f"http://{e.host}:{e.port_}", credential=COSMOS_KEY, connection_verify=False
+    )
+
+
+def _cosmos_container(e: Engine) -> Any:
+    return _cosmos_client(e).get_database_client(e.database_).get_container_client(
+        "qbit_people"
+    )
+
+
+def _seed_cosmos(e: Engine) -> None:
+    import time
+
+    from azure.cosmos import PartitionKey
+
+    client = None
+    for _ in range(60):  # the emulator accepts TCP before it serves requests
+        try:
+            client = _cosmos_client(e)
+            client.create_database_if_not_exists(e.database_)
+            break
+        except Exception:  # noqa: BLE001
+            time.sleep(2)
+    assert client is not None
+    db = client.create_database_if_not_exists(e.database_)
+    try:
+        db.delete_container("qbit_people")
+    except Exception:  # noqa: BLE001, S110 - first run
+        pass
+    container = db.create_container("qbit_people", partition_key=PartitionKey(path="/id"))
+    for pid, name, age in PEOPLE:
+        container.upsert_item({"id": str(pid), "name": name, "age": age})
+
+
+def _cosmos_count(e: Engine) -> int:
+    items = _cosmos_container(e).query_items(
+        "SELECT VALUE COUNT(1) FROM c", enable_cross_partition_query=True
+    )
+    return int(next(iter(items)))
+
+
+def _cosmos_cleanup(e: Engine) -> None:
+    try:
+        _cosmos_client(e).get_database_client(e.database_).delete_container("qbit_people")
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+
+def _kw_cosmos(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "endpoint": f"http://{e.host}:{e.port_}",
+        "key": COSMOS_KEY,
+        "database": e.database_,
+        "connection_verify": False,
+    }
+
+
+register(
+    Engine(
+        name="cosmosdb",
+        connector="cosmosdb",
+        async_connector="async_cosmosdb",
+        tier="extended",
+        family="",
+        drivers=("azure.cosmos",),
+        pip="azure-cosmos",
+        port=43081,
+        password="",
+        connector_factory=_kw_cosmos,
+        service="cosmosdb",
+        container_port=8081,
+        emulated=True,  # Azure Cosmos DB Linux (vNext) emulator, not the Azure service
+    )
+)
+smoke.SMOKE["cosmosdb"] = smoke.Smoke(
+    seed=_seed_cosmos,
+    table="qbit_people",
+    columns={"id", "name", "age"},
+    read="SELECT c.name, c.age FROM qbit_people c ORDER BY c.age",
+    expected=BY_AGE,
+    writes=[
+        "DELETE FROM qbit_people",
+        "UPDATE qbit_people SET age = 0",
+        "INSERT INTO qbit_people (id) VALUES ('9')",
+    ],
+    check=_count_check(_cosmos_count),
+    cleanup=_cosmos_cleanup,
+)
+
+
 # =====================================================================  Spanner (emulator)
 # Spanner is real SQL (GoogleSQL) and the connector compiles QuerySpecs, so the smoke battery
 # exercises both the native read and the compiled spec. DDL goes through the admin API, DML

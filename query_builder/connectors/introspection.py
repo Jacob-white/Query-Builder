@@ -1309,10 +1309,13 @@ def introspect_surrealdb(
     client_or_cursor: Any, database: str = "test", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects SurrealDB: tables from INFO FOR DB, columns from DEFINEd fields + samples."""
+    cur = None
+    own_cur = False
     try:
         cur = client_or_cursor
         if not hasattr(cur, "execute") and hasattr(cur, "cursor"):
             cur = cur.cursor()
+            own_cur = True
         elif not hasattr(cur, "execute") and hasattr(cur, "query"):
             from query_builder.connectors.surrealdb import _SurrealCursorAdapter
 
@@ -1320,14 +1323,18 @@ def introspect_surrealdb(
 
         def run(sql: str) -> list[dict[str, Any]]:
             cur.execute(sql)
-            names = [d[0] for d in (cur.description or [])]
-            return [dict(zip(names, row, strict=False)) for row in cur.fetchall() or []]
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
         return drive_steps(surreal_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect SurrealDB database '{database}': {exc}"
         ) from exc
+    finally:
+        if own_cur and cur is not None and hasattr(cur, "close"):
+            with contextlib.suppress(Exception):
+                cur.close()
 
 
 def _arango_json_type(value: Any) -> str:
@@ -1776,78 +1783,74 @@ def introspect_db2(
         ) from exc
 
 
+def cosmos_snapshot(
+    samples: dict[str, list[dict[str, Any]]], filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Cosmos DB snapshot from ``{container: sampled documents}``.
+
+    ``id`` (always present, a string) is the primary key; the other columns are the
+    attributes found in the sample.  System properties (``_rid``, ``_self``, ``_etag``,
+    ``_attachments``, ``_ts``) are not columns.  No container -> no tables.
+    """
+    tables: dict[str, dict[str, Any]] = {}
+    for name, docs in samples.items():
+        found: dict[str, str] = {}
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            for k, v in doc.items():
+                if k.startswith("_"):
+                    continue
+                if k not in found or found[k] == "null":
+                    found[k] = _arango_json_type(v)
+        found.setdefault("id", "string")
+        tables[name] = {
+            "name": name,
+            "columns": _sampled_columns(found, "id", "string"),
+            "has_user_id": "user_id" in found,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_cosmosdb(
     client_or_container: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects Azure Cosmos DB container schemas."""
+    """Introspects Azure Cosmos DB: real containers and the attributes of sampled documents."""
     try:
         target = getattr(client_or_container, "target", client_or_container)
-        table_names: list[str] = []
+        samples: dict[str, list[dict[str, Any]]] = {}
+        sample_query = "SELECT * FROM c OFFSET 0 LIMIT 100"
         if hasattr(target, "get_database_client"):
             db_client = target.get_database_client(database)
-            if hasattr(db_client, "list_containers"):
-                for container in db_client.list_containers():
-                    c_id = (
-                        container.get("id")
-                        if isinstance(container, dict)
-                        else getattr(container, "id", None)
+            for container in db_client.list_containers():
+                c_id = (
+                    container.get("id")
+                    if isinstance(container, dict)
+                    else getattr(container, "id", None)
+                )
+                if c_id:
+                    proxy = db_client.get_container_client(c_id)
+                    samples[str(c_id)] = list(
+                        proxy.query_items(
+                            query=sample_query, enable_cross_partition_query=True
+                        )
                     )
-                    if c_id:
-                        table_names.append(c_id)
-        elif hasattr(target, "query_items"):
-            items = list(target.query_items("SELECT VALUE c.id FROM c;"))
-            table_names = [str(i) for i in items]
+        elif hasattr(target, "query_items"):  # a single container client
+            name = str(getattr(target, "id", None) or "items")
+            samples[name] = list(
+                target.query_items(query=sample_query, enable_cross_partition_query=True)
+            )
         elif hasattr(target, "execute"):
             target.execute("SELECT VALUE c.id FROM c;")
-            rows = target.fetchall()
-            for r in rows:
+            for r in target.fetchall() or []:
                 if r:
-                    table_names.append(str(r[0]))
-
-        if not table_names:
-            table_names = ["items"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = [
-                {
-                    "name": "id",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "_rid",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "_ts",
-                    "data_type": "number",
-                    "is_nullable": False,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": False,
-                "user_col": "user_id",
-                "comment": None,
-            }
-
-        raw_snapshot = {
-            "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
-        }
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+                    samples[str(r[0])] = []
+        return cosmos_snapshot(samples, filter_sensitive)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Cosmos DB database '{database}': {exc}"
@@ -4289,9 +4292,11 @@ def introspect_memgraph(cursor: Any, filter_sensitive: bool = True) -> dict[str,
 
         def run(statement: str) -> list[dict[str, Any]]:
             cur.execute(statement)
-            names = [d[0] for d in (cur.description or [])]
-            return [dict(zip(names, row, strict=False)) for row in cur.fetchall() or []]
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
+        if not hasattr(cur, "execute"):
+            return _empty_snapshot(filter_sensitive)
         return drive_steps(memgraph_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
@@ -5175,6 +5180,22 @@ def introspect_redis_search(
                 cur.close()
 
 
+def _rows_as_dicts(names: list[str], rows: Any) -> list[dict[str, Any]]:
+    """Rows as dicts; columns without a reported name are called ``col0``, ``col1``, ..."""
+    out = []
+    for row in rows or []:
+        keys = names or [f"col{i}" for i in range(len(row))]
+        out.append(dict(zip(keys, row, strict=False)))
+    return out
+
+
+def _empty_snapshot(filter_sensitive: bool = True) -> dict[str, Any]:
+    return normalize_schema_snapshot(
+        {"tables": {}, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def _sampled_columns(
     samples: dict[str, str], primary: str, primary_type: str
 ) -> list[dict[str, Any]]:
@@ -5214,6 +5235,8 @@ def firestore_schema_steps(
     names_rows = yield "collections"
     tables: dict[str, dict[str, Any]] = {}
     for row in names_rows:
+        if not row:
+            continue
         name = str(next(iter(row.values())))
         safe = name.replace("`", "")
         docs = yield f"SELECT * FROM `{safe}` LIMIT 100"
@@ -5246,9 +5269,15 @@ def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str
 
         def run(statement: str) -> list[dict[str, Any]]:
             cur.execute(statement)
-            names = [d[0] for d in (cur.description or [])]
-            return [dict(zip(names, r, strict=False)) for r in cur.fetchall() or []]
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
+        if not hasattr(cur, "execute"):
+            if not hasattr(cur, "collections"):
+                return _empty_snapshot(filter_sensitive)
+            from query_builder.connectors.firestore import _FirestoreCursorAdapter
+
+            cur = _FirestoreCursorAdapter(cur)  # a raw SDK client
         return drive_steps(firestore_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
@@ -5272,6 +5301,8 @@ def bigtable_schema_steps(
     table_rows = yield "list_tables"
     tables: dict[str, dict[str, Any]] = {}
     for row in table_rows:
+        if not row:
+            continue
         name = str(next(iter(row.values())))
         safe = name.replace("`", "")
         sample = yield f"SELECT * FROM `{safe}` LIMIT 100"
@@ -5303,9 +5334,15 @@ def introspect_bigtable(cursor: Any, filter_sensitive: bool = True) -> dict[str,
 
         def run(statement: str) -> list[dict[str, Any]]:
             cur.execute(statement)
-            names = [d[0] for d in (cur.description or [])]
-            return [dict(zip(names, r, strict=False)) for r in cur.fetchall() or []]
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
+        if not hasattr(cur, "execute"):
+            if not hasattr(cur, "list_tables"):
+                return _empty_snapshot(filter_sensitive)
+            from query_builder.connectors.bigtable import _BigtableCursorAdapter
+
+            cur = _BigtableCursorAdapter(cur)  # a raw SDK client
         return drive_steps(bigtable_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(

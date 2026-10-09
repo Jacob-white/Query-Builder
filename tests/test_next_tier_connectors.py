@@ -1611,13 +1611,18 @@ def test_cosmosdb_connector_sync_and_async():
 
     # Introspection via list_containers
     mock_client_intro = MagicMock(spec=["get_database_client"])
-    mock_db_client = MagicMock(spec=["list_containers"])
+    mock_db_client = MagicMock(spec=["list_containers", "get_container_client"])
     mock_db_client.list_containers.return_value = [{"id": "users"}, {"id": "orders"}]
+    proxy = MagicMock(spec=["query_items"])
+    proxy.query_items.return_value = [{"id": "1", "name": "a", "_ts": 5}]
+    mock_db_client.get_container_client.return_value = proxy
     mock_client_intro.get_database_client.return_value = mock_db_client
 
     snap = introspect_cosmosdb(mock_client_intro)
     assert "users" in snap["tables"]
     assert "orders" in snap["tables"]
+    # real attributes only: system properties (_ts) are not columns, nothing invented
+    assert [c["name"] for c in snap["tables"]["users"]["columns"]] == ["id", "name"]
 
     # Introspection via execute fallback
     mock_cur_cosmos = MagicMock(spec=["execute", "fetchall"])
@@ -1626,14 +1631,15 @@ def test_cosmosdb_connector_sync_and_async():
     assert "items" in snap2["tables"]
 
     # Introspection via query_items
-    mock_container = MagicMock(spec=["query_items"])
-    mock_container.query_items.return_value = ["metrics"]
+    mock_container = MagicMock(spec=["query_items", "id"])
+    mock_container.id = "metrics"
+    mock_container.query_items.return_value = [{"id": "m1", "v": 1.5}, "not-a-doc"]
     snap3 = introspect_cosmosdb(mock_container)
-    assert "metrics" in snap3["tables"]
+    assert [c["name"] for c in snap3["tables"]["metrics"]["columns"]] == ["id", "v"]
 
-    # Introspection empty fallback
+    # nothing to introspect: no tables (a table is never invented)
     snap_empty = introspect_cosmosdb(object())
-    assert "items" in snap_empty["tables"]
+    assert snap_empty["tables"] == {}
 
     # Introspection error
     mock_client_intro.get_database_client.side_effect = RuntimeError("Cosmos DB error")
