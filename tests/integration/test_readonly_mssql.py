@@ -16,7 +16,7 @@ import pytest
 
 from query_builder.connectors.mssql import MSSQLConnector
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.qb_category("write_refused")]
 
 
 def test_connector_declares_no_session_level_read_only() -> None:

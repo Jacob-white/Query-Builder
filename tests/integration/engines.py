@@ -49,6 +49,62 @@ class EngineUnavailable(Exception):
     """The engine cannot run here; the message is the skip reason."""
 
 
+@dataclass(frozen=True)
+class Limitation:
+    """A feature an engine (or the connector over it) declares it cannot do.
+
+    A declared limitation SKIPS the dependent tests, and a skip can hide a real gap, so it
+    must prove itself: ``probe`` attempts the feature through the NATIVE driver (never
+    through the connector under test) and the engine must REJECT it.
+
+    ``probe`` is either
+
+    * a ``str`` - a native statement run through ``engine.native_factory``; it is rejected
+      when the driver raises, accepted when it succeeds; or
+    * a callable ``(engine) -> bool`` - returns True when the feature WORKED (accepted), False
+      when the engine answered "no" / empty / unsupported; it may also raise (= rejected).
+
+    ``probe=None`` is a plain declaration (``declared_unverified``): it keeps the skip but
+    blocks the ``certified`` tier while the feature sits in a core category.
+    """
+
+    reason: str
+    probe: Callable[[Engine], Any] | str | None = None
+
+
+LimitationLike = Limitation | str
+
+
+def as_limitation(value: LimitationLike) -> Limitation:
+    """Backward compatible: a plain string is a limitation WITHOUT a probe."""
+    return value if isinstance(value, Limitation) else Limitation(str(value))
+
+
+def run_probe(engine: Engine, limitation: Limitation) -> tuple[bool, str]:
+    """Run a limitation probe. Returns ``(rejected, detail)``; ``rejected`` is what we want."""
+    probe = limitation.probe
+    if probe is None:
+        raise ValueError("limitation has no probe")
+    try:
+        if isinstance(probe, str):
+            if engine.native_factory is None:
+                raise ValueError(
+                    f"{engine.name}: a statement probe needs native_factory"
+                )
+            native = engine.native_factory(engine)
+            try:
+                native.run(probe)
+            finally:
+                native.close()
+            return False, f"engine ACCEPTED native statement {probe!r}"
+        worked = probe(engine)
+    except Exception as exc:  # noqa: BLE001 - any driver error means the engine said no
+        return True, f"rejected: {type(exc).__name__}: {str(exc)[:160]}"
+    if worked:
+        return False, "engine ACCEPTED the probed feature"
+    return True, "engine answered no / empty / unsupported"
+
+
 @dataclass
 class Engine:
     name: str  # also the QB_IT_<NAME> env prefix and pytest id
@@ -61,8 +117,9 @@ class Engine:
     user: str = "qb"
     password: str = "qb_it_password"
     database: str = "qb_it"
-    #: features this engine legitimately lacks -> reason (skip, never silent pass)
-    unsupported: dict[str, str] = field(default_factory=dict)
+    #: features this engine legitimately lacks -> Limitation (skip, never silent pass). A plain
+    #: string is accepted for backward compatibility and means "declared, unverified" (no probe).
+    unsupported: dict[str, LimitationLike] = field(default_factory=dict)
     async_connector: str | None = None
     connector_factory: Callable[[Engine, dict[str, Any]], dict[str, Any]] | None = None
     native_factory: Callable[[Engine], Any] | None = None
@@ -110,6 +167,11 @@ class Engine:
     @property
     def embedded(self) -> bool:
         return self.tier == "embedded"
+
+    def limitation(self, feature: str) -> Limitation | None:
+        """The declared limitation for ``feature`` (SQL ``unsupported`` table), if any."""
+        value = self.unsupported.get(feature)
+        return None if value is None else as_limitation(value)
 
     # ---- availability --------------------------------------------------
     def driver_module(self) -> str | None:
@@ -499,6 +561,26 @@ def _pg_database_bootstrap(e: Engine) -> Native:
     return _pg_native(e)
 
 
+def probe_case_sensitive_identifiers(e: Engine) -> bool:
+    """True when two quoted identifiers differing only by case can coexist (the feature
+    WORKED); False when the engine folds them together and refuses the second."""
+    assert e.native_factory is not None
+    native = e.native_factory(e)
+    created: list[str] = []
+    try:
+        for name in ("qbit_probe_Ci", "QBIT_PROBE_CI"):
+            native.run(f'CREATE TABLE "{name}" (x INTEGER)')
+            created.append(name)
+        return True
+    except Exception:  # noqa: BLE001 - second CREATE refused: identifiers are folded
+        return False
+    finally:
+        for name in created:
+            with contextlib.suppress(Exception):
+                native.run(f'DROP TABLE "{name}"')
+        native.close()
+
+
 _register(
     Engine(
         name="sqlite",
@@ -510,8 +592,14 @@ _register(
         connector_factory=_kw_sqlite,
         native_factory=_sqlite_native,
         unsupported={
-            "statement_timeout": "SQLite has no server-side statement timeout",
-            "case_sensitive_identifiers": "SQLite identifiers are case-insensitive",
+            "statement_timeout": Limitation(
+                "SQLite has no server-side statement timeout",
+                probe="SET statement_timeout = 1000",
+            ),
+            "case_sensitive_identifiers": Limitation(
+                "SQLite identifiers are case-insensitive",
+                probe=probe_case_sensitive_identifiers,
+            ),
         },
         slow_sql="",
     )
@@ -527,8 +615,14 @@ _register(
         connector_factory=_kw_duckdb,
         native_factory=_duckdb_native,
         unsupported={
-            "statement_timeout": "DuckDB has no statement timeout setting",
-            "case_sensitive_identifiers": "DuckDB identifiers are case-insensitive",
+            "statement_timeout": Limitation(
+                "DuckDB has no statement timeout setting",
+                probe="SET statement_timeout = 1000",
+            ),
+            "case_sensitive_identifiers": Limitation(
+                "DuckDB identifiers are case-insensitive",
+                probe=probe_case_sensitive_identifiers,
+            ),
         },
     )
 )

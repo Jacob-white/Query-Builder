@@ -18,18 +18,25 @@ import pytest
 
 from query_builder.security import SecurityError
 from tests.integration import cases as cs
+from tests.integration import categories
 from tests.integration import dataset as ds
 from tests.integration.engines import Engine
+
+cat = pytest.mark.qb_category
 
 WRONG_PASSWORD = "Wr0ng-S3cret-Pw!x"
 
 
 def need(engine: Engine, *features: str) -> None:
+    """Skip (naming the declared limitation) when the engine declares it cannot do a feature.
+
+    The skip message carries the feature so the report can classify it as
+    ``verified_limitation`` (probe confirmed) or ``declared_unverified`` (no probe).
+    """
     for feat in features:
-        if feat in engine.unsupported:
-            pytest.skip(
-                f"{engine.name}: {feat} unsupported - {engine.unsupported[feat]}"
-            )
+        lim = engine.limitation(feat)
+        if lim is not None:
+            pytest.skip(categories.limitation_reason(engine.name, feat, lim.reason))
 
 
 def _sorted(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -48,6 +55,7 @@ def _count(conn: Any) -> int:
 
 
 # ------------------------------------------------------------------ connectivity
+@cat("connect")
 def test_connect_and_test_connection(conn: Any, engine: Engine) -> None:
     info = conn.test_connection()
     assert info["status"] == "healthy"
@@ -61,12 +69,16 @@ def _tables(schema: dict[str, Any]) -> dict[str, Any]:
     return {k.lower(): v for k, v in schema["tables"].items()}
 
 
-def test_introspection_finds_seeded_tables_and_columns(
-    conn: Any, engine: Engine
-) -> None:
+@cat("introspect_tables")
+def test_introspection_finds_seeded_tables(conn: Any, engine: Engine) -> None:
     tables = _tables(conn.introspect_schema(filter_sensitive=False))
     for t in (ds.T_DEPT, ds.T_EMP, ds.T_RES, ds.T_MIXED):
         assert t.lower() in tables, f"{t} missing from {sorted(tables)}"
+
+
+@cat("introspect_columns")
+def test_introspection_finds_seeded_columns(conn: Any, engine: Engine) -> None:
+    tables = _tables(conn.introspect_schema(filter_sensitive=False))
     cols = {c["name"].lower() for c in tables[ds.T_EMP.lower()]["columns"]}
     assert cols == {"id", "name", "dept_id", "salary", "age", "email"}
     res_cols = {c["name"].lower() for c in tables[ds.T_RES.lower()]["columns"]}
@@ -79,6 +91,7 @@ def test_introspection_finds_seeded_tables_and_columns(
         assert nullable["id"] is False, "NOT NULL column reported nullable"
 
 
+@cat("introspect_pk_fk")
 def test_introspection_primary_keys(conn: Any, engine: Engine) -> None:
     need(engine, "introspect_pk")
     tables = _tables(conn.introspect_schema(filter_sensitive=False))
@@ -87,6 +100,7 @@ def test_introspection_primary_keys(conn: Any, engine: Engine) -> None:
         assert primary == {"id"}, f"{t}: primary key columns {primary}"
 
 
+@cat("introspect_pk_fk")
 def test_introspection_foreign_keys(conn: Any, engine: Engine) -> None:
     need(engine, "introspect_fk")
     schema = conn.introspect_schema(filter_sensitive=False)
@@ -116,6 +130,7 @@ def test_compile_and_execute(conn: Any, engine: Engine, case: cs.Case) -> None:
         assert int(result["count"]) == case.expected_count, result["sql"]
 
 
+@cat("identifier_quoting")
 def test_non_ascii_identifiers_are_rejected_before_reaching_the_database(
     conn: Any, engine: Engine
 ) -> None:
@@ -136,6 +151,7 @@ EVIL_VALUES = [
 ]
 
 
+@cat("parameter_safety")
 @pytest.mark.parametrize("value", EVIL_VALUES)
 def test_injection_looking_values_are_data(
     conn: Any, engine: Engine, value: str
@@ -155,6 +171,7 @@ def test_injection_looking_values_are_data(
     assert _count(conn) == 8, "data changed after injection-looking values"
 
 
+@cat("parameter_safety")
 def test_raw_sql_parameter_binding(conn: Any, engine: Engine) -> None:
     ph = conn.dialect.placeholder
     sql = f"SELECT id FROM {ds.T_EMP} WHERE name = {ph} ORDER BY id"
@@ -178,6 +195,7 @@ WRITES = [
 ]
 
 
+@cat("write_refused")
 @pytest.mark.parametrize("sql", WRITES)
 def test_writes_rejected_by_validator(conn: Any, engine: Engine, sql: str) -> None:
     with pytest.raises(SecurityError):
@@ -185,6 +203,7 @@ def test_writes_rejected_by_validator(conn: Any, engine: Engine, sql: str) -> No
     assert _count(conn) == 8
 
 
+@cat("write_refused")
 @pytest.mark.parametrize("sql", WRITES[:3])
 def test_writes_rejected_by_read_only_session_even_without_ast(
     conn: Any, engine: Engine, sql: str
@@ -194,6 +213,7 @@ def test_writes_rejected_by_read_only_session_even_without_ast(
     assert _count(conn) == 8
 
 
+@cat("write_refused")
 def test_database_enforces_read_only_behind_the_validator(
     engine: Engine,
 ) -> None:
@@ -218,6 +238,7 @@ def test_database_enforces_read_only_behind_the_validator(
 
 
 # ------------------------------------------------------------------ timeout
+@cat("statement_timeout")
 def test_statement_timeout_cancels_slow_query(conn: Any, engine: Engine) -> None:
     need(engine, "statement_timeout")
     assert engine.slow_sql
@@ -238,6 +259,7 @@ def test_statement_timeout_cancels_slow_query(conn: Any, engine: Engine) -> None
 
 
 # ------------------------------------------------------------------ secrets
+@cat("secrets")
 def test_wrong_password_error_never_leaks_the_password(engine: Engine) -> None:
     if engine.embedded or not engine.password_:
         pytest.skip(f"{engine.name}: no password-based authentication")
@@ -260,10 +282,63 @@ def test_wrong_password_error_never_leaks_the_password(engine: Engine) -> None:
     bad.close()
 
 
-def test_unknown_table_fails_cleanly(conn: Any, engine: Engine) -> None:
+#: Defects found by the error_mapping battery and REPORTED, not fixed here: the connector lets
+#: the vendor driver's exception escape instead of wrapping it in the ConnectorError family.
+#: They run as strict xfails (flip to failures once fixed; never count towards `certified`).
+#: Engines not listed run the checks for real and fail if they leak.
+RAW_ERROR_LEAKS: dict[str, str] = {
+    "postgres": "psycopg.errors.* escape PostgresConnector.execute unwrapped",
+    "sqlite": "sqlite3.OperationalError escapes SQLiteConnector.execute unwrapped",
+    "duckdb": "duckdb.BinderException/ParserException escape DuckDBConnector.execute unwrapped",
+}
+
+
+def _known_raw_leak(request: pytest.FixtureRequest, engine: Engine) -> None:
+    reason = RAW_ERROR_LEAKS.get(engine.name)
+    if reason:
+        request.applymarker(
+            pytest.mark.xfail(reason=f"known issue, reported: {reason}", strict=True)
+        )
+
+
+@cat("error_mapping")
+def test_unknown_table_fails_cleanly(
+    request: pytest.FixtureRequest, conn: Any, engine: Engine
+) -> None:
+    _known_raw_leak(request, engine)
     with pytest.raises(Exception) as err:  # noqa: PT011
         conn.execute(
             spec={"table": "qbit_no_such_table", "columns": ["id"], "limit": 5}
         )
     assert not isinstance(err.value, SecurityError)
+    assert_mapped_error(err.value)
     assert _count(conn) == 8  # connection still usable
+
+
+BAD_SQL = [
+    "SELEC id FROM qbit_employees",  # syntax error
+    "SELECT nosuchcolumn FROM qbit_employees",  # unknown column
+]
+
+
+@cat("error_mapping")
+@pytest.mark.parametrize("sql", BAD_SQL)
+def test_bad_native_sql_maps_to_the_connector_error_family(
+    request: pytest.FixtureRequest, conn: Any, engine: Engine, sql: str
+) -> None:
+    """A database error must surface as the library's error family, never a raw driver
+    exception (``psycopg.Error``, ``sqlite3.OperationalError``, ...)."""
+    _known_raw_leak(request, engine)
+    with pytest.raises(Exception) as err:  # noqa: PT011
+        conn.execute(sql=sql, validate_ast=False)
+    assert_mapped_error(err.value)
+    assert _count(conn) == 8  # connection still usable afterwards
+
+
+def assert_mapped_error(exc: BaseException) -> None:
+    from query_builder.connectors.base import ConnectorError
+    from query_builder.exceptions import QueryBuilderError
+
+    assert isinstance(exc, (ConnectorError, QueryBuilderError)), (
+        f"raw driver exception leaked: {type(exc).__module__}.{type(exc).__name__}: {exc}"
+    )

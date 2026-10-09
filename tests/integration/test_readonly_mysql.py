@@ -10,7 +10,7 @@ import pytest
 
 from query_builder.connectors.mysql import MySQLConnector
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.qb_category("write_refused")]
 
 
 @pytest.fixture
