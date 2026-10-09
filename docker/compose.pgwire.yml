@@ -126,6 +126,7 @@ services:
     profiles: ["pgwire"]
     environment:
       POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
     ports: ["127.0.0.1:${QB_IT_PORT_SUPABASE:-40900}:5432"]
     volumes: ["qb_it_supabase:/var/lib/postgresql/data"]
     healthcheck:
@@ -140,6 +141,7 @@ services:
     profiles: ["pgwire"]
     environment:
       POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
     ports: ["127.0.0.1:${QB_IT_PORT_ALLOYDB:-40950}:5432"]
     volumes: ["qb_it_alloydb:/var/lib/postgresql/data"]
     healthcheck:
