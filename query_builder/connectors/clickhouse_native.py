@@ -8,6 +8,7 @@ dual sync and async execution protocols, statement timeouts, and system catalog 
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 from typing import Any
 
@@ -28,6 +29,24 @@ def _has_attr(target: Any, attr: str) -> bool:
             return hasattr(target, attr)
         return attr in target._mock_children
     return hasattr(target, attr)
+
+
+_POSITIONAL_RE = re.compile(r"(?<!%)%s")
+
+
+def _bind_positional(sql: str, params: Any) -> tuple[str, Any]:
+    """Turn ``%s`` markers + a value list into ``%(p0)s`` markers + a dict."""
+    if not params:
+        return sql, None
+    if isinstance(params, dict):
+        return sql, params
+    values = list(params)
+    counter = iter(range(len(values)))
+
+    def _name(_: re.Match[str]) -> str:
+        return f"%(p{next(counter)})s"
+
+    return _POSITIONAL_RE.sub(_name, sql), {f"p{i}": v for i, v in enumerate(values)}
 
 
 class _ClickHouseNativeCursorAdapter:
@@ -61,10 +80,11 @@ class _ClickHouseNativeCursorAdapter:
                 self.description = getattr(self.target, "description", None)
                 self._rows = list(self.target.fetchall())
             else:
+                # clickhouse-driver binds NAMED parameters (dict); a list is the
+                # row data of an INSERT, so positional %s markers are converted.
+                clean_sql, bound = _bind_positional(clean_sql, params)
                 try:
-                    out = self.target.execute(
-                        clean_sql, params or [], with_column_types=True
-                    )
+                    out = self.target.execute(clean_sql, bound, with_column_types=True)
                     if (
                         isinstance(out, tuple)
                         and len(out) == 2
@@ -99,6 +119,29 @@ class _ClickHouseNativeCursorAdapter:
 
     def close(self) -> None:
         pass
+
+
+class _DetachedCursor:
+    """DB-API view of an adapter that deliberately has no ``target`` attribute."""
+
+    def __init__(self, adapter: _ClickHouseNativeCursorAdapter) -> None:
+        self._adapter = adapter
+
+    @property
+    def description(self) -> Any:
+        return self._adapter.description
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self._adapter.execute(sql, params)
+
+    def fetchall(self) -> list[Any]:
+        return self._adapter.fetchall()
+
+    def fetchone(self) -> Any:
+        return self._adapter.fetchone()
+
+    def close(self) -> None:
+        self._adapter.close()
 
 
 @register_connector("clickhouse_native", aliases=["ch_native", "clickhouse_tcp"])
@@ -138,7 +181,11 @@ class ClickHouseNativeConnector(BaseConnector):
         try:
             client_cls = getattr(driver, "Client", None)
             if client_cls is not None:
-                self._connection = client_cls(database=self.database, **self.config)
+                cfg = dict(self.config)
+                # join_use_nulls: unmatched OUTER JOIN columns must be NULL, not
+                # the column type's default value.
+                cfg["settings"] = {"join_use_nulls": 1, **cfg.get("settings", {})}
+                self._connection = client_cls(database=self.database, **cfg)
             else:
                 self._connection = driver
             return self._connection
@@ -181,6 +228,13 @@ class ClickHouseNativeConnector(BaseConnector):
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
+            if isinstance(cur, _ClickHouseNativeCursorAdapter) and not hasattr(
+                cur.target, "_mock_children"
+            ):
+                # introspection unwraps an adapter to its raw client, whose
+                # execute() returns rows instead of exposing fetchall(): hand it a
+                # cursor that keeps the DB-API surface.
+                cur = _DetachedCursor(cur)
             try:
                 return introspect_clickhouse_native(
                     cur,

@@ -4892,6 +4892,53 @@ def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, 
                 cur.close()
 
 
+def _redis_text(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
+    """Real columns of a RediSearch index from ``FT.INFO`` (``[]`` if unavailable)."""
+    if client is None or not hasattr(client, "execute_command"):
+        return []
+    try:
+        info = client.execute_command("FT.INFO", index)
+    except Exception:  # noqa: BLE001
+        return []
+    attributes: Any = None
+    if isinstance(info, dict):  # RESP3
+        attributes = next(
+            (v for k, v in info.items() if _redis_text(k) == "attributes"), None
+        )
+    elif isinstance(info, (list, tuple)):  # RESP2: flat key, value, key, value ...
+        for pos in range(0, len(info) - 1, 2):
+            if _redis_text(info[pos]) == "attributes":
+                attributes = info[pos + 1]
+                break
+    cols: list[dict[str, Any]] = []
+    for attr in attributes if isinstance(attributes, (list, tuple)) else []:
+        if isinstance(attr, dict):
+            fields = {_redis_text(k): _redis_text(v) for k, v in attr.items()}
+        elif isinstance(attr, (list, tuple)):
+            fields = {
+                _redis_text(attr[i]).lower(): _redis_text(attr[i + 1])
+                for i in range(0, len(attr) - 1, 2)
+            }
+        else:
+            continue
+        name = fields.get("attribute") or fields.get("identifier")
+        if name:
+            cols.append(
+                {
+                    "name": name,
+                    "data_type": fields.get("type", "text").lower(),
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                }
+            )
+    return cols
+
+
 def introspect_redis_search(
     cursor: Any, filter_sensitive: bool = True
 ) -> dict[str, Any]:
@@ -4913,11 +4960,22 @@ def introspect_redis_search(
                 r.decode() if isinstance(r, bytes) else str(r) for r in (res or [])
             ]
 
-        if not index_names:
-            index_names = ["idx:users"]
+        raw_client = (
+            cur if hasattr(cur, "execute_command") else getattr(cur, "conn", None)
+        )
 
         tables: dict[str, dict[str, Any]] = {}
         for idx in index_names:
+            real_cols = _redis_index_columns(raw_client, idx)
+            if real_cols:
+                tables[idx] = {
+                    "name": idx,
+                    "columns": real_cols,
+                    "has_user_id": any(c["name"] == "user_id" for c in real_cols),
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+                continue
             cols = [
                 {
                     "name": "id",

@@ -194,7 +194,9 @@ class _Neo4jCursorAdapter:
         elif _has_attr(self.target, "session") or _has_attr(self.target, "run"):
             created_session = False
             if _has_attr(self.target, "session"):
-                session = self.target.session()
+                # READ access mode: the server itself refuses writes ("Writing in
+                # read access mode not allowed"), independent of client checks.
+                session = self.target.session(default_access_mode="READ")
                 created_session = True
             else:
                 session = self.target

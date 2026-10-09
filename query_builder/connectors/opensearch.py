@@ -30,6 +30,17 @@ def _has_attr(target: Any, attr: str) -> bool:
     return hasattr(target, attr)
 
 
+def _typed_parameter(value: Any) -> dict[str, Any]:
+    """The SQL plugin binds typed parameter objects, not bare JSON values."""
+    if isinstance(value, bool):
+        return {"type": "boolean", "value": value}
+    if isinstance(value, int):
+        return {"type": "long", "value": value}
+    if isinstance(value, float):
+        return {"type": "double", "value": value}
+    return {"type": "string", "value": str(value)}
+
+
 class _OpenSearchCursorAdapter:
     """Adapts OpenSearch client or REST SQL responses into a DB-API cursor interface."""
 
@@ -67,7 +78,7 @@ class _OpenSearchCursorAdapter:
             # OpenSearch Python client
             body: dict[str, Any] = {"query": clean_sql}
             if params:
-                body["parameters"] = params
+                body["parameters"] = [_typed_parameter(p) for p in params]
             res = self.target.transport.perform_request(
                 "POST", "/_plugins/_sql", body=body
             )
@@ -170,6 +181,13 @@ class OpenSearchConnector(BaseConnector):
             rows = cur.fetchall() if hasattr(cur, "fetchall") else []
             if rows and len(rows) > 0 and len(rows[0]) > 0 and rows[0][0]:
                 info["engine_version"] = f"OpenSearch {rows[0][0]}".strip()
+        if "engine_version" not in info:
+            # the SQL plugin has no version(); ask the cluster itself
+            client = self._connection
+            with contextlib.suppress(Exception):
+                info["engine_version"] = (
+                    f"OpenSearch {client.info()['version']['number']}"  # type: ignore[union-attr]
+                )
         info["index_pattern"] = self.index_pattern
         return info
 

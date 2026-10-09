@@ -34,6 +34,8 @@ _RESULTS: dict[str, dict[str, Any]] = collections.defaultdict(
         "passed": 0,
         "failed": 0,
         "skipped": 0,
+        "xfailed": 0,
+        "known_issues": [],
         "skip_reasons": collections.Counter(),
         "failures": [],
     }
@@ -116,13 +118,30 @@ def _ensure_live(name: str) -> Live:
         engine.check_available()
         if engine.family:
             engine.seed()
+        else:
+            from tests.integration import smoke
+
+            if name in smoke.SMOKE:
+                smoke.SMOKE[name].seed(engine)
     except eng.EngineUnavailable as exc:
         outcome: BaseException = eng.EngineUnavailable(str(exc))
         _LIVE_CACHE[name] = outcome
         raise outcome from exc
+    except Exception as exc:
+        # Seeding with the vendor driver failed: a harness/environment problem,
+        # reported once per engine rather than once per test.
+        failure = RuntimeError(f"{name}: seeding failed: {exc}")
+        _LIVE_CACHE[name] = failure
+        raise failure from exc
     conn = engine.make_connector()
     try:
         info = conn.test_connection()
+    except Exception as exc:
+        failure = RuntimeError(
+            f"{name}: connector.test_connection() failed: {type(exc).__name__}: {exc}"
+        )
+        _LIVE_CACHE[name] = failure
+        raise failure from exc
     finally:
         conn.close()
     version = str(info.get("engine_version") or "?").replace("\n", " ")[:120]
@@ -192,6 +211,9 @@ def pytest_runtest_logreport(report: Any) -> None:
     elif report.failed:
         rec["failed"] += 1
         rec["failures"].append(report.nodeid)
+    elif report.skipped and hasattr(report, "wasxfail"):
+        rec["xfailed"] += 1
+        rec["known_issues"].append(f"{report.nodeid}: {report.wasxfail}")
     elif report.skipped:
         rec["skipped"] += 1
         reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else "skipped"
@@ -211,6 +233,8 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
             "passed": rec["passed"],
             "failed": rec["failed"],
             "skipped": rec["skipped"],
+            "xfailed": rec["xfailed"],
+            "known_issues": rec["known_issues"],
             "skip_reasons": dict(rec["skip_reasons"]),
             "failures": rec["failures"],
         }
@@ -221,8 +245,11 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
         "engines": engines_out,
     }
     path = Path(os.environ.get("QB_IT_REPORT") or REPORT_DEFAULT)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:  # e.g. read-only checkout: never fail the run for this
+        print(f"\n[integration] could not write report {path}: {exc}")
 
 
 def pytest_unconfigure(config: Any) -> None:

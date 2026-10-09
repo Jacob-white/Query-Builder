@@ -1102,7 +1102,7 @@ def test_introspect_redis_search_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_redis_search(mock_empty)
-    assert "idx:users" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent an index that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1574,8 +1574,16 @@ def test_redis_search_coverage_branches():
     assert adapter.fetchall() == [["item1"]]
 
     mock_conn.execute_command.return_value = b"OK"
-    adapter.execute("SET key val")
+    adapter.execute("GET key")
     assert adapter.fetchall() == [["OK"]]
+    # the raw path only sends read commands: writes never reach the server
+    from query_builder.exceptions import SecurityError as _SecurityError
+
+    for write in ("SET key val", "FLUSHALL", "FT.DROPINDEX idx", "DEL key"):
+        mock_conn.execute_command.reset_mock()
+        with pytest.raises(_SecurityError, match="Read-only session"):
+            adapter.execute(write)
+        mock_conn.execute_command.assert_not_called()
 
     c_none = RedisSearchConnector(connection=MagicMock(spec=[]))
     assert c_none.test_connection()["status"] == "healthy"
