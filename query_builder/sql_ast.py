@@ -415,7 +415,7 @@ def _root_type(node: object) -> tuple[str, bool]:
 # or alter text inside a literal (harmless), never hide code.
 _PLACEHOLDER_RE = re.compile(
     r"""(?P<skip>'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`|--[^\r\n]*|/\*.*?\*/)"""
-    r"""|(?P<ph>%\(\w+\)s|%s|\$\d+|\$[A-Za-z_]\w*(?!\w|\$))""",
+    r"""|(?P<ph>%\(\w+\)s|%s|(?<![\w$])\$\d+(?![\w$])|(?<![\w$])\$[A-Za-z_]\w*(?![\w$]))""",
     re.DOTALL,
 )
 # Cypher / Informix style pagination emitted by some dialects: `SKIP ? LIMIT ?`.

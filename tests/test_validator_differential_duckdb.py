@@ -39,6 +39,23 @@ DANGEROUS = (
     "sleep",
 )
 
+FILE_EXTS = (
+    ".csv",
+    ".tsv",
+    ".parquet",
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".db",
+    ".duckdb",
+    ".sqlite",
+    ".sqlite3",
+    ".gz",
+    ".zst",
+    ".xlsx",
+    ".arrow",
+)
+
 _CONN = duckdb.connect()
 
 
@@ -89,7 +106,9 @@ def duck_findings(sql: str) -> list[str] | None:
                 reasons.append(f"restricted schema {schema}")
             if rel in RESTRICTED_RELS and not (rel in ctes and not schema):
                 reasons.append(f"restricted relation {rel}")
-            if "/" in rel or rel.endswith((".csv", ".parquet", ".json")):
+            # A replacement scan needs a recognised data-file extension (or a glob);
+            # a name without one is just a missing table.
+            if rel.endswith(FILE_EXTS) or "*" in rel or "://" in rel:
                 reasons.append(f"file replacement scan {rel}")
         elif "function_name" in n:
             fn = str(n["function_name"]).lower()
@@ -122,6 +141,10 @@ def test_no_false_negatives_vs_duckdb_parser(sql: str) -> None:
         "FROM auth_user",
         "SELECT * FROM 'data.csv'",
         "SELECT * FROM read_csv_auto('x')",
+        "SELECT * FROM $$data.csv$$",
+        "SELECT * FROM $$/tmp/x.parquet$$",
+        "SELECT * FROM 's3://bucket/key.parquet'",
+        "SELECT * FROM 'a.csv' UNION SELECT * FROM 'b.json'",
     ],
 )
 def test_seed_corpus_vs_duckdb_parser(sql: str) -> None:

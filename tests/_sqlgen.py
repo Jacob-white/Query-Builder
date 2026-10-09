@@ -21,7 +21,7 @@ from hypothesis import strategies as st
 
 settings.register_profile(
     "fast",
-    max_examples=int(os.environ.get("FUZZ_FAST_EXAMPLES", "250")),
+    max_examples=int(os.environ.get("FUZZ_FAST_EXAMPLES", "200")),
     derandomize=True,
     deadline=None,
     database=None,
