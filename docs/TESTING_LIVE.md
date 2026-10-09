@@ -11,7 +11,9 @@ the opt-in suite that proves we can connect to, and correctly use, real engines:
 - **Real connector classes.** Data is seeded through each engine's *native* driver; every
   assertion goes through `query_builder` (compiler, validator, connector, introspection).
 - **Honest status.** The result of a run feeds `docs/CONNECTORS.md`; a connector is only
-  `certified` if this suite really ran against it and passed (see [Tiers](#tiers)).
+  `certified` if this suite ran against a real engine through it, nothing failed, and every
+  applicable *core check category* is covered (see [Tiers](#5-tiers)). Tiers measure testing
+  depth, not just that something passed.
 
 ## 1. Start the engines
 
@@ -99,7 +101,21 @@ own tables if you point it at a shared database.
 
 Every run writes a JSON report (per engine: pass / fail / known-issue / skip counts, skip
 reasons, engine version, platform) to `$QB_IT_REPORT` (default
-`tests/integration/.reports/latest.json`).
+`tests/integration/.reports/latest.json`). Each engine also carries the evidence the tiers are
+computed from:
+
+```json
+"family_kind": "sql",                       // or "native"
+"core": ["connect", "introspect_tables", "..."],  // core categories that apply (async_parity only with an async class)
+"categories": {
+  "joins": {"passed": 4, "failed": 0, "xfailed": 0,
+            "skipped": {"verified_limitation": 0, "declared_unverified": 0, "environment": 0}}
+},
+"limitations": {"verified": ["statement_timeout"], "declared_unverified": ["right_join"]}
+```
+
+Reports without `categories` (older runs) still load; they can never be `certified`
+(they compute to `basic`).
 
 ## 3. What is checked
 
@@ -122,11 +138,58 @@ read, spec execution where the engine has a SQL compiler path, and write rejecti
 `test_async_parity.py` runs every engine that has an async connector class through it and
 compares introspection, reads and write rejection with the sync class on the same data.
 
+### Check categories
+
+Every result is attributed to ONE category (`tests/integration/categories.py`; a
+`@pytest.mark.qb_category("name")` marker on the test, or `Case.category` for the declarative
+query battery). Core categories per family:
+
+| Family | Core categories |
+| --- | --- |
+| SQL (`Engine.family` set) | `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters` (eq/ne/range/in/like/null), `ordering`, `pagination`, `aggregates` (group/having/distinct), `joins`, `subquery_cte`, `parameter_safety` (injection-looking values stay data), `identifier_quoting` (reserved words, mixed case), `null_handling`, `write_refused` (validator, read-only session, DB-level read-only where supported), `error_mapping`, `statement_timeout`, `async_parity` (only with an async class) |
+| NATIVE (document, key-value, search, graph, wide-column, vector, ...) | `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety` (quotes, unicode, regex/JSON-looking text round-trip as data), `write_refused` (several write forms), `error_mapping` (a bad native query surfaces as a `ConnectorError`/`QueryBuilderError`, never a raw driver exception), `async_parity` (only with an async class) |
+
+Non-core categories (`window`, `secrets`, `spec_compile`, ...) are reported but never required.
+Native engines declare their checks in `smoke.Smoke.checks` (`read_filtered`, `ordering`,
+`pagination`, `value_safety`), `bad_queries`, `extra_seed` (the `qbit_special` object) and
+`writes`. A category with neither checks nor a declared limitation is reported as UNTESTED.
+
+### Limitations must prove themselves
+
 When an engine legitimately lacks a feature (no statement timeout in SQLite, no `HAVING` in
 QuestDB, no foreign keys in ClickHouse, ...) it is declared in that engine's `unsupported`
-table in `tests/integration/engines.py` and the test is **skipped with the reason**, never
-silently passed. Defects found and *reported but not fixed* are `known_issues` strict
-xfails (see `smoke.py`): they flip to failures once fixed and block `certified` meanwhile.
+table (`tests/integration/engines.py`, or `Smoke.limitations` for native engines) and the
+dependent test is **skipped with the reason**. A skip can hide a real gap, so a declaration
+is a `Limitation(reason, probe=...)`:
+
+```python
+from tests.integration.engines import Engine, Limitation, register
+
+unsupported={
+    # statement probe: run through the NATIVE driver; the engine must raise
+    "statement_timeout": Limitation("no server-side timeout", probe="SET statement_timeout = 1000"),
+    # callable probe: (engine) -> bool, True when the feature WORKED (= the declaration is wrong)
+    "case_sensitive_identifiers": Limitation("folds identifiers", probe=probe_case_sensitive_identifiers),
+    # plain string: still accepted, but UNVERIFIED (no probe)
+    "introspect_fk": "no foreign keys",
+}
+```
+
+`test_limitations.py::test_declared_limitations_are_real` runs every probe live: if the engine
+**accepts** the probed feature the declaration is wrong and the test fails, so the feature has
+to be tested instead of skipped. Skips are then classified in the report:
+
+| Class | Meaning |
+| --- | --- |
+| `verified_limitation` | the probe ran in this session and the engine rejected the feature |
+| `declared_unverified` | a plain-string declaration (no probe), a probe that did not run, or an UNTESTED category; blocks `certified` when in a core category |
+| `environment` | driver / service / credentials missing |
+
+To add a probe: attempt the feature with the vendor driver (never the connector), keep it
+side-effect free (create and drop your own `qbit_probe_*` objects), and return/raise so that
+"the engine said no" is the outcome. Defects found and *reported but not fixed* are
+`known_issues` strict xfails (see `smoke.py`, `RAW_ERROR_LEAKS` in `test_conformance.py`): they
+flip to failures once fixed and block `certified` meanwhile.
 
 ## 4. Cloud engines
 
@@ -161,9 +224,17 @@ by `query_builder/connectors/status.py` from evidence, not claims:
 
 | Tier | Evidence required |
 | --- | --- |
-| `certified` | the live suite ran against a real engine **through that exact class**, with at least one pass, **no failures and no known issues**, in the latest recorded run (`docs/live_results.json`) |
-| `verified` | no passing live run; unit tests in `tests/` exercise the class, and the registry matrix (below) passes for it |
+| `certified` | a real engine ran the live suite **through that exact class** with **zero failures and no known issues**, AND every applicable core category of the engine's family has at least one pass (or a `verified_limitation` skip), AND no `declared_unverified` skip sits in a core category |
+| `basic` | a real engine passed at least one live test with zero failures, but the certified bar is not met (shallow coverage such as smoke-only, unverified skips, or an old-format report without `categories`) |
+| `emulated` | the same evidence against an emulator of the service; the evidence string states whether the depth bar was met |
+| `verified` | no clean live run (or one with failures / known issues); unit tests in `tests/` exercise the class, and the registry matrix (below) passes for it |
 | `experimental` | neither |
+
+Order: `certified` > `basic` > `emulated` > `verified` > `experimental`. When several engines
+exercise one class the best evidence wins (clean pass, real over emulator, depth bar met, more
+covered core categories, more passes). `docs/CONNECTORS.md` shows per class the tier, pass /
+skip counts, *core coverage* (e.g. `12/14 core categories`) and the `declared_unverified`
+skips still to be probed. `query-builder verify-connectors` prints the same depth columns.
 
 The registry-driven matrix (`tests/test_connector_matrix.py`, default suite, no services)
 checks every registered class: importable, its documented install extra exists in

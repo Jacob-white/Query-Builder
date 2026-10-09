@@ -69,15 +69,14 @@ def _run_check(sconn: Any, check: smoke.Check) -> None:
         assert len(rows) == check.expect_count, (check.statement, rows)
         return
     got = check.extract(rows)
+    context = f"{check.statement}: got {got!r} from rows {rows!r}"
     if check.subset:
         missing = [v for v in check.expected if v not in got]
-        assert not missing, f"{check.statement}: {missing!r} not in {got!r}"
+        assert not missing, f"{missing!r} not found; {context}"
     elif check.ordered:
-        assert got == check.expected, f"{check.statement}: {got!r}"
+        assert got == check.expected, context
     else:
-        assert sorted(map(str, got)) == sorted(map(str, check.expected)), (
-            f"{check.statement}: {got!r}"
-        )
+        assert sorted(map(str, got)) == sorted(map(str, check.expected)), context
 
 
 @cat("connect")
@@ -130,7 +129,9 @@ def test_query_spec_compiled_and_executed(
         reason = lim.reason if lim else "no SQL compiler path (native query language)"
         if lim is None:
             pytest.skip(f"{smoke_engine.name}: {reason}")
-        pytest.skip(categories.limitation_reason(smoke_engine.name, "spec_compile", reason))
+        pytest.skip(
+            categories.limitation_reason(smoke_engine.name, "spec_compile", reason)
+        )
     rows = sconn.execute(spec=spec.spec)["rows"]
     assert [{"name": r["name"], "age": r["age"]} for r in rows] == spec.spec_expected
 
@@ -167,18 +168,24 @@ def test_special_values_round_trip_as_data(
 
 @cat("error_mapping")
 def test_bad_native_queries_map_to_the_connector_error_family(
-    smoke_engine: Engine, spec: smoke.Smoke, sconn: Any
+    request: pytest.FixtureRequest,
+    smoke_engine: Engine,
+    spec: smoke.Smoke,
+    sconn: Any,
 ) -> None:
     """An engine/driver error must surface as ConnectorError/QueryBuilderError, never as a
     raw driver exception, and the connection stays usable."""
     from query_builder.connectors.base import ConnectorError
     from query_builder.exceptions import QueryBuilderError
 
+    _apply_known_issue(request, smoke_engine, spec)
     if not spec.bad_queries:
         lim = spec.limitations.get("error_mapping")
         if lim is not None:
             pytest.skip(
-                categories.limitation_reason(smoke_engine.name, "error_mapping", lim.reason)
+                categories.limitation_reason(
+                    smoke_engine.name, "error_mapping", lim.reason
+                )
             )
         pytest.skip(
             f"{smoke_engine.name}: no bad_queries defined in Smoke (UNTESTED error mapping)"

@@ -36,9 +36,15 @@ class Check:
     expected: list[Any]
     ordered: bool = False  # compare in order (ordering / pagination) or as a set
     extract: Callable[[list[dict[str, Any]]], list[Any]] = names_of
-    expect_count: int | None = None  # compare only len(rows), e.g. LIMIT without ORDER BY
-    subset: bool = False  # extracted values must CONTAIN every expected one (nested replies)
-    validate_ast: bool = False  # native languages are not SQL: skip the SQL AST validator
+    expect_count: int | None = (
+        None  # compare only len(rows), e.g. LIMIT without ORDER BY
+    )
+    subset: bool = (
+        False  # extracted values must CONTAIN every expected one (nested replies)
+    )
+    validate_ast: bool = (
+        False  # native languages are not SQL: skip the SQL AST validator
+    )
 
 
 #: Values that must round-trip as DATA: quotes, SQL/regex metacharacters, backslash,
@@ -357,8 +363,11 @@ def _leaves(obj: Any) -> list[str]:
 
 
 def _redis_names(rows: list[dict[str, Any]]) -> list[Any]:
-    wanted = {n for _, n, _ in PEOPLE}
-    return [leaf for leaf in _leaves(rows) if leaf in wanted]
+    """Person names in the order they appear in a (stringified, nested) FT.SEARCH reply."""
+    import re
+
+    pattern = "|".join(re.escape(n) for _, n, _ in PEOPLE)
+    return re.findall(rf"(?<![a-z])(?:{pattern})(?![a-z])", " ".join(_leaves(rows)))
 
 
 def _redis_leaves(rows: list[dict[str, Any]]) -> list[Any]:
@@ -385,9 +394,7 @@ def _cassandra_probe_order_by(e: Engine) -> bool:
     try:
         session = cluster.connect()
         list(
-            session.execute(
-                f"SELECT name FROM {e.database_}.qbit_people ORDER BY age"
-            )
+            session.execute(f"SELECT name FROM {e.database_}.qbit_people ORDER BY age")
         )
         return True
     finally:
@@ -492,7 +499,8 @@ SMOKE: dict[str, Smoke] = {
         checks={
             "read_filtered": [
                 Check(
-                    'FT.SEARCH qbit_people "@age:[29 +inf]"',
+                    # the connector splits a command on whitespace: no quoting available
+                    "FT.SEARCH qbit_people * FILTER age 29 +inf",
                     ["alice", "bob"],
                     extract=_redis_names,
                 )
@@ -535,6 +543,12 @@ SMOKE: dict[str, Smoke] = {
             "spec_compile": Limitation(
                 "Redis has no SQL layer: queries are native FT.SEARCH commands",
                 probe=_redis_probe_sql,
+            )
+        },
+        known_issues={
+            "test_bad_native_queries_map_to_the_connector_error_family": (
+                "redis.exceptions.ResponseError escapes RedisSearchConnector.execute "
+                "unwrapped instead of a ConnectorError"
             )
         },
     ),
@@ -592,7 +606,9 @@ SMOKE: dict[str, Smoke] = {
         extra_seed=_seed_neo4j_special,
         bad_queries=["MATCH (n RETURN n", "MATCH (n:Person) RETURN nosuchfn(n)"],
         limitations={
-            "spec_compile": Limitation("Neo4j speaks Cypher: no SQL QuerySpec compile path")
+            "spec_compile": Limitation(
+                "Neo4j speaks Cypher: no SQL QuerySpec compile path"
+            )
         },
     ),
     "cassandra": Smoke(
@@ -628,7 +644,10 @@ SMOKE: dict[str, Smoke] = {
             ],
         },
         extra_seed=_seed_cassandra_special,
-        bad_queries=["SELECT name FROM qbit_no_such_table", "SELEC name FROM qbit_people"],
+        bad_queries=[
+            "SELECT name FROM qbit_no_such_table",
+            "SELEC name FROM qbit_people",
+        ],
         limitations={
             "ordering": Limitation(
                 "Cassandra only orders by clustering columns within a partition",

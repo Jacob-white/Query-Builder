@@ -297,7 +297,11 @@ def classify_skips(name: str, rec: dict[str, Any]) -> dict[str, Any]:
             skipped["environment"] += 1
         elif kind == "limitation" and feature is not None:
             lim = limits.lookup(name, feature)
-            if lim is not None and lim.probe is not None and _PROBES.get((name, feature)):
+            if (
+                lim is not None
+                and lim.probe is not None
+                and _PROBES.get((name, feature))
+            ):
                 skipped["verified_limitation"] += 1
                 verified.add(feature)
             else:
