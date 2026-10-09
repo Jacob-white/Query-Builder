@@ -1293,6 +1293,50 @@ def introspect_surrealdb(
                 cur.close()
 
 
+def _arango_json_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "null"
+
+
+def _arango_sample_fields(db_or_cursor: Any, collection: str) -> dict[str, str]:
+    """Attribute -> JSON type, merged over a sample of the collection's documents.
+
+    ArangoDB collections are schemaless, so the only truthful column list is what the
+    documents actually contain.  Returns {} for an empty collection or when the source
+    cannot run AQL (nothing is invented).
+    """
+    sample: dict[str, Any] = {}
+    try:
+        if hasattr(db_or_cursor, "execute") and hasattr(db_or_cursor, "fetchall"):
+            safe = collection.replace("`", "")
+            db_or_cursor.execute(f"RETURN MERGE(FOR d IN `{safe}` LIMIT 100 RETURN d)")
+            rows = db_or_cursor.fetchall() or []
+            desc = [d[0] for d in (getattr(db_or_cursor, "description", None) or [])]
+            if rows and desc and isinstance(rows[0], (list, tuple)):
+                sample = dict(zip(desc, rows[0], strict=False))
+        elif hasattr(db_or_cursor, "collection"):
+            docs = list(db_or_cursor.collection(collection).all(limit=100))
+            for doc in docs:
+                if isinstance(doc, dict):
+                    for k, v in doc.items():
+                        if sample.get(k) is None:
+                            sample[k] = v
+    except Exception:  # noqa: BLE001 - sampling is best effort; never fail introspection
+        return {}
+    return {
+        str(k): _arango_json_type(v) for k, v in sample.items() if not str(k).startswith("_")
+    }
+
+
 def introspect_arangodb(
     db_or_cursor: Any, database: str = "_system", filter_sensitive: bool = True
 ) -> dict[str, Any]:
@@ -1347,10 +1391,21 @@ def introspect_arangodb(
                     "comment": None,
                 },
             ]
+            sampled = _arango_sample_fields(db_or_cursor, tbl)
+            for field_name, field_type in sampled.items():
+                cols.append(
+                    {
+                        "name": field_name,
+                        "data_type": field_type,
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    }
+                )
             tables[tbl] = {
                 "name": tbl,
                 "columns": cols,
-                "has_user_id": False,
+                "has_user_id": "user_id" in sampled,
                 "user_col": "user_id",
                 "comment": None,
             }

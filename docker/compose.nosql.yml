@@ -1,0 +1,121 @@
+# NoSQL / graph / document / wide-column engines and cloud-database emulators
+# (tests/integration/engines_nosql.py). Compose profile `nosql`, project `qb-integration`.
+#
+# Always start through the serialised, memory-guarded runner, one engine per batch:
+#   python scripts/it_batch.py --label arango --engines arangodb \
+#       --compose docker/compose.nosql.yml --profile nosql --services arangodb
+#
+# Host ports are 127.0.0.1:43000-43999 only. Volumes are named (removed by `down -v`).
+# Emulators (DynamoDB-local, Firestore, Bigtable, Spanner) are flagged `emulated=True` in
+# the engine registry: passing there is real evidence, but not the real cloud service.
+name: qb-integration
+
+services:
+  arangodb:
+    image: arangodb/arangodb:3.12.4
+    profiles: ["nosql"]
+    environment:
+      ARANGO_ROOT_PASSWORD: qb_it_password
+    ports: ["127.0.0.1:${QB_IT_PORT_ARANGODB:-43529}:8529"]
+    volumes: ["qb_it_arangodb:/var/lib/arangodb3"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header='Authorization: Basic cm9vdDpxYl9pdF9wYXNzd29yZA==' http://127.0.0.1:8529/_api/version"]
+      interval: 4s
+      timeout: 4s
+      retries: 40
+
+  surrealdb:
+    image: surrealdb/surrealdb:v2.3.7
+    profiles: ["nosql"]
+    command: ["start", "--log", "warn", "--user", "root", "--pass", "qb_it_password", "memory"]
+    ports: ["127.0.0.1:${QB_IT_PORT_SURREALDB:-43800}:8000"]
+    healthcheck:
+      test: ["CMD", "/surreal", "isready", "--endpoint", "http://127.0.0.1:8000"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  scylladb:
+    image: scylladb/scylla:6.2.0
+    profiles: ["nosql"]
+    command: ["--smp", "1", "--memory", "750M", "--overprovisioned", "1", "--developer-mode", "1"]
+    ports: ["127.0.0.1:${QB_IT_PORT_SCYLLADB:-43042}:9042"]
+    volumes: ["qb_it_scylladb:/var/lib/scylla"]
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'select release_version from system.local' 127.0.0.1"]
+      interval: 8s
+      timeout: 10s
+      retries: 60
+
+  memgraph:
+    image: memgraph/memgraph:2.21.0
+    profiles: ["nosql"]
+    command: ["--also-log-to-stderr", "--telemetry-enabled=false"]
+    ports: ["127.0.0.1:${QB_IT_PORT_MEMGRAPH:-43687}:7687"]
+    volumes: ["qb_it_memgraph:/var/lib/memgraph"]
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole"]
+      interval: 4s
+      timeout: 5s
+      retries: 30
+
+  couchbase:
+    image: couchbase/server:community-7.6.2
+    profiles: ["nosql"]
+    # The SDK needs several service ports at their real numbers, so the suite talks to this
+    # container over the compose network (--linux). Only the admin UI is published.
+    ports: ["127.0.0.1:${QB_IT_PORT_COUCHBASE:-43091}:8091"]
+    volumes: ["qb_it_couchbase:/opt/couchbase/var"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8091/ui/index.html >/dev/null"]
+      interval: 6s
+      timeout: 5s
+      retries: 60
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.2
+    profiles: ["nosql"]
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports: ["127.0.0.1:${QB_IT_PORT_DYNAMODB:-43001}:8000"]
+    # no shell/curl in the image: a TCP connect via bash /dev/tcp is not available either,
+    # so health is "the JVM process is up and the port answers" through java itself.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8000"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    profiles: ["nosql"]
+    command: ["gcloud", "beta", "emulators", "firestore", "start", "--host-port=0.0.0.0:8080", "--project=qb-it"]
+    ports: ["127.0.0.1:${QB_IT_PORT_FIRESTORE:-43080}:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  bigtable:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    profiles: ["nosql"]
+    command: ["gcloud", "beta", "emulators", "bigtable", "start", "--host-port=0.0.0.0:8086"]
+    ports: ["127.0.0.1:${QB_IT_PORT_BIGTABLE:-43086}:8086"]
+    healthcheck:
+      test: ["CMD-SHELL", "(exec 3<>/dev/tcp/127.0.0.1/8086)"]
+      interval: 4s
+      timeout: 4s
+      retries: 40
+
+  spanner:
+    image: gcr.io/cloud-spanner-emulator/emulator:1.5.25
+    profiles: ["nosql"]
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_SPANNER:-43010}:9010"
+      - "127.0.0.1:${QB_IT_PORT_SPANNER_REST:-43020}:9020"
+
+volumes:
+  qb_it_arangodb:
+  qb_it_scylladb:
+  qb_it_memgraph:
+  qb_it_couchbase:
