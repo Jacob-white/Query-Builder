@@ -156,10 +156,14 @@ def test_paginated_reads(smoke_engine: Engine, spec: smoke.Smoke, sconn: Any) ->
 
 @cat("value_safety")
 def test_special_values_round_trip_as_data(
-    smoke_engine: Engine, spec: smoke.Smoke, sconn: Any
+    request: pytest.FixtureRequest,
+    smoke_engine: Engine,
+    spec: smoke.Smoke,
+    sconn: Any,
 ) -> None:
     """Quotes, backslashes, ``%``/``_``, regex/JSON-looking text, unicode and an
     injection-looking string come back byte for byte, and the stored data survives."""
+    _apply_known_issue(request, smoke_engine, spec)
     for check in _skip_unless_checks(smoke_engine, spec, "value_safety"):
         _run_check(sconn, check)
     assert spec.check is not None

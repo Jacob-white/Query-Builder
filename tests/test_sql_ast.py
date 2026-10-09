@@ -232,3 +232,11 @@ def test_literal_and_comment_scanning_is_linear_on_hostile_input(name):
     start = time.perf_counter()
     analyze_sql(HOSTILE[name], "postgres")
     assert time.perf_counter() - start < 2.0
+
+
+def test_backslash_is_a_literal_character_in_tsql_but_an_escape_in_mysql():
+    bs = chr(92)
+    tsql = f"SELECT a FROM t WHERE x LIKE '%' + %s + '%' ESCAPE '{bs}' AND y = %s"
+    assert analyze_sql(tsql, "tsql").parsed
+    mysql = f"SELECT a FROM t WHERE x = 'a{bs}'b' AND y = %s"
+    assert analyze_sql(mysql, "mysql").parsed

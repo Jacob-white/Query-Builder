@@ -11,37 +11,37 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 
 | Tier | Meaning | Classes |
 | --- | --- | --- |
-| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 0 |
-| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 21 |
+| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 10 |
+| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 11 |
 | `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 0 |
 | `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 117 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 **Legend: tiers measure testing depth, not just that something passed.** A live result is attributed to a check *category*. SQL engines must cover: `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters`, `ordering`, `pagination`, `aggregates`, `joins`, `subquery_cte`, `parameter_safety`, `identifier_quoting`, `null_handling`, `write_refused`, `error_mapping`, `statement_timeout`, `async_parity`. Native (non-SQL) engines must cover: `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety`, `write_refused`, `error_mapping`, `async_parity`. `async_parity` applies only to engines with an async class. A skipped check is classified: `verified_limitation` (a probe through the native driver proved the engine rejects the feature), `declared_unverified` (a declared limitation with no probe: it blocks `certified` in a core category) or `environment` (driver/service missing). *Core coverage* is the number of applicable core categories with a pass or verified limitation.
 
-Latest recorded live run: **2026-10-09 13:54 UTC**.
+Latest recorded live run: **2026-10-09 18:57 UTC**.
 
 ### Engines in the latest live run
 
 | Engine | Version | Passed | Failed | Known issues | Skipped | Core coverage | Unverified skips | Run | Platform |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
 | cassandra | Apache Cassandra | 9 | 0 | 0 | 2 | no category evidence | - | 2026-10-09 13:54 UTC | Linux-6.6.87.2-microsoft-sta |
-| clickhouse | 24.8.4.13 | 88 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
-| clickhouse_native | ClickHouse Native 24.8.4.13 | 92 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
-| cockroach | CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built 2024/09/23 22:30:5 | 88 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
-| duckdb | v1.5.6 | 86 | 0 | 0 | 3 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| clickhouse | 24.8.4.13 | 92 | 0 | 0 | 1 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
+| clickhouse_native | ClickHouse Native 24.8.4.13 | 96 | 0 | 0 | 1 | 18/18 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
+| cockroach | CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built 2024/09/23 22:30:5 | 91 | 0 | 0 | 1 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
+| duckdb | v1.5.6 | 91 | 0 | 0 | 3 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
 | elasticsearch | Elasticsearch 8.15.2 | 6 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:50 UTC | Windows-11-10.0.26200-SP0 |
-| mariadb | 11.4.3-MariaDB-ubu2404 | 88 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| mariadb | 11.4.3-MariaDB-ubu2404 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
 | mongodb | MongoDB 7.0.14 | 5 | 0 | 1 | 1 | no category evidence | - | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
-| mssql | Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)   | 89 | 0 | 0 | 0 | no category evidence | - | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
-| mysql | 8.4.2 | 88 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| mssql | Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)   | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:57 UTC | Windows-11-10.0.26200-SP0 |
+| mysql | 8.4.2 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
 | neo4j | Neo4j 5.24.1 | 10 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
 | opensearch | OpenSearch 2.17.0 | 10 | 0 | 0 | 1 | no category evidence | - | 2026-10-09 13:50 UTC | Windows-11-10.0.26200-SP0 |
-| postgres | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 89 | 0 | 0 | 0 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
-| questdb | QuestDB | 80 | 0 | 0 | 9 | no category evidence | - | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
+| postgres | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
+| questdb | QuestDB | 91 | 0 | 0 | 9 | 16/17 core categories | 2: `db_read_only`, `statement_timeout` | 2026-10-09 18:57 UTC | Windows-11-10.0.26200-SP0 |
 | redis | Redis / RediSearch | 9 | 0 | 0 | 2 | no category evidence | - | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
-| sqlite | 3.49.1 | 86 | 0 | 0 | 3 | no category evidence | - | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
-| timescale | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 89 | 0 | 0 | 0 | no category evidence | - | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
+| sqlite | 3.49.1 | 91 | 0 | 0 | 3 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
+| timescale | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
 | trino | 455 | 83 | 0 | 0 | 6 | no category evidence | - | 2026-10-09 13:52 UTC | Windows-11-10.0.26200-SP0 |
 
 Selected but not exercised in that run (engine unreachable, driver missing or credentials not set): athena, bigquery, databricks, redshift, snowflake, synapse.
@@ -53,8 +53,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AlloyDBConnector` | sync | verified | `[alloydb]` | - | - | - | `alloydb` |
 | `ArangoDBConnector` | sync | verified | `[arangodb]` | - | - | - | `aql`, `arango`, `arangodb` |
 | `AsyncArangoDBConnector` | async | verified | `[arangodb]` | - | - | - | `async_aql`, `async_arango`, `async_arangodb` |
-| `AthenaConnector` | sync | verified | `[athena]` | athena (0 pass, 7 skip) | no category evidence | - | `athena` |
-| `BigQueryConnector` | sync | verified | `[bigquery]` | bigquery (0 pass, 7 skip) | no category evidence | - | `bigquery` |
+| `AthenaConnector` | sync | verified | `[athena]` | athena (0 pass, 7 skip) | 0/17 core categories | 0 | `athena` |
+| `BigQueryConnector` | sync | verified | `[bigquery]` | bigquery (0 pass, 7 skip) | 0/17 core categories | 0 | `bigquery` |
 | `BigtableConnector` | sync | verified | `[bigtable]` | - | - | - | `bigtable`, `gcp_bigtable`, `google_bigtable` |
 | `AsyncBigtableConnector` | async | verified | `[bigtable]` | - | - | - | `async_bigtable`, `async_gcp_bigtable`, `async_google_bigtable` |
 | `ApacheCassandraConnector` | sync | basic | `[cassandra]` | cassandra (9 pass, 2 skip) | no category evidence | - | `apache_cassandra`, `apache-cassandra` |
@@ -63,17 +63,17 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncChDBConnector` | async | verified | `[chdb]` | - | - | - | `async_chdb` |
 | `ChromaConnector` | sync | verified | `[chroma]` | - | - | - | `chroma`, `chromadb` |
 | `AsyncChromaConnector` | async | verified | `[chroma]` | - | - | - | `async_chroma`, `async_chromadb` |
-| `ClickHouseConnector` | sync | basic | `[clickhouse]` | clickhouse (88 pass, 1 skip) | no category evidence | - | `clickhouse` |
-| `ClickHouseNativeConnector` | sync | basic | `[clickhouse-native]` | clickhouse_native (92 pass, 1 skip) | no category evidence | - | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
-| `AsyncClickHouseNativeConnector` | async | basic | `[clickhouse-native]` | clickhouse_native (92 pass, 1 skip) | no category evidence | - | `async_ch_native`, `async_clickhouse_native` |
-| `CockroachConnector` | sync | basic | `[postgres]` | cockroach (88 pass, 1 skip) | no category evidence | - | `cockroach`, `cockroachdb` |
+| `ClickHouseConnector` | sync | certified | `[clickhouse]` | clickhouse (92 pass, 1 skip) | 17/17 core categories | 0 | `clickhouse` |
+| `ClickHouseNativeConnector` | sync | certified | `[clickhouse-native]` | clickhouse_native (96 pass, 1 skip) | 18/18 core categories | 0 | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
+| `AsyncClickHouseNativeConnector` | async | certified | `[clickhouse-native]` | clickhouse_native (96 pass, 1 skip) | 18/18 core categories | 0 | `async_ch_native`, `async_clickhouse_native` |
+| `CockroachConnector` | sync | certified | `[postgres]` | cockroach (91 pass, 1 skip) | 17/17 core categories | 0 | `cockroach`, `cockroachdb` |
 | `CosmosDBConnector` | sync | verified | `[cosmosdb]` | - | - | - | `cosmosdb`, `azure_cosmos` |
 | `AsyncCosmosDBConnector` | async | verified | `[cosmosdb]` | - | - | - | `async_cosmosdb`, `async_azure_cosmos` |
 | `CouchbaseConnector` | sync | verified | `[couchbase]` | - | - | - | `n1ql`, `couchbase` |
 | `CrateDBConnector` | sync | verified | `[cratedb]` | - | - | - | `crate`, `cratedb` |
 | `AsyncCrateDBConnector` | async | verified | `[cratedb]` | - | - | - | `async_crate`, `async_cratedb` |
 | `D1Connector` | sync | verified | `[d1]` | - | - | - | `d1`, `cloudflare_d1` |
-| `DatabricksConnector` | sync | verified | `[databricks]` | databricks (0 pass, 7 skip) | no category evidence | - | `spark`, `databricks` |
+| `DatabricksConnector` | sync | verified | `[databricks]` | databricks (0 pass, 7 skip) | 0/17 core categories | 0 | `spark`, `databricks` |
 | `DataFusionConnector` | sync | verified | `[datafusion]` | - | - | - | `datafusion` |
 | `DB2Connector` | sync | verified | `[db2]` | - | - | - | `db2`, `ibm_db2` |
 | `AsyncDB2Connector` | async | verified | `[db2]` | - | - | - | `async_db2`, `async_ibm_db2` |
@@ -85,7 +85,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `DrillConnector` | sync | verified | `[drill]` | - | - | - | `drill`, `apache_drill`, `pydrill` |
 | `AsyncDrillConnector` | async | verified | `[drill]` | - | - | - | `async_drill`, `async_apache_drill` |
 | `DruidConnector` | sync | verified | `[druid]` | - | - | - | `druid`, `apache_druid` |
-| `DuckDBConnector` | sync | basic | `[duckdb]` | duckdb (86 pass, 3 skip) | no category evidence | - | `duckdb` |
+| `DuckDBConnector` | sync | certified | `[duckdb]` | duckdb (91 pass, 3 skip) | 17/17 core categories | 0 | `duckdb` |
 | `DynamoDBConnector` | sync | verified | `[dynamodb]` | - | - | - | `partiql`, `dynamodb` |
 | `ElasticsearchConnector` | sync | basic | `[elasticsearch]` | elasticsearch (6 pass, 1 skip) | no category evidence | - | `elasticsearch` |
 | `ExasolConnector` | sync | verified | `[exasol]` | - | - | - | `exasol` |
@@ -128,8 +128,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `MonetDBConnector` | sync | verified | `[monetdb]` | - | - | - | `monet`, `monetdb` |
 | `AsyncMonetDBConnector` | async | verified | `[monetdb]` | - | - | - | `async_monet`, `async_monetdb` |
 | `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | mongodb (5 pass, 1 known, 1 skip) | no category evidence | - | `mongo`, `atlas_sql`, `mongodb` |
-| `MSSQLConnector` | sync | basic | `[mssql]` | mssql (89 pass, 0 skip) | no category evidence | - | `mssql`, `sqlserver` |
-| `MySQLConnector` | sync | basic | `[mysql]` | mariadb (88 pass, 1 skip) | no category evidence | - | `mysql`, `mariadb` |
+| `MSSQLConnector` | sync | certified | `[mssql]` | mssql (92 pass, 0 skip) | 17/17 core categories | 0 | `mssql`, `sqlserver` |
+| `MySQLConnector` | sync | certified | `[mysql]` | mariadb (92 pass, 0 skip) | 17/17 core categories | 0 | `mysql`, `mariadb` |
 | `Neo4jConnector` | sync | basic | `[neo4j]` | neo4j (10 pass, 1 skip) | no category evidence | - | `neo4j`, `cypher`, `neo4j_sql` |
 | `AsyncNeo4jConnector` | async | basic | `[neo4j]` | neo4j (10 pass, 1 skip) | no category evidence | - | `async_neo4j`, `async_cypher` |
 | `NeonConnector` | sync | verified | `[neon]` | - | - | - | `neon` |
@@ -143,7 +143,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncPineconeConnector` | async | verified | `[pinecone]` | - | - | - | `async_pinecone`, `async_pinecone_db`, `async_pinecone_vector` |
 | `PinotConnector` | sync | verified | `[pinot]` | - | - | - | `pinot`, `apache_pinot` |
 | `PolarsConnector` | sync | verified | `[polars]` | - | - | - | `polars` |
-| `PostgresConnector` | sync | basic | `[postgres]` | postgres (89 pass, 0 skip) | no category evidence | - | `postgres`, `postgresql` |
+| `PostgresConnector` | sync | certified | `[postgres]` | postgres (92 pass, 0 skip) | 17/17 core categories | 0 | `postgres`, `postgresql` |
 | `PrestoDBConnector` | sync | verified | `[prestodb]` | - | - | - | `presto`, `prestodb` |
 | `AsyncPrestoDBConnector` | async | verified | `[prestodb]` | - | - | - | `async_presto`, `async_prestodb` |
 | `PrometheusConnector` | sync | verified | `[prometheus]` | - | - | - | `prom`, `prometheus`, `promql` |
@@ -152,20 +152,20 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncPulsarSQLConnector` | async | verified | `[pulsar]` | - | - | - | `async_pulsar`, `async_apache_pulsar`, `async_pulsar_sql` |
 | `QdrantConnector` | sync | verified | `[qdrant]` | - | - | - | `qdrant`, `qdrant_db`, `qdrant_vector` |
 | `AsyncQdrantConnector` | async | verified | `[qdrant]` | - | - | - | `async_qdrant`, `async_qdrant_db`, `async_qdrant_vector` |
-| `QuestDBConnector` | sync | basic | `[postgres]` | questdb (80 pass, 9 skip) | no category evidence | - | `questdb` |
+| `QuestDBConnector` | sync | basic | `[postgres]` | questdb (91 pass, 9 skip) | 16/17 core categories | 2: `db_read_only`, `statement_timeout` | `questdb` |
 | `RedisSearchConnector` | sync | basic | `[redis]` | redis (9 pass, 2 skip) | no category evidence | - | `redis`, `redis_ft`, `redis_search`, `redisearch` |
 | `AsyncRedisSearchConnector` | async | basic | `[redis]` | redis (9 pass, 2 skip) | no category evidence | - | `async_redis`, `async_redis_ft`, `async_redis_search`, `async_redisearch` |
-| `RedshiftConnector` | sync | verified | `[redshift]` | redshift (0 pass, 7 skip) | no category evidence | - | `redshift` |
+| `RedshiftConnector` | sync | verified | `[redshift]` | redshift (0 pass, 7 skip) | 0/17 core categories | 0 | `redshift` |
 | `RisingWaveConnector` | sync | verified | `[risingwave]` | - | - | - | `rw`, `risingwave` |
 | `AsyncRisingWaveConnector` | async | verified | `[risingwave]` | - | - | - | `async_rw`, `async_risingwave` |
 | `SAPHANAConnector` | sync | verified | `[saphana]` | - | - | - | `hana`, `sap_hana`, `saphana` |
 | `ScyllaDBConnector` | sync | verified | `[scylladb]` | - | - | - | `cql`, `cassandra`, `scylla`, `scylladb` |
 | `SingleStoreConnector` | sync | verified | `[singlestore]` | - | - | - | `memsql`, `singlestore` |
-| `SnowflakeConnector` | sync | verified | `[snowflake]` | snowflake (0 pass, 7 skip) | no category evidence | - | `snowflake` |
+| `SnowflakeConnector` | sync | verified | `[snowflake]` | snowflake (0 pass, 7 skip) | 0/17 core categories | 0 | `snowflake` |
 | `SpannerConnector` | sync | verified | `[spanner]` | - | - | - | `spanner` |
 | `SparkSQLConnector` | sync | verified | `[spark]` | - | - | - | `pyspark`, `spark_sql`, `sparksql` |
 | `AsyncSparkSQLConnector` | async | verified | `[spark]` | - | - | - | `async_pyspark`, `async_spark_sql`, `async_sparksql` |
-| `SQLiteConnector` | sync | basic | none | sqlite (86 pass, 3 skip) | no category evidence | - | `sqlite` |
+| `SQLiteConnector` | sync | certified | none | sqlite (91 pass, 3 skip) | 17/17 core categories | 0 | `sqlite` |
 | `StarRocksConnector` | sync | verified | `[starrocks]` | - | - | - | `starrocks` |
 | `AsyncStarRocksConnector` | async | verified | `[starrocks]` | - | - | - | `async_starrocks` |
 | `SupabaseConnector` | sync | verified | `[supabase]` | - | - | - | `supabase` |
@@ -177,7 +177,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncTDengineConnector` | async | verified | `[tdengine]` | - | - | - | `async_taos`, `async_tdengine` |
 | `TeradataConnector` | sync | verified | `[teradata]` | - | - | - | `teradata` |
 | `TiDBConnector` | sync | verified | `[tidb]` | - | - | - | `tidb` |
-| `TimescaleConnector` | sync | basic | `[postgres]` | timescale (89 pass, 0 skip) | no category evidence | - | `timescale`, `timescaledb` |
+| `TimescaleConnector` | sync | certified | `[postgres]` | timescale (92 pass, 0 skip) | 17/17 core categories | 0 | `timescale`, `timescaledb` |
 | `TimestreamConnector` | sync | verified | `[timestream]` | - | - | - | `timestream`, `aws_timestream` |
 | `AsyncTimestreamConnector` | async | verified | `[timestream]` | - | - | - | `async_timestream`, `async_aws_timestream` |
 | `TrinoConnector` | sync | basic | `[trino]` | trino (83 pass, 6 skip) | no category evidence | - | `trino` |
