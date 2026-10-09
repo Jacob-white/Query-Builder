@@ -72,6 +72,7 @@ jobs:
           cache-dependency-path: packages/react/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - run: pnpm run typecheck:tests
       - run: pnpm run lint
       - run: pnpm run build
       - name: Test with coverage (build must exist for the consumer-simulation suite)
