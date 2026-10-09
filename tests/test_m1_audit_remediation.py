@@ -331,9 +331,12 @@ def test_compiler_subqueries_from_and_where():
     assert 'FROM (SELECT "t1"."user_id" AS "orders.user_id"' in sql
     assert 'AS "t1"' in sql
     assert '"t1"."total_spent" > %s' in sql
-    # Parameters order: completed, 50, 0 from subquery, 100 from outer WHERE, 50, 0 from limit/offset
-    assert params == ["completed", 50, 0, 100, 50, 0]
-    assert count_params == ["completed", 50, 0, 100]
+    # Parameters: completed (subquery), 100 (outer WHERE), then 50, 0 (OUTER limit and
+    # offset). The nested subquery gets no implicit page LIMIT: it would silently
+    # truncate the inner result set.
+    assert params == ["completed", 100, 50, 0]
+    assert sql.count("LIMIT") == 1
+    assert count_params == ["completed", 100]
 
     # WHERE subquery with IN
     dept_sub = {

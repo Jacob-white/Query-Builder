@@ -54,6 +54,30 @@ class BaseDialect:
     supports_materialized_cte: bool = False
     supports_window_functions: bool = True
     supports_window_groups_frame: bool = False
+    # LIKE wildcard handling for the contains/starts_with/ends_with operators.
+    # ``None`` (default): the bound value is passed through unchanged, so a user
+    # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live
+    # set the escape character (and whether it must be declared with ESCAPE).
+    like_escape_char: str | None = None
+    like_escape_clause: bool = False
+    like_special_chars: str = "%_"
+
+    def escape_like(self, value: Any) -> str:
+        """Escape LIKE wildcards in a literal substring (no-op if unsupported)."""
+        text = str(value)
+        esc = self.like_escape_char
+        if not esc:
+            return text
+        for ch in (esc, *self.like_special_chars):
+            text = text.replace(ch, esc + ch)
+        return text
+
+    def format_substring_match(self, col_ref: str) -> str:
+        """Case-insensitive LIKE used by contains/starts_with/ends_with."""
+        expr = self.format_ilike(col_ref)
+        if self.like_escape_clause and self.like_escape_char:
+            expr = f"{expr} ESCAPE '{self.like_escape_char}'"
+        return expr
 
     def format_cte_materialized(self, materialized: bool | None) -> str:
         """Returns MATERIALIZED or NOT MATERIALIZED hint if supported, else empty string."""
@@ -192,6 +216,7 @@ class PostgresDialect(BaseDialect):
     name: str = "postgres"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"  # PostgreSQL's default LIKE escape
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats pgvector distance operator expression."""
@@ -249,6 +274,9 @@ class MSSQLDialect(BaseDialect):
     name: str = "mssql"
     placeholder: str = "%s"
     requires_order_by_for_pagination: bool = True
+    like_escape_char = "\\"
+    like_escape_clause = True
+    like_special_chars = "%_["
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -277,6 +305,8 @@ class SQLiteDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = False
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         # SQLite LIKE is case-insensitive by default for ASCII
@@ -312,6 +342,7 @@ class MySQLDialect(BaseDialect):
 
     name: str = "mysql"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # MySQL's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -334,6 +365,8 @@ class DuckDBDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
@@ -373,6 +406,7 @@ class ClickHouseDialect(BaseDialect):
 
     name: str = "clickhouse"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # ClickHouse's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -485,6 +519,8 @@ class TrinoDialect(BaseDialect):
 
     name: str = "trino"
     placeholder: str = "?"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"

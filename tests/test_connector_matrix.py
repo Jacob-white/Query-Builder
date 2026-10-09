@@ -43,7 +43,8 @@ IDS = [r["key"].rsplit(".", 1)[-1] for r in RECORDS]
 EXTRAS = status.pyproject_extras()
 CLASSES = {}
 for _name, _cls in ConnectorRegistry._registry.items():
-    CLASSES[status.class_key(_cls)] = _cls
+    if _cls.__module__.startswith("query_builder.connectors."):
+        CLASSES[status.class_key(_cls)] = _cls
 
 #: classes that legitimately need no third-party driver
 BUILTIN = {"SQLiteConnector", "GenericDBAPIConnector"}
@@ -57,7 +58,8 @@ def test_matrix_is_nonempty_and_counts_are_consistent():
     assert RECORDS
     assert len({r["key"] for r in RECORDS}) == len(RECORDS)
     names = [n for r in RECORDS for n in [r["name"], *r["aliases"]]]
-    assert len(names) == len(set(names)) == len(ConnectorRegistry._registry)
+    assert len(names) == len(set(names))
+    assert set(names) <= set(ConnectorRegistry._registry)
     assert sum(r["mode"] == "async" for r in RECORDS) == sum(
         issubclass(c, AsyncBaseConnector) for c in CLASSES.values()
     )
@@ -210,7 +212,7 @@ def test_report_and_extra_driver_consistency(tmp_path_factory):
     report = {
         "totals": {
             "classes": len(RECORDS),
-            "registered_names": len(ConnectorRegistry._registry),
+            "registered_names": sum(1 + len(r["aliases"]) for r in RECORDS),
             "sync": sum(r["mode"] == "sync" for r in RECORDS),
             "async": sum(r["mode"] == "async" for r in RECORDS),
         },

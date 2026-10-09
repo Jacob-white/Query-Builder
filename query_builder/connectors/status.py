@@ -148,7 +148,9 @@ def collect_connectors() -> list[dict[str, Any]]:
     importlib.import_module("query_builder.connectors")
     names: dict[type, list[str]] = collections.defaultdict(list)
     for name, cls in ConnectorRegistry._registry.items():
-        names[cls].append(name)
+        # shipped connectors only (tests/plugins may register their own classes)
+        if cls.__module__.startswith("query_builder.connectors."):
+            names[cls].append(name)
 
     from query_builder.dialects import list_dialects
 
@@ -282,7 +284,7 @@ def build_report(root: Path | None = None) -> dict[str, Any]:
             "classes": len(connectors),
             "sync": sum(r["mode"] == "sync" for r in connectors),
             "async": sum(r["mode"] == "async" for r in connectors),
-            "registered_names": len(ConnectorRegistry._registry),
+            "registered_names": sum(1 + len(r["aliases"]) for r in connectors),
             "tiers": dict(tiers),
         },
         "connectors": connectors,
