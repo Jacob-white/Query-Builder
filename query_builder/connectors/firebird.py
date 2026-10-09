@@ -7,6 +7,7 @@ execution protocols, query statement isolation, and RDB$ schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -83,6 +84,25 @@ class _FirebirdCursorAdapter:
         self._rows = []
 
 
+def _end_read_transaction(conn: Any) -> None:
+    """Firebird drivers keep ONE transaction open per connection; with snapshot isolation a
+    long-lived connector would never see rows committed by anyone else after its first read.
+    The connector only reads, so ending the transaction after each use is always safe."""
+    with contextlib.suppress(Exception):
+        conn.rollback()
+
+
+def _firebird_version(cur: Any) -> str:
+    with contextlib.suppress(Exception):  # version is informational only
+        cur.execute(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') FROM rdb$database"
+        )
+        row = cur.fetchone()
+        if row and isinstance(row[0], str) and row[0]:
+            return f"Firebird {row[0]}"
+    return "Firebird"
+
+
 @register_connector("firebird", aliases=["firebirdsql"])
 class FirebirdConnector(BaseConnector):
     """Connector for Firebird relational database management system."""
@@ -138,6 +158,7 @@ class FirebirdConnector(BaseConnector):
             finally:
                 if hasattr(cur, "close"):
                     cur.close()
+                _end_read_transaction(conn)
         else:
             adapter = _FirebirdCursorAdapter(conn)
             try:
@@ -145,16 +166,22 @@ class FirebirdConnector(BaseConnector):
             finally:
                 adapter.close()
 
+    def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        # Firebird 4.0+: SET STATEMENT TIMEOUT (older servers have no equivalent)
+        with contextlib.suppress(Exception):
+            cursor.execute(f"SET STATEMENT TIMEOUT {int(timeout_ms)} MILLISECOND")
+
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         with self.get_cursor() as cur:
             cur.execute("SELECT 1 FROM RDB$DATABASE;")
             cur.fetchone()
+            version = _firebird_version(cur)
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Firebird",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
@@ -201,23 +228,20 @@ class AsyncFirebirdConnector(AsyncBaseConnector):
 
         try:
             connect_fn = getattr(driver, "connect", driver)
-            self._connection = connect_fn(**self.config)
+            # blocking driver: connect off the event loop
+            self._connection = await asyncio.to_thread(connect_fn, **self.config)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
                 f"Failed to connect asynchronously to Firebird database: {exc}"
             ) from exc
 
-    async def execute_raw(
-        self, sql: str, params: list[Any] | None = None
+    def _run_sync(
+        self, sql: str, params: list[Any] | None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
-        conn = await self.connect()
+        conn = self._connection
         start = time.perf_counter()
-        if hasattr(conn, "cursor"):
-            cur = conn.cursor()
-        else:
-            cur = _FirebirdCursorAdapter(conn)
-
+        cur = conn.cursor() if hasattr(conn, "cursor") else _FirebirdCursorAdapter(conn)
         try:
             if params:
                 cur.execute(sql, params)
@@ -227,32 +251,57 @@ class AsyncFirebirdConnector(AsyncBaseConnector):
             col_names = [col[0] for col in desc]
             rows = cur.fetchall() or []
             dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
+            return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
         finally:
             if hasattr(cur, "close"):
                 cur.close()
+            _end_read_transaction(conn)
+
+    async def execute_raw(
+        self, sql: str, params: list[Any] | None = None
+    ) -> tuple[list[str], list[dict[str, Any]], float]:
+        await self.connect()
+        # the driver blocks: run it in a worker thread so the event loop (and
+        # asyncio.wait_for timeouts) stay responsive
+        return await asyncio.to_thread(self._run_sync, sql, params)
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         await self.execute_raw("SELECT 1 FROM RDB$DATABASE;")
+        _, rows, _ = await self.execute_raw(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') AS v FROM rdb$database"
+        )
+        value = next(iter(rows[0].values())) if rows else None
+        version = (
+            f"Firebird {value}" if isinstance(value, str) and value else "Firebird"
+        )
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Firebird",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _FirebirdCursorAdapter(conn)
+
+        def run() -> dict[str, Any]:
+            cur = (
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _FirebirdCursorAdapter(conn)
+            )
+            try:
+                return introspect_firebird(cur, filter_sensitive=filter_sensitive)
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+                _end_read_transaction(conn)
+
         try:
-            return introspect_firebird(cur, filter_sensitive=filter_sensitive)
+            return await asyncio.to_thread(run)
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect Firebird schema: {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()

@@ -470,73 +470,111 @@ def introspect_clickhouse(
 def introspect_oracle(
     cursor: Any, owner: str | None = None, filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects Oracle schema using user_tables or all_tables."""
+    """Introspects an Oracle schema (``user_*`` views, or ``all_*`` for another ``owner``).
+
+    Names are returned exactly as stored in the catalog: the compiler QUOTES every identifier,
+    so folding the case here would produce names that do not exist (Oracle stores unquoted
+    names in upper case and quoted names verbatim).  Primary and foreign keys come from the
+    constraint catalog.
+    """
     try:
         if owner:
-            cursor.execute(
-                "SELECT table_name FROM all_tables WHERE owner = %s ORDER BY table_name",
-                [owner.upper()],
-            )
+            own = " AND {a}.owner = :1"
+            params: list[Any] = [owner.upper()]
+            pre = "all"
         else:
-            cursor.execute("SELECT table_name FROM user_tables ORDER BY table_name")
-        table_rows = cursor.fetchall()
-        table_names = [r[0] for r in table_rows if r and r[0]]
+            own = ""
+            params = []
+            pre = "user"
 
-        if owner:
-            cursor.execute(
-                """
-                SELECT table_name, column_name, data_type, nullable
-                FROM all_tab_columns
-                WHERE owner = %s
-                ORDER BY table_name, column_id
-                """,
-                [owner.upper()],
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT table_name, column_name, data_type, nullable
-                FROM user_tab_columns
-                ORDER BY table_name, column_id
-                """
-            )
+        def q(sql: str, **fmt: str) -> None:
+            cursor.execute(sql.format(pre=pre, **fmt), params)
+
+        # plain tables only (no views, no nested/IOT overflow noise)
+        q(
+            "SELECT t.table_name FROM {pre}_tables t WHERE t.nested = 'NO'"
+            + own.format(a="t")
+            + " ORDER BY t.table_name"
+        )
+        table_names = [str(r[0]) for r in cursor.fetchall() if r and r[0]]
+        known = set(table_names)
+
+        q(
+            "SELECT c.table_name, c.column_name, c.data_type, c.nullable "
+            "FROM {pre}_tab_columns c WHERE 1 = 1" + own.format(a="c") + " "
+            "ORDER BY c.table_name, c.column_id"
+        )
         col_rows = cursor.fetchall()
+
+        pk: dict[str, set[str]] = {}
+        q(
+            "SELECT cc.table_name, cc.column_name FROM {pre}_constraints c "
+            "JOIN {pre}_cons_columns cc ON c.constraint_name = cc.constraint_name "
+            "AND c.owner = cc.owner WHERE c.constraint_type = 'P'" + own.format(a="c")
+        )
+        for r in cursor.fetchall():
+            pk.setdefault(str(r[0]), set()).add(str(r[1]))
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        q(
+            "SELECT cc.table_name, cc.column_name, rcc.table_name, rcc.column_name "
+            "FROM {pre}_constraints c "
+            "JOIN {pre}_cons_columns cc ON c.constraint_name = cc.constraint_name "
+            "AND c.owner = cc.owner "
+            "JOIN {pre}_cons_columns rcc ON c.r_constraint_name = rcc.constraint_name "
+            "AND c.r_owner = rcc.owner AND cc.position = rcc.position "
+            "WHERE c.constraint_type = 'R'" + own.format(a="c")
+        )
+        for r in cursor.fetchall():
+            src_t, src_c, tgt_t, tgt_c = (str(x) for x in r[:4])
+            foreign_keys.append(
+                {
+                    "table": src_t,
+                    "column": src_c,
+                    "foreign_table": tgt_t,
+                    "foreign_column": tgt_c,
+                }
+            )
+            relationships.append(
+                {
+                    "source_table": src_t,
+                    "source_column": src_c,
+                    "target_table": tgt_t,
+                    "target_column": tgt_c,
+                }
+            )
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
-            t_name, c_name, d_type, nullable = (
-                str(r[0]),
-                str(r[1]),
-                str(r[2]),
-                str(r[3]),
-            )
+            t_name, c_name, d_type, nullable = (str(x) for x in r[:4])
+            if t_name not in known:
+                continue
             table_cols_map.setdefault(t_name, []).append(
                 {
-                    "name": c_name.lower(),
+                    "name": c_name,
                     "data_type": d_type.lower(),
                     "is_nullable": nullable == "Y",
-                    "is_primary": c_name.lower() == "id",
+                    "is_primary": c_name in pk.get(t_name, set()),
                     "comment": None,
                 }
             )
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            clean_tbl = tbl.lower()
             cols = table_cols_map.get(tbl, [])
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[clean_tbl] = {
-                "name": clean_tbl,
+            tables[tbl] = {
+                "name": tbl,
                 "columns": cols,
-                "has_user_id": has_user,
+                "has_user_id": any(c["name"].lower() == "user_id" for c in cols),
                 "user_col": "user_id",
                 "comment": None,
             }
 
         raw_snapshot = {
             "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
         }
         return normalize_schema_snapshot(
             raw_snapshot, filter_sensitive=filter_sensitive
@@ -3015,7 +3053,7 @@ def introspect_monetdb(
                 SELECT t.name
                 FROM sys.tables t
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name;
                 """,
                 [schema_name],
@@ -3025,11 +3063,11 @@ def introspect_monetdb(
 
             cur.execute(
                 """
-                SELECT t.name, c.name, c.type, c.null
+                SELECT t.name, c.name, c.type, c."null"
                 FROM sys.columns c
                 JOIN sys.tables t ON c.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name, c.number;
                 """,
                 [schema_name],
@@ -3040,7 +3078,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                WHERE table_schema = %s AND table_type = 'BASE TABLE'
                 ORDER BY table_name;
                 """,
                 [schema_name],
@@ -3052,7 +3090,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name, column_name, data_type, is_nullable
                 FROM information_schema.columns
-                WHERE table_schema = ?
+                WHERE table_schema = %s
                 ORDER BY table_name, ordinal_position;
                 """,
                 [schema_name],
@@ -3060,23 +3098,23 @@ def introspect_monetdb(
             col_rows = cur.fetchall() or []
 
         pk_cols_map: dict[str, set[str]] = {}
+        pk_loaded = False
         with contextlib.suppress(Exception):
             cur.execute(
                 """
                 SELECT t.name, kc.name
                 FROM sys.keys k
-                JOIN sys.keycolumns kc ON k.id = kc.id
+                JOIN sys.objects kc ON k.id = kc.id
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE k.type = 0 AND s.name = ?;
+                WHERE k.type = 0 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for pkr in cur.fetchall() or []:
                 if pkr and len(pkr) >= 2:
-                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
-                        str(pkr[1]).lower()
-                    )
+                    pk_cols_map.setdefault(str(pkr[0]), set()).add(str(pkr[1]))
+            pk_loaded = True
 
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
@@ -3084,25 +3122,24 @@ def introspect_monetdb(
             cur.execute(
                 """
                 SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column
-                FROM sys.fkeys fk
-                JOIN sys.keys k ON fk.id = k.id
+                FROM sys.keys k
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                JOIN sys.keycolumns kc ON k.id = kc.id
-                JOIN sys.keys rk ON fk.rkey = rk.id
+                JOIN sys.objects kc ON k.id = kc.id
+                JOIN sys.keys rk ON k.rkey = rk.id
                 JOIN sys.tables rt ON rk.table_id = rt.id
-                JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
-                WHERE s.name = ?;
+                JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
+                WHERE k.type = 2 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for fkr in cur.fetchall() or []:
                 if fkr and len(fkr) >= 4:
                     src_tbl, src_col, tgt_tbl, tgt_col = (
-                        str(fkr[0]).lower(),
-                        str(fkr[1]).lower(),
-                        str(fkr[2]).lower(),
-                        str(fkr[3]).lower(),
+                        str(fkr[0]),
+                        str(fkr[1]),
+                        str(fkr[2]),
+                        str(fkr[3]),
                     )
                     foreign_keys.append(
                         {
@@ -3129,12 +3166,15 @@ def introspect_monetdb(
             c_name = str(r[1])
             d_type = str(r[2])
             is_null = str(r[3]).upper() in ("TRUE", "YES", "Y", "1")
-            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
-                c_name.lower() == "id"
+            # catalog unreadable -> fall back to the `id` convention; otherwise trust it
+            is_pk = (
+                c_name in pk_cols_map.get(t_name, set())
+                if pk_loaded
+                else c_name.lower() == "id"
             )
-            table_cols_map.setdefault(t_name.lower(), []).append(
+            table_cols_map.setdefault(t_name, []).append(
                 {
-                    "name": c_name.lower(),
+                    "name": c_name,
                     "data_type": d_type.lower(),
                     "is_nullable": is_null,
                     "is_primary": is_pk,
@@ -3144,8 +3184,8 @@ def introspect_monetdb(
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            clean_tbl = tbl.lower()
-            cols = table_cols_map.get(clean_tbl, [])
+            clean_tbl = tbl
+            cols = table_cols_map.get(tbl, [])
             has_user = any(c["name"] == "user_id" for c in cols)
             tables[clean_tbl] = {
                 "name": clean_tbl,

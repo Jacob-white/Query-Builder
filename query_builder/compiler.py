@@ -1247,7 +1247,8 @@ class QueryCompiler:
             self.table_aliases[base_alias] = base_alias
             self.table_aliases[clean_base_table] = base_alias
             from_str = (
-                f"FROM ({sub_sql}) AS {self.dialect.quote_identifier(base_alias)}"
+                f"FROM ({sub_sql}) {getattr(self.dialect, 'subquery_alias_keyword', 'AS ')}"
+                f"{self.dialect.quote_identifier(base_alias)}"
             )
         else:
             clean_base_table = base_table.split(".")[-1]
@@ -2397,7 +2398,8 @@ class QueryCompiler:
             if having_str:
                 subquery_parts.append(having_str)
             count_sql = (
-                f"SELECT COUNT(*) FROM ({' '.join(subquery_parts)}) AS count_subquery"
+                f"SELECT COUNT(*) FROM ({' '.join(subquery_parts)}) "
+                f"{getattr(self.dialect, 'subquery_alias_keyword', 'AS ')}count_subquery"
             )
         else:
             count_sql = "\n".join(count_query_parts)
@@ -2500,7 +2502,8 @@ class QueryCompiler:
                 sub_sql, sub_params, _, _ = sub_compiler.compile()
                 main_sql = f"{main_sql}\n{op}\n{sub_sql}"
                 main_params = main_params + sub_params
-            count_sql = f"SELECT COUNT(*) FROM (\n{main_sql}\n) AS set_op_count"
+            kw = getattr(self.dialect, "subquery_alias_keyword", "AS ")
+            count_sql = f"SELECT COUNT(*) FROM (\n{main_sql}\n) {kw}set_op_count"
             count_params = list(main_params)
 
         if self.middleware is not None:
