@@ -6,6 +6,8 @@ import {
   useCompoundQueryBuilder,
 } from "../src/components/compound";
 import type { SchemaSnapshot, QuerySpec, QueryResultData } from "../src/types";
+import type { QueryBuilderClient } from "../src/client/index";
+import { partialSpec } from "./helpers/partial";
 
 describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () => {
   const mockSchema: SchemaSnapshot = {
@@ -52,13 +54,13 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
   });
 
   it("renders a full composable dashboard layout with all compound primitives", async () => {
-    const initialSpec: QuerySpec = {
+    const initialSpec: QuerySpec = partialSpec({
       table: "users",
       columns: ["users.id", "users.name"],
       filters: [{ column: "users.name", op: "=", value: "Alice" }],
       order_by: [{ column: "users.name", direction: "ASC" }],
       limit: 10,
-    };
+    });
 
     render(
       <QueryBuilder.Root schema={mockSchema} initialSpec={initialSpec}>
@@ -106,18 +108,18 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     const handleChange = vi.fn();
 
     function ControlledHost() {
-      const [spec, setSpec] = useState<QuerySpec>({
+      const [spec, setSpec] = useState<QuerySpec>(partialSpec({
         table: "users",
         columns: ["users.id"],
         limit: 25,
-      });
+      }));
 
       return (
         <QueryBuilder.Root
           schema={mockSchema}
           value={spec}
           onChange={(newSpec, sql) => {
-            setSpec(newSpec);
+            if (newSpec) setSpec(newSpec);
             handleChange(newSpec, sql);
           }}
         >
@@ -146,7 +148,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
       >
         <QueryBuilder.Filters />
         <QueryBuilder.SqlEditor />
@@ -168,7 +170,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
       >
         <QueryBuilder.Canvas />
         <QueryBuilder.Joins />
@@ -201,7 +203,6 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
       ],
       count: 2,
       latency_ms: 12.5,
-      dialect: "postgres",
     };
 
     const mockExecute = vi.fn().mockResolvedValue(mockResults);
@@ -209,7 +210,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id", "users.name"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id", "users.name"] })}
         onExecuteQuery={mockExecute}
       >
         <QueryBuilder.SqlEditor showExecuteButton={true} />
@@ -233,7 +234,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
         onChange={(s) => {
           capturedSpec = s;
         }}
@@ -255,17 +256,18 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
   });
 
   it("auto-fetches schema if client is supplied to QueryBuilder.Root without schema", async () => {
-    const mockClient = {
+    const mockClient: QueryBuilderClient = {
       getSchema: vi.fn().mockResolvedValue(mockSchema),
       execute: vi.fn(),
       compile: vi.fn(),
       validate: vi.fn(),
       export: vi.fn(),
       query: vi.fn(),
+      getCapabilities: vi.fn().mockResolvedValue({}),
     };
 
     render(
-      <QueryBuilder.Root client={mockClient as any}>
+      <QueryBuilder.Root client={mockClient}>
         <QueryBuilder.Canvas />
       </QueryBuilder.Root>,
     );
@@ -282,7 +284,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
       <QueryBuilder.Root
         ref={qbRef}
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
       >
         <QueryBuilder.Columns />
         <QueryBuilder.SqlEditor />
@@ -325,10 +327,10 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
   it("renders table cards and columns in headless mode without schema snapshot", async () => {
     render(
       <QueryBuilder.Root
-        initialSpec={{
+        initialSpec={partialSpec({
           table: "dynamic_table",
           columns: ["dynamic_table.col1", "dynamic_table.col2"],
-        }}
+        })}
       >
         <QueryBuilder.Canvas />
         <QueryBuilder.Columns />
@@ -346,7 +348,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
       >
         <QueryBuilder.Canvas />
         <QueryBuilder.Filters />
@@ -381,7 +383,7 @@ describe("Milestone 3: Composable Compound Components (<QueryBuilder.*>)", () =>
     render(
       <QueryBuilder.Root
         schema={mockSchema}
-        initialSpec={{ table: "users", columns: ["users.id"] }}
+        initialSpec={partialSpec({ table: "users", columns: ["users.id"] })}
         onExecuteQuery={failingExecute}
       >
         <QueryBuilder.SqlEditor />
