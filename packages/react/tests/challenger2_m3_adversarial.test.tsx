@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
+import { invalid } from "./helpers";
 import { render, screen, fireEvent, act, renderHook } from "@testing-library/react";
 import {
   useQueryBuilder,
@@ -144,6 +145,7 @@ const complexPlaygroundSpec: QuerySpec = {
     { column: "total", op: ">=", value: 100, tablePrefix: "orders" },
   ],
   order_by: [{ column: "orders.total", direction: "DESC" }],
+  filter_join: "AND",
   distinct: true,
   limit: 25,
 };
@@ -366,6 +368,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
           { column: "orders.total", direction: "DESC" },
           { column: "orders.placed_at", direction: "ASC" },
         ],
+        filter_join: "AND",
         distinct: true,
         limit: 75,
       };
@@ -378,7 +381,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
       expect(state.filters).toHaveLength(2);
       expect(state.sorts).toHaveLength(2);
 
-      const reserializedSpec = stateToSpec(state);
+      const reserializedSpec = stateToSpec(state as QueryState);
       expect(reserializedSpec.table).toBe("orders");
       expect(reserializedSpec.distinct).toBe(true);
       expect(reserializedSpec.limit).toBe(75);
@@ -883,21 +886,21 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
     it("covers specToState and useQueryState fallback branches", () => {
       const stateWithDefaults = specToState({
         filters: [{ column: "test", op: "=", value: undefined }],
-        order_by: [{ column: "", direction: undefined as any }],
+        order_by: [{ column: "", direction: invalid<"ASC" | "DESC">(undefined) }],
       });
 
-      expect(stateWithDefaults.filters[0].value).toBe("");
-      expect(stateWithDefaults.sorts[0].column).toBe("");
-      expect(stateWithDefaults.sorts[0].direction).toBe("ASC");
+      expect(stateWithDefaults.filters?.[0].value).toBe("");
+      expect(stateWithDefaults.sorts?.[0].column).toBe("");
+      expect(stateWithDefaults.sorts?.[0].direction).toBe("ASC");
 
       const stateWithMissingIds = specToState({
         joins: [{ table: "orders" }],
         filters: [{ column: "status", value: "active" }],
         order_by: [{ column: "created_at" }],
       });
-      expect(stateWithMissingIds.joins[0].id).toBe("join_1");
-      expect(stateWithMissingIds.filters[0].id).toBe("filter_1");
-      expect(stateWithMissingIds.sorts[0].id).toBe("sort_1");
+      expect(stateWithMissingIds.joins?.[0].id).toBe("join_1");
+      expect(stateWithMissingIds.filters?.[0].id).toBe("filter_1");
+      expect(stateWithMissingIds.sorts?.[0].id).toBe("sort_1");
 
       const { result: stateHook } = renderHook(() => useQueryState({}));
       expect(stateHook.current.state.activeTables).toEqual([]);
@@ -912,7 +915,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
       };
 
       const { result: explodeResult } = renderHook(() =>
-        useSqlCompiler(explosiveObject as any),
+        useSqlCompiler(explosiveObject),
       );
       expect(explodeResult.current.isValid).toBe(false);
       expect(explodeResult.current.error).toContain("Deliberate detonation");
@@ -923,7 +926,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
         limit: undefined,
       };
       const { result: limitResult } = renderHook(() =>
-        useSqlCompiler(visualStateWithoutNumericLimit as any),
+        useSqlCompiler(visualStateWithoutNumericLimit),
       );
       expect(limitResult.current.sql).toContain("LIMIT 50;");
 
@@ -933,7 +936,7 @@ describe("Milestone 3 DX Adversarial Challenge Suite 2 (Challenger 2)", () => {
         orderedProjectionKeys: undefined,
       };
       const { result: noOrderedKeysResult } = renderHook(() =>
-        useSqlCompiler(visualStateWithoutOrderedKeys as any),
+        useSqlCompiler(visualStateWithoutOrderedKeys),
       );
       expect(noOrderedKeysResult.current.sql).toContain('"users"."id"');
     });
