@@ -8,8 +8,17 @@ Tiers
 -----
 ``certified``
     The opt-in live conformance suite (``tests/integration``) ran against a real
-    engine through this exact connector class and passed in the latest recorded
-    run (``docs/live_results.json``).
+    engine through this exact connector class with ZERO failures AND every applicable
+    CORE category of the engine's family (``SQL_CORE`` / ``NATIVE_CORE``) has at least one
+    pass or a probe-verified limitation, with no unverified (``declared_unverified``) skip
+    in a core category. Tiers measure testing DEPTH, not merely "something passed".
+``basic``
+    A real engine passed at least one live test with zero failures, but the certified bar
+    is not met: shallow coverage (e.g. smoke-level only), unverified skips, or an old-format
+    report that carries no per-category evidence.
+``emulated``
+    Like the live tiers but against an emulator of the service; the evidence string shows
+    whether the depth bar was met.
 ``verified``
     No live evidence, but the class is exercised by unit tests in ``tests/``
     (and by the registry matrix tests that run for every class).
@@ -35,10 +44,48 @@ from query_builder.connectors.base import BaseConnector
 from query_builder.connectors.registry import ConnectorRegistry
 
 CERTIFIED = "certified"
+BASIC = "basic"
 EMULATED = "emulated"
 VERIFIED = "verified"
 EXPERIMENTAL = "experimental"
 UNRATED = "unrated"
+
+#: Check categories. A live report attributes every result to one of these (see
+#: ``tests/integration/categories.py``); ``certified`` needs every applicable CORE one.
+SQL_CORE: tuple[str, ...] = (
+    "connect",
+    "introspect_tables",
+    "introspect_columns",
+    "introspect_pk_fk",
+    "read_projection",
+    "filters",
+    "ordering",
+    "pagination",
+    "aggregates",
+    "joins",
+    "subquery_cte",
+    "parameter_safety",
+    "identifier_quoting",
+    "null_handling",
+    "write_refused",
+    "error_mapping",
+    "statement_timeout",
+    "async_parity",
+)
+NATIVE_CORE: tuple[str, ...] = (
+    "connect",
+    "introspect",
+    "read_basic",
+    "read_filtered",
+    "ordering",
+    "pagination",
+    "value_safety",
+    "write_refused",
+    "error_mapping",
+    "async_parity",
+)
+CORE_BY_KIND: dict[str, tuple[str, ...]] = {"sql": SQL_CORE, "native": NATIVE_CORE}
+SKIP_KINDS = ("verified_limitation", "declared_unverified", "environment")
 
 _EXTRA_RE = re.compile(r"query-builder-engine\[([\w-]+)\]")
 _CONNECT_FUNCS = {
@@ -298,19 +345,77 @@ def record_live(reports: list[dict[str, Any]], root: Path | None = None) -> Path
     return path
 
 
+def core_required(rec: dict[str, Any]) -> list[str]:
+    """Core categories that apply to this engine record (``rec['core']`` wins)."""
+    explicit = rec.get("core")
+    if explicit:
+        return list(explicit)
+    kind = rec.get("family_kind") or "sql"
+    core = CORE_BY_KIND.get(kind, SQL_CORE)
+    # a record that does not list its applicable core cannot say whether an async class
+    # exists: only require async_parity when it carries evidence for it
+    cats = rec.get("categories") or {}
+    return [c for c in core if c != "async_parity" or c in cats]
+
+
+def depth(rec: dict[str, Any]) -> dict[str, Any] | None:
+    """Per-engine depth evidence, or None for an old-format report (no ``categories``)."""
+    cats = rec.get("categories")
+    if not isinstance(cats, dict) or not cats:
+        return None
+    required = core_required(rec)
+    covered: list[str] = []
+    missing: list[str] = []
+    unverified: list[str] = []
+    for name in required:
+        c = cats.get(name) or {}
+        skipped = c.get("skipped") or {}
+        if c.get("failed", 0):
+            missing.append(name)
+            continue
+        if skipped.get("declared_unverified", 0):
+            unverified.append(name)
+        if c.get("passed", 0) > 0 or skipped.get("verified_limitation", 0) > 0:
+            covered.append(name)
+        else:
+            missing.append(name)
+    limits = rec.get("limitations") or {}
+    return {
+        "required": required,
+        "covered": covered,
+        "missing": missing,
+        "unverified": unverified,
+        "total": len(required),
+        "declared_unverified": sorted(limits.get("declared_unverified", [])),
+        "verified_limitations": sorted(limits.get("verified", [])),
+        "meets_bar": not missing and not unverified,
+    }
+
+
+def core_label(d: dict[str, Any] | None) -> str:
+    """``12/14 core categories`` (or ``no category evidence`` for an old-format report)."""
+    if d is None:
+        return "no category evidence"
+    return f"{len(d['covered'])}/{d['total']} core categories"
+
+
 def _live_index(live: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Best live evidence per connector class.
 
     Several engines can exercise the same class (e.g. SQL Server and the Synapse cloud stub
-    both use ``MSSQLConnector``); keep the strongest result - a clean pass beats a failing run,
-    and more passes beat fewer - instead of whichever engine happens to be listed last.
+    both use ``MSSQLConnector``); keep the strongest result instead of whichever engine
+    happens to be listed last: a clean pass beats a failing run, a real service beats an
+    emulator, a met depth bar beats a shallow run, then more covered core categories, then
+    more passes.
     """
 
-    def strength(rec: dict[str, Any]) -> tuple[bool, bool, int]:
-        # clean pass first, then real service over an emulator, then more passes
+    def strength(rec: dict[str, Any]) -> tuple[bool, bool, bool, int, int]:
+        d = depth(rec)
         return (
             rec.get("failed", 0) == 0 and rec.get("passed", 0) > 0,
             not rec.get("emulated", False),
+            bool(d and d["meets_bar"]),
+            len(d["covered"]) if d else 0,
             rec.get("passed", 0),
         )
 
@@ -338,11 +443,24 @@ def compute_tier(
                 f"({live['passed']} passed, {live.get('skipped', 0)} skipped) "
                 f"on {live.get('version') or '?'}"
             )
+            d = depth(live)
+            if d is None:
+                depth_text = "old-format report: no per-category evidence"
+            else:
+                depth_text = core_label(d)
+                if d["missing"]:
+                    depth_text += f"; missing {', '.join(d['missing'])}"
+                if d["unverified"]:
+                    depth_text += f"; unverified skips in {', '.join(d['unverified'])}"
             if live.get("emulated"):
+                bar = "depth bar met" if d and d["meets_bar"] else "depth bar not met"
                 return EMULATED, (
-                    f"conformance passed against an emulator, not the real service {counts}"
+                    "conformance passed against an emulator, not the real service "
+                    f"{counts}; {depth_text}; {bar}"
                 )
-            return CERTIFIED, f"live conformance passed {counts}"
+            if d is not None and d["meets_bar"]:
+                return CERTIFIED, f"live conformance passed {counts}; {depth_text}"
+            return BASIC, f"live tests passed {counts}, depth bar not met: {depth_text}"
         caveat = f"; live run had {failed} failed / {known} known issues"
     if unit_refs is None:
         return UNRATED, "no source checkout: unit-test evidence unavailable"
@@ -378,6 +496,7 @@ def build_report(root: Path | None = None) -> dict[str, Any]:
                 "failed": hit.get("failed"),
                 "skipped": hit.get("skipped"),
                 "xfailed": hit.get("xfailed", 0),
+                "depth": depth(hit),
             }
             if hit
             else None
@@ -390,6 +509,7 @@ def build_report(root: Path | None = None) -> dict[str, Any]:
             "failed": rec.get("failed", 0),
             "xfailed": rec.get("xfailed", 0),
             "skipped": rec.get("skipped", 0),
+            "depth": depth(rec),
             "run_at": rec.get("run_at") or live.get("run_at"),
             "platform": rec.get("platform"),
         }
@@ -413,22 +533,26 @@ def build_report(root: Path | None = None) -> dict[str, Any]:
 
 def render_table(report: dict[str, Any]) -> str:
     """Compact plain-text table for the CLI."""
-    rows = [("CLASS", "MODE", "TIER", "EXTRA", "NAMES")]
+    rows = [("CLASS", "MODE", "TIER", "CORE", "UNVERIFIED", "EXTRA", "NAMES")]
     for r in report["connectors"]:
+        live = r.get("live") or {}
+        d = live.get("depth")
         rows.append(
             (
                 r["class"],
                 r["mode"],
                 r["tier"],
+                f"{len(d['covered'])}/{d['total']}" if d else "-",
+                str(len(d["declared_unverified"])) if d else "-",
                 r["extra"] or "-",
                 ", ".join([r["name"], *r["aliases"]]),
             )
         )
-    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    widths = [max(len(row[i]) for row in rows) for i in range(6)]
     lines = [
-        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:4]))
+        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:6]))
         + "  "
-        + row[4]
+        + row[6]
         for row in rows
     ]
     t = report["totals"]
@@ -439,6 +563,18 @@ def render_table(report: dict[str, Any]) -> str:
         + ", ".join(f"{k}={v}" for k, v in sorted(t["tiers"].items()))
     )
     return "\n".join(lines)
+
+
+def _unverified_cell(d: dict[str, Any] | None) -> str:
+    """``3: having, right_join, ...`` (declared limitations nobody has probed)."""
+    if d is None:
+        return "-"
+    names = d.get("declared_unverified") or []
+    if not names:
+        return "0"
+    shown = ", ".join(f"`{n}`" for n in names[:6])
+    more = f", +{len(names) - 6} more" if len(names) > 6 else ""
+    return f"{len(names)}: {shown}{more}"
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -461,9 +597,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "| Tier | Meaning | Classes |",
         "| --- | --- | --- |",
-        "| `certified` | The live conformance suite (`tests/integration`) ran against a real "
-        "engine through this class and passed in the latest recorded run. "
+        "| `certified` | A real engine ran the live suite through this class with zero "
+        "failures AND every applicable core category (see legend) has a pass or a "
+        "probe-verified limitation, with no unverified skip in a core category. "
         f"| {tiers.get(CERTIFIED, 0)} |",
+        "| `basic` | A real engine passed live tests with zero failures, but the depth bar "
+        "is not met (shallow coverage, unverified skips, or an old report without "
+        f"category evidence). | {tiers.get(BASIC, 0)} |",
         "| `emulated` | The live conformance suite passed against a vendor/community "
         "EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, "
         f"BigQuery, DynamoDB-local). | {tiers.get(EMULATED, 0)} |",
@@ -471,6 +611,18 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"matrix tests, all against mocks. | {tiers.get(VERIFIED, 0)} |",
         "| `experimental` | Neither live nor unit-test evidence. "
         f"| {tiers.get(EXPERIMENTAL, 0)} |",
+        "",
+        "**Legend: tiers measure testing depth, not just that something passed.** A live "
+        "result is attributed to a check *category*. SQL engines must cover: "
+        + ", ".join(f"`{c}`" for c in SQL_CORE)
+        + ". Native (non-SQL) engines must cover: "
+        + ", ".join(f"`{c}`" for c in NATIVE_CORE)
+        + ". `async_parity` applies only to engines with an async class. A skipped "
+        "check is classified: `verified_limitation` (a probe through the native driver "
+        "proved the engine rejects the feature), `declared_unverified` (a declared "
+        "limitation with no probe: it blocks `certified` in a core category) or "
+        "`environment` (driver/service missing). *Core coverage* is the number of "
+        "applicable core categories with a pass or verified limitation.",
         "",
     ]
     live_at = report.get("live_run_at")
@@ -487,15 +639,17 @@ def render_markdown(report: dict[str, Any]) -> str:
         out += [
             "### Engines in the latest live run",
             "",
-            "| Engine | Version | Passed | Failed | Known issues | Skipped | Run | Platform |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+            "| Engine | Version | Passed | Failed | Known issues | Skipped | Core coverage "
+            "| Unverified skips | Run | Platform |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
         for e in live_engines:
             version = str(e["version"] or "?").splitlines()[0][:70]
             platform_name = str(e.get("platform") or "?")[:28]
             out.append(
                 f"| {e['engine']} | {version} | {e['passed']} | {e['failed']} | "
-                f"{e['xfailed']} | {e['skipped']} | {e['run_at']} | {platform_name} |"
+                f"{e['xfailed']} | {e['skipped']} | {core_label(e.get('depth'))} | "
+                f"{_unverified_cell(e.get('depth'))} | {e['run_at']} | {platform_name} |"
             )
         out.append("")
     if not_run:
@@ -507,24 +661,29 @@ def render_markdown(report: dict[str, Any]) -> str:
     out += [
         "## Connectors",
         "",
-        "| Class | Mode | Tier | Install extra | Live run | Registered names |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Class | Mode | Tier | Install extra | Live run | Core coverage "
+        "| Unverified skips | Registered names |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in report["connectors"]:
         extra = f"`[{r['extra']}]`" if r["extra"] else "none"
         names = ", ".join(f"`{n}`" for n in [r["name"], *r["aliases"]])
         live = r["live"]
         live_cell = "-"
+        core_cell = "-"
+        unverified_cell = "-"
         if live:
             live_cell = f"{live['engine']} ({live['passed']} pass"
             if live["failed"]:
                 live_cell += f", {live['failed']} fail"
             if live["xfailed"]:
                 live_cell += f", {live['xfailed']} known"
-            live_cell += ")"
+            live_cell += f", {live.get('skipped') or 0} skip)"
+            core_cell = core_label(live.get("depth"))
+            unverified_cell = _unverified_cell(live.get("depth"))
         out.append(
             f"| `{r['class']}` | {r['mode']} | {r['tier']} | {extra} | "
-            f"{live_cell} | {names} |"
+            f"{live_cell} | {core_cell} | {unverified_cell} | {names} |"
         )
     out.append("")
     return "\n".join(out)
@@ -584,12 +743,20 @@ def run_live_suite(
 
 def render_live_summary(report: dict[str, Any]) -> str:
     """Per-engine pass/skip/fail table for a live-suite report."""
-    rows = [("ENGINE", "VERSION", "PASS", "FAIL", "KNOWN", "SKIP", "NOTE")]
+    rows = [
+        ("ENGINE", "VERSION", "PASS", "FAIL", "KNOWN", "SKIP", "CORE", "UNVERIF", "NOTE")
+    ]
     for name, rec in sorted(report.get("engines", {}).items()):
+        d = depth(rec)
         if rec.get("failed"):
             note = "FAILED"
         elif rec.get("passed"):
-            note = "known issues" if rec.get("xfailed") else "ok"
+            if rec.get("xfailed"):
+                note = "known issues"
+            elif d is not None and d["meets_bar"]:
+                note = "ok (certified depth)"
+            else:
+                note = "ok (basic depth)"
         else:
             reasons = list(rec.get("skip_reasons", {}))
             note = f"skipped: {reasons[0]}" if reasons else "no tests ran"
@@ -601,14 +768,16 @@ def render_live_summary(report: dict[str, Any]) -> str:
                 str(rec.get("failed", 0)),
                 str(rec.get("xfailed", 0)),
                 str(rec.get("skipped", 0)),
+                f"{len(d['covered'])}/{d['total']}" if d else "-",
+                str(len(d["declared_unverified"])) if d else "-",
                 note,
             )
         )
-    widths = [max(len(row[i]) for row in rows) for i in range(6)]
+    widths = [max(len(row[i]) for row in rows) for i in range(8)]
     return "\n".join(
-        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:6]))
+        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:8]))
         + "  "
-        + row[6]
+        + row[8]
         for row in rows
     )
 
