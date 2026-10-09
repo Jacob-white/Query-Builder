@@ -323,6 +323,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
+extend-exclude = [".claude"]
 line-length = 88
 target-version = "py311"
 
