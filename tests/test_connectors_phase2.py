@@ -1826,6 +1826,7 @@ def test_introspect_memgraph_branches():
     mock_empty.fetchall.return_value = []
     assert introspect_memgraph(mock_empty)["tables"] == {}
 
+
 def test_introspect_neptune_branches():
     mock_cur = MagicMock()
     mock_cur.execute.side_effect = [

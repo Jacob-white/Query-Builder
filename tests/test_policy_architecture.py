@@ -17,7 +17,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from query_builder.compiler import CompilationError, QueryCompiler
@@ -345,7 +345,15 @@ def _tenant_columns(spec: dict) -> list[int]:
     return [i for i, c in enumerate(spec["columns"]) if str(c).endswith("tenant_id")]
 
 
-@settings(max_examples=400, deadline=None, derandomize=True, database=None)
+# Each example runs a real SQLite database, so generation is slow by design; on a loaded
+# machine Hypothesis's too_slow health check would otherwise fail the run spuriously.
+@settings(
+    max_examples=400,
+    deadline=None,
+    derandomize=True,
+    database=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
 @given(_spec())
 def test_client_filters_can_never_reach_another_tenants_rows(spec: dict) -> None:
     ctx = TenantContext(tenant_id="mine", user_id="u1")

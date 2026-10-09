@@ -144,7 +144,6 @@ _RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
                 "BUILD",
                 "EXECUTE",
                 "PREPARE",
-                "UPDATE",
             }
         ),
     ),

@@ -74,6 +74,36 @@ def _class_source(cls: type) -> str:
         return ""
 
 
+def _module_level_driver_loops(cls: type) -> list[str]:
+    """Driver modules named by ``for mod_name in (...)`` loops in the TOP-LEVEL functions of
+    the module that defines ``cls``. Connectors often factor driver loading into a helper such
+    as ``_load_driver()`` outside the class; the same loop convention applies there."""
+    module = sys.modules.get(cls.__module__)
+    try:
+        tree = ast.parse(inspect.getsource(module)) if module else None
+    except (OSError, TypeError, SyntaxError):  # pragma: no cover - no source available
+        return []
+    if tree is None:
+        return []
+    found: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.For)
+                and isinstance(sub.target, ast.Name)
+                and sub.target.id == "mod_name"
+                and isinstance(sub.iter, (ast.Tuple, ast.List))
+            ):
+                found += [
+                    e.value
+                    for e in sub.iter.elts
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                ]
+    return found
+
+
 def declared_drivers(cls: type) -> tuple[str, ...]:
     """
     Third-party modules the class imports lazily to reach its database.
@@ -91,8 +121,10 @@ def declared_drivers(cls: type) -> tuple[str, ...]:
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if node.name not in _CONNECT_FUNCS:
-                continue
+            # The ``for mod_name in (...)`` driver-fallback loop is a deliberate convention and
+            # counts wherever it lives (connectors often factor it into a ``_load_driver``
+            # helper); plain ``import`` statements only count inside connect-style methods.
+            in_connect = node.name in _CONNECT_FUNCS
             for sub in ast.walk(node):
                 if (
                     isinstance(sub, ast.For)
@@ -105,12 +137,19 @@ def declared_drivers(cls: type) -> tuple[str, ...]:
                         for e in sub.iter.elts
                         if isinstance(e, ast.Constant) and isinstance(e.value, str)
                     ]
-                elif isinstance(sub, ast.Import):
+                elif in_connect and isinstance(sub, ast.Import):
                     found += [a.name for a in sub.names]
-                elif isinstance(sub, ast.ImportFrom) and sub.module and not sub.level:
+                elif (
+                    in_connect
+                    and isinstance(sub, ast.ImportFrom)
+                    and sub.module
+                    and not sub.level
+                ):
                     found.append(sub.module)
         if found:
             break
+    if not found:
+        found += _module_level_driver_loops(cls)
     drivers = [
         m
         for m in dict.fromkeys(found)

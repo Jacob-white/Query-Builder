@@ -489,4 +489,3 @@ class AsyncBigtableConnector(AsyncBaseConnector):
             raise IntrospectionError(
                 f"Failed to introspect Bigtable schema: {exc}"
             ) from exc
-

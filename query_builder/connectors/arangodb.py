@@ -12,6 +12,7 @@ import contextlib
 import time
 from typing import Any
 
+from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -19,7 +20,6 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.introspection import introspect_arangodb
 from query_builder.connectors.registry import register_connector
 

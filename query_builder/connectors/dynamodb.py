@@ -39,7 +39,6 @@ from query_builder.security import (
     check_cartesian_products,
 )
 
-
 _DYNAMO_TYPES = {"S": "string", "N": "number", "B": "binary"}
 _DYNAMO_VALUE_TYPES = {
     "S": "string",
@@ -153,9 +152,7 @@ class DynamoDBConnector(BaseConnector):
                     scan = client.scan(TableName=tbl, Limit=100)
                     for item in scan.get("Items", []):
                         for a_name, a_val in item.items():
-                            sampled.setdefault(
-                                str(a_name), _dynamo_value_type(a_val)
-                            )
+                            sampled.setdefault(str(a_name), _dynamo_value_type(a_val))
                 for attr_name, attr_type in {**sampled, **declared}.items():
                     if attr_name == "user_id":
                         has_user = True
@@ -296,7 +293,9 @@ class DynamoDBConnector(BaseConnector):
                 )
                 rows = [self._unmarshal_item(it) for it in items]
                 columns = list(
-                    dict.fromkeys(k for r in rows for k in r)  # schemaless: union of keys
+                    dict.fromkeys(
+                        k for r in rows for k in r
+                    )  # schemaless: union of keys
                 )
                 total_count = len(rows)
             else:

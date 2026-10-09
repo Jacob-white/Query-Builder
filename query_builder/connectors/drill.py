@@ -139,7 +139,9 @@ class _DrillCursorAdapter:
     def _failure_message(self, data: dict[str, Any], state: Any) -> str:
         detail = str(data.get("errorMessage") or "")
         query_id = data.get("queryId")
-        for _ in range(6):  # the error lands in the query profile a moment after the reply
+        for _ in range(
+            6
+        ):  # the error lands in the query profile a moment after the reply
             if detail or not query_id:
                 break
             with contextlib.suppress(Exception):

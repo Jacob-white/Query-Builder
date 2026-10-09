@@ -291,7 +291,11 @@ class AsyncCosmosDBConnector(AsyncBaseConnector):
 
         driver = None
         # the awaitable client lives in azure.cosmos.aio; fall back to the blocking module
-        for mod_name in ("azure.cosmos.aio", "azure.cosmos", "azure.cosmos.cosmos_client"):
+        for mod_name in (
+            "azure.cosmos.aio",
+            "azure.cosmos",
+            "azure.cosmos.cosmos_client",
+        ):
             try:
                 driver = __import__(mod_name, fromlist=["CosmosClient"])
                 break
@@ -387,7 +391,11 @@ class AsyncCosmosDBConnector(AsyncBaseConnector):
             else:
                 names = list(listing)
             for item in names:
-                c_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+                c_id = (
+                    item.get("id")
+                    if isinstance(item, dict)
+                    else getattr(item, "id", None)
+                )
                 if not c_id:
                     continue
                 query = db.get_container_client(c_id).query_items(

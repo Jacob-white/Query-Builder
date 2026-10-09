@@ -946,7 +946,9 @@ def test_introspect_surrealdb_variants():
     # 2. a raw SDK client (only .query) is wrapped; SDK >= 1.0 result shape
     answers = {
         "INFO FOR DB": {"tables": {"audit": ""}},
-        "INFO FOR TABLE": {"fields": {"actor": "DEFINE FIELD actor ON audit TYPE string"}},
+        "INFO FOR TABLE": {
+            "fields": {"actor": "DEFINE FIELD actor ON audit TYPE string"}
+        },
         "SELECT": [{"id": "audit:1", "actor": "x", "n": 3}],
     }
     mock_client = MagicMock(spec=["query"])
