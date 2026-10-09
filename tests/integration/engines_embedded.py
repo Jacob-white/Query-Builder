@@ -236,3 +236,67 @@ register(
         },
     )
 )
+
+
+def _generic_pg_native(e: Engine) -> Native:
+    import psycopg
+
+    conn = psycopg.connect(
+        host=e.host,
+        port=e.port_,
+        user=e.user_,
+        password=e.password_,
+        dbname=e.database_,
+        autocommit=True,
+    )
+
+    def run(sql: str) -> Any:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return cur.fetchall() if cur.description else None
+
+    return Native(run, conn.close)
+
+
+def _kw_generic_psycopg(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    import psycopg
+
+    def raw_connection() -> Any:
+        return psycopg.connect(
+            host=e.host,
+            port=e.port_,
+            user=e.user_,
+            password=o.get("password") or e.password_,
+            dbname=e.database_,
+            connect_timeout=5,
+        )
+
+    if o.get("password"):  # the wrong-password test: the failure must surface in connect()
+
+        class _LazyEngine:
+            raw_connection = staticmethod(raw_connection)
+
+        return {"engine": _LazyEngine(), "dialect": "postgres"}
+    return {"connection": raw_connection(), "dialect": "postgres"}
+
+
+register(
+    Engine(
+        name="generic_psycopg",
+        connector="generic",
+        tier="extended",
+        family="pg",
+        drivers=("psycopg",),
+        pip="'psycopg[binary]'",
+        port=45432,
+        connector_factory=_kw_generic_psycopg,
+        native_factory=_generic_pg_native,
+        slow_sql="SELECT pg_sleep(30)",
+        service="generic_pg",
+        container_port=5432,
+        unsupported={
+            "statement_timeout": "GenericDBAPIConnector does not set a statement timeout (driver-agnostic)",
+            "db_read_only": "no separate read-only login is provisioned for the generic class",
+        },
+    )
+)

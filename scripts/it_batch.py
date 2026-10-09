@@ -234,7 +234,7 @@ def run_batch(args: argparse.Namespace) -> int:
         if not args.keep_up:
             print("[it_batch] tearing down (compose down -v)", flush=True)
             subprocess.run(
-                base + ["down", "-v", "--remove-orphans"],
+                base + ["down", "-v"],
                 cwd=ROOT,
                 check=False,
                 capture_output=True,
