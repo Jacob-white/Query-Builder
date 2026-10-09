@@ -327,3 +327,84 @@ smoke.SMOKE["scylladb"] = smoke.Smoke(
     ],
     check=_count_check(_scylla_count),
 )
+
+
+# =====================================================================  DynamoDB (local)
+def _dynamo_client(e: Engine) -> Any:
+    import boto3
+
+    return boto3.client(
+        "dynamodb",
+        region_name="us-east-1",
+        endpoint_url=f"http://{e.host}:{e.port_}",
+        aws_access_key_id="qbit",
+        aws_secret_access_key="qbit-secret",
+    )
+
+
+def _seed_dynamo(e: Engine) -> None:
+    client = _dynamo_client(e)
+    if "qbit_people" in client.list_tables()["TableNames"]:
+        client.delete_table(TableName="qbit_people")
+    client.create_table(
+        TableName="qbit_people",
+        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+        AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "N"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    for pid, name, age in PEOPLE:
+        client.put_item(
+            TableName="qbit_people",
+            Item={"id": {"N": str(pid)}, "name": {"S": name}, "age": {"N": str(age)}},
+        )
+
+
+def _dynamo_count(e: Engine) -> int:
+    return int(_dynamo_client(e).scan(TableName="qbit_people", Select="COUNT")["Count"])
+
+
+def _dynamo_cleanup(e: Engine) -> None:
+    client = _dynamo_client(e)
+    if "qbit_people" in client.list_tables()["TableNames"]:
+        client.delete_table(TableName="qbit_people")
+
+
+def _kw_dynamo(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "region_name": "us-east-1",
+        "endpoint_url": f"http://{e.host}:{e.port_}",
+        "aws_access_key_id": "qbit",
+        "aws_secret_access_key": "qbit-secret",
+    }
+
+
+register(
+    Engine(
+        name="dynamodb",
+        connector="dynamodb",
+        tier="extended",
+        family="",
+        drivers=("boto3",),
+        pip="boto3",
+        port=43001,
+        password="",
+        connector_factory=_kw_dynamo,
+        service="dynamodb",
+        container_port=8000,
+        emulated=True,  # amazon/dynamodb-local, not the AWS service
+    )
+)
+smoke.SMOKE["dynamodb"] = smoke.Smoke(
+    seed=_seed_dynamo,
+    table="qbit_people",
+    columns={"id", "name", "age"},
+    read='SELECT name, age FROM "qbit_people"',
+    expected=BY_AGE,
+    writes=[
+        'DELETE FROM "qbit_people" WHERE id = 1',
+        "UPDATE \"qbit_people\" SET age = 0 WHERE id = 1",
+        "INSERT INTO \"qbit_people\" VALUE {'id': 9, 'name': 'x', 'age': 1}",
+    ],
+    check=_count_check(_dynamo_count),
+    cleanup=_dynamo_cleanup,
+)

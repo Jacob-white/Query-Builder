@@ -1337,7 +1337,13 @@ def _arango_json_type(value: Any) -> str:
         return "array"
     if isinstance(value, dict):
         return "object"
-    return "null"
+    if value is None:
+        return "null"
+    if isinstance(value, (bytes, bytearray)):
+        return "bytes"
+    if hasattr(value, "isoformat"):
+        return "timestamp"
+    return type(value).__name__.lower()
 
 
 def _arango_sample_fields(db_or_cursor: Any, collection: str) -> dict[str, str]:
