@@ -1,14 +1,17 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "query-builder-engine"
-version = "1.0.0"
+# Single source of truth: `query_builder.__version__` (see [tool.setuptools.dynamic]).
+dynamic = ["version"]
 description = "Universal, multi-dialect SQL query builder, declarative compiler, AST safety validator, and graph-based join path solver."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["sql", "query-builder", "sql-compiler", "sql-validator", "database", "multi-tenant"]
 authors = [
     { name = "HobbyHabbit LLC", email = "support@hobbyhabbit.com" }
 ]
@@ -16,21 +19,44 @@ maintainers = [
     { name = "Jacob White", email = "jake@hobbyhabbit.com" }
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = [
     "sqlparse>=0.4.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Jacob-white/Query-Builder"
+Source = "https://github.com/Jacob-white/Query-Builder"
+Issues = "https://github.com/Jacob-white/Query-Builder/issues"
+Changelog = "https://github.com/Jacob-white/Query-Builder/blob/main/CHANGELOG.md"
+Security = "https://github.com/Jacob-white/Query-Builder/blob/main/SECURITY.md"
+
+# ---------------------------------------------------------------------------
+# Optional dependencies ("extras")
+#
+# Naming rules (see docs/RELEASING.md and CONTRIBUTING.md):
+#   * one extra per connector, named after the connector, containing the driver the
+#     connector actually imports (the first importable module in its connect() loop);
+#   * alias extras point at their canonical extra via a self-reference, so a driver is
+#     only ever declared once;
+#   * `all` installs only drivers that are pure Python or ship wheels for every
+#     supported platform (no compiler / vendor client library needed);
+#   * `all-native` additionally installs drivers that may need a C toolchain, a vendor
+#     client library, a JVM, or are very large. Expect it to fail on some platforms.
+# ---------------------------------------------------------------------------
 [project.optional-dependencies]
+# --- Tooling / integrations -------------------------------------------------
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -38,175 +64,231 @@ dev = [
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
     "polars>=1.0.0",
+    "httpx>=0.27.0",
 ]
-sqlite = []
-mongo = ["pymongosql>=0.1.0"]
-postgresql = ["psycopg[binary]>=3.1.0"]
-adx = ["azure-kusto-data>=4.0.0"]
-duckdb = ["duckdb>=0.9.0"]
+server = ["fastapi>=0.110.0", "starlette>=0.37.0", "uvicorn>=0.29.0", "httpx>=0.27.0"]
+django = ["django>=4.2", "djangorestframework>=3.14.0", "django-ninja>=1.0.0"]
 sqlalchemy = ["sqlalchemy>=2.0.0"]
 polars = ["polars>=1.0.0"]
+
+# --- Embedded / in-process engines -----------------------------------------
+sqlite = []
+duckdb = ["duckdb>=0.9.0"]
 datafusion = ["datafusion>=38.0.0"]
+dremio = ["pyarrow>=14.0.0"]
+
+# --- PostgreSQL family (psycopg 3) -----------------------------------------
+postgresql = ["psycopg[binary]>=3.1.0"]
+postgres = ["query-builder-engine[postgresql]"]
+neon = ["query-builder-engine[postgresql]"]
+supabase = ["query-builder-engine[postgresql]"]
+materialize = ["query-builder-engine[postgresql]"]
+risingwave = ["query-builder-engine[postgresql]"]
+yugabyte = ["query-builder-engine[postgresql]"]
+# GreptimeDB speaks the PostgreSQL wire protocol; there is no `greptimedb` module on PyPI.
+greptimedb = ["query-builder-engine[postgresql]"]
+alloydb = ["google-cloud-alloydb-connector>=1.0.0", "psycopg[binary]>=3.1.0"]
+redshift = ["redshift-connector>=2.0.0"]
+cratedb = ["crate>=0.30.0"]
+
+# --- MySQL family (PyMySQL, pure Python) ------------------------------------
+# The connectors prefer `MySQLdb` when present and fall back to `pymysql`; the extra
+# installs the pure-Python fallback. Use `mysql-native` for the C driver (mysqlclient).
+mysql = ["pymysql>=1.1.0"]
+tidb = ["query-builder-engine[mysql]"]
+starrocks = ["query-builder-engine[mysql]"]
+doris = ["pydoris>=0.2.0", "pymysql>=1.1.0"]
+singlestore = ["singlestoredb>=1.0.0"]
+oceanbase = ["pyoceanbase>=0.1.0"]
+
+# --- Other SQL engines ------------------------------------------------------
+mssql = ["pymssql>=2.2.0"]
+oracle = ["oracledb>=2.0.0"]
+clickhouse = ["clickhouse-connect>=0.6.0"]
+clickhouse-native = ["clickhouse-driver>=0.2.6"]
+trino = ["trino>=0.320.0"]
+prestodb = ["presto-python-client>=0.8.0"]
+pulsar = ["query-builder-engine[trino]"]
+druid = ["pydruid>=0.6.5"]
+pinot = ["pinotdb>=5.0.0"]
+vertica = ["vertica-python>=1.3.0"]
+exasol = ["pyexasol>=0.25.0"]
+firebird = ["firebird-driver>=1.10.0"]
+monetdb = ["pymonetdb>=1.8.0"]
+teradata = ["teradatasql>=20.0.0"]
+saphana = ["hdbcli>=2.18.0"]
+db2 = ["ibm-db>=3.2.0"]
+informix = ["query-builder-engine[db2]"]
+sybase = ["pyodbc>=5.0.0"]
+hive = ["pyhive>=0.7.0"]
+kyuubi = ["query-builder-engine[hive]"]
+impala = ["impyla>=0.18.0"]
+drill = ["pydrill>=0.3.0"]
+spark = ["pyspark>=3.5.0"]
+chdb = ["chdb>=2.0.0"]
+# H2 and Derby are JVM databases; the connectors reach them through JDBC. `h2` also works
+# over H2's PostgreSQL-compatible server with the `postgresql` extra (psycopg).
+# You must supply the JDBC driver JAR yourself, and a JVM must be installed.
+h2 = ["JayDeBeApi>=1.2.3"]
+derby = ["JayDeBeApi>=1.2.3"]
+
+# --- Cloud warehouses and managed services ---------------------------------
+snowflake = ["snowflake-connector-python>=3.0.0"]
+bigquery = ["google-cloud-bigquery>=3.0.0"]
 databricks = ["databricks-sql-connector>=3.0.0"]
 athena = ["pyathena>=3.0.0"]
 spanner = ["google-cloud-spanner>=3.40.0"]
-dynamodb = ["boto3>=1.34.0"]
-postgres = ["psycopg[binary]>=3.1.0"]
-mysql = ["mysqlclient>=2.2.0"]
-mssql = ["pymssql>=2.2.0"]
-snowflake = ["snowflake-connector-python>=3.0.0"]
-bigquery = ["google-cloud-bigquery>=3.0.0"]
-clickhouse = ["clickhouse-connect>=0.6.0"]
-oracle = ["oracledb>=2.0.0"]
-redshift = ["redshift-connector>=2.0.0"]
-trino = ["trino>=0.320.0"]
-dremio = ["pyarrow>=14.0.0"]
 firebolt = ["firebolt-sdk>=1.0.0"]
-tidb = ["pymysql>=1.1.0"]
-singlestore = ["singlestoredb>=1.0.0"]
-teradata = ["teradatasql>=20.0.0"]
-couchbase = ["couchbase>=4.2.0"]
+adx = ["azure-kusto-data>=4.0.0"]
+kusto = ["query-builder-engine[adx]"]
+bigtable = ["google-cloud-bigtable>=2.21.0"]
+timestream = ["boto3>=1.34.0"]
+dynamodb = ["boto3>=1.34.0"]
+neptune = ["boto3>=1.34.0", "neo4j>=5.15.0"]
 d1 = ["requests>=2.28.0"]
-mongodb = ["pymongosql>=0.1.0"]
-neon = ["psycopg[binary]>=3.1.0"]
-supabase = ["psycopg[binary]>=3.1.0"]
-prestodb = ["prestodb>=0.8.0"]
-druid = ["pydruid>=0.6.5"]
-pinot = ["pinotdb>=5.0.0"]
-starrocks = ["pymysql>=1.1.0"]
-materialize = ["psycopg[binary]>=3.1.0"]
-risingwave = ["psycopg[binary]>=3.1.0"]
-cratedb = ["crate>=0.30.0"]
-influxdb = ["influxdb3-python>=0.5.0"]
-alloydb = ["google-cloud-alloydb-connector>=1.0.0"]
-vertica = ["vertica-python>=1.3.0"]
-saphana = ["hdbcli>=2.18.0"]
-oceanbase = ["pyoceanbase>=0.1.0"]
-scylladb = ["scylla-driver>=3.25.0"]
-spark = ["pyspark>=3.5.0"]
-chdb = ["chdb>=2.0.0"]
-greptimedb = ["greptimedb>=0.1.0"]
-tdengine = ["taospy>=2.7.0"]
-surrealdb = ["surrealdb>=0.3.0"]
-arangodb = ["python-arango>=7.0.0"]
-cassandra = ["cassandra-driver>=3.28.0"]
-exasol = ["pyexasol>=0.25.0"]
-db2 = ["ibm-db>=3.2.0"]
-cosmosdb = ["azure-cosmos>=4.5.0"]
-doris = ["pydoris>=0.2.0"]
-impala = ["impyla>=0.18.0"]
-hive = ["pyhive>=0.7.0"]
-kyuubi = ["pyhive>=0.7.0"]
-drill = ["pydrill>=0.3.0"]
-yugabyte = ["psycopg[binary]>=3.1.0"]
+
+# --- NoSQL / search / graph -------------------------------------------------
+mongo = ["pymongosql>=0.1.0"]
+mongodb = ["query-builder-engine[mongo]"]
+redis = ["redis>=5.0.0"]
+elasticsearch = ["elasticsearch>=8.0.0"]
 opensearch = ["opensearch-py>=2.4.0"]
 neo4j = ["neo4j>=5.15.0"]
-kdb = ["pykx>=2.0.0"]
-clickhouse-native = ["clickhouse-driver>=0.2.6"]
-derby = ["pydrill>=0.3.0"]
-elasticsearch = ["elasticsearch>=8.0.0"]
-firebird = ["firebird-driver>=1.10.0"]
-h2 = ["psycopg[binary]>=3.1.0"]
-informix = ["ibm-db>=3.2.0"]
-monetdb = ["pymonetdb>=1.8.0"]
-sybase = ["pyodbc>=5.0.0"]
-kusto = ["azure-kusto-data>=4.0.0"]
+memgraph = ["query-builder-engine[neo4j]"]
+arangodb = ["python-arango>=7.0.0"]
+cassandra = ["cassandra-driver>=3.28.0"]
+scylladb = ["scylla-driver>=3.25.0"]
+couchbase = ["couchbase>=4.2.0"]
+cosmosdb = ["azure-cosmos>=4.5.0"]
+firestore = ["google-cloud-firestore>=2.14.0"]
+surrealdb = ["surrealdb>=0.3.0"]
+
+# --- Time series / streaming -----------------------------------------------
+influxdb = ["influxdb3-python>=0.5.0"]
 prometheus = ["prometheus-api-client>=0.5.0"]
 victoriametrics = ["requests>=2.28.0"]
-timestream = ["boto3>=1.34.0"]
-memgraph = ["neo4j>=5.15.0"]
-neptune = ["boto3>=1.34.0"]
+tdengine = ["taospy>=2.7.0"]
+kdb = ["pykx>=2.0.0"]
 ksqldb = ["requests>=2.28.0"]
 flink = ["requests>=2.28.0"]
-pulsar = ["trino>=0.320.0"]
+
+# --- Vector stores ----------------------------------------------------------
 qdrant = ["qdrant-client>=1.7.0"]
-pinecone = ["pinecone-client>=3.0.0"]
+# `pinecone-client` is a deprecated stub on PyPI; the connector imports `pinecone`.
+pinecone = ["pinecone>=5.1.0"]
 weaviate = ["weaviate-client>=4.4.0"]
 milvus = ["pymilvus>=2.3.0"]
 chroma = ["chromadb>=0.4.0"]
 lancedb = ["lancedb>=0.4.0"]
-redis = ["redis>=5.0.0"]
-firestore = ["google-cloud-firestore>=2.14.0"]
-bigtable = ["google-cloud-bigtable>=2.21.0"]
-all = [
 
+# --- Native-build / vendor-library drivers (never part of `all`) -----------
+mysql-native = ["mysqlclient>=2.2.0"]
+
+# --- Family bundles ---------------------------------------------------------
+sql = [
+    "psycopg[binary]>=3.1.0",
+    "pymysql>=1.1.0",
+    "oracledb>=2.0.0",
     "duckdb>=0.9.0",
     "sqlalchemy>=2.0.0",
     "polars>=1.0.0",
     "datafusion>=38.0.0",
-    "databricks-sql-connector>=3.0.0",
-    "pyathena>=3.0.0",
-    "google-cloud-spanner>=3.40.0",
-    "boto3>=1.34.0",
-    "psycopg[binary]>=3.1.0",
-    "mysqlclient>=2.2.0",
-    "pymssql>=2.2.0",
-    "snowflake-connector-python>=3.0.0",
-    "google-cloud-bigquery>=3.0.0",
-    "clickhouse-connect>=0.6.0",
-    "oracledb>=2.0.0",
-    "redshift-connector>=2.0.0",
-    "trino>=0.320.0",
     "pyarrow>=14.0.0",
-    "firebolt-sdk>=1.0.0",
-    "pymysql>=1.1.0",
+    "trino>=0.320.0",
+    "clickhouse-connect>=0.6.0",
+    "redshift-connector>=2.0.0",
     "singlestoredb>=1.0.0",
-    "teradatasql>=20.0.0",
-    "couchbase>=4.2.0",
-    "requests>=2.28.0",
-    "pymongosql>=0.1.0",
-    "prestodb>=0.8.0",
+    "pymonetdb>=1.8.0",
+    "vertica-python>=1.3.0",
+    "pyexasol>=0.25.0",
     "pydruid>=0.6.5",
     "pinotdb>=5.0.0",
     "crate>=0.30.0",
-    "vertica-python>=1.3.0",
-    "influxdb3-python>=0.5.0",
-    "google-cloud-alloydb-connector>=1.0.0",
-    "hdbcli>=2.18.0",
-    "pyoceanbase>=0.1.0",
-    "scylla-driver>=3.25.0",
-    "pyspark>=3.5.0",
-    "chdb>=2.0.0",
-    "greptimedb>=0.1.0",
-    "taospy>=2.7.0",
-    "surrealdb>=0.3.0",
-    "python-arango>=7.0.0",
-    "cassandra-driver>=3.28.0",
-    "pyexasol>=0.25.0",
-    "ibm-db>=3.2.0",
-    "azure-cosmos>=4.5.0",
-    "pydoris>=0.2.0",
-    "impyla>=0.18.0",
-    "pyhive>=0.7.0",
+    "presto-python-client>=0.8.0",
     "pydrill>=0.3.0",
+]
+cloud-warehouses = [
+    "snowflake-connector-python>=3.0.0",
+    "google-cloud-bigquery>=3.0.0",
+    "databricks-sql-connector>=3.0.0",
+    "pyathena>=3.0.0",
+    "google-cloud-spanner>=3.40.0",
+    "google-cloud-bigtable>=2.21.0",
+    "firebolt-sdk>=1.0.0",
+    "azure-kusto-data>=4.0.0",
+    "boto3>=1.34.0",
+    "requests>=2.28.0",
+]
+nosql = [
+    "pymongosql>=0.1.0",
+    "redis>=5.0.0",
+    "elasticsearch>=8.0.0",
     "opensearch-py>=2.4.0",
     "neo4j>=5.15.0",
-    "pykx>=2.0.0",
-    "clickhouse-driver>=0.2.6",
-    "elasticsearch>=8.0.0",
-    "firebird-driver>=1.10.0",
-    "pymonetdb>=1.8.0",
-    "pyodbc>=5.0.0",
-    "azure-kusto-data>=4.0.0",
-    "prometheus-api-client>=0.5.0",
+    "python-arango>=7.0.0",
+    "cassandra-driver>=3.28.0",
+    "scylla-driver>=3.25.0",
+    "azure-cosmos>=4.5.0",
+    "google-cloud-firestore>=2.14.0",
+    "surrealdb>=0.3.0",
+]
+vector = [
     "qdrant-client>=1.7.0",
-    "pinecone-client>=3.0.0",
+    "pinecone>=5.1.0",
     "weaviate-client>=4.4.0",
     "pymilvus>=2.3.0",
     "chromadb>=0.4.0",
     "lancedb>=0.4.0",
-    "redis>=5.0.0",
-    "google-cloud-firestore>=2.14.0",
-    "google-cloud-bigtable>=2.21.0",
 ]
-
+streaming = [
+    "influxdb3-python>=0.5.0",
+    "prometheus-api-client>=0.5.0",
+    "requests>=2.28.0",
+    "trino>=0.320.0",
+]
+# Everything installable from wheels / pure Python on Linux, macOS and Windows.
+all = [
+    "query-builder-engine[sql,cloud-warehouses,nosql,vector,streaming]",
+    "google-cloud-alloydb-connector>=1.0.0",
+    "clickhouse-driver>=0.2.6",
+    "firebird-driver>=1.10.0",
+    "pydoris>=0.2.0",
+]
+# `all` plus drivers that need a C toolchain, a vendor client library, a JVM or are very
+# large (mysqlclient, pymssql, pyodbc, ibm-db, hdbcli, teradatasql, pykx, chdb, taospy,
+# pyspark, couchbase, pyhive, impyla, pyoceanbase, JayDeBeApi). May fail on some platforms.
+all-native = [
+    "query-builder-engine[all]",
+    "mysqlclient>=2.2.0",
+    "pymssql>=2.2.0",
+    "pyodbc>=5.0.0",
+    "ibm-db>=3.2.0",
+    "hdbcli>=2.18.0",
+    "teradatasql>=20.0.0",
+    "pykx>=2.0.0",
+    "chdb>=2.0.0",
+    "taospy>=2.7.0",
+    "pyspark>=3.5.0",
+    "couchbase>=4.2.0",
+    "pyhive>=0.7.0",
+    "impyla>=0.18.0",
+    "pyoceanbase>=0.1.0",
+    "JayDeBeApi>=1.2.3",
+]
 
 [project.scripts]
 query-builder = "query_builder.cli:main"
+query-builder-mcp = "query_builder.mcp_server:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "query_builder.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["query_builder*"]
+
+[tool.setuptools.package-data]
+query_builder = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
