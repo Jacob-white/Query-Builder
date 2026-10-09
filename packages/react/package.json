@@ -88,7 +88,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run",
-    "lint": "eslint src --max-warnings 35",
+    "lint": "eslint src --max-warnings 14",
     "test:coverage": "vitest run --coverage",
     "check:package": "node scripts/verify-exports.mjs && publint --strict && attw --pack .",
     "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run build && pnpm run test && pnpm run check:package"
