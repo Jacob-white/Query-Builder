@@ -21,7 +21,6 @@ import { VisualQueryBuilder, VisualQueryBuilderRef } from "../src/components/Vis
 import { WindowFunctionBuilder } from "../src/components/WindowFunctionBuilder";
 
 import { QueryBuilder, useCompoundQueryBuilder } from "../src/components/compound";
-import { CompoundQueryBuilderRef } from "../src/components/compound/QueryBuilderRoot";
 
 import { InMemoryOlapEngine, evaluateCondition, getClientOlapEngine } from "../src/drivers/duckdbDriver";
 import { useClientOlap } from "../src/hooks/useClientOlap";
@@ -30,6 +29,27 @@ import { useQueryState } from "../src/hooks/useQueryState";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { darkTheme, lightTheme } from "../src/theme/tokens";
 import { compileVisualState, compileSpecToSql } from "../src/utils/compiler";
+import type { ByoAiSchema } from "../src/ai/types";
+import type { ExecuteAgentToolOptions } from "../src/ai/tools";
+import type { QueryBuilderClient } from "../src/client";
+import type { AiAssistantWidgetProps } from "../src/components/AiAssistantWidget";
+import type {
+  ColumnMeta,
+  DashboardTile,
+  DashboardTileLayout,
+  FeatureConfig,
+  QueryPlanNode,
+  QueryResultData,
+  QuerySpec,
+  SchemaSnapshot,
+  TableSchema,
+  VisualColumnSelect,
+  VisualQueryBuilderProps,
+  WindowFunctionSpec,
+} from "../src/types";
+import type { HybridSearchSpec, LooseSpecColumn, MetricDefinition } from "../src/types";
+import { invalid } from "./helpers";
+import { asMock, loose, olapTableData } from "./helpers/loose";
 
 describe("Comprehensive 100% Coverage Final Step", () => {
   describe("Adapters: Drizzle, Prisma, SQLAlchemy, Utils", () => {
@@ -53,14 +73,14 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           },
         },
       };
-      const resPg = toDrizzle(schema as any, { dialect: "postgres" });
+      const resPg = toDrizzle(schema, { dialect: "postgres" });
       expect(resPg).toContain('text("pk_text").primaryKey()');
       expect(resPg).toContain('bigint("b_int", { mode: "number" })');
       expect(resPg).toContain('doublePrecision("fl")');
       expect(resPg).toContain('numeric("dec")');
       expect(resPg).toContain('timestamp("dt")');
 
-      const resSqlite = toDrizzle(schema as any, { dialect: "sqlite" });
+      const resSqlite = toDrizzle(schema, { dialect: "sqlite" });
       expect(resSqlite).toBeDefined();
     });
 
@@ -84,7 +104,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           },
         },
       };
-      const res = toPrisma(schema as any);
+      const res = toPrisma(schema);
       expect(res).toContain("title String?");
       expect(res).toContain("parent Items?");
       expect(res).toContain("childItemsByParentId");
@@ -102,7 +122,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           },
         },
       };
-      const res = toSqlAlchemy(schema as any);
+      const res = toSqlAlchemy(schema);
       expect(res).toContain("notes = Column(Text");
     });
 
@@ -118,20 +138,20 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           columns: [],
         },
       ];
-      const extArray = extractSnapshotData(rawArray as any);
+      const extArray = extractSnapshotData(invalid<TableSchema[]>(rawArray));
       expect(extArray.tables.users).toBeDefined();
 
       const rawObj = {
         tables: {
           users: {
-            columns: "not_an_array" as any,
+            columns: "not_an_array",
           },
-          invalid_val: null as any,
+          invalid_val: null,
         },
         foreignKeys: [{ table: "users", column: "x", foreignTable: "y", foreignColumn: "id" }],
         foreign_keys: [{ table: "users", column: "z", foreign_table: "y", foreign_column: "id" }],
       };
-      const extObj = extractSnapshotData(rawObj as any);
+      const extObj = extractSnapshotData(rawObj);
       expect(extObj.tables.users.columns).toEqual([]);
       expect(extObj.foreignKeys.length).toBeGreaterThan(0);
     });
@@ -143,8 +163,8 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         {
           table: "orders",
           columns: ["orders.id", "users.name"],
-        } as any,
-        {
+        },
+        invalid<ByoAiSchema>({
           tables: {
             orders: {},
             users: {
@@ -153,7 +173,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
               ],
             },
           },
-        } as any,
+        }),
       );
       expect(healed.healedSpec.joins).toBeDefined();
 
@@ -175,14 +195,14 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           spec: { table: "orders", columns: ["orders.id", "users.name"] },
         }),
         {
-          schema: {
+          schema: invalid<ExecuteAgentToolOptions["schema"]>({
             tables: {
               orders: {},
               users: {
                 foreign_keys: [{ target_table: "orders", target_column: "id", column: "order_id" }],
               },
             },
-          } as any,
+          }),
         },
       );
       expect(resValidate.success).toBe(true);
@@ -203,9 +223,9 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const client = createQueryBuilderClient({
         baseUrl: "https://api.example.com",
         headers: { "X-Test-Header": "CustomVal" },
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch,
       });
-      await client.execute({ table: "users" });
+      await client.execute(loose<QuerySpec>({ table: "users" }));
       expect(mockFetch).toHaveBeenCalled();
       const headersUsed = mockFetch.mock.calls[0][1].headers;
       expect(headersUsed["X-Test-Header"]).toBe("CustomVal");
@@ -255,7 +275,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const onTypeChange = vi.fn();
       render(
         <BiChartVisualizer
-          results={{ columns: ["cat", "val"], rows: [{ cat: null, val: 10 }] }}
+          results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: null, val: 10 }] })}
           defaultCategoryCol="cat"
           defaultMetricCol="val"
           defaultAggregation="NONE"
@@ -303,11 +323,13 @@ describe("Comprehensive 100% Coverage Final Step", () => {
     it("AiAssistantWidget: clicking suggestion when generating", () => {
       render(
         <AiAssistantWidget
-          aiState={{
-            isGenerating: true,
-            messages: [{ id: "m1", sender: "ai", text: "Hello", timestamp: 123 }],
-            error: null,
-          } as any}
+          {...invalid<AiAssistantWidgetProps>({
+            aiState: {
+              isGenerating: true,
+              messages: [{ id: "m1", sender: "ai", text: "Hello", timestamp: 123 }],
+              error: null,
+            },
+          })}
         />,
       );
       const launcher = screen.getByTestId("ai-widget-launcher");
@@ -317,10 +339,10 @@ describe("Comprehensive 100% Coverage Final Step", () => {
     });
 
     it("VisualQueryBuilder: client capability handling, schema failure, and ref execute", async () => {
-      const mockClientSchemaRejects: any = {
+      const mockClientSchemaRejects = asMock<QueryBuilderClient>({
         getSchema: vi.fn().mockRejectedValue(new Error("Schema load failed")),
         getCapabilities: vi.fn().mockResolvedValue({ window_functions: "true" }),
-      };
+      });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const { unmount } = render(
@@ -338,10 +360,10 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       );
       unmount();
 
-      const mockClientCapRejects: any = {
+      const mockClientCapRejects = asMock<QueryBuilderClient>({
         getSchema: vi.fn().mockResolvedValue({ tables: {} }),
         getCapabilities: vi.fn().mockRejectedValue(new Error("Caps failed")),
-      };
+      });
       const { unmount: unmount2 } = render(
         <VisualQueryBuilder
           client={mockClientCapRejects}
@@ -363,7 +385,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const ref = createRef<VisualQueryBuilderRef>();
       const onExecute = vi.fn().mockResolvedValue({ rows: [], columns: [], row_count: 0 });
 
-      const initialSpec: any = {
+      const initialSpec = invalid<QuerySpec>({
         table: "orders",
         columns: [
           { column: "orders.id" },
@@ -371,7 +393,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         ],
         ctes: [{ name: "my_cte", query: { columns: ["id", "val"] } }],
         semantic_models: [{ name: "orders", tableName: "orders", metrics: [] }],
-      };
+      });
 
       const schema = {
         tables: {
@@ -385,7 +407,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const { unmount } = render(
         <VisualQueryBuilder
           ref={ref}
-          schema={schema as any}
+          schema={invalid<SchemaSnapshot>(schema)}
           initialSpec={initialSpec}
           advancedMode={false}
           features={{ ctes: "advanced", calculated_fields: "advanced" }}
@@ -414,18 +436,18 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
     it("compound: QueryBuilderColumns unstyled, QueryBuilderRoot custom theme, and client auto-load", async () => {
       const { unmount: u1 } = render(
-        <QueryBuilder initialSpec={{ table: "users", columns: [] }}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users", columns: [] })}>
           <QueryBuilder.Columns unstyled={true} />
         </QueryBuilder>,
       );
       expect(screen.getByText(/No columns selected/)).toBeDefined();
       u1();
 
-      const compRef = createRef<CompoundQueryBuilderRef>();
-      const mockClient: any = {
+      const compRef = createRef<VisualQueryBuilderRef>();
+      const mockClient = asMock<QueryBuilderClient>({
         getSchema: vi.fn().mockResolvedValue({ tables: { orders: { name: "orders", columns: [] } } }),
         execute: vi.fn().mockResolvedValue({ rows: [], columns: [], row_count: 0 }),
-      };
+      });
 
       const { unmount: u2 } = render(
         <QueryBuilder
@@ -433,7 +455,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           theme={{ ...darkTheme, colors: { ...darkTheme.colors, background: "#000" } }}
           client={mockClient}
           initialTable="orders"
-          initialSpec={{ table: "" }}
+          initialSpec={loose<QuerySpec>({ table: "" })}
         >
           <QueryBuilder.Canvas classNames={{ canvasEmpty: "my-empty" }} />
           <QueryBuilder.SqlEditor classNames={{ sqlSyncBadge: "my-sync-badge" }} />
@@ -500,7 +522,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       const { result } = renderHook(() => useClientOlap());
 
-      let caughtCsvErr: any;
+      let caughtCsvErr: unknown;
       await act(async () => {
         try {
           await result.current.ingestCsv("t", "a,b");
@@ -551,7 +573,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           initialState: {
             id: "d1",
             title: "Test",
-            tiles: [{ id: "t1", title: "Tile 1", type: "table" }],
+            tiles: [loose<DashboardTile>({ id: "t1", title: "Tile 1", type: "table" })],
             globalFilters: [{ field: "status", operator: "=", value: "active" }],
             crossFilter: { sourceTileId: "t1", field: "cat", value: "A" },
           },
@@ -570,7 +592,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         result.current.moveTile("missing_tile", "up");
       });
 
-      const kpiRes = result.current.computeKpi({ id: "t2", title: "KPI", type: "kpi" }, []);
+      const kpiRes = result.current.computeKpi(loose<DashboardTile>({ id: "t2", title: "KPI", type: "kpi" }), []);
       expect(kpiRes.value).toBe(0);
 
       act(() => {
@@ -590,14 +612,14 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             { column: "users.age", operator: "RAW", raw_expression: "users.age > 21" },
           ],
           vectorSearch: { column: "embedding", vector: [0.1, 0.2] },
-          hybridSearch: { fullTextColumn: "body", queryText: "test" },
-        } as any),
+          hybridSearch: invalid<HybridSearchSpec>({ fullTextColumn: "body", queryText: "test" }),
+        }),
       );
 
       expect(result.current.state.selectedColumns["raw_1"]).toBeDefined();
       expect(result.current.state.filters[0].operator).toBe("RAW");
       expect(result.current.state.vectorSearch?.column).toBe("embedding");
-      expect(result.current.state.hybridSearch?.fullTextColumn).toBe("body");
+      expect(Reflect.get(result.current.state.hybridSearch ?? {}, "fullTextColumn")).toBe("body");
     });
   });
 
@@ -618,18 +640,18 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         undefined,
         null,
         null,
-        [{ name: "cte1", query: {} as any }],
-        [{ name: "wf1", function: "ROW_NUMBER" }],
+        [{ name: "cte1", query: {} }],
+        [invalid<WindowFunctionSpec>({ name: "wf1", function: "ROW_NUMBER" })],
         [{ name: "sm1", tableName: "t", metrics: [] }],
       );
       expect(emptyRes.sql).toBe("");
 
-      const collisionCols: any = {
+      const collisionCols = invalid<Record<string, VisualColumnSelect>>({
         k1: { name: "calc", rawExpression: "1 + 1", alias: "calc" },
         k2: { name: "calc_sales", rawExpression: "2 + 2", alias: "calc_sales" },
         k3: { name: "calc_2", rawExpression: "3 + 3", alias: "calc_2" },
         k4: { name: "calc", rawExpression: "4 + 4", alias: "calc" },
-      };
+      });
       const collisionCompiled = compileVisualState("sales", collisionCols, ["k1", "k2", "k3", "k4"], [], [], []);
       expect(collisionCompiled.sql).toContain('AS "calc_3"');
 
@@ -644,25 +666,25 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             {
               name: "sales",
               tableName: "sales",
-              metrics: [{ name: "revenue", aggregation: "sum" }],
+              metrics: [invalid<MetricDefinition>({ name: "revenue", aggregation: "sum" })],
             },
           ],
         },
         "postgres",
-        {
+        invalid<SchemaSnapshot>({
           tables: {
             sales: {
               metrics: [{ name: "profit", aggregation: "sum" }],
             },
           },
-        } as any,
+        }),
       );
       expect(metricSql).toContain('AS "custom_rev_alias"');
 
       const rawFilterCompiled = compileSpecToSql({
         table: "sales",
         columns: ["id"],
-        filters: [{ column: "sales.active = 1", operator: "RAW" } as any],
+        filters: [{ column: "sales.active = 1", operator: "RAW" }],
       });
       expect(rawFilterCompiled).toContain("active = 1");
 
@@ -670,12 +692,12 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         table: "sales",
         columns: ["id"],
         window_functions: [
-          {
+          invalid<WindowFunctionSpec>({
             name: "wf",
             function: "ROW_NUMBER",
-            order_by: [{ column: "id" } as any],
-            frame: { frame_type: "ROWS" } as any,
-          },
+            order_by: [{ column: "id" }],
+            frame: { frame_type: "ROWS" },
+          }),
         ],
       });
       expect(wfSql).toContain("UNBOUNDED PRECEDING AND CURRENT ROW");
@@ -686,13 +708,13 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
     it("covers final edge branch cases across modules", async () => {
       // 1. Drizzle with undefined options and missing data_type
-      const drizzleRes = toDrizzle({ tables: { t: { columns: [{ name: "c" }] } } } as any);
+      const drizzleRes = toDrizzle({ tables: { t: { columns: [{ name: "c" }] } } });
       expect(drizzleRes).toBeDefined();
 
       // 2. SelfHealing with empty targetMeta table (no foreign_keys, no foreignKeys)
       const healedEmpty = autoHealClientQuerySpec(
-        { table: "orders", columns: ["orders.id", "users.name"] } as any,
-        { tables: { orders: {}, users: {} } } as any,
+        { table: "orders", columns: ["orders.id", "users.name"] },
+        invalid<ByoAiSchema>({ tables: { orders: {}, users: {} } }),
       );
       expect(healedEmpty.healedSpec.joins).toBeDefined();
 
@@ -722,7 +744,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       });
       const client = createQueryBuilderClient({
         baseUrl: "https://api.example.com",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch,
       });
       await client.getCapabilities();
       await client.execute({ sql: "SELECT 1" });
@@ -737,7 +759,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         <VisualQueryBuilder
           showPipelineTab={true}
           initialTable="users"
-          schema={{ tables: { users: { name: "users", columns: [{ name: "id", data_type: "int" }] } } } as any}
+          schema={invalid<SchemaSnapshot>({ tables: { users: { name: "users", columns: [{ name: "id", data_type: "int" }] } } })}
         />,
       );
       const pipelineTab = screen.getByRole("tab", { name: /pipeline/i });
@@ -751,17 +773,17 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       warnSpy.mockRestore();
 
       // 7. Compound QueryBuilderRoot themes and execution rejection
-      const compRef = createRef<CompoundQueryBuilderRef>();
-      const failingClient: any = {
+      const compRef = createRef<VisualQueryBuilderRef>();
+      const failingClient = asMock<QueryBuilderClient>({
         getSchema: vi.fn().mockResolvedValue({ tables: {} }),
         execute: vi.fn().mockRejectedValue(new Error("comp fail")),
-      };
+      });
       const { unmount: uComp } = render(
         <QueryBuilder
           ref={compRef}
           theme="light"
           client={failingClient}
-          initialSpec={{ table: "users" }}
+          initialSpec={loose<QuerySpec>({ table: "users" })}
         >
           <QueryBuilder.Canvas />
         </QueryBuilder>,
@@ -774,10 +796,10 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       // QueryBuilderColumns with custom class
       const { unmount: uCols } = render(
         <QueryBuilder
-          initialSpec={{
+          initialSpec={loose<QuerySpec>({
             table: "users",
             columns: ["users.id", "users.name"],
-          }}
+          })}
         >
           <QueryBuilder.Columns
             classNames={{ columns: "custom-cols", projectionItem: "custom-item" }}
@@ -800,12 +822,12 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       // 9. useDashboardManager computeKpi with rows having keys but no valueField
       const { result: dashResult } = renderHook(() => useDashboardManager());
-      const kpiWithRows = dashResult.current.computeKpi({ id: "k1", title: "KPI", type: "kpi" }, [{ rev: 100 }, { rev: 50 }]);
+      const kpiWithRows = dashResult.current.computeKpi(loose<DashboardTile>({ id: "k1", title: "KPI", type: "kpi" }), [{ rev: 100 }, { rev: 50 }]);
       expect(kpiWithRows.value).toBe(150);
 
       // 10. duckdb SELECT * fallback when table has no columns and resultRows is empty
       const engine = new InMemoryOlapEngine();
-      (engine as any).tableData.set("empty_tbl", []);
+      olapTableData(engine).set("empty_tbl", []);
       const qEmpty = await engine.query("SELECT * FROM empty_tbl");
       expect(qEmpty.columns).toEqual([]);
 
@@ -822,7 +844,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             columns: [{ name: "c_empty_type" }],
           },
         },
-      } as any, "postgres");
+      }, "postgres");
       expect(resDrizzle).toContain("text(");
 
       // 2. Prisma: FK referencing column not in table columns + multi-relation to same target
@@ -844,7 +866,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             ],
           },
         },
-      } as any);
+      });
       expect(resPrisma).toContain("Users_u1Id");
 
       // 3. SQLAlchemy: table with no FKs and column with empty dataType
@@ -854,7 +876,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             columns: [{ name: "payload" }],
           },
         },
-      } as any);
+      });
       expect(resSa).toContain("Column(");
 
       // 4. AI tools: rawSql whitespace and onCompile returning empty string, explain_query counts
@@ -910,7 +932,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         });
       const clientIntrospect = createQueryBuilderClient({ baseUrl: "https://api.example.com", fetchFn: mockFetchIntrospect });
       const schemaIntro = await clientIntrospect.getSchema();
-      expect((schemaIntro as any).tables.intro).toBeDefined();
+      expect(schemaIntro.tables.intro).toBeDefined();
 
       const mockFetchCaps = vi.fn().mockResolvedValue({
         ok: true,
@@ -926,9 +948,9 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const { unmount: uAi } = render(
         <AiAssistantWidget
           isOpen={true}
-          onClose={() => {}}
+          {...invalid<AiAssistantWidgetProps>({ onClose: () => {} })}
           schema={{ tables: {} }}
-          currentSpec={{ table: "users" }}
+          currentSpec={loose<QuerySpec>({ table: "users" })}
           onApplySpec={() => {}}
         />,
       );
@@ -969,26 +991,26 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         <DashboardWorkbench
           initialState={{
             tiles: [
-              {
+              loose<DashboardTile>({
                 id: "kpi_pos",
                 title: "Positive KPI",
                 type: "kpi",
                 cachedRows: [{ v: 100 }],
                 kpiConfig: { deltaPercentage: 15, valueField: "v" },
-              },
-              {
+              }),
+              loose<DashboardTile>({
                 id: "kpi_neg",
                 title: "Negative KPI",
                 type: "kpi",
                 cachedRows: [{ v: 50 }],
                 kpiConfig: { deltaPercentage: -8, valueField: "v" },
-              },
-              {
+              }),
+              loose<DashboardTile>({
                 id: "chart_empty",
                 title: "Empty Chart",
                 type: "chart",
                 cachedRows: [],
-              },
+              }),
             ],
           }}
         />
@@ -1008,13 +1030,13 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         <DashboardWorkbench
           initialState={{
             tiles: [
-              {
+              loose<DashboardTile>({
                 id: "tile_w4",
                 title: "Wide Tile",
                 type: "kpi",
-                layout: { w: 4 },
+                layout: loose<DashboardTileLayout>({ w: 4 }),
                 cachedRows: [{ val: 10 }],
-              },
+              }),
             ],
           }}
         />,
@@ -1034,11 +1056,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
               },
               other: {
                 name: "other",
-                columns: ["str_col"] as any,
+                columns: invalid<ColumnMeta[]>(["str_col"]),
               },
             },
           }}
-          initialSpec={{ table: "users" }}
+          initialSpec={loose<QuerySpec>({ table: "users" })}
         />,
       );
       const wfBtn = screen.getByLabelText(/Open window functions? builder/i);
@@ -1050,7 +1072,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const { unmount: uVqbSql } = render(
         <VisualQueryBuilder
           classNames={{ sqlTextarea: "my-sql-area", sqlSyncBadge: "my-sync-badge" }}
-          initialSpec={{ table: "users" }}
+          initialSpec={loose<QuerySpec>({ table: "users" })}
         />,
       );
       const sqlTab = screen.getByRole("tab", { name: /Raw SQL/i });
@@ -1063,7 +1085,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       // 10. WindowFunctionBuilder: fallback when theme.colors.textMuted is undefined
       const { unmount: uWf } = render(
-        <ThemeProvider theme={{ colors: {} } as any}>
+        <ThemeProvider theme={{ colors: {} }}>
           <WindowFunctionBuilder
             isOpen={true}
             onClose={() => {}}
@@ -1093,10 +1115,10 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const { unmount: uCompEdge } = render(
         <QueryBuilder
           theme="dark"
-          initialSpec={{
+          initialSpec={loose<QuerySpec>({
             table: "users",
             columns: ["users.id", "users.name"],
-          }}
+          })}
         >
           <StateManipulator />
           <QueryBuilder.Columns />
@@ -1122,20 +1144,20 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       uCompEdge();
 
       const { unmount: uColsEmpty } = render(
-        <QueryBuilder initialSpec={{ table: "users", columns: [] }}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users", columns: [] })}>
           <QueryBuilder.Columns className="empty-cls" classNames={{ columns: "custom-cols" }} />
         </QueryBuilder>,
       );
       expect(document.querySelector(".custom-cols")).not.toBeNull();
       uColsEmpty();
 
-      const compRefUndef = createRef<CompoundQueryBuilderRef>();
+      const compRefUndef = createRef<VisualQueryBuilderRef>();
       const { unmount: uCompUndef } = render(
         <QueryBuilder
           ref={compRefUndef}
           theme={undefined}
-          onExecuteQuery={async () => undefined}
-          initialSpec={{ table: "users" }}
+          onExecuteQuery={async () => invalid<QueryResultData>(undefined)}
+          initialSpec={loose<QuerySpec>({ table: "users" })}
         >
           <QueryBuilder.Canvas />
         </QueryBuilder>,
@@ -1148,7 +1170,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       const { unmount: uThemeCtx } = render(
         <ThemeProvider theme={lightTheme}>
-          <QueryBuilder initialSpec={{ table: "users" }}>
+          <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })}>
             <QueryBuilder.Canvas />
           </QueryBuilder>
         </ThemeProvider>,
@@ -1157,15 +1179,15 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       // 12. duckdbDriver: empty bucket in aggregation with no GROUP BY, table without meta, null sorting ASC/DESC
       const engine = new InMemoryOlapEngine();
-      (engine as any).tableData.set("tbl_empty", []);
+      olapTableData(engine).set("tbl_empty", []);
       const qAggEmpty = await engine.query("SELECT dept, COUNT(*) FROM tbl_empty");
       expect(qAggEmpty.rows[0].dept).toBeNull();
 
-      (engine as any).tableData.set("tbl_no_meta", [{ alpha: 1, beta: 2 }]);
+      olapTableData(engine).set("tbl_no_meta", [{ alpha: 1, beta: 2 }]);
       const qNoMeta = await engine.query("SELECT * FROM tbl_no_meta");
       expect(qNoMeta.columns).toEqual(["alpha", "beta"]);
 
-      (engine as any).tableData.set("tbl_nulls", [
+      olapTableData(engine).set("tbl_nulls", [
         { id: 1, val: null },
         { id: 2, val: 10 },
         { id: 3, val: null },
@@ -1230,8 +1252,8 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
       // 13b. Client: signal aborted and headers null
       const dummyClient = createQueryBuilderClient({ baseUrl: "https://api.example.com", fetchFn: vi.fn() });
-      await expect(dummyClient.getSchema({ signal: { aborted: true, reason: undefined } as any })).rejects.toThrow("Request aborted");
-      await expect(dummyClient.getSchema({ signal: { aborted: true, reason: new Error("Custom abort") } as any })).rejects.toThrow("Custom abort");
+      await expect(dummyClient.getSchema({ signal: invalid<AbortSignal>({ aborted: true, reason: undefined }) })).rejects.toThrow("Request aborted");
+      await expect(dummyClient.getSchema({ signal: invalid<AbortSignal>({ aborted: true, reason: new Error("Custom abort") }) })).rejects.toThrow("Custom abort");
 
       const mockNoH = vi.fn().mockResolvedValue({
         ok: false,
@@ -1259,7 +1281,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         });
       const client404Direct = createQueryBuilderClient({ baseUrl: "https://api.example.com", fetchFn: mock404Direct });
       const res404Direct = await client404Direct.getSchema();
-      expect((res404Direct as any).tables.direct).toBeDefined();
+      expect(res404Direct.tables.direct).toBeDefined();
 
       const mockCapsDirect = vi.fn().mockResolvedValue({
         ok: true,
@@ -1279,7 +1301,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           {
             function: "AVG",
             arguments: ["amount"],
-            frame: {} as any,
+            frame: {},
             alias: "moving_avg",
           },
         ],
@@ -1289,8 +1311,8 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const rawSqlRes = compileVisualState(
         "users",
         {
-          raw1: { table: "users", rawExpression: "NOW()" } as any,
-          raw2: { table: "users", name: "named_col", rawExpression: "RANDOM()" } as any,
+          raw1: loose<VisualColumnSelect>({ table: "users", rawExpression: "NOW()" }),
+          raw2: loose<VisualColumnSelect>({ table: "users", name: "named_col", rawExpression: "RANDOM()" }),
         },
         ["raw1", "raw2"],
         [],
@@ -1305,11 +1327,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const smSql = compileSpecToSql({
         table: "orders",
         columns: [
-          {
+          invalid<LooseSpecColumn>({
             table: "orders",
             column: "rev",
             isMetric: true,
-          } as any,
+          }),
         ],
         semantic_models: [
           {
@@ -1387,6 +1409,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         sendMessage: vi.fn(),
         applySpec: vi.fn(),
         clearMessages: vi.fn(),
+        undoLast: vi.fn(),
       });
 
       render(
@@ -1425,10 +1448,10 @@ describe("Comprehensive 100% Coverage Final Step", () => {
 
     it("covers VisualQueryBuilder tabs pipeline, plan, results, chart active classNames and initialWindowFunctions", async () => {
       const ref = createRef<VisualQueryBuilderRef>();
-      const mockClient: any = {
+      const mockClient = asMock<QueryBuilderClient>({
         execute: vi.fn().mockResolvedValue({ data: [{ count: 1 }] }),
         getSchema: vi.fn().mockResolvedValue(null),
-      };
+      });
 
       const { container } = render(
         <VisualQueryBuilder
@@ -1437,19 +1460,19 @@ describe("Comprehensive 100% Coverage Final Step", () => {
           showPipelineTab={true}
           showPlanTab={true}
           featurePreset="all"
-          features={{ ctes: "always", query_plan: "always", raw_sql: "always", visual_chart: "always" }}
-          initialActiveTab="pipeline"
+          features={invalid<FeatureConfig>({ ctes: "always", query_plan: "always", raw_sql: "always", visual_chart: "always" })}
+          {...invalid<VisualQueryBuilderProps>({ initialActiveTab: "pipeline" })}
           initialWindowFunctions={[{ function: "ROW_NUMBER", alias: "rn" }]}
-          schema={{
+          schema={invalid<SchemaSnapshot>({
             tables: {
               users: {
                 name: "users",
                 columns: [{ name: "id", data_type: "int" }],
               },
             },
-          }}
-          initialCtes={[{ name: "stage1", query: { table: "users", columns: [{}] as any } }]}
-          queryPlan="Seq Scan on users"
+          })}
+          initialCtes={[{ name: "stage1", query: { table: "users", columns: [{}] } }]}
+          queryPlan={invalid<QueryPlanNode>("Seq Scan on users")}
           classNames={{ tab: "custom-tab", tabActive: "custom-active" }}
         />
       );
@@ -1574,11 +1597,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const resSmName = compileVisualState(
         "u",
         {
-          col1: {
+          col1: loose<VisualColumnSelect>({
             table: "u",
             name: "rev",
             metric: true,
-          } as any,
+          }),
         },
         ["col1"],
         [],
@@ -1617,11 +1640,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const resSmTable = compileVisualState(
         "orders",
         {
-          col1: {
+          col1: loose<VisualColumnSelect>({
             table: "public.orders",
             name: "val",
             metric: true,
-          } as any,
+          }),
         },
         ["col1"],
         [],
@@ -1642,7 +1665,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             name: "nomatch",
             tableName: "other",
             dimensions: [],
-            metrics: undefined as any,
+            metrics: undefined,
           },
           {
             name: "orders_model",
@@ -1665,11 +1688,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const resColName = compileVisualState(
         "orders",
         {
-          col1: {
+          col1: loose<VisualColumnSelect>({
             table: "orders",
             name: "amount",
             metric: "metric_alias",
-          } as any,
+          }),
         },
         ["col1"],
         [],
@@ -1707,7 +1730,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const resEmptyName = compileVisualState(
         "sales",
         {
-          col1: {
+          col1: loose<VisualColumnSelect>({
             table: "sales",
             name: "amount",
             metric: {
@@ -1716,7 +1739,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
               sqlExpression: "sales.amount",
               aggregation: "sum",
             },
-          } as any,
+          }),
         },
         ["col1"],
         [],

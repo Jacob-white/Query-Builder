@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useClientOlap } from "../src/hooks/useClientOlap";
 import { resetClientOlapEngine } from "../src/drivers/duckdbDriver";
+import type { DuckDBQueryResult } from "../src/types";
 
 describe("useClientOlap Hook", () => {
   beforeEach(() => {
@@ -49,13 +50,13 @@ describe("useClientOlap Hook", () => {
       await result.current.ingestCsv("items", "id,val\n1,100\n2,200");
     });
 
-    let qRes: any;
+    let qRes: DuckDBQueryResult | undefined;
     await act(async () => {
       qRes = await result.current.query("SELECT * FROM items WHERE val > 150;");
     });
 
-    expect(qRes.rowCount).toBe(1);
-    expect(qRes.rows[0].id).toBe(2);
+    expect(qRes?.rowCount).toBe(1);
+    expect(qRes?.rows[0].id).toBe(2);
   });
 
   it("handles dropTable, clear, and setActiveTable", async () => {

@@ -24,7 +24,8 @@ from query_builder.models import (
     OrderBySpec,
     QuerySpec,
 )
-from query_builder.nlq.service import NlqService
+from query_builder.nlq.models import NlqResult, NlqTranslateRequest
+from query_builder.nlq.service import NlqService, query_spec_from_validated_ast
 
 
 @dataclass
@@ -88,11 +89,19 @@ def ask_ai(
     byo_provider = BringYourOwnAiProvider(ai=ai) if ai is not None else None
 
     # Translate using NLQ service
-    service = NlqService(default_provider=provider_name)
+    service: NlqService
     if byo_provider is not None:
-        service.translate = lambda req: _translate_with_byo(
-            req, byo_provider, schema, dialect
-        )  # type: ignore
+        byo = byo_provider
+
+        class _ByoNlqService(NlqService):
+            def translate(
+                self, request: NlqTranslateRequest | dict[str, Any]
+            ) -> NlqResult:
+                return _translate_with_byo(request, byo, schema, dialect)
+
+        service = _ByoNlqService(default_provider=provider_name)
+    else:
+        service = NlqService(default_provider=provider_name)
 
     res = service.translate(
         {
@@ -125,7 +134,7 @@ def ask_ai(
         having=[HavingSpec(**h) for h in raw_spec.get("having", [])],
         order_by=[OrderBySpec(**o) for o in raw_spec.get("order_by", [])],
         limit=raw_spec.get("limit", 50),
-        offset=raw_spec.get("offset"),
+        offset=raw_spec.get("offset", 0),
         distinct=raw_spec.get("distinct", False),
         vector_search=raw_spec.get("vector_search"),
         hybrid_search=raw_spec.get("hybrid_search"),
@@ -150,13 +159,13 @@ def ask_ai(
 
 
 def _translate_with_byo(
-    req: Any,
+    req: NlqTranslateRequest | dict[str, Any],
     byo_provider: BringYourOwnAiProvider,
     schema: Any,
     dialect: str,
-) -> Any:
+) -> NlqResult:
     """Helper dispatching translation directly through BringYourOwnAiProvider."""
-    prompt = req.get("prompt") if isinstance(req, dict) else req.prompt
+    prompt: str = req.get("prompt", "") if isinstance(req, dict) else req.prompt
     raw_ast, tokens = byo_provider.generate_ast(prompt, schema=schema, dialect=dialect)
 
     from query_builder.nlq.validator import NlqAstValidator
@@ -169,11 +178,9 @@ def _translate_with_byo(
         "explanation", explanation_data.get("summary", "Generated from user prompt.")
     )
 
-    from query_builder.nlq.models import NlqResult
-
     return NlqResult(
         spec=validated_ast,
-        query_spec=None,  # type: ignore
+        query_spec=query_spec_from_validated_ast(validated_ast),
         confidence=1.0 - (len(warnings) * 0.1),
         explanation=explanation,
         provider="byo",

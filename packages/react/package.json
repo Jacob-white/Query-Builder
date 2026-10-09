@@ -2,52 +2,96 @@
   "name": "@jacob-white/query-builder-react",
   "version": "1.0.0",
   "description": "Portable, embeddable React Visual SQL Query Builder & Schema Explorer component library.",
+  "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "adapters": [
+        "dist/adapters/index.d.ts"
+      ],
+      "hooks": [
+        "dist/hooks/index.d.ts"
+      ],
+      "client": [
+        "dist/client/index.d.ts"
+      ],
+      "olap": [
+        "dist/olap/index.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs",
-      "default": "./dist/index.mjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./adapters": {
-      "types": "./dist/adapters/index.d.ts",
-      "import": "./dist/adapters.mjs",
-      "require": "./dist/adapters.cjs",
-      "default": "./dist/adapters.mjs"
+      "import": {
+        "types": "./dist/adapters/index.d.ts",
+        "default": "./dist/adapters.mjs"
+      },
+      "require": {
+        "types": "./dist/adapters/index.d.cts",
+        "default": "./dist/adapters.cjs"
+      }
     },
     "./hooks": {
-      "types": "./dist/hooks/index.d.ts",
-      "import": "./dist/hooks.mjs",
-      "require": "./dist/hooks.cjs",
-      "default": "./dist/hooks.mjs"
+      "import": {
+        "types": "./dist/hooks/index.d.ts",
+        "default": "./dist/hooks.mjs"
+      },
+      "require": {
+        "types": "./dist/hooks/index.d.cts",
+        "default": "./dist/hooks.cjs"
+      }
     },
     "./client": {
-      "types": "./dist/client/index.d.ts",
-      "import": "./dist/client.mjs",
-      "require": "./dist/client.cjs",
-      "default": "./dist/client.mjs"
+      "import": {
+        "types": "./dist/client/index.d.ts",
+        "default": "./dist/client.mjs"
+      },
+      "require": {
+        "types": "./dist/client/index.d.cts",
+        "default": "./dist/client.cjs"
+      }
     },
     "./olap": {
-      "types": "./dist/olap/index.d.ts",
-      "import": "./dist/olap.mjs",
-      "require": "./dist/olap.cjs",
-      "default": "./dist/olap.mjs"
+      "import": {
+        "types": "./dist/olap/index.d.ts",
+        "default": "./dist/olap.mjs"
+      },
+      "require": {
+        "types": "./dist/olap/index.d.cts",
+        "default": "./dist/olap.cjs"
+      }
     },
     "./package.json": "./package.json"
   },
+  "sideEffects": false,
   "files": [
     "dist",
-    "src"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && vite build",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "vite build && tsc && node scripts/dual-types.mjs",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run",
-    "lint": "eslint src --max-warnings 35",
-    "test:coverage": "vitest run --coverage"
+    "lint": "eslint src --max-warnings 14",
+    "test:coverage": "vitest run --coverage",
+    "check:package": "node scripts/verify-exports.mjs && publint --strict && attw --pack .",
+    "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run build && pnpm run test && pnpm run check:package"
   },
   "keywords": [
     "react",
@@ -59,21 +103,33 @@
   ],
   "author": "HobbyHabbit LLC <support@hobbyhabbit.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jacob-white/Query-Builder.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/Jacob-white/Query-Builder/tree/main/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/Jacob-white/Query-Builder/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
     "react-dom": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
+    "@types/node": "26.6.4",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitest/coverage-v8": "^4.1.11",
@@ -81,6 +137,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-regexp": "^3.3.1",
     "jsdom": "^30.1.1",
+    "publint": "^0.3.25",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.71.1",
     "vite": "^6.4.3",

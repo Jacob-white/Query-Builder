@@ -1,0 +1,178 @@
+# Postgres-/MySQL-wire engine family for the live integration suite
+# (tests/integration/engines_pgwire.py).  Compose profile: pgwire.
+#
+#   python scripts/it_batch.py --label yugabyte --engines yugabyte \
+#       --compose docker/compose.pgwire.yml --profile pgwire --services yugabyte
+#
+# Always run through scripts/it_batch.py (machine lock + free-RAM guard + `down -v`).
+# Host ports are bound to 127.0.0.1 inside 40000-40999 and overridable with
+# QB_IT_PORT_<ENGINE>.  Volumes are named and removed by `down -v`.
+name: qb-integration
+
+services:
+  yugabyte:
+    image: yugabytedb/yugabyte:2024.2.3.0-b116
+    profiles: ["pgwire"]
+    command: ["bin/yugabyted", "start", "--background=false", "--advertise_address=0.0.0.0"]
+    ports: ["127.0.0.1:${QB_IT_PORT_YUGABYTE:-40100}:5433"]
+    volumes: ["qb_it_yugabyte:/root/var"]
+    healthcheck:
+      test: ["CMD-SHELL", "bin/ysqlsh -h $$(hostname) -U yugabyte -c 'select 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  cratedb:
+    image: crate:5.10.4
+    profiles: ["pgwire"]
+    command: ["crate", "-Cdiscovery.type=single-node", "-Cnetwork.host=0.0.0.0", "-Cauth.host_based.enabled=false"]
+    environment:
+      CRATE_HEAP_SIZE: 512m
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_CRATEDB:-40200}:4200"
+      - "127.0.0.1:${QB_IT_PORT_CRATEDB_PG:-40201}:5432"
+    volumes: ["qb_it_cratedb:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:4200/ >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  risingwave:
+    image: risingwavelabs/risingwave:v2.1.2
+    profiles: ["pgwire"]
+    command: ["single_node"]
+    ports: ["127.0.0.1:${QB_IT_PORT_RISINGWAVE:-40300}:4566"]
+    volumes: ["qb_it_risingwave:/risingwave/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/4566'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  materialize:
+    image: materialize/materialized:v0.130.4
+    profiles: ["pgwire"]
+    ports: ["127.0.0.1:${QB_IT_PORT_MATERIALIZE:-40400}:6875"]
+    volumes: ["qb_it_materialize:/mzdata"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6875'"]
+      interval: 5s
+      timeout: 5s
+      retries: 80
+      start_period: 20s
+
+  greptimedb:
+    image: greptime/greptimedb:v0.12.2
+    profiles: ["pgwire"]
+    command:
+      - standalone
+      - start
+      - --http-addr=0.0.0.0:4000
+      - --rpc-bind-addr=0.0.0.0:4001
+      - --mysql-addr=0.0.0.0:4002
+      - --postgres-addr=0.0.0.0:4003
+      - --user-provider=static_user_provider:cmd:qb=qb_it_password
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_GREPTIMEDB:-40500}:4003"
+      - "127.0.0.1:${QB_IT_PORT_GREPTIMEDB_MYSQL:-40501}:4002"
+      - "127.0.0.1:${QB_IT_PORT_GREPTIMEDB_HTTP:-40502}:4000"
+    volumes: ["qb_it_greptimedb:/tmp/greptimedb"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/4003'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.3.14
+    profiles: ["pgwire"]
+    ports: ["127.0.0.1:${QB_IT_PORT_STARROCKS:-40600}:9030"]
+    volumes: ["qb_it_starrocks:/data/deploy/starrocks/fe/meta"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -P9030 -h127.0.0.1 -uroot -N -e 'SHOW BACKENDS' 2>/dev/null | grep -q true"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  doris:
+    image: apache/doris:doris-all-in-one-2.1.0
+    profiles: ["pgwire"]
+    ports: ["127.0.0.1:${QB_IT_PORT_DORIS:-40700}:9030"]
+    volumes: ["qb_it_doris:/data/deploy/doris/fe/doris-meta"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -P9030 -h127.0.0.1 -uroot -N -e 'SHOW BACKENDS' 2>/dev/null | grep -q true"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  tidb:
+    image: pingcap/tidb:v8.5.1
+    profiles: ["pgwire"]
+    command: ["--store=unistore", "--path=", "--host=0.0.0.0", "--status=10080"]
+    ports: ["127.0.0.1:${QB_IT_PORT_TIDB:-40800}:4000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:10080/status >/dev/null 2>&1 || curl -sf http://127.0.0.1:10080/status >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  supabase:
+    image: supabase/postgres:15.8.1.060
+    profiles: ["pgwire"]
+    environment:
+      POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_SUPABASE:-40900}:5432"]
+    volumes: ["qb_it_supabase:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  alloydb:
+    image: google/alloydbomni:16.8.0
+    profiles: ["pgwire"]
+    environment:
+      POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_ALLOYDB:-40950}:5432"]
+    volumes: ["qb_it_alloydb:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  oceanbase:
+    image: oceanbase/oceanbase-ce:4.3.5-lts
+    profiles: ["pgwire"]
+    environment:
+      MODE: mini
+    ports: ["127.0.0.1:${QB_IT_PORT_OCEANBASE:-40960}:2881"]
+    volumes: ["qb_it_oceanbase:/root/ob"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h127.0.0.1 -P2881 -uroot@test -e 'select 1' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 60
+      start_period: 120s
+
+volumes:
+  qb_it_yugabyte:
+  qb_it_cratedb:
+  qb_it_risingwave:
+  qb_it_materialize:
+  qb_it_greptimedb:
+  qb_it_starrocks:
+  qb_it_doris:
+  qb_it_supabase:
+  qb_it_alloydb:
+  qb_it_oceanbase:

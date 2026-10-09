@@ -37,6 +37,31 @@ def _run_coroutine_safely(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
+def _verify_connectors(args: argparse.Namespace) -> int:
+    """`verify-connectors`: print the evidence-based status table; --live runs the suite."""
+    from query_builder.connectors import status
+
+    report = status.build_report()
+    if args.json and not args.live:
+        print(json.dumps(report, indent=2))
+        return 0
+    if not args.live:
+        print(status.render_table(report))
+        return 0
+    try:
+        code, live_report = status.run_live_suite(
+            args.engine or None, strict=args.strict
+        )
+    except RuntimeError as exc:
+        sys.stderr.write(f"verify-connectors: {exc}\n")
+        return 2
+    if args.json:
+        print(json.dumps(live_report, indent=2))
+    else:
+        print(status.render_live_summary(live_report))
+    return status.live_exit_code(code, live_report)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="query-builder",
@@ -351,7 +376,37 @@ def main(argv: list[str] | None = None) -> int:
         help="Output diagnostics as structured JSON.",
     )
 
+    verify_p = subparsers.add_parser(
+        "verify-connectors",
+        help="Show how each connector is verified (certified/verified/experimental); "
+        "--live runs the live conformance suite against real engines.",
+    )
+    verify_p.add_argument(
+        "--live",
+        action="store_true",
+        help="Run tests/integration (needs a source checkout and the compose "
+        "services from docs/TESTING_LIVE.md); exits non-zero on failures.",
+    )
+    verify_p.add_argument(
+        "--engine",
+        "-e",
+        action="append",
+        metavar="NAME",
+        help="With --live: only this engine (repeatable), e.g. -e postgres -e mysql.",
+    )
+    verify_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="With --live: an unreachable selected engine is a failure, not a skip.",
+    )
+    verify_p.add_argument(
+        "--json", action="store_true", help="Output the report as JSON."
+    )
+
     args = parser.parse_args(argv)
+
+    if args.command == "verify-connectors":
+        return _verify_connectors(args)
 
     if args.command == "compile":
         try:

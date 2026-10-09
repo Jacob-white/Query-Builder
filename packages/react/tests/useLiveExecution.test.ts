@@ -71,7 +71,7 @@ describe("useLiveExecution hook", () => {
       })
     );
 
-    let execResult: LiveExecutionResult | null = null;
+    let execResult = null as LiveExecutionResult | null;
     await act(async () => {
       execResult = await result.current.executeQuery("SELECT * FROM users", {
         limit: 10,
@@ -116,7 +116,7 @@ describe("useLiveExecution hook", () => {
       })
     );
 
-    let execResult: LiveExecutionResult | null = null;
+    let execResult = null as LiveExecutionResult | null;
     await act(async () => {
       execResult = await result.current.executeQuery({
         table: "orders",
@@ -141,7 +141,7 @@ describe("useLiveExecution hook", () => {
       })
     );
 
-    let execResult: LiveExecutionResult | null = null;
+    let execResult = null as LiveExecutionResult | null;
     await act(async () => {
       execResult = await result.current.executeQuery("SELECT 1 WHERE 1=0");
     });
@@ -181,7 +181,7 @@ describe("useLiveExecution hook", () => {
     });
     expect(result.current.isExecuting).toBe(true);
 
-    let secondResult: LiveExecutionResult | null = null;
+    let secondResult = null as LiveExecutionResult | null;
     await act(async () => {
       secondResult = await result.current.executeQuery("SELECT 2");
     });
@@ -206,7 +206,7 @@ describe("useLiveExecution hook", () => {
       })
     );
 
-    let res: LiveExecutionResult | null = null;
+    let res = null as LiveExecutionResult | null;
     await act(async () => {
       res = await result.current.executeQuery("INVALID SQL");
     });
@@ -602,7 +602,7 @@ describe("useLiveExecution hook", () => {
 
     const { result } = renderHook(() => useLiveExecution());
 
-    let res: LiveExecutionResult | null = null;
+    let res = null as LiveExecutionResult | null;
     await act(async () => {
       res = await result.current.executeQuery("SELECT 1");
     });

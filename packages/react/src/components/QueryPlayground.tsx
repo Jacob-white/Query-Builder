@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import type {
-  DatabaseSchemaDefinition,
   QueryPlaygroundProps,
   QuerySpec,
   SqlDialect,

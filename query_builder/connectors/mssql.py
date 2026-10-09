@@ -20,6 +20,10 @@ class MSSQLConnector(BaseConnector):
     """Connector for Microsoft SQL Server databases."""
 
     dialect_name = "mssql"
+    # SQL Server has no per-session read-only mode.  `ApplicationIntent=ReadOnly` only
+    # routes to a readable AG secondary (it does not block writes on a primary) and is not
+    # supported by pymssql, so nothing is claimed: use a db_datareader-only login.
+    read_only_support = "none"
 
     def __init__(
         self,
@@ -56,6 +60,17 @@ class MSSQLConnector(BaseConnector):
             raise ConnectionFailedError(f"Failed to connect to MSSQL: {exc}") from exc
 
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        # SET LOCK_TIMEOUT only bounds waits for locks: a long-running statement
+        # would never be cancelled by it. The real per-statement bound lives in the
+        # driver (pymssql: query_timeout on the low-level connection, pyodbc:
+        # Connection.timeout), both in whole seconds.
+        seconds = max(1, -(-int(timeout_ms) // 1000))
+        conn = self._connection
+        low_level = getattr(conn, "_conn", None)
+        if low_level is not None and hasattr(low_level, "query_timeout"):
+            low_level.query_timeout = seconds
+        elif conn is not None and hasattr(conn, "timeout"):
+            conn.timeout = seconds
         cursor.execute(f"SET LOCK_TIMEOUT {int(timeout_ms)};")
 
     def test_connection(self) -> dict[str, Any]:
@@ -70,5 +85,8 @@ class MSSQLConnector(BaseConnector):
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
             return introspect_information_schema(
-                cur, schema_name=self.schema_name, filter_sensitive=filter_sensitive
+                cur,
+                schema_name=self.schema_name,
+                filter_sensitive=filter_sensitive,
+                fk_style="mssql",
             )

@@ -2,7 +2,8 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
-import type { SchemaSnapshot, QueryResultData } from "../src/types";
+import type { CteSpec, QueryTemplate, SchemaSnapshot, QueryResultData } from "../src/types";
+import { invalid } from "./helpers";
 import { saveTemplates, resetTemplateStorage } from "../src/components/QueryTemplateManager";
 
 describe("VisualQueryBuilder", () => {
@@ -78,6 +79,7 @@ describe("VisualQueryBuilder", () => {
         id: "p1",
         title: "All Users Query",
         sql: "SELECT id, email FROM users LIMIT 10;",
+        description: "Lists users",
       },
     ];
 
@@ -336,7 +338,7 @@ describe("VisualQueryBuilder", () => {
   });
 
   it("handles undefined schema without initialTable", () => {
-    render(<VisualQueryBuilder schema={undefined as any} />);
+    render(<VisualQueryBuilder schema={invalid<SchemaSnapshot>(undefined)} />);
     expect(screen.getByText("📋 Active Tables in Query (0)")).toBeTruthy();
   });
 
@@ -421,7 +423,7 @@ describe("VisualQueryBuilder", () => {
 
   it("loads template with visual spec and hydrates canvas state", () => {
     resetTemplateStorage();
-    const customTemplateWithSpec = {
+    const customTemplateWithSpec: QueryTemplate = {
       id: "spec_tpl",
       title: "Spec Hydration Query",
       category: "Test",
@@ -477,7 +479,7 @@ describe("VisualQueryBuilder", () => {
     expect(screen.getAllByText("users.id").length).toBeGreaterThan(0);
 
     // Also load a template with standard QuerySpec (columns array, joins, filters, order_by, distinct)
-    const tplWithQuerySpec = {
+    const tplWithQuerySpec: QueryTemplate = {
       id: "spec_standard_tpl",
       title: "Standard QuerySpec Template",
       category: "Test",
@@ -735,10 +737,10 @@ describe("VisualQueryBuilder", () => {
   it("executes live query in raw SQL mode with parsed spec and fallback", async () => {
     const originalFetch = globalThis.fetch;
     try {
-      let lastBody: any = null;
-      globalThis.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      let lastBody: { query?: { table?: string } } | null = null;
+      globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
         if (url.includes("/query/execute")) {
-          lastBody = JSON.parse(init.body);
+          lastBody = JSON.parse(String(init?.body));
           return Promise.resolve({
             ok: true,
             status: 200,
@@ -838,21 +840,21 @@ describe("VisualQueryBuilder", () => {
   });
 
   it("augments schema with upstream CTE projections and supports unstyled pipeline tab", () => {
-    const ctesWithProjections = [
+    const ctesWithProjections: CteSpec[] = [
       {
         name: "upstream_cte",
         query: {
-          table: "users" as any,
+          table: "users",
           columns: ["id", { column: "salary", alias: "user_salary" }, { column: "no_alias" }],
           window_functions: [{ function: "RANK", alias: "rank_val" }],
-        } as any,
+        },
       },
       {
         name: "empty_cte",
         query: {
-          table: "users" as any,
+          table: "users",
           columns: [],
-        } as any,
+        },
       },
     ];
 

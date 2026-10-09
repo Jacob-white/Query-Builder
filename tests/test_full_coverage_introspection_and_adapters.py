@@ -110,7 +110,8 @@ def test_introspection_all_connectors_unwrap_close_and_fallbacks():
 
     # 5. Memgraph: close()
     mg_cur = make_cur()
-    mg_cur.fetchall.return_value = [["Person"]]
+    mg_cur.description = [("nodeLabels",), ("propertyName",), ("propertyTypes",)]
+    mg_cur.fetchall.return_value = [[["Person"], "name", ["String"]]]
     conn_mg = DummyConnWithCursor(mg_cur)
     res_mg = introspect_memgraph(conn_mg)
     assert any(k.lower() == "person" for k in res_mg["tables"])

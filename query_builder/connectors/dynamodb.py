@@ -39,6 +39,33 @@ from query_builder.security import (
     check_cartesian_products,
 )
 
+_DYNAMO_TYPES = {"S": "string", "N": "number", "B": "binary"}
+_DYNAMO_VALUE_TYPES = {
+    "S": "string",
+    "N": "number",
+    "B": "binary",
+    "BOOL": "boolean",
+    "NULL": "null",
+    "L": "list",
+    "M": "map",
+    "SS": "string_set",
+    "NS": "number_set",
+    "BS": "binary_set",
+}
+
+
+def _dynamo_value_type(value: Any) -> str:
+    if isinstance(value, dict) and value:
+        return _DYNAMO_VALUE_TYPES.get(next(iter(value)), "string")
+    return "string"
+
+
+def _dynamo_number(text: str) -> int | float:
+    try:
+        return int(text)
+    except ValueError:
+        return float(text)
+
 
 class DynamoDBConnector(BaseConnector):
     """Connector for Amazon DynamoDB using PartiQL."""
@@ -112,16 +139,30 @@ class DynamoDBConnector(BaseConnector):
                 cols = []
                 has_user = False
 
-                for attr in desc.get("AttributeDefinitions", []):
-                    attr_name = str(attr["AttributeName"])
+                declared: dict[str, str] = {
+                    str(a["AttributeName"]): _DYNAMO_TYPES.get(
+                        str(a.get("AttributeType", "S")), "string"
+                    )
+                    for a in desc.get("AttributeDefinitions", [])
+                }
+                # AttributeDefinitions only lists KEY attributes; every other attribute of
+                # a schemaless item is discovered from a sample of the table.
+                sampled: dict[str, str] = {}
+                with contextlib.suppress(Exception):
+                    scan = client.scan(TableName=tbl, Limit=100)
+                    for item in scan.get("Items", []):
+                        for a_name, a_val in item.items():
+                            sampled.setdefault(str(a_name), _dynamo_value_type(a_val))
+                for attr_name, attr_type in {**sampled, **declared}.items():
                     if attr_name == "user_id":
                         has_user = True
+                    key = attr_name in key_schema
                     cols.append(
                         {
                             "name": attr_name,
-                            "data_type": str(attr.get("AttributeType", "S")).lower(),
-                            "is_nullable": False,
-                            "is_primary": attr_name in key_schema,
+                            "data_type": attr_type,
+                            "is_nullable": not key,
+                            "is_primary": key,
                             "comment": None,
                         }
                     )
@@ -154,21 +195,48 @@ class DynamoDBConnector(BaseConnector):
         return {"S": str(val)}
 
     @staticmethod
+    def _unmarshal_value(v: Any) -> Any:
+        if not isinstance(v, dict):
+            return v
+        if not v:
+            return None
+        if "S" in v:
+            return v["S"]
+        if "N" in v:
+            return _dynamo_number(v["N"])
+        if "BOOL" in v:
+            return v["BOOL"]
+        if "NULL" in v:
+            return None
+        if "L" in v:
+            return [DynamoDBConnector._unmarshal_value(x) for x in v["L"]]
+        if "M" in v:
+            return {k: DynamoDBConnector._unmarshal_value(x) for k, x in v["M"].items()}
+        if "SS" in v:
+            return list(v["SS"])
+        if "NS" in v:
+            return [_dynamo_number(x) for x in v["NS"]]
+        return next(iter(v.values()))  # B / BS: raw bytes
+
+    @staticmethod
     def _unmarshal_item(item: dict[str, Any]) -> dict[str, Any]:
-        out = {}
-        for k, v in item.items():
-            if "S" in v:
-                out[k] = v["S"]
-            elif "N" in v:
-                val = v["N"]
-                out[k] = float(val) if "." in val else int(val)
-            elif "BOOL" in v:
-                out[k] = v["BOOL"]
-            elif "NULL" in v:
-                out[k] = None
-            else:
-                out[k] = next(iter(v.values())) if v else None
-        return out
+        return {k: DynamoDBConnector._unmarshal_value(v) for k, v in item.items()}
+
+    def _fetch_items(
+        self, client: Any, statement: str, params: list[Any], max_rows: int
+    ) -> list[dict[str, Any]]:
+        """Run a PartiQL statement and follow ``NextToken`` pages up to ``max_rows``."""
+        kwargs: dict[str, Any] = {"Statement": statement}
+        if params:
+            kwargs["Parameters"] = [self._to_dynamo_param(p) for p in params]
+        items: list[dict[str, Any]] = []
+        while True:
+            resp = client.execute_statement(**kwargs)
+            items.extend(resp.get("Items", []))
+            token = resp.get("NextToken")
+            if not token or len(items) > max_rows:
+                return items
+            kwargs["NextToken"] = token
 
     def execute(
         self,
@@ -214,21 +282,21 @@ class DynamoDBConnector(BaseConnector):
                     )
 
                 if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql)
+                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_res["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
                         )
 
-                exec_kwargs: dict[str, Any] = {"Statement": main_sql}
-                if main_params:
-                    exec_kwargs["Parameters"] = [
-                        self._to_dynamo_param(p) for p in main_params
-                    ]
-                resp = client.execute_statement(**exec_kwargs)
-                items = resp.get("Items", [])
+                items = self._fetch_items(
+                    client, main_sql, main_params, sec.execution.max_rows_limit
+                )
                 rows = [self._unmarshal_item(it) for it in items]
-                columns = list(rows[0].keys()) if rows else []
+                columns = list(
+                    dict.fromkeys(
+                        k for r in rows for k in r
+                    )  # schemaless: union of keys
+                )
                 total_count = len(rows)
             else:
                 if (
@@ -280,12 +348,12 @@ class DynamoDBConnector(BaseConnector):
                 main_sql, main_params, count_sql, count_params = compiler.compile()
 
                 if validate_ast:
-                    v_main = validate_sql_ast(main_sql)
+                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_main["valid"]:
                         raise CompilationError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
-                    v_count = validate_sql_ast(count_sql)
+                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
                     if not v_count["valid"]:
                         raise CompilationError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"
@@ -311,15 +379,11 @@ class DynamoDBConnector(BaseConnector):
                 except Exception:  # noqa: BLE001
                     total_count = 0
 
-                exec_kwargs = {"Statement": main_sql}
-                if main_params:
-                    exec_kwargs["Parameters"] = [
-                        self._to_dynamo_param(p) for p in main_params
-                    ]
-                resp = client.execute_statement(**exec_kwargs)
-                items = resp.get("Items", [])
+                items = self._fetch_items(
+                    client, main_sql, main_params, sec.execution.max_rows_limit
+                )
                 rows = [self._unmarshal_item(it) for it in items]
-                columns = list(rows[0].keys()) if rows else []
+                columns = list(dict.fromkeys(k for r in rows for k in r))
 
                 limit = int(spec_dict.get("limit", 50))
                 offset = int(spec_dict.get("offset", 0))

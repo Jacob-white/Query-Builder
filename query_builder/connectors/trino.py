@@ -62,7 +62,7 @@ class TrinoConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         with self.get_cursor() as cur:
-            cur.execute("SELECT version();")
+            cur.execute("SELECT version()")
             row = cur.fetchone()
             if row:
                 info["engine_version"] = row[0]
@@ -70,6 +70,11 @@ class TrinoConnector(BaseConnector):
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
+            # Trino binds with qmark and has no key constraints to read
             return introspect_information_schema(
-                cur, schema_name=self.schema_name, filter_sensitive=filter_sensitive
+                cur,
+                schema_name=self.schema_name,
+                filter_sensitive=filter_sensitive,
+                placeholder="?",
+                pk_guess=False,
             )

@@ -1,0 +1,115 @@
+name: Live integration
+
+# Opt-in live-engine conformance (tests/integration). It is NOT part of the default
+# PR gate: it runs weekly, on demand, and on pull requests that touch the connectors,
+# the live tests or the compose fixtures. See docs/TESTING_LIVE.md.
+on:
+  workflow_dispatch:
+    inputs:
+      engines:
+        description: "Comma-separated engines to test (empty = the required tier: postgres,mysql,mariadb,clickhouse,sqlite,duckdb)"
+        required: false
+        default: ""
+      extended:
+        description: "Also start the extended tier (SQL Server, CockroachDB, TimescaleDB, Trino, QuestDB, MongoDB, Redis, Elasticsearch, OpenSearch, Neo4j, Cassandra)"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  pull_request:
+    paths:
+      - "tests/integration/**"
+      - "query_builder/connectors/**"
+      - "docker/**"
+      - ".github/workflows/integration.yml"
+
+# Least privilege: these jobs only read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE: docker compose -p qb-integration -f docker/docker-compose.integration.yml
+  REQUIRED_ENGINES: postgres,mysql,mariadb,clickhouse,sqlite,duckdb
+
+jobs:
+  live:
+    name: Live engines (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the package and every driver the live suite can use
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" 'psycopg[binary]' pymysql clickhouse-connect \
+            clickhouse-driver asynch pymssql trino pymongo redis 'elasticsearch>=8,<9' \
+            opensearch-py neo4j cassandra-driver
+
+      - name: Decide what to start
+        id: plan
+        env:
+          INPUT_ENGINES: ${{ github.event.inputs.engines }}
+          INPUT_EXTENDED: ${{ github.event.inputs.extended }}
+        run: |
+          profile=""
+          if [ "$INPUT_EXTENDED" = "true" ]; then profile="--profile extended"; fi
+          if [ -n "$INPUT_ENGINES" ]; then
+            engines="$INPUT_ENGINES"
+          elif [ "$INPUT_EXTENDED" = "true" ]; then
+            engines="" # empty = every engine
+          else
+            engines="$REQUIRED_ENGINES"
+          fi
+          echo "engines=$engines" >> "$GITHUB_OUTPUT"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+
+      - name: Start the services (compose project qb-integration)
+        run: $COMPOSE ${{ steps.plan.outputs.profile }} up -d --wait
+
+      - name: Run the live suite
+        env:
+          QB_IT_ENGINES: ${{ steps.plan.outputs.engines }}
+          # the required tier must really run: unreachable => failure, not skip
+          QB_IT_STRICT: postgres,mysql,mariadb,clickhouse,sqlite,duckdb
+          QB_IT_REPORT: ${{ github.workspace }}/live-report/live.json
+        run: |
+          mkdir -p live-report
+          python -m pytest tests/integration -m integration -o addopts= -q -rs \
+            -p no:cacheprovider --tb=short
+
+      - name: Render the status report (JSON + Markdown)
+        if: always()
+        run: |
+          mkdir -p live-report
+          if [ -f live-report/live.json ]; then
+            python scripts/gen_connector_status.py --record-live live-report/live.json \
+              --json live-report/connector_status.json
+            cp docs/CONNECTORS.md live-report/CONNECTORS.md
+            cp docs/live_results.json live-report/live_results.json
+          fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-integration-report
+          path: live-report/
+          if-no-files-found: warn
+
+      - name: Service logs (on failure)
+        if: failure()
+        run: $COMPOSE ${{ steps.plan.outputs.profile }} logs --no-color --tail=200
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE --profile extended down -v --remove-orphans

@@ -616,7 +616,7 @@ class TestAuditEventTelemetryAdversarial:
         mock_conn.cursor.return_value = mock_cur
 
         conn = AdversarialSyncConnector(conn_obj=mock_conn)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(QueryExecutionError):
             conn.execute(sql="SELECT 1")
 
         events = conn.telemetry_collector.get_recent_audit_events()

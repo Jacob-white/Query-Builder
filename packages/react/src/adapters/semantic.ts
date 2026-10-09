@@ -35,7 +35,7 @@ export const SUPPORTED_AGGREGATIONS = [
   "custom",
 ] as const;
 
-export function formatMetricFilterSql(filter: MetricFilter, dialect: string = "postgres"): string {
+export function formatMetricFilterSql(filter: MetricFilter, _dialect: string = "postgres"): string {
   const field = filter.field;
   const op = (filter.operator || "eq").toLowerCase();
   const val = filter.value;

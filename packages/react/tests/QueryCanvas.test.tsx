@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryCanvas } from "../src/components/QueryCanvas";
 import type { SchemaSnapshot, TableMeta } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("QueryCanvas", () => {
   const usersTable: TableMeta = {
@@ -166,7 +167,7 @@ describe("QueryCanvas", () => {
   it("handles undefined schema tables and missing items in orderedProjectionKeys", () => {
     render(
       <QueryCanvas
-        schema={undefined as any}
+        schema={invalid<SchemaSnapshot>(undefined)}
         activeTables={[usersTable]}
         primaryTable="users"
         selectedColumns={{}}

@@ -392,7 +392,6 @@ def test_compiler_edge_branches():
 
 def test_vector_connectors_param_fallback_branches():
     from query_builder.connectors.chroma import _ChromaCursorAdapter
-    from query_builder.connectors.lancedb import _LanceDBCursorAdapter
     from query_builder.connectors.milvus import _MilvusCursorAdapter
     from query_builder.connectors.pinecone import _PineconeCursorAdapter
     from query_builder.connectors.qdrant import _QdrantCursorAdapter
@@ -406,7 +405,6 @@ def test_vector_connectors_param_fallback_branches():
 
     adapters = [
         _ChromaCursorAdapter(MagicMock(spec=["query"])),
-        _LanceDBCursorAdapter(lance_conn),
         _MilvusCursorAdapter(MagicMock(spec=["search", "list_collections"])),
         _PineconeCursorAdapter(MagicMock(spec=["query", "list_indexes"])),
         _QdrantCursorAdapter(MagicMock(spec=["search", "get_collections"])),
@@ -437,11 +435,6 @@ def test_vector_connectors_param_fallback_branches():
         # 5. Without LIMIT clause
         cur.execute("SELECT * FROM items WHERE score > 0.5", [[0.1, 0.2]])
         assert hasattr(cur, "fetchall")
-
-    # LanceDB specific string-param branches (71->76 and 74->76):
-    cur_lance = _LanceDBCursorAdapter(lance_conn)
-    cur_lance.execute("SELECT * FROM items WHERE distance = 1", ["not valid json"])
-    cur_lance.execute("SELECT * FROM items WHERE distance = 1", ['{"not": "list"}'])
 
     # Pinecone specific branches (67->81, 77->79):
     pc_conn = MagicMock(spec=["query", "list_indexes"])

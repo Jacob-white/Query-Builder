@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSqlToSpec, cleanIdentifier } from "../src/utils/sqlParser";
+import { invalid } from "./helpers";
 
 describe("sqlParser", () => {
   it("cleans quoted, bracketed, backticked, and dotted identifiers", () => {
@@ -13,8 +14,8 @@ describe("sqlParser", () => {
 
   it("returns null for empty or non-string inputs", () => {
     expect(parseSqlToSpec("")).toBeNull();
-    expect(parseSqlToSpec(null as any)).toBeNull();
-    expect(parseSqlToSpec(undefined as any)).toBeNull();
+    expect(parseSqlToSpec(invalid<string>(null))).toBeNull();
+    expect(parseSqlToSpec(invalid<string>(undefined))).toBeNull();
     expect(parseSqlToSpec("   ")).toBeNull();
   });
 
@@ -337,7 +338,7 @@ describe("sqlParser", () => {
         metric: "paid_revenue",
         alias: "paid_revenue",
       });
-      expect((spec?.columns[1] as any).raw_expression).toBe("CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END");
+      expect((spec?.columns[1] as { raw_expression?: string }).raw_expression).toBe("CASE WHEN age >= 18 THEN 'Adult' ELSE 'Minor' END");
       expect(spec?.filters).toHaveLength(1);
       expect(spec?.filters?.[0].op).toBe("RAW");
       expect(spec?.filters?.[0].column).toContain("EXISTS");
@@ -355,7 +356,7 @@ describe("sqlParser", () => {
       const sql = "SELECT CASE WHEN age > 10 THEN 'kid' ELSE 'baby' END FROM users;";
       const spec = parseSqlToSpec(sql);
       expect(spec).not.toBeNull();
-      expect((spec?.columns[0] as any).raw_expression).toBe("CASE WHEN age > 10 THEN 'kid' ELSE 'baby' END");
+      expect((spec?.columns[0] as { raw_expression?: string }).raw_expression).toBe("CASE WHEN age > 10 THEN 'kid' ELSE 'baby' END");
     });
 
     it("returns null if CTE has no main SELECT or post-CTE statement is not a SELECT", () => {

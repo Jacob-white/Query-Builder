@@ -1,0 +1,10 @@
+# Modules excluded from mypy (ignore_errors). This list may only shrink.
+query_builder.compiler
+query_builder.dialects
+query_builder.parser
+query_builder.cli
+query_builder.server
+query_builder.ast_validator
+query_builder.sql_ast
+query_builder.integrations.*
+query_builder.connectors.*

@@ -6,6 +6,7 @@ Provides SQL query execution and schema introspection for MongoDB Atlas collecti
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -15,6 +16,7 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_information_schema
+from query_builder.schema import normalize_schema_snapshot
 
 
 class MongoDBAtlasSQLConnector(BaseConnector):
@@ -52,13 +54,81 @@ class MongoDBAtlasSQLConnector(BaseConnector):
                 f"Failed to connect to MongoDB Atlas SQL database '{self.database}': {exc}"
             ) from exc
 
+    def _native_db(self) -> Any:
+        """The underlying pymongo Database of a real pymongosql connection."""
+        db = getattr(self._connection, "database", None)
+        return db if hasattr(db, "list_collection_names") else None
+
     def test_connection(self) -> dict[str, Any]:
-        info = super().test_connection()
-        info["engine_version"] = "MongoDB Atlas SQL"
+        db = self._native_db() if self._cursor is None and self.connect() else None
+        if db is not None and isinstance(getattr(db, "name", None), str):
+            # pymongosql's SQL grammar needs a FROM clause, so `SELECT 1` (the
+            # generic probe) is a syntax error: ping the server instead.
+            start = time.perf_counter()
+            db.command("ping")
+            info: dict[str, Any] = {
+                "status": "healthy",
+                "dialect": self.dialect_name,
+                "latency_ms": round((time.perf_counter() - start) * 1000.0, 2),
+            }
+            try:
+                info["engine_version"] = f"MongoDB {db.client.server_info()['version']}"
+            except Exception:  # noqa: BLE001
+                info["engine_version"] = "MongoDB"
+        else:
+            info = super().test_connection()
+            info["engine_version"] = "MongoDB Atlas SQL"
         info["database"] = self.database
         return info
 
+    def _introspect_native(
+        self, db: Any, filter_sensitive: bool
+    ) -> dict[str, Any] | None:
+        """Collections and the union of fields in a sample of their documents."""
+        names = db.list_collection_names()
+        if not isinstance(names, list):
+            return None
+        tables: dict[str, dict[str, Any]] = {}
+        for name in sorted(n for n in names if not n.startswith("system.")):
+            fields: dict[str, str] = {"_id": "ObjectId"}
+            for doc in db[name].find({}, limit=100):
+                for key, value in doc.items():
+                    fields.setdefault(key, type(value).__name__)
+            cols = [
+                {
+                    "name": key,
+                    "data_type": dtype,
+                    "is_nullable": key != "_id",
+                    "is_primary": key == "_id",
+                    "comment": None,
+                }
+                for key, dtype in fields.items()
+            ]
+            tables[name] = {
+                "name": name,
+                "columns": cols,
+                "has_user_id": "user_id" in fields,
+                "user_col": "user_id",
+                "comment": None,
+            }
+        return normalize_schema_snapshot(
+            {"tables": tables, "foreign_keys": [], "relationships": []},
+            filter_sensitive=filter_sensitive,
+        )
+
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        if self._cursor is None:
+            self.connect()
+            db = self._native_db()
+            if db is not None:
+                try:
+                    native = self._introspect_native(db, filter_sensitive)
+                except Exception as exc:
+                    raise IntrospectionError(
+                        f"Failed to introspect MongoDB database '{self.database}': {exc}"
+                    ) from exc
+                if native is not None:
+                    return native
         with self.get_cursor() as cur:
             try:
                 return introspect_information_schema(

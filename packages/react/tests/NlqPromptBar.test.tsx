@@ -2,7 +2,8 @@ import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NlqPromptBar } from "../src/components/NlqPromptBar";
-import type { QuerySpec, SchemaDict } from "../src/types";
+import type { QuerySpec } from "../src/types";
+import type { SchemaDict } from "./helpers/partial";
 
 describe("NlqPromptBar component", () => {
   const originalFetch = global.fetch;

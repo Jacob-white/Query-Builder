@@ -87,14 +87,14 @@ describe("Milestone 3 Challenger Empirical Stress Harness", () => {
           });
           result.current.actions.addFilter({
             id: `filter_${i}`,
-            table: "invoices",
+            tablePrefix: "invoices",
             column: "amount",
             operator: ">",
             value: `${i * 100}`,
           });
           result.current.actions.addSort({
             id: `sort_${i}`,
-            table: "invoices",
+            tablePrefix: "invoices",
             column: "amount",
             direction: i % 2 === 0 ? "ASC" : "DESC",
           });

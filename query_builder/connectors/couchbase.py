@@ -11,6 +11,7 @@ import contextlib
 from collections.abc import Iterator
 from typing import Any
 
+from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.base import (
     BaseConnector,
     ConnectionFailedError,
@@ -23,14 +24,41 @@ from query_builder.schema import normalize_schema_snapshot
 class _CouchbaseCursor:
     """Minimal DB-API cursor interface wrapping Couchbase Cluster query execution."""
 
-    def __init__(self, cluster: Any) -> None:
+    def __init__(
+        self,
+        cluster: Any,
+        query_context: str | None = None,
+        read_only: bool = True,
+    ) -> None:
         self.cluster = cluster
+        self.query_context = query_context
+        self.read_only = read_only
         self._rows: list[list[Any]] = []
         self.description: list[tuple[str, ...]] | None = None
 
+    def _options(self, params: list[Any] | None) -> list[Any]:
+        """``QueryOptions`` carrying the bucket.scope context and the BOUND parameters."""
+        kwargs: dict[str, Any] = {}
+        if self.query_context:
+            kwargs["query_context"] = self.query_context
+        if params:
+            kwargs["positional_parameters"] = list(params)
+        if not kwargs:
+            return []
+        try:
+            from couchbase.options import QueryOptions
+        except (
+            ImportError
+        ):  # pragma: no cover - the SDK is always present against a real cluster
+            return []
+        return [QueryOptions(**kwargs)]
+
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
+        if self.read_only:
+            # SQL++ has UPSERT / MERGE / EXECUTE FUNCTION beyond the SQL-shaped generic check
+            assert_read_only(sql, "n1ql", "Couchbase")
         if hasattr(self.cluster, "query"):
-            result = self.cluster.query(sql)
+            result = self.cluster.query(sql, *self._options(params))
             raw_items = list(result)
             if not raw_items:
                 self.description = None
@@ -70,11 +98,18 @@ class _CouchbaseCursor:
 class _CouchbaseClient:
     """Connection abstraction providing cursor creation for Couchbase Cluster."""
 
-    def __init__(self, cluster: Any) -> None:
+    def __init__(
+        self,
+        cluster: Any,
+        query_context: str | None = None,
+        read_only: bool = True,
+    ) -> None:
         self.cluster = cluster
+        self.query_context = query_context
+        self.read_only = read_only
 
     def cursor(self) -> _CouchbaseCursor:
-        return _CouchbaseCursor(self.cluster)
+        return _CouchbaseCursor(self.cluster, self.query_context, self.read_only)
 
     def close(self) -> None:
         if hasattr(self.cluster, "close"):
@@ -122,12 +157,22 @@ class CouchbaseConnector(BaseConnector):
             auth = PasswordAuthenticator(self.username, self.password)
             opts = ClusterOptions(auth)
             cluster = Cluster(self.connstr, opts)
-            self._connection = _CouchbaseClient(cluster)
+            self._connection = _CouchbaseClient(
+                cluster, self._query_context(), self._read_only()
+            )
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
                 f"Failed to connect to Couchbase cluster '{self.connstr}': {exc}"
             ) from exc
+
+    def _query_context(self) -> str:
+        """Relative keyspaces (``FROM people``) resolve against this bucket and scope."""
+        return f"default:`{self.bucket_name}`.`{self.scope_name}`"
+
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
 
     @contextlib.contextmanager
     def get_cursor(self) -> Iterator[Any]:
@@ -144,7 +189,7 @@ class CouchbaseConnector(BaseConnector):
                 with contextlib.suppress(Exception):
                     cur.close()
         else:
-            cur = _CouchbaseCursor(conn)
+            cur = _CouchbaseCursor(conn, self._query_context(), self._read_only())
             try:
                 yield cur
             finally:
@@ -154,18 +199,33 @@ class CouchbaseConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         info["engine_version"] = "Couchbase SQL++"
+        with contextlib.suppress(Exception), self.get_cursor() as cur:
+            cur.execute("SELECT version() AS v")
+            row = cur.fetchone()
+            if row and isinstance(row[0], str) and row[0]:
+                info["engine_version"] = f"Couchbase {row[0]}"
         info["bucket"] = self.bucket_name
         return info
+
+    @staticmethod
+    def _lit(value: str) -> str:
+        return str(value).replace("\\", "\\\\").replace("'", "''")
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
             try:
-                cur.execute("SELECT name FROM system:keyspaces ORDER BY name;")
+                cur.execute(
+                    "SELECT name FROM system:keyspaces "
+                    f"WHERE `bucket` = '{self._lit(self.bucket_name)}' "
+                    f"AND `scope` = '{self._lit(self.scope_name)}' ORDER BY name;"
+                )
                 rows = cur.fetchall()
                 table_names = [str(r[0]) for r in rows if r and r[0]]
                 tables: dict[str, dict[str, Any]] = {}
                 for tbl in table_names:
-                    cur.execute(f"INFER `{tbl}`")
+                    cur.execute(
+                        f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`"
+                    )
                     inf_rows = cur.fetchall()
                     cols: list[dict[str, Any]] = []
                     has_user = False
@@ -189,6 +249,8 @@ class CouchbaseConnector(BaseConnector):
                                 if isinstance(p_val, dict)
                                 else (str(p_val) if p_val else "string")
                             )
+                            if isinstance(data_type, list):  # mixed-type attribute
+                                data_type = "|".join(str(t) for t in data_type)
                             cols.append(
                                 {
                                     "name": p_name,

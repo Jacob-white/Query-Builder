@@ -32,7 +32,7 @@ import { compileVisualState } from "../../utils/compiler";
 import { normalizeSchema, validateSchema } from "../../utils/schemaUtils";
 import { parseSqlToSpec } from "../../utils/sqlParser";
 import { cx } from "../../utils/classNames";
-import { fastCanonicalSpec } from "../VisualQueryBuilder";
+import { fastCanonicalSpec } from "../../utils/canonicalSpec";
 import { useTheme } from "../../theme/ThemeProvider";
 import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../../theme/tokens";
 import {

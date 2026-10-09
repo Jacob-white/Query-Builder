@@ -7,6 +7,7 @@ dual sync and async execution protocols, and collection schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import time
@@ -21,6 +22,88 @@ from query_builder.connectors.base import (
 )
 from query_builder.connectors.introspection import introspect_chroma
 from query_builder.connectors.registry import register_connector
+
+
+class UnsupportedChromaQuery(ValueError):
+    """The statement is outside what ChromaDB's native API can run."""
+
+
+_CMP = {
+    "EQ": "$eq",
+    "NEQ": "$ne",
+    "GT": "$gt",
+    "GTE": "$gte",
+    "LT": "$lt",
+    "LTE": "$lte",
+}
+
+
+def _chroma_literal(node: Any) -> Any:
+    from sqlglot import exp
+
+    if isinstance(node, exp.Neg):
+        return -_chroma_literal(node.this)
+    if isinstance(node, exp.Boolean):
+        return bool(node.this)
+    if isinstance(node, exp.Literal):
+        if node.is_string:
+            return node.this
+        text = node.this
+        return float(text) if any(c in text for c in ".eE") else int(text)
+    raise UnsupportedChromaQuery(f"unsupported literal in WHERE: {node.sql()}")
+
+
+def _chroma_where(node: Any) -> tuple[list[str] | None, dict[str, Any] | None]:
+    """Translate a WHERE expression to (ids, ``where``); ``id`` may only be =/IN, top-level."""
+    from sqlglot import exp
+
+    def conv(n: Any) -> dict[str, Any]:
+        if isinstance(n, exp.Paren):
+            return conv(n.this)
+        if isinstance(n, (exp.And, exp.Or)):
+            op = "$and" if isinstance(n, exp.And) else "$or"
+            return {op: [conv(n.this), conv(n.expression)]}
+        name = type(n).__name__.upper()
+        if name in _CMP and isinstance(n.this, exp.Column):
+            return {n.this.name: {_CMP[name]: _chroma_literal(n.expression)}}
+        if isinstance(n, exp.In) and isinstance(n.this, exp.Column):
+            return {n.this.name: {"$in": [_chroma_literal(e) for e in n.expressions]}}
+        raise UnsupportedChromaQuery(f"unsupported WHERE expression: {n.sql()}")
+
+    if isinstance(node, (exp.EQ, exp.In)) and isinstance(node.this, exp.Column):
+        if node.this.name == "id":
+            vals = (
+                [_chroma_literal(node.expression)]
+                if isinstance(node, exp.EQ)
+                else [_chroma_literal(e) for e in node.expressions]
+            )
+            return [str(v) for v in vals], None
+    return None, conv(node)
+
+
+def _chroma_records(res: Any) -> list[dict[str, Any]]:
+    ids = res.get("ids") or []
+    docs = res.get("documents") or []
+    metas = res.get("metadatas") or []
+    out: list[dict[str, Any]] = []
+    for i, id_ in enumerate(ids):
+        rec: dict[str, Any] = {
+            "id": id_,
+            "document": docs[i] if i < len(docs) else None,
+        }
+        meta = metas[i] if i < len(metas) else None
+        rec.update(meta or {})
+        out.append(rec)
+    return out
+
+
+def _chroma_version() -> str:
+    try:
+        import chromadb
+
+        return f"ChromaDB {getattr(chromadb, '__version__', '')}".strip()
+    except ImportError:  # pragma: no cover
+        return "ChromaDB"
 
 
 class _ChromaCursorAdapter:
@@ -51,6 +134,8 @@ class _ChromaCursorAdapter:
             cols = self.conn.list_collections()
             self.description = [("collection_name",)]
             self._rows = [[getattr(c, "name", str(c))] for c in cols]
+        elif hasattr(self.conn, "get_collection") and not hasattr(self.conn, "query"):
+            self._execute_on_client(clean_sql, params)
         elif hasattr(self.conn, "query") and (
             params is not None
             and len(params) > 0
@@ -137,6 +222,117 @@ class _ChromaCursorAdapter:
         else:
             self.description = None
             self._rows = []
+
+    # ------------------------------------------------------------------ real client
+    def _execute_on_client(self, clean_sql: str, params: list[Any] | None) -> None:
+        """``SELECT <cols> FROM <collection> [WHERE ..] [ORDER BY ..] [LIMIT n [OFFSET m]]``
+        mapped onto ``Collection.get`` (or ``Collection.query`` for a vector parameter).
+
+        Rows have ``id``, ``document`` and one column per metadata key. Chroma has no SQL
+        engine: whatever the subset cannot express raises ``UnsupportedChromaQuery`` rather
+        than returning unfiltered rows.
+        """
+        import re
+
+        from query_builder.connectors.lancedb import _inline_params
+
+        if params and re.search(
+            r"distance|vector|search|score", clean_sql, re.IGNORECASE
+        ):
+            self._vector_query(clean_sql, params)
+            return
+        import sqlglot
+        from sqlglot import exp
+
+        parsed = sqlglot.parse_one(_inline_params(clean_sql, params), read="postgres")
+        bad = ("joins", "group", "having", "distinct", "with", "with_", "laterals")
+        if not isinstance(parsed, exp.Select) or any(parsed.args.get(k) for k in bad):
+            raise UnsupportedChromaQuery(
+                "ChromaDB supports only single-collection SELECT ... [WHERE] [ORDER BY] "
+                f"[LIMIT] (got: {clean_sql[:80]!r})"
+            )
+        from_ = parsed.args.get("from_") or parsed.args.get("from")
+        table_expr = from_.this if from_ is not None else None
+        if not isinstance(table_expr, exp.Table):
+            raise UnsupportedChromaQuery(
+                "ChromaDB SELECT needs a plain FROM <collection>."
+            )
+        collection = self.conn.get_collection(table_expr.name)
+        where_node = parsed.args.get("where")
+        ids, where = (
+            _chroma_where(where_node.this) if where_node is not None else (None, None)
+        )
+        res = collection.get(ids=ids, where=where, include=["documents", "metadatas"])
+        records = _chroma_records(res)
+        order = parsed.args.get("order")
+        if order is not None:
+            for o in reversed(order.expressions):
+                if not isinstance(o.this, exp.Column):
+                    raise UnsupportedChromaQuery(
+                        "ORDER BY supports plain columns only."
+                    )
+                key = o.this.name
+                records.sort(
+                    key=lambda r, k=key: (r.get(k) is None, r.get(k)),
+                    reverse=bool(o.args.get("desc")),
+                )
+        limit_node = parsed.args.get("limit")
+        offset_node = parsed.args.get("offset")
+        offset = int(offset_node.expression.name) if offset_node is not None else 0
+        end = (
+            offset + int(limit_node.expression.name) if limit_node is not None else None
+        )
+        records = records[offset:end]
+        names: list[str] = []
+        picks: list[str] = []
+        for item in parsed.expressions:
+            if isinstance(item, exp.Star):
+                seen: list[str] = []
+                for r in records:
+                    seen.extend(k for k in r if k not in seen)
+                for k in seen or ["id", "document"]:
+                    names.append(k)
+                    picks.append(k)
+                continue
+            col = item.this if isinstance(item, exp.Alias) else item
+            if not isinstance(col, exp.Column):
+                raise UnsupportedChromaQuery(
+                    "ChromaDB projections support plain columns and * only."
+                )
+            names.append(item.alias_or_name)
+            picks.append(col.name)
+        self.description = [(n,) for n in names]
+        self._rows = [[r.get(k) for k in picks] for r in records]
+
+    def _vector_query(self, clean_sql: str, params: list[Any]) -> None:
+        import re
+
+        m = re.search(r"\bFROM\s+[`\"\[]?([A-Za-z0-9_.-]+)", clean_sql, re.IGNORECASE)
+        if m is None:
+            raise UnsupportedChromaQuery("vector search needs FROM <collection>")
+        vector: Any = params[0]
+        if isinstance(vector, str):
+            vector = json.loads(vector)
+        if not isinstance(vector, (list, tuple)):
+            raise UnsupportedChromaQuery(
+                "vector search needs a vector as first parameter"
+            )
+        lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+        res = self.conn.get_collection(m.group(1)).query(
+            query_embeddings=[list(vector)],
+            n_results=int(lm.group(1)) if lm else 10,
+            include=["documents", "metadatas", "distances"],
+        )
+        records = _chroma_records(
+            {k: (v[0] if v else []) for k, v in res.items() if isinstance(v, list)}
+        )
+        for rec, dist in zip(records, (res.get("distances") or [[]])[0], strict=False):
+            rec["distance"] = dist
+        keys: list[str] = []
+        for r in records:
+            keys.extend(k for k in r if k not in keys)
+        self.description = [(k,) for k in keys or ["id", "document", "distance"]]
+        self._rows = [[r.get(k) for k in keys] for r in records]
 
     def fetchone(self) -> list[Any] | None:
         return self._rows.pop(0) if self._rows else None
@@ -238,7 +434,7 @@ class ChromaConnector(BaseConnector):
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "ChromaDB",
+            "engine_version": _chroma_version(),
             "latency_ms": round(latency_ms, 2),
         }
 
@@ -283,21 +479,19 @@ class AsyncChromaConnector(AsyncBaseConnector):
                 "Install with: pip install 'query-builder-engine[chroma]'"
             ) from err
 
+        # chromadb's AsyncHttpClient returns coroutines from every method, which the shared
+        # cursor adapter cannot await. Use the synchronous clients in a worker thread.
+        def _open() -> Any:
+            if self.host:
+                return chromadb.HttpClient(
+                    host=self.host, port=self.port, **self.config
+                )
+            if self.path:
+                return chromadb.PersistentClient(path=self.path, **self.config)
+            return chromadb.Client(**self.config)
+
         try:
-            if hasattr(chromadb, "AsyncHttpClient") and self.host:
-                self._connection = await chromadb.AsyncHttpClient(
-                    host=self.host, port=self.port, **self.config
-                )
-            elif self.host:
-                self._connection = chromadb.HttpClient(
-                    host=self.host, port=self.port, **self.config
-                )
-            elif self.path:
-                self._connection = chromadb.PersistentClient(
-                    path=self.path, **self.config
-                )
-            else:
-                self._connection = chromadb.Client(**self.config)
+            self._connection = await asyncio.to_thread(_open)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -308,54 +502,61 @@ class AsyncChromaConnector(AsyncBaseConnector):
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
-        start = time.perf_counter()
-        if hasattr(conn, "cursor"):
-            cur = conn.cursor()
-        else:
-            cur = _ChromaCursorAdapter(conn)
 
-        try:
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            desc = cur.description or []
-            col_names = [col[0] for col in desc]
-            rows = cur.fetchall() or []
-            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+        def _run() -> tuple[list[str], list[dict[str, Any]], float]:
+            start = time.perf_counter()
+            cur = (
+                conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            )
+            try:
+                if params:
+                    cur.execute(sql, params)
+                else:
+                    cur.execute(sql)
+                col_names = [col[0] for col in (cur.description or [])]
+                rows = cur.fetchall() or []
+                dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
+                return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
+        return await asyncio.to_thread(_run)
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "heartbeat"):
-            conn.heartbeat()
+            await asyncio.to_thread(conn.heartbeat)
         elif hasattr(conn, "list_collections"):
-            conn.list_collections()
+            await asyncio.to_thread(conn.list_collections)
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "ChromaDB",
+            "engine_version": _chroma_version(),
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+
+        def _introspect() -> dict[str, Any]:
+            cur = (
+                conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            )
+            try:
+                return introspect_chroma(cur, filter_sensitive=filter_sensitive)
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
         try:
-            return introspect_chroma(cur, filter_sensitive=filter_sensitive)
+            return await asyncio.to_thread(_introspect)
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect Chroma schema: {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
 
 
 ChromaDBConnector = ChromaConnector

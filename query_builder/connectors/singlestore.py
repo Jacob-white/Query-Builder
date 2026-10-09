@@ -20,6 +20,11 @@ class SingleStoreConnector(MySQLConnector):
     """Connector for SingleStore / MemSQL distributed SQL database."""
 
     dialect_name = "singlestore"
+    read_only_support = "none"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """SingleStore has no read-only transaction mode: use a read-only database user."""
+        return None
 
     def connect(self) -> Any:
         if self._connection is not None:

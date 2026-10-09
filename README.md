@@ -18,6 +18,7 @@ A turnkey, developer-first **declarative SQL compiler, AST safety validator, ent
 - **[Full-Stack Starter Template](examples/fullstack_starter/README.md)** — Standalone runnable project (FastAPI + React 18 + Vite + SQLite).
 - **[Security Policy & Sandboxing Guide](SECURITY.md)** — Vulnerability reporting, zero-trust query isolation, AST validation, and defense-in-depth architecture.
 - **[Documentation Index & Specifications](docs/README.md)** — Master index for all guides, API specs, connector roadmaps, and testing invariants.
+- **[Connector Status](docs/CONNECTORS.md)** — The generated inventory of every connector class (138: 89 sync + 49 async, 306 registered names) with how each is verified (`certified` = passed the live conformance suite against the real engine, `verified` = unit tests only, `experimental`). See [Live Engine Testing](docs/TESTING_LIVE.md).
 
 ---
 
@@ -100,9 +101,23 @@ pip install "query-builder-engine[sqlite]"
 # Core + PostgreSQL
 pip install "query-builder-engine[postgres]"
 
-# All connectors (Snowflake, MySQL, ClickHouse, DuckDB, etc.)
+# Connector families: sql, cloud-warehouses, nosql, vector, streaming
+pip install "query-builder-engine[sql]"
+
+# FastAPI / Django integrations and the MCP server entry point (`query-builder-mcp`)
+pip install "query-builder-engine[server]"
+pip install "query-builder-engine[django]"
+
+# Every driver that installs from wheels on Linux, macOS and Windows
 pip install "query-builder-engine[all]"
+
+# Also the drivers that need a C toolchain / vendor client library / JVM
+# (mysqlclient, pymssql, pyodbc, ibm-db, ...). May fail on some platforms.
+pip install "query-builder-engine[all-native]"
 ```
+
+Each connector also has its own extra (`[snowflake]`, `[bigquery]`, `[mysql]`, ...); see
+`[project.optional-dependencies]` in `pyproject.toml`. The wheel ships type information (`py.typed`).
 
 ---
 
