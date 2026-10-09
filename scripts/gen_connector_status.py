@@ -5,9 +5,9 @@ Usage::
     python scripts/gen_connector_status.py                 # rewrite docs/CONNECTORS.md
     python scripts/gen_connector_status.py --check         # fail if the doc is stale
     python scripts/gen_connector_status.py --json out.json # also write the JSON report
-    python scripts/gen_connector_status.py --record-live tests/integration/.reports/latest.json
-        # promote a live-suite report to docs/live_results.json (the evidence that
-        # earns the `certified` tier), then regenerate the doc.
+    python scripts/gen_connector_status.py --record-live a.json [b.json ...]
+        # promote live-suite reports (merged by engine) to docs/live_results.json
+        # (the evidence that earns the `certified` tier), then regenerate the doc.
 """
 
 from __future__ import annotations
@@ -30,15 +30,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--json", metavar="PATH", help="also write the JSON report here")
     ap.add_argument(
-        "--record-live", metavar="REPORT", help="record a live-suite report"
+        "--record-live",
+        metavar="REPORT",
+        nargs="+",
+        help="record one or more live-suite reports (merged by engine)",
     )
     args = ap.parse_args(argv)
 
     if args.record_live:
-        report = json.loads(Path(args.record_live).read_text(encoding="utf-8"))
-        (ROOT / "docs" / "live_results.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        reports = [
+            json.loads(Path(p).read_text(encoding="utf-8")) for p in args.record_live
+        ]
+        status.record_live(reports, ROOT)
     data = status.build_report(ROOT)
     text = status.render_markdown(data)
     target = ROOT / "docs" / "CONNECTORS.md"

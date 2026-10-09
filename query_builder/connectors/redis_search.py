@@ -20,6 +20,22 @@ from query_builder.connectors.base import (
 )
 from query_builder.connectors.introspection import introspect_redis_search
 from query_builder.connectors.registry import register_connector
+from query_builder.security import SecurityError
+
+#: Commands the raw-command path may send. Anything else (FLUSHALL, SET, DEL,
+#: FT.CREATE, FT.DROPINDEX, EVAL, CONFIG SET, ...) is refused client-side.
+READ_ONLY_COMMANDS: frozenset[str] = frozenset(
+    {
+        "PING", "INFO", "DBSIZE", "TIME", "ECHO", "EXISTS", "TYPE", "TTL", "PTTL",
+        "GET", "MGET", "STRLEN", "HGET", "HMGET", "HGETALL", "HLEN", "HEXISTS",
+        "HKEYS", "HVALS", "LRANGE", "LLEN", "LINDEX", "SMEMBERS", "SCARD",
+        "SISMEMBER", "ZRANGE", "ZCARD", "ZSCORE", "ZRANK", "SCAN", "HSCAN",
+        "SSCAN", "ZSCAN", "KEYS", "JSON.GET", "JSON.MGET",
+        "FT.SEARCH", "FT.AGGREGATE", "FT.INFO", "FT._LIST", "FT.EXPLAIN",
+        "FT.EXPLAINCLI", "FT.PROFILE", "FT.TAGVALS", "FT.SYNDUMP", "FT.SPELLCHECK",
+        "FT.DICTDUMP",
+    }
+)  # fmt: skip
 
 
 class _RedisSearchCursorAdapter:
@@ -48,6 +64,12 @@ class _RedisSearchCursorAdapter:
             parts = clean_sql.split()
             cmd = parts[0] if parts else "PING"
             args = parts[1:] if len(parts) > 1 else []
+            if cmd.upper() not in READ_ONLY_COMMANDS:
+                # Redis has no read-only session: only known read commands pass.
+                raise SecurityError(
+                    f"Read-only session violation: Redis command '{cmd}' is not a "
+                    "permitted read command."
+                )
             res = self.conn.execute_command(cmd, *args)
             if hasattr(res, "__await__"):
                 import asyncio

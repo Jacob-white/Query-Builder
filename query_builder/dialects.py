@@ -648,10 +648,19 @@ class ElasticsearchDialect(BaseDialect):
     """Elasticsearch / OpenSearch SQL dialect."""
 
     name: str = "elasticsearch"
-    placeholder: str = "%s"
+    placeholder: str = "?"  # the /_sql endpoint binds positional `?` parameters
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # Elasticsearch SQL has no OFFSET and cannot bind LIMIT: inline the
+        # (int-coerced) row count and refuse a skip it cannot honour.
+        if int(offset) > 0:
+            raise DialectError(
+                "Elasticsearch SQL does not support OFFSET; page with a cursor instead."
+            )
+        return f"LIMIT {int(limit)}", []
 
 
 class DynamoDBPartiQLDialect(BaseDialect):
@@ -743,6 +752,14 @@ class MongoDBSQLDialect(BaseDialect):
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # pymongosql cannot bind LIMIT/OFFSET (`Invalid LIMIT value '?'`) and then
+        # silently returns no rows: inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
 
 class NeonDialect(PostgresDialect):
@@ -1610,6 +1627,13 @@ class OpenSearchDialect(ElasticsearchDialect):
     """OpenSearch distributed search & analytics SQL plugin dialect."""
 
     name: str = "opensearch"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # The SQL plugin cannot bind LIMIT/OFFSET; inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)

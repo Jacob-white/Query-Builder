@@ -19,143 +19,143 @@ No live run recorded.
 
 ## Connectors
 
-| Class | Mode | Tier | Install extra | Registered names |
-| --- | --- | --- | --- | --- |
-| `AlloyDBConnector` | sync | verified | `[alloydb]` | `alloydb` |
-| `ArangoDBConnector` | sync | verified | `[arangodb]` | `aql`, `arango`, `arangodb` |
-| `AsyncArangoDBConnector` | async | verified | `[arangodb]` | `async_aql`, `async_arango`, `async_arangodb` |
-| `AthenaConnector` | sync | verified | `[athena]` | `athena` |
-| `BigQueryConnector` | sync | verified | `[bigquery]` | `bigquery` |
-| `BigtableConnector` | sync | verified | `[bigtable]` | `bigtable`, `gcp_bigtable`, `google_bigtable` |
-| `AsyncBigtableConnector` | async | verified | `[bigtable]` | `async_bigtable`, `async_gcp_bigtable`, `async_google_bigtable` |
-| `ApacheCassandraConnector` | sync | verified | `[cassandra]` | `apache_cassandra`, `apache-cassandra` |
-| `AsyncApacheCassandraConnector` | async | verified | `[cassandra]` | `async_cql`, `async_apache-cassandra`, `async_apache_cassandra`, `async_cassandra` |
-| `ChDBConnector` | sync | verified | `[chdb]` | `chdb` |
-| `AsyncChDBConnector` | async | verified | `[chdb]` | `async_chdb` |
-| `ChromaConnector` | sync | verified | `[chroma]` | `chroma`, `chromadb` |
-| `AsyncChromaConnector` | async | verified | `[chroma]` | `async_chroma`, `async_chromadb` |
-| `ClickHouseConnector` | sync | verified | `[clickhouse]` | `clickhouse` |
-| `ClickHouseNativeConnector` | sync | verified | `[clickhouse-native]` | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
-| `AsyncClickHouseNativeConnector` | async | verified | `[clickhouse-native]` | `async_ch_native`, `async_clickhouse_native` |
-| `CockroachConnector` | sync | verified | `[postgres]` | `cockroach`, `cockroachdb` |
-| `CosmosDBConnector` | sync | verified | `[cosmosdb]` | `cosmosdb`, `azure_cosmos` |
-| `AsyncCosmosDBConnector` | async | verified | `[cosmosdb]` | `async_cosmosdb`, `async_azure_cosmos` |
-| `CouchbaseConnector` | sync | verified | `[couchbase]` | `n1ql`, `couchbase` |
-| `CrateDBConnector` | sync | verified | `[cratedb]` | `crate`, `cratedb` |
-| `AsyncCrateDBConnector` | async | verified | `[cratedb]` | `async_crate`, `async_cratedb` |
-| `D1Connector` | sync | verified | `[d1]` | `d1`, `cloudflare_d1` |
-| `DatabricksConnector` | sync | verified | `[databricks]` | `spark`, `databricks` |
-| `DataFusionConnector` | sync | verified | `[datafusion]` | `datafusion` |
-| `DB2Connector` | sync | verified | `[db2]` | `db2`, `ibm_db2` |
-| `AsyncDB2Connector` | async | verified | `[db2]` | `async_db2`, `async_ibm_db2` |
-| `DerbyConnector` | sync | verified | `[derby]` | `derby`, `apache_derby` |
-| `AsyncDerbyConnector` | async | verified | `[derby]` | `async_derby`, `async_apache_derby` |
-| `DorisConnector` | sync | verified | `[doris]` | `doris`, `apache_doris`, `pydoris` |
-| `AsyncDorisConnector` | async | verified | `[doris]` | `async_doris`, `async_apache_doris` |
-| `DremioConnector` | sync | verified | `[dremio]` | `dremio` |
-| `DrillConnector` | sync | verified | `[drill]` | `drill`, `apache_drill`, `pydrill` |
-| `AsyncDrillConnector` | async | verified | `[drill]` | `async_drill`, `async_apache_drill` |
-| `DruidConnector` | sync | verified | `[druid]` | `druid`, `apache_druid` |
-| `DuckDBConnector` | sync | verified | `[duckdb]` | `duckdb` |
-| `DynamoDBConnector` | sync | verified | `[dynamodb]` | `partiql`, `dynamodb` |
-| `ElasticsearchConnector` | sync | verified | `[elasticsearch]` | `elasticsearch` |
-| `ExasolConnector` | sync | verified | `[exasol]` | `exasol` |
-| `AsyncExasolConnector` | async | verified | `[exasol]` | `async_exasol` |
-| `FirebirdConnector` | sync | verified | `[firebird]` | `firebird`, `firebirdsql` |
-| `AsyncFirebirdConnector` | async | verified | `[firebird]` | `async_firebird`, `async_firebirdsql` |
-| `FireboltConnector` | sync | verified | `[firebolt]` | `firebolt` |
-| `FirestoreConnector` | sync | verified | `[firestore]` | `firestore`, `gcp_firestore`, `google_firestore` |
-| `AsyncFirestoreConnector` | async | verified | `[firestore]` | `async_firestore`, `async_gcp_firestore`, `async_google_firestore` |
-| `FlinkSQLConnector` | sync | verified | `[flink]` | `flink`, `apache_flink`, `flink_sql` |
-| `AsyncFlinkSQLConnector` | async | verified | `[flink]` | `async_flink`, `async_apache_flink`, `async_flink_sql` |
-| `GenericDBAPIConnector` | sync | verified | none | `dbapi`, `generic` |
-| `GreptimeDBConnector` | sync | verified | `[greptimedb]` | `greptime`, `greptimedb` |
-| `AsyncGreptimeDBConnector` | async | verified | `[greptimedb]` | `async_greptime`, `async_greptimedb` |
-| `H2Connector` | sync | verified | `[h2]` | `h2`, `h2db` |
-| `AsyncH2Connector` | async | verified | `[h2]` | `async_h2`, `async_h2db` |
-| `HiveConnector` | sync | verified | `[hive]` | `hive`, `apache_hive`, `pyhive` |
-| `AsyncHiveConnector` | async | verified | `[hive]` | `async_hive`, `async_apache_hive` |
-| `ImpalaConnector` | sync | verified | `[impala]` | `impala`, `apache_impala`, `impyla` |
-| `AsyncImpalaConnector` | async | verified | `[impala]` | `async_impala`, `async_apache_impala` |
-| `InfluxDBConnector` | sync | verified | `[influxdb]` | `iox`, `influx`, `influxdb` |
-| `InformixConnector` | sync | verified | `[informix]` | `informix`, `ibm_informix` |
-| `AsyncInformixConnector` | async | verified | `[informix]` | `async_informix`, `async_ibm_informix` |
-| `KdbConnector` | sync | verified | `[kdb]` | `q`, `kdb`, `kdb+`, `pykx` |
-| `AsyncKdbConnector` | async | verified | `[kdb]` | `async_kdb`, `async_kdb+`, `async_pykx` |
-| `KsqlDBConnector` | sync | verified | `[ksqldb]` | `ksql`, `ksqldb` |
-| `AsyncKsqlDBConnector` | async | verified | `[ksqldb]` | `async_ksql`, `async_ksqldb` |
-| `KustoConnector` | sync | verified | `[kusto]` | `adx`, `azure_data_explorer`, `kql`, `kusto` |
-| `AsyncKustoConnector` | async | verified | `[kusto]` | `async_adx`, `async_azure_data_explorer`, `async_kql`, `async_kusto` |
-| `KyuubiConnector` | sync | verified | `[kyuubi]` | `kyuubi`, `apache_kyuubi` |
-| `AsyncKyuubiConnector` | async | verified | `[kyuubi]` | `async_kyuubi`, `async_apache_kyuubi` |
-| `LanceDBConnector` | sync | verified | `[lancedb]` | `lance`, `lancedb` |
-| `AsyncLanceDBConnector` | async | verified | `[lancedb]` | `async_lance`, `async_lancedb` |
-| `MaterializeConnector` | sync | verified | `[materialize]` | `mz`, `materialize` |
-| `AsyncMaterializeConnector` | async | verified | `[materialize]` | `async_mz`, `async_materialize` |
-| `MemgraphConnector` | sync | verified | `[memgraph]` | `memgraph`, `memgraph_cypher`, `memgraph_db` |
-| `AsyncMemgraphConnector` | async | verified | `[memgraph]` | `async_memgraph`, `async_memgraph_cypher`, `async_memgraph_db` |
-| `MilvusConnector` | sync | verified | `[milvus]` | `milvus`, `pymilvus`, `zilliz` |
-| `AsyncMilvusConnector` | async | verified | `[milvus]` | `async_milvus`, `async_pymilvus`, `async_zilliz` |
-| `MonetDBConnector` | sync | verified | `[monetdb]` | `monet`, `monetdb` |
-| `AsyncMonetDBConnector` | async | verified | `[monetdb]` | `async_monet`, `async_monetdb` |
-| `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | `mongo`, `atlas_sql`, `mongodb` |
-| `MSSQLConnector` | sync | verified | `[mssql]` | `mssql`, `sqlserver` |
-| `MySQLConnector` | sync | verified | `[mysql]` | `mysql`, `mariadb` |
-| `Neo4jConnector` | sync | verified | `[neo4j]` | `neo4j`, `cypher`, `neo4j_sql` |
-| `AsyncNeo4jConnector` | async | verified | `[neo4j]` | `async_neo4j`, `async_cypher` |
-| `NeonConnector` | sync | verified | `[neon]` | `neon` |
-| `NeptuneConnector` | sync | verified | `[neptune]` | `neptune`, `amazon_neptune`, `aws_neptune`, `neptune_gremlin`, `neptune_sparql` |
-| `AsyncNeptuneConnector` | async | verified | `[neptune]` | `async_neptune`, `async_amazon_neptune`, `async_aws_neptune` |
-| `OceanBaseConnector` | sync | verified | `[oceanbase]` | `oceanbase` |
-| `OpenSearchConnector` | sync | verified | `[opensearch]` | `opensearch`, `opensearch_connector`, `opensearch_sql` |
-| `AsyncOpenSearchConnector` | async | verified | `[opensearch]` | `async_opensearch`, `async_opensearch_sql` |
-| `OracleConnector` | sync | verified | `[oracle]` | `oracle` |
-| `PineconeConnector` | sync | verified | `[pinecone]` | `pinecone`, `pinecone_db`, `pinecone_vector` |
-| `AsyncPineconeConnector` | async | verified | `[pinecone]` | `async_pinecone`, `async_pinecone_db`, `async_pinecone_vector` |
-| `PinotConnector` | sync | verified | `[pinot]` | `pinot`, `apache_pinot` |
-| `PolarsConnector` | sync | verified | `[polars]` | `polars` |
-| `PostgresConnector` | sync | verified | `[postgres]` | `postgres`, `postgresql` |
-| `PrestoDBConnector` | sync | verified | `[prestodb]` | `presto`, `prestodb` |
-| `AsyncPrestoDBConnector` | async | verified | `[prestodb]` | `async_presto`, `async_prestodb` |
-| `PrometheusConnector` | sync | verified | `[prometheus]` | `prom`, `prometheus`, `promql` |
-| `AsyncPrometheusConnector` | async | verified | `[prometheus]` | `async_prom`, `async_prometheus`, `async_promql` |
-| `PulsarSQLConnector` | sync | verified | `[pulsar]` | `pulsar`, `apache_pulsar`, `pulsar_sql` |
-| `AsyncPulsarSQLConnector` | async | verified | `[pulsar]` | `async_pulsar`, `async_apache_pulsar`, `async_pulsar_sql` |
-| `QdrantConnector` | sync | verified | `[qdrant]` | `qdrant`, `qdrant_db`, `qdrant_vector` |
-| `AsyncQdrantConnector` | async | verified | `[qdrant]` | `async_qdrant`, `async_qdrant_db`, `async_qdrant_vector` |
-| `QuestDBConnector` | sync | verified | `[postgres]` | `questdb` |
-| `RedisSearchConnector` | sync | verified | `[redis]` | `redis`, `redis_ft`, `redis_search`, `redisearch` |
-| `AsyncRedisSearchConnector` | async | verified | `[redis]` | `async_redis`, `async_redis_ft`, `async_redis_search`, `async_redisearch` |
-| `RedshiftConnector` | sync | verified | `[redshift]` | `redshift` |
-| `RisingWaveConnector` | sync | verified | `[risingwave]` | `rw`, `risingwave` |
-| `AsyncRisingWaveConnector` | async | verified | `[risingwave]` | `async_rw`, `async_risingwave` |
-| `SAPHANAConnector` | sync | verified | `[saphana]` | `hana`, `sap_hana`, `saphana` |
-| `ScyllaDBConnector` | sync | verified | `[scylladb]` | `cql`, `cassandra`, `scylla`, `scylladb` |
-| `SingleStoreConnector` | sync | verified | `[singlestore]` | `memsql`, `singlestore` |
-| `SnowflakeConnector` | sync | verified | `[snowflake]` | `snowflake` |
-| `SpannerConnector` | sync | verified | `[spanner]` | `spanner` |
-| `SparkSQLConnector` | sync | verified | `[spark]` | `pyspark`, `spark_sql`, `sparksql` |
-| `AsyncSparkSQLConnector` | async | verified | `[spark]` | `async_pyspark`, `async_spark_sql`, `async_sparksql` |
-| `SQLiteConnector` | sync | verified | none | `sqlite` |
-| `StarRocksConnector` | sync | verified | `[starrocks]` | `starrocks` |
-| `AsyncStarRocksConnector` | async | verified | `[starrocks]` | `async_starrocks` |
-| `SupabaseConnector` | sync | verified | `[supabase]` | `supabase` |
-| `SurrealDBConnector` | sync | verified | `[surrealdb]` | `surreal`, `surrealdb` |
-| `AsyncSurrealDBConnector` | async | verified | `[surrealdb]` | `async_surreal`, `async_surrealdb` |
-| `SybaseConnector` | sync | verified | `[sybase]` | `ase`, `sap_ase`, `sybase` |
-| `AsyncSybaseConnector` | async | verified | `[sybase]` | `async_ase`, `async_sap_ase`, `async_sybase` |
-| `TDengineConnector` | sync | verified | `[tdengine]` | `taos`, `tdengine` |
-| `AsyncTDengineConnector` | async | verified | `[tdengine]` | `async_taos`, `async_tdengine` |
-| `TeradataConnector` | sync | verified | `[teradata]` | `teradata` |
-| `TiDBConnector` | sync | verified | `[tidb]` | `tidb` |
-| `TimescaleConnector` | sync | verified | `[postgres]` | `timescale`, `timescaledb` |
-| `TimestreamConnector` | sync | verified | `[timestream]` | `timestream`, `aws_timestream` |
-| `AsyncTimestreamConnector` | async | verified | `[timestream]` | `async_timestream`, `async_aws_timestream` |
-| `TrinoConnector` | sync | verified | `[trino]` | `trino` |
-| `VerticaConnector` | sync | verified | `[vertica]` | `vertica` |
-| `VictoriaMetricsConnector` | sync | verified | `[victoriametrics]` | `vm`, `metricsql`, `victoria_metrics`, `victoriametrics` |
-| `AsyncVictoriaMetricsConnector` | async | verified | `[victoriametrics]` | `async_vm`, `async_metricsql`, `async_victoria_metrics`, `async_victoriametrics` |
-| `WeaviateConnector` | sync | verified | `[weaviate]` | `weaviate`, `weaviate_db`, `weaviate_vector` |
-| `AsyncWeaviateConnector` | async | verified | `[weaviate]` | `async_weaviate`, `async_weaviate_db`, `async_weaviate_vector` |
-| `YugabyteDBConnector` | sync | verified | `[yugabyte]` | `yugabyte`, `yugabytedb` |
-| `AsyncYugabyteDBConnector` | async | verified | `[yugabyte]` | `async_yugabyte`, `async_yugabytedb` |
+| Class | Mode | Tier | Install extra | Live run | Registered names |
+| --- | --- | --- | --- | --- | --- |
+| `AlloyDBConnector` | sync | verified | `[alloydb]` | - | `alloydb` |
+| `ArangoDBConnector` | sync | verified | `[arangodb]` | - | `aql`, `arango`, `arangodb` |
+| `AsyncArangoDBConnector` | async | verified | `[arangodb]` | - | `async_aql`, `async_arango`, `async_arangodb` |
+| `AthenaConnector` | sync | verified | `[athena]` | - | `athena` |
+| `BigQueryConnector` | sync | verified | `[bigquery]` | - | `bigquery` |
+| `BigtableConnector` | sync | verified | `[bigtable]` | - | `bigtable`, `gcp_bigtable`, `google_bigtable` |
+| `AsyncBigtableConnector` | async | verified | `[bigtable]` | - | `async_bigtable`, `async_gcp_bigtable`, `async_google_bigtable` |
+| `ApacheCassandraConnector` | sync | verified | `[cassandra]` | - | `apache_cassandra`, `apache-cassandra` |
+| `AsyncApacheCassandraConnector` | async | verified | `[cassandra]` | - | `async_cql`, `async_apache-cassandra`, `async_apache_cassandra`, `async_cassandra` |
+| `ChDBConnector` | sync | verified | `[chdb]` | - | `chdb` |
+| `AsyncChDBConnector` | async | verified | `[chdb]` | - | `async_chdb` |
+| `ChromaConnector` | sync | verified | `[chroma]` | - | `chroma`, `chromadb` |
+| `AsyncChromaConnector` | async | verified | `[chroma]` | - | `async_chroma`, `async_chromadb` |
+| `ClickHouseConnector` | sync | verified | `[clickhouse]` | - | `clickhouse` |
+| `ClickHouseNativeConnector` | sync | verified | `[clickhouse-native]` | - | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
+| `AsyncClickHouseNativeConnector` | async | verified | `[clickhouse-native]` | - | `async_ch_native`, `async_clickhouse_native` |
+| `CockroachConnector` | sync | verified | `[postgres]` | - | `cockroach`, `cockroachdb` |
+| `CosmosDBConnector` | sync | verified | `[cosmosdb]` | - | `cosmosdb`, `azure_cosmos` |
+| `AsyncCosmosDBConnector` | async | verified | `[cosmosdb]` | - | `async_cosmosdb`, `async_azure_cosmos` |
+| `CouchbaseConnector` | sync | verified | `[couchbase]` | - | `n1ql`, `couchbase` |
+| `CrateDBConnector` | sync | verified | `[cratedb]` | - | `crate`, `cratedb` |
+| `AsyncCrateDBConnector` | async | verified | `[cratedb]` | - | `async_crate`, `async_cratedb` |
+| `D1Connector` | sync | verified | `[d1]` | - | `d1`, `cloudflare_d1` |
+| `DatabricksConnector` | sync | verified | `[databricks]` | - | `spark`, `databricks` |
+| `DataFusionConnector` | sync | verified | `[datafusion]` | - | `datafusion` |
+| `DB2Connector` | sync | verified | `[db2]` | - | `db2`, `ibm_db2` |
+| `AsyncDB2Connector` | async | verified | `[db2]` | - | `async_db2`, `async_ibm_db2` |
+| `DerbyConnector` | sync | verified | `[derby]` | - | `derby`, `apache_derby` |
+| `AsyncDerbyConnector` | async | verified | `[derby]` | - | `async_derby`, `async_apache_derby` |
+| `DorisConnector` | sync | verified | `[doris]` | - | `doris`, `apache_doris`, `pydoris` |
+| `AsyncDorisConnector` | async | verified | `[doris]` | - | `async_doris`, `async_apache_doris` |
+| `DremioConnector` | sync | verified | `[dremio]` | - | `dremio` |
+| `DrillConnector` | sync | verified | `[drill]` | - | `drill`, `apache_drill`, `pydrill` |
+| `AsyncDrillConnector` | async | verified | `[drill]` | - | `async_drill`, `async_apache_drill` |
+| `DruidConnector` | sync | verified | `[druid]` | - | `druid`, `apache_druid` |
+| `DuckDBConnector` | sync | verified | `[duckdb]` | - | `duckdb` |
+| `DynamoDBConnector` | sync | verified | `[dynamodb]` | - | `partiql`, `dynamodb` |
+| `ElasticsearchConnector` | sync | verified | `[elasticsearch]` | - | `elasticsearch` |
+| `ExasolConnector` | sync | verified | `[exasol]` | - | `exasol` |
+| `AsyncExasolConnector` | async | verified | `[exasol]` | - | `async_exasol` |
+| `FirebirdConnector` | sync | verified | `[firebird]` | - | `firebird`, `firebirdsql` |
+| `AsyncFirebirdConnector` | async | verified | `[firebird]` | - | `async_firebird`, `async_firebirdsql` |
+| `FireboltConnector` | sync | verified | `[firebolt]` | - | `firebolt` |
+| `FirestoreConnector` | sync | verified | `[firestore]` | - | `firestore`, `gcp_firestore`, `google_firestore` |
+| `AsyncFirestoreConnector` | async | verified | `[firestore]` | - | `async_firestore`, `async_gcp_firestore`, `async_google_firestore` |
+| `FlinkSQLConnector` | sync | verified | `[flink]` | - | `flink`, `apache_flink`, `flink_sql` |
+| `AsyncFlinkSQLConnector` | async | verified | `[flink]` | - | `async_flink`, `async_apache_flink`, `async_flink_sql` |
+| `GenericDBAPIConnector` | sync | verified | none | - | `dbapi`, `generic` |
+| `GreptimeDBConnector` | sync | verified | `[greptimedb]` | - | `greptime`, `greptimedb` |
+| `AsyncGreptimeDBConnector` | async | verified | `[greptimedb]` | - | `async_greptime`, `async_greptimedb` |
+| `H2Connector` | sync | verified | `[h2]` | - | `h2`, `h2db` |
+| `AsyncH2Connector` | async | verified | `[h2]` | - | `async_h2`, `async_h2db` |
+| `HiveConnector` | sync | verified | `[hive]` | - | `hive`, `apache_hive`, `pyhive` |
+| `AsyncHiveConnector` | async | verified | `[hive]` | - | `async_hive`, `async_apache_hive` |
+| `ImpalaConnector` | sync | verified | `[impala]` | - | `impala`, `apache_impala`, `impyla` |
+| `AsyncImpalaConnector` | async | verified | `[impala]` | - | `async_impala`, `async_apache_impala` |
+| `InfluxDBConnector` | sync | verified | `[influxdb]` | - | `iox`, `influx`, `influxdb` |
+| `InformixConnector` | sync | verified | `[informix]` | - | `informix`, `ibm_informix` |
+| `AsyncInformixConnector` | async | verified | `[informix]` | - | `async_informix`, `async_ibm_informix` |
+| `KdbConnector` | sync | verified | `[kdb]` | - | `q`, `kdb`, `kdb+`, `pykx` |
+| `AsyncKdbConnector` | async | verified | `[kdb]` | - | `async_kdb`, `async_kdb+`, `async_pykx` |
+| `KsqlDBConnector` | sync | verified | `[ksqldb]` | - | `ksql`, `ksqldb` |
+| `AsyncKsqlDBConnector` | async | verified | `[ksqldb]` | - | `async_ksql`, `async_ksqldb` |
+| `KustoConnector` | sync | verified | `[kusto]` | - | `adx`, `azure_data_explorer`, `kql`, `kusto` |
+| `AsyncKustoConnector` | async | verified | `[kusto]` | - | `async_adx`, `async_azure_data_explorer`, `async_kql`, `async_kusto` |
+| `KyuubiConnector` | sync | verified | `[kyuubi]` | - | `kyuubi`, `apache_kyuubi` |
+| `AsyncKyuubiConnector` | async | verified | `[kyuubi]` | - | `async_kyuubi`, `async_apache_kyuubi` |
+| `LanceDBConnector` | sync | verified | `[lancedb]` | - | `lance`, `lancedb` |
+| `AsyncLanceDBConnector` | async | verified | `[lancedb]` | - | `async_lance`, `async_lancedb` |
+| `MaterializeConnector` | sync | verified | `[materialize]` | - | `mz`, `materialize` |
+| `AsyncMaterializeConnector` | async | verified | `[materialize]` | - | `async_mz`, `async_materialize` |
+| `MemgraphConnector` | sync | verified | `[memgraph]` | - | `memgraph`, `memgraph_cypher`, `memgraph_db` |
+| `AsyncMemgraphConnector` | async | verified | `[memgraph]` | - | `async_memgraph`, `async_memgraph_cypher`, `async_memgraph_db` |
+| `MilvusConnector` | sync | verified | `[milvus]` | - | `milvus`, `pymilvus`, `zilliz` |
+| `AsyncMilvusConnector` | async | verified | `[milvus]` | - | `async_milvus`, `async_pymilvus`, `async_zilliz` |
+| `MonetDBConnector` | sync | verified | `[monetdb]` | - | `monet`, `monetdb` |
+| `AsyncMonetDBConnector` | async | verified | `[monetdb]` | - | `async_monet`, `async_monetdb` |
+| `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | - | `mongo`, `atlas_sql`, `mongodb` |
+| `MSSQLConnector` | sync | verified | `[mssql]` | - | `mssql`, `sqlserver` |
+| `MySQLConnector` | sync | verified | `[mysql]` | - | `mysql`, `mariadb` |
+| `Neo4jConnector` | sync | verified | `[neo4j]` | - | `neo4j`, `cypher`, `neo4j_sql` |
+| `AsyncNeo4jConnector` | async | verified | `[neo4j]` | - | `async_neo4j`, `async_cypher` |
+| `NeonConnector` | sync | verified | `[neon]` | - | `neon` |
+| `NeptuneConnector` | sync | verified | `[neptune]` | - | `neptune`, `amazon_neptune`, `aws_neptune`, `neptune_gremlin`, `neptune_sparql` |
+| `AsyncNeptuneConnector` | async | verified | `[neptune]` | - | `async_neptune`, `async_amazon_neptune`, `async_aws_neptune` |
+| `OceanBaseConnector` | sync | verified | `[oceanbase]` | - | `oceanbase` |
+| `OpenSearchConnector` | sync | verified | `[opensearch]` | - | `opensearch`, `opensearch_connector`, `opensearch_sql` |
+| `AsyncOpenSearchConnector` | async | verified | `[opensearch]` | - | `async_opensearch`, `async_opensearch_sql` |
+| `OracleConnector` | sync | verified | `[oracle]` | - | `oracle` |
+| `PineconeConnector` | sync | verified | `[pinecone]` | - | `pinecone`, `pinecone_db`, `pinecone_vector` |
+| `AsyncPineconeConnector` | async | verified | `[pinecone]` | - | `async_pinecone`, `async_pinecone_db`, `async_pinecone_vector` |
+| `PinotConnector` | sync | verified | `[pinot]` | - | `pinot`, `apache_pinot` |
+| `PolarsConnector` | sync | verified | `[polars]` | - | `polars` |
+| `PostgresConnector` | sync | verified | `[postgres]` | - | `postgres`, `postgresql` |
+| `PrestoDBConnector` | sync | verified | `[prestodb]` | - | `presto`, `prestodb` |
+| `AsyncPrestoDBConnector` | async | verified | `[prestodb]` | - | `async_presto`, `async_prestodb` |
+| `PrometheusConnector` | sync | verified | `[prometheus]` | - | `prom`, `prometheus`, `promql` |
+| `AsyncPrometheusConnector` | async | verified | `[prometheus]` | - | `async_prom`, `async_prometheus`, `async_promql` |
+| `PulsarSQLConnector` | sync | verified | `[pulsar]` | - | `pulsar`, `apache_pulsar`, `pulsar_sql` |
+| `AsyncPulsarSQLConnector` | async | verified | `[pulsar]` | - | `async_pulsar`, `async_apache_pulsar`, `async_pulsar_sql` |
+| `QdrantConnector` | sync | verified | `[qdrant]` | - | `qdrant`, `qdrant_db`, `qdrant_vector` |
+| `AsyncQdrantConnector` | async | verified | `[qdrant]` | - | `async_qdrant`, `async_qdrant_db`, `async_qdrant_vector` |
+| `QuestDBConnector` | sync | verified | `[postgres]` | - | `questdb` |
+| `RedisSearchConnector` | sync | verified | `[redis]` | - | `redis`, `redis_ft`, `redis_search`, `redisearch` |
+| `AsyncRedisSearchConnector` | async | verified | `[redis]` | - | `async_redis`, `async_redis_ft`, `async_redis_search`, `async_redisearch` |
+| `RedshiftConnector` | sync | verified | `[redshift]` | - | `redshift` |
+| `RisingWaveConnector` | sync | verified | `[risingwave]` | - | `rw`, `risingwave` |
+| `AsyncRisingWaveConnector` | async | verified | `[risingwave]` | - | `async_rw`, `async_risingwave` |
+| `SAPHANAConnector` | sync | verified | `[saphana]` | - | `hana`, `sap_hana`, `saphana` |
+| `ScyllaDBConnector` | sync | verified | `[scylladb]` | - | `cql`, `cassandra`, `scylla`, `scylladb` |
+| `SingleStoreConnector` | sync | verified | `[singlestore]` | - | `memsql`, `singlestore` |
+| `SnowflakeConnector` | sync | verified | `[snowflake]` | - | `snowflake` |
+| `SpannerConnector` | sync | verified | `[spanner]` | - | `spanner` |
+| `SparkSQLConnector` | sync | verified | `[spark]` | - | `pyspark`, `spark_sql`, `sparksql` |
+| `AsyncSparkSQLConnector` | async | verified | `[spark]` | - | `async_pyspark`, `async_spark_sql`, `async_sparksql` |
+| `SQLiteConnector` | sync | verified | none | - | `sqlite` |
+| `StarRocksConnector` | sync | verified | `[starrocks]` | - | `starrocks` |
+| `AsyncStarRocksConnector` | async | verified | `[starrocks]` | - | `async_starrocks` |
+| `SupabaseConnector` | sync | verified | `[supabase]` | - | `supabase` |
+| `SurrealDBConnector` | sync | verified | `[surrealdb]` | - | `surreal`, `surrealdb` |
+| `AsyncSurrealDBConnector` | async | verified | `[surrealdb]` | - | `async_surreal`, `async_surrealdb` |
+| `SybaseConnector` | sync | verified | `[sybase]` | - | `ase`, `sap_ase`, `sybase` |
+| `AsyncSybaseConnector` | async | verified | `[sybase]` | - | `async_ase`, `async_sap_ase`, `async_sybase` |
+| `TDengineConnector` | sync | verified | `[tdengine]` | - | `taos`, `tdengine` |
+| `AsyncTDengineConnector` | async | verified | `[tdengine]` | - | `async_taos`, `async_tdengine` |
+| `TeradataConnector` | sync | verified | `[teradata]` | - | `teradata` |
+| `TiDBConnector` | sync | verified | `[tidb]` | - | `tidb` |
+| `TimescaleConnector` | sync | verified | `[postgres]` | - | `timescale`, `timescaledb` |
+| `TimestreamConnector` | sync | verified | `[timestream]` | - | `timestream`, `aws_timestream` |
+| `AsyncTimestreamConnector` | async | verified | `[timestream]` | - | `async_timestream`, `async_aws_timestream` |
+| `TrinoConnector` | sync | verified | `[trino]` | - | `trino` |
+| `VerticaConnector` | sync | verified | `[vertica]` | - | `vertica` |
+| `VictoriaMetricsConnector` | sync | verified | `[victoriametrics]` | - | `vm`, `metricsql`, `victoria_metrics`, `victoriametrics` |
+| `AsyncVictoriaMetricsConnector` | async | verified | `[victoriametrics]` | - | `async_vm`, `async_metricsql`, `async_victoria_metrics`, `async_victoriametrics` |
+| `WeaviateConnector` | sync | verified | `[weaviate]` | - | `weaviate`, `weaviate_db`, `weaviate_vector` |
+| `AsyncWeaviateConnector` | async | verified | `[weaviate]` | - | `async_weaviate`, `async_weaviate_db`, `async_weaviate_vector` |
+| `YugabyteDBConnector` | sync | verified | `[yugabyte]` | - | `yugabyte`, `yugabytedb` |
+| `AsyncYugabyteDBConnector` | async | verified | `[yugabyte]` | - | `async_yugabyte`, `async_yugabytedb` |

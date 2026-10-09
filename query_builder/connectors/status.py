@@ -219,6 +219,41 @@ def load_live_results(root: Path | None = None) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def merge_live_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Combine live-suite reports (e.g. a host run plus a Linux-container run).
+
+    Engines are keyed by name (later reports win); each engine keeps the
+    ``run_at``/``platform`` of the run that produced it.
+    """
+    merged: dict[str, Any] = {"run_at": None, "engines": {}}
+    for report in reports:
+        for name, rec in report.get("engines", {}).items():
+            merged["engines"][name] = {
+                **rec,
+                "run_at": report.get("run_at"),
+                "platform": report.get("platform"),
+                "python": report.get("python"),
+            }
+        stamp = report.get("run_at")
+        if stamp and (merged["run_at"] is None or stamp > merged["run_at"]):
+            merged["run_at"] = stamp
+    return merged
+
+
+def record_live(reports: list[dict[str, Any]], root: Path | None = None) -> Path:
+    """Write ``docs/live_results.json``: the evidence behind the ``certified`` tier."""
+    base = root or repo_root()
+    if base is None:
+        raise RuntimeError("recording a live run needs a source checkout")
+    path = base / "docs" / "live_results.json"
+    path.write_text(
+        json.dumps(merge_live_reports(reports), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _live_index(live: dict[str, Any]) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
     for engine, rec in live.get("engines", {}).items():
@@ -234,19 +269,23 @@ def compute_tier(
 ) -> tuple[str, str]:
     """Return ``(tier, evidence)`` for a connector class key."""
     live = live_index.get(key)
-    if live and live.get("passed", 0) > 0 and live.get("failed", 0) == 0:
-        return CERTIFIED, (
-            f"live conformance passed ({live['passed']} passed, "
-            f"{live.get('skipped', 0)} skipped) on {live.get('version') or '?'}"
-        )
+    caveat = ""
+    if live and live.get("passed", 0) > 0:
+        failed, known = live.get("failed", 0), live.get("xfailed", 0)
+        if failed == 0 and known == 0:
+            return CERTIFIED, (
+                f"live conformance passed ({live['passed']} passed, "
+                f"{live.get('skipped', 0)} skipped) on {live.get('version') or '?'}"
+            )
+        caveat = f"; live run had {failed} failed / {known} known issues"
     if unit_refs is None:
         return UNRATED, "no source checkout: unit-test evidence unavailable"
     if unit_refs.get(key, 0) > 0:
         return (
             VERIFIED,
-            f"unit tests in {unit_refs[key]} test file(s) + registry matrix",
+            f"unit tests in {unit_refs[key]} test file(s) + registry matrix{caveat}",
         )
-    return EXPERIMENTAL, "no unit tests and no live run"
+    return EXPERIMENTAL, f"no unit tests and no passing live run{caveat}"
 
 
 def build_report(root: Path | None = None) -> dict[str, Any]:
@@ -272,14 +311,29 @@ def build_report(root: Path | None = None) -> dict[str, Any]:
                 "passed": hit.get("passed"),
                 "failed": hit.get("failed"),
                 "skipped": hit.get("skipped"),
+                "xfailed": hit.get("xfailed", 0),
             }
             if hit
             else None
         )
+    live_engines = [
+        {
+            "engine": name,
+            "version": rec.get("version"),
+            "passed": rec.get("passed", 0),
+            "failed": rec.get("failed", 0),
+            "xfailed": rec.get("xfailed", 0),
+            "skipped": rec.get("skipped", 0),
+            "run_at": rec.get("run_at") or live.get("run_at"),
+            "platform": rec.get("platform"),
+        }
+        for name, rec in sorted(live.get("engines", {}).items())
+    ]
     tiers = collections.Counter(r["tier"] for r in connectors)
     return {
         "generated_for": "query-builder connector status",
         "live_run_at": live.get("run_at"),
+        "live_engines": live_engines,
         "totals": {
             "classes": len(connectors),
             "sync": sum(r["mode"] == "sync" for r in connectors),
@@ -357,42 +411,132 @@ def render_markdown(report: dict[str, Any]) -> str:
         else "No live run recorded."
     )
     out.append("")
-    live_rows = sorted(
-        {
-            (
-                r["live"]["engine"],
-                r["live"]["version"] or "?",
-                r["live"]["passed"],
-                r["live"]["failed"],
-                r["live"]["skipped"],
-            )
-            for r in report["connectors"]
-            if r["live"]
-        }
-    )
-    if live_rows:
+    live_engines = report.get("live_engines", [])
+    if live_engines:
         out += [
             "### Engines in the latest live run",
             "",
-            "| Engine | Version | Passed | Failed | Skipped |",
-            "| --- | --- | ---: | ---: | ---: |",
+            "| Engine | Version | Passed | Failed | Known issues | Skipped | Run | Platform |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
         ]
-        out += [
-            f"| {e} | {str(v).splitlines()[0][:80]} | {p} | {f} | {s} |"
-            for e, v, p, f, s in live_rows
-        ]
+        for e in live_engines:
+            version = str(e["version"] or "?").splitlines()[0][:70]
+            platform_name = str(e.get("platform") or "?")[:28]
+            out.append(
+                f"| {e['engine']} | {version} | {e['passed']} | {e['failed']} | "
+                f"{e['xfailed']} | {e['skipped']} | {e['run_at']} | {platform_name} |"
+            )
         out.append("")
     out += [
         "## Connectors",
         "",
-        "| Class | Mode | Tier | Install extra | Registered names |",
-        "| --- | --- | --- | --- | --- |",
+        "| Class | Mode | Tier | Install extra | Live run | Registered names |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for r in report["connectors"]:
         extra = f"`[{r['extra']}]`" if r["extra"] else "none"
         names = ", ".join(f"`{n}`" for n in [r["name"], *r["aliases"]])
+        live = r["live"]
+        live_cell = "-"
+        if live:
+            live_cell = f"{live['engine']} ({live['passed']} pass"
+            if live["failed"]:
+                live_cell += f", {live['failed']} fail"
+            if live["xfailed"]:
+                live_cell += f", {live['xfailed']} known"
+            live_cell += ")"
         out.append(
-            f"| `{r['class']}` | {r['mode']} | {r['tier']} | {extra} | {names} |"
+            f"| `{r['class']}` | {r['mode']} | {r['tier']} | {extra} | "
+            f"{live_cell} | {names} |"
         )
     out.append("")
     return "\n".join(out)
+
+
+def run_live_suite(
+    engines: list[str] | None = None,
+    root: Path | None = None,
+    strict: bool = False,
+) -> tuple[int, dict[str, Any]]:
+    """
+    Run ``tests/integration`` (the opt-in live conformance suite) in a subprocess
+    and return ``(pytest_exit_code, report)``. Needs a source checkout.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    base = root or repo_root()
+    if base is None or not (base / "tests" / "integration").is_dir():
+        raise RuntimeError(
+            "the live suite needs a source checkout (tests/integration not found)"
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        report_path = Path(tmp) / "live_report.json"
+        env = dict(os.environ)
+        env["QB_IT_REPORT"] = str(report_path)
+        env["PYTHONPATH"] = os.pathsep.join(
+            filter(None, [str(base), env.get("PYTHONPATH", "")])
+        )
+        if engines:
+            env["QB_IT_ENGINES"] = ",".join(engines)
+            if strict:
+                env["QB_IT_STRICT"] = ",".join(engines)
+        elif strict:
+            env["QB_IT_STRICT"] = "all"
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/integration",
+            "-m",
+            "integration",
+            "-o",
+            "addopts=",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--tb=short",
+        ]
+        proc = subprocess.run(cmd, cwd=base, env=env, check=False)  # noqa: S603
+        report: dict[str, Any] = {"run_at": None, "engines": {}}
+        if report_path.is_file():
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+    return proc.returncode, report
+
+
+def render_live_summary(report: dict[str, Any]) -> str:
+    """Per-engine pass/skip/fail table for a live-suite report."""
+    rows = [("ENGINE", "VERSION", "PASS", "FAIL", "KNOWN", "SKIP", "NOTE")]
+    for name, rec in sorted(report.get("engines", {}).items()):
+        if rec.get("failed"):
+            note = "FAILED"
+        elif rec.get("passed"):
+            note = "known issues" if rec.get("xfailed") else "ok"
+        else:
+            reasons = list(rec.get("skip_reasons", {}))
+            note = f"skipped: {reasons[0]}" if reasons else "no tests ran"
+        rows.append(
+            (
+                name,
+                str(rec.get("version") or "-").splitlines()[0][:32],
+                str(rec.get("passed", 0)),
+                str(rec.get("failed", 0)),
+                str(rec.get("xfailed", 0)),
+                str(rec.get("skipped", 0)),
+                note,
+            )
+        )
+    widths = [max(len(row[i]) for row in rows) for i in range(6)]
+    return "\n".join(
+        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:6]))
+        + "  "
+        + row[6]
+        for row in rows
+    )
+
+
+def live_exit_code(returncode: int, report: dict[str, Any]) -> int:
+    """Non-zero when an engine failed or the run broke (pytest 5 = nothing collected)."""
+    failed = sum(rec.get("failed", 0) for rec in report.get("engines", {}).values())
+    return 1 if failed or returncode not in (0, 5) else 0

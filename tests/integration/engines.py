@@ -262,6 +262,20 @@ def _clickhouse_native(e: Engine) -> Native:
     return Native(client.command, client.close)
 
 
+def _clickhouse_native_http(e: Engine) -> Native:
+    """Seed the native-protocol engine through the HTTP port of the same server."""
+    import clickhouse_connect
+
+    client = clickhouse_connect.get_client(
+        host=e.host,
+        port=int(os.environ.get("QB_IT_CLICKHOUSE_NATIVE_HTTP_PORT", 38123)),
+        username=e.user_,
+        password=e.password_,
+        database=e.database_,
+    )
+    return Native(client.command, client.close)
+
+
 def _sqlite_native(e: Engine) -> Native:
     import sqlite3
 
@@ -562,6 +576,37 @@ _register(
         },
     )
 )
+
+
+def _kw_clickhouse_native(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    user, pw = _ro(o, e)
+    return {
+        "database": e.database_,
+        "host": e.host,
+        "port": e.port_,
+        "user": user,
+        "password": pw,
+    }
+
+
+_register(
+    Engine(
+        name="clickhouse_native",
+        connector="clickhouse_native",
+        async_connector="async_clickhouse_native",
+        tier="extended",
+        family="clickhouse",
+        drivers=("clickhouse_driver",),
+        pip="clickhouse-driver",
+        port=39000,
+        connector_factory=_kw_clickhouse_native,
+        native_factory=_clickhouse_native_http,
+        ro_native=_clickhouse_ro,
+        slow_sql="SELECT sleepEachRow(3) FROM numbers(10)",
+        unsupported={"introspect_fk": "ClickHouse has no foreign keys"},
+    )
+)
+
 _register(
     Engine(
         name="cockroach",
@@ -663,6 +708,115 @@ _register(
         },
     )
 )
+
+
+def _kw_mongodb(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {"database": e.database_, "host": e.host, "port": e.port_}
+
+
+def _kw_redis(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {"host": e.host, "port": e.port_}
+
+
+def _kw_elasticsearch(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {"endpoint": f"http://{e.host}:{e.port_}"}
+
+
+def _kw_opensearch(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hosts": [{"host": e.host, "port": e.port_}],
+        "index_pattern": "qbit_*",
+    }
+
+
+def _kw_neo4j(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "uri": f"bolt://{e.host}:{e.port_}",
+        "auth": (e.user_, o.get("password") or e.password_),
+    }
+
+
+def _kw_cassandra(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "contact_points": [e.host],
+        "port": e.port_,
+        "keyspace": e.database_,
+    }
+
+
+for _e in (
+    Engine(
+        name="mongodb",
+        connector="mongodb",
+        tier="extended",
+        family="",
+        drivers=("pymongosql", "pymongo"),
+        pip="pymongosql",
+        port=35017,
+        password="",
+        connector_factory=_kw_mongodb,
+    ),
+    Engine(
+        name="redis",
+        connector="redis",
+        async_connector="async_redis",
+        tier="extended",
+        family="",
+        drivers=("redis",),
+        pip="redis",
+        port=36379,
+        password="",
+        connector_factory=_kw_redis,
+    ),
+    Engine(
+        name="elasticsearch",
+        connector="elasticsearch",
+        tier="extended",
+        family="",
+        drivers=("elasticsearch",),
+        pip="'elasticsearch>=8,<9'",
+        port=39200,
+        password="",
+        connector_factory=_kw_elasticsearch,
+    ),
+    Engine(
+        name="opensearch",
+        connector="opensearch",
+        async_connector="async_opensearch",
+        tier="extended",
+        family="",
+        drivers=("opensearchpy",),
+        pip="opensearch-py",
+        port=39201,
+        password="",
+        connector_factory=_kw_opensearch,
+    ),
+    Engine(
+        name="neo4j",
+        connector="neo4j",
+        async_connector="async_neo4j",
+        tier="extended",
+        family="",
+        drivers=("neo4j",),
+        pip="neo4j",
+        port=38687,
+        user="neo4j",
+        connector_factory=_kw_neo4j,
+    ),
+    Engine(
+        name="cassandra",
+        connector="apache_cassandra",
+        async_connector="async_apache_cassandra",
+        tier="extended",
+        family="",
+        drivers=("cassandra",),
+        pip="cassandra-driver",
+        port=39042,
+        password="",
+        connector_factory=_kw_cassandra,
+    ),
+):
+    _register(_e)
 
 
 def _cockroach_native(e: Engine) -> Native:
