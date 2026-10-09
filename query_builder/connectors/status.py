@@ -411,7 +411,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         else "No live run recorded."
     )
     out.append("")
-    live_engines = report.get("live_engines", [])
+    all_live = report.get("live_engines", [])
+    live_engines = [e for e in all_live if e["passed"] + e["failed"] + e["xfailed"]]
+    not_run = [e["engine"] for e in all_live if e not in live_engines]
     if live_engines:
         out += [
             "### Engines in the latest live run",
@@ -427,6 +429,12 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"{e['xfailed']} | {e['skipped']} | {e['run_at']} | {platform_name} |"
             )
         out.append("")
+    if not_run:
+        out += [
+            "Selected but not exercised in that run (engine unreachable, driver "
+            f"missing or credentials not set): {', '.join(not_run)}.",
+            "",
+        ]
     out += [
         "## Connectors",
         "",
