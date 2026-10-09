@@ -214,7 +214,7 @@ class DynamoDBConnector(BaseConnector):
                     )
 
                 if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql)
+                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_res["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
@@ -280,12 +280,12 @@ class DynamoDBConnector(BaseConnector):
                 main_sql, main_params, count_sql, count_params = compiler.compile()
 
                 if validate_ast:
-                    v_main = validate_sql_ast(main_sql)
+                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_main["valid"]:
                         raise CompilationError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
-                    v_count = validate_sql_ast(count_sql)
+                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
                     if not v_count["valid"]:
                         raise CompilationError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"

@@ -408,7 +408,7 @@ class BaseConnector(ABC):
                     )
 
                 if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql)
+                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_res["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
@@ -501,12 +501,12 @@ class BaseConnector(ABC):
                 count_params = compilation["count_params"]
 
                 if validate_ast:
-                    v_main = validate_sql_ast(main_sql)
+                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_main["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
-                    v_count = validate_sql_ast(count_sql)
+                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
                     if not v_count["valid"]:
                         raise SecurityError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"
