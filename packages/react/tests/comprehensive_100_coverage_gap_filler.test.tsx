@@ -47,6 +47,37 @@ import { ingestLocalFile, readFileAsText, readFileAsArrayBuffer } from "../src/u
 import * as perfAdvisorModule from "../src/utils/performanceAdvisor";
 import { estimateCloudQueryCost, analyzeQueryPerformance } from "../src/utils/performanceAdvisor";
 import { validateSchema } from "../src/utils/schemaUtils";
+import type { ByoAiSchema } from "../src/ai/types";
+import type { QueryBuilderClient } from "../src/client";
+import type { BiChartVisualizerProps } from "../src/types";
+import type { ThemeProviderProps } from "../src/theme/ThemeProvider";
+import type {
+  CalculatedFieldSpec,
+  ClientOlapEngine,
+  DashboardTile,
+  DuckDBTableMeta,
+  FeatureKey,
+  FeaturePreset,
+  FeatureTier,
+  HybridSearchSpec,
+  MetricDefinition,
+  PerformanceAdvisorInsight,
+  QueryResultData,
+  QuerySpec,
+  ResolvedFeatureMap,
+  SchemaSnapshot,
+  TableMeta,
+  VisualColumnSelect,
+  VisualFilter,
+  VisualQueryBuilderRef,
+  WindowFunctionSpec,
+} from "../src/types";
+import { invalid, makeColumn, makeTable } from "./helpers";
+import { asMock, loose, partialProps } from "./helpers/loose";
+
+const QueryCanvasPartial = partialProps(QueryCanvas);
+const AiAssistantWidgetPartial = partialProps(AiAssistantWidget);
+const BiChartVisualizerPartial = partialProps(BiChartVisualizer);
 import { parseSqlToSpec } from "../src/utils/sqlParser";
 
 describe("Comprehensive 100% Coverage Gap Filler", () => {
@@ -66,7 +97,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         },
       };
 
-      const result = toDrizzle(schema as any, { dialect: "sqlite" });
+      const result = toDrizzle(schema, { dialect: "sqlite" });
       expect(result).toContain('real("score")');
       expect(result).toContain('blob("data")');
       expect(result).toContain('sqliteTable("empty_tbl", {});');
@@ -96,20 +127,20 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         },
       };
 
-      const result = toPrisma(schema as any);
+      const result = toPrisma(schema);
       expect(result).toContain("postsRel Post[]");
       expect(result).toContain("model Empty {\n}");
     });
 
     it("semantic: handles not_in array and metric filter without operator", () => {
-      const metricDef: any = {
+      const metricDef = loose<MetricDefinition>({
         name: "test_metric",
         table: "users",
         aggregation: "sum",
         filters: [
           { field: "status", operator: "not_in", value: ["deleted", "banned"] },
         ],
-      };
+      });
       const sql = expandMetricSql(metricDef);
       expect(sql).toContain("status NOT IN ('deleted', 'banned')");
 
@@ -127,7 +158,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         ]),
       );
-      expect(models[0].metrics[0].filters[0].operator).toBe("eq");
+      expect(models[0]?.metrics?.[0]?.filters?.[0]?.operator).toBe("eq");
     });
 
     it("sqlalchemy: handles non-id fk, python keyword, and variable collision", () => {
@@ -153,7 +184,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         },
       };
 
-      const result = toSqlAlchemy(schema as any);
+      const result = toSqlAlchemy(schema);
       expect(result).toContain('users = relationship("Users", foreign_keys=[author])');
       expect(result).toContain('class_rel = relationship("Class", foreign_keys=[class_id])');
       expect(result).toContain('user_rel = relationship("User", foreign_keys=[user_id])');
@@ -203,7 +234,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           table: "users",
           columns: ["orders.total"],
         },
-        schema as any,
+        invalid<ByoAiSchema>(schema),
       );
 
       expect(healed.healedSpec.joins).toHaveLength(1);
@@ -234,7 +265,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("client: handles 404 fallback to /introspect and getCapabilities fallback to getSchema", async () => {
       const mockFetch = vi.fn();
-      const client = createQueryBuilderClient({ baseUrl: "https://api.example.com", fetchFn: mockFetch as any });
+      const client = createQueryBuilderClient({ baseUrl: "https://api.example.com", fetchFn: mockFetch });
 
       // getSchema 404 fallback
       mockFetch
@@ -313,12 +344,14 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       // NONE mode with null category
       render(
         <BiChartVisualizer
-          rows={rows}
-          categoryField="cat"
-          metricField="val"
-          aggregation="NONE"
-          adapter="echarts"
-          unstyled={true}
+          {...invalid<BiChartVisualizerProps>({
+            rows,
+            categoryField: "cat",
+            metricField: "val",
+            aggregation: "NONE",
+            adapter: "echarts",
+            unstyled: true,
+          })}
         />,
       );
       expect(screen.getByTestId("echarts-container")).toBeTruthy();
@@ -326,12 +359,14 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       // Aggregated mode with null category and vega-lite unstyled
       render(
         <BiChartVisualizer
-          rows={rows}
-          categoryField="cat"
-          metricField="val"
-          aggregation="SUM"
-          adapter="vega-lite"
-          unstyled={true}
+          {...invalid<BiChartVisualizerProps>({
+            rows,
+            categoryField: "cat",
+            metricField: "val",
+            aggregation: "SUM",
+            adapter: "vega-lite",
+            unstyled: true,
+          })}
         />,
       );
       expect(screen.getByTestId("vega-lite-container")).toBeTruthy();
@@ -351,7 +386,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("ExportWorkbench: handles externalSql with matching/different dialect and dialect change", () => {
-      const spec: any = { table: "users", columns: ["id"] };
+      const spec = loose<QuerySpec>({ table: "users", columns: ["id"] });
       const onDialectChange = vi.fn();
 
       render(
@@ -388,7 +423,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("PipelineDagCanvas: detectCteCycles handles nodes with undefined dependencies", () => {
       const cycles = detectCteCycles([
-        { name: "a", dependencies: undefined as any },
+        { name: "a", dependencies: invalid<string[]>(undefined) },
       ]);
       expect(cycles).toEqual([]);
     });
@@ -396,10 +431,10 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("QueryCanvas: triggers onAddTableToCanvas when onAddJoin is omitted and unstyled metric badge", () => {
       const onAddTable = vi.fn();
       render(
-        <QueryCanvas
-          tables={[{ name: "users", columns: [{ name: "id", data_type: "int" }] }]}
+        <QueryCanvasPartial
+          tables={[makeTable("users", [makeColumn("id", { data_type: "int" })])]}
           primaryTable="users"
-          activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int" }] }]}
+          activeTables={[makeTable("users", [makeColumn("id", { data_type: "int" })])]}
           selectedColumns={{ "users.id": { name: "id", table: "users", metric: true } }}
           orderedProjectionKeys={["users.id"]}
           isJoinsVisible={true}
@@ -423,7 +458,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("QueryPerformanceAdvisor: renders in unstyled mode", () => {
       render(
         <QueryPerformanceAdvisor
-          querySpec={{ table: "users", columns: [] }}
+          querySpec={loose<QuerySpec>({ table: "users", columns: [] })}
           sql="SELECT * FROM users"
           unstyled={true}
         />,
@@ -448,15 +483,15 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("TableCard: renders checked metric styling and unstyled metric", () => {
-      const metricTable = {
+      const metricTable = loose<TableMeta>({
         name: "analytics",
         columns: [],
-        metrics: [{ name: "total_revenue", title: "Total Revenue" }],
-      };
+        metrics: [loose<MetricDefinition>({ name: "total_revenue", title: "Total Revenue" })],
+      });
 
       const { rerender } = render(
         <TableCard
-          table={metricTable as any}
+          table={metricTable}
           selectedColumns={{ "analytics.total_revenue": { name: "total_revenue", table: "analytics", metric: true } }}
           onToggleColumn={() => {}}
           unstyled={false}
@@ -467,7 +502,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       rerender(
         <TableCard
-          table={metricTable as any}
+          table={metricTable}
           selectedColumns={{ "analytics.total_revenue": { name: "total_revenue", table: "analytics", metric: true } }}
           onToggleColumn={() => {}}
           unstyled={true}
@@ -479,8 +514,8 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("VisualQueryBuilder: renders active advanced clauses banner in unstyled mode", () => {
       render(
         <VisualQueryBuilder
-          schema={{ tables: { users: { columns: [{ name: "id", data_type: "int" }] } } }}
-          initialCtes={[{ name: "cte1", query: "SELECT 1" }]}
+          schema={invalid<SchemaSnapshot>({ tables: { users: { columns: [{ name: "id", data_type: "int" }] } } })}
+          initialCtes={[{ name: "cte1", query: invalid<QuerySpec>("SELECT 1") }]}
           features={{ ctes: "advanced" }}
           advancedMode={false}
           unstyled={true}
@@ -527,27 +562,27 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
   describe("Compound Components", () => {
     it("renders QueryBuilder compound components in unstyled mode with various actions", () => {
-      const schema = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           users: { columns: [{ name: "id" }, { name: "name" }] },
           posts: { columns: [{ name: "id" }, { name: "user_id" }] },
         },
-      };
+      });
 
-      const mockClient = {
+      const mockClient = asMock<QueryBuilderClient>({
         execute: vi.fn().mockResolvedValue({ columns: ["x"], rows: [{ x: 1 }], count: 1 }),
         getSchema: vi.fn().mockResolvedValue(schema),
-      };
+      });
 
       render(
         <QueryBuilder.Root
-          schema={schema as any}
-          client={mockClient as any}
+          schema={schema}
+          client={mockClient}
           unstyled={true}
-          initialSpec={{
+          initialSpec={loose<QuerySpec>({
             table: "users",
             columns: ["users.id", "users.name"],
-          } as any}
+          })}
         >
           <QueryBuilder.Canvas unstyled={true} />
           <QueryBuilder.Columns unstyled={true} />
@@ -578,7 +613,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("QueryBuilder.Joins handles missing or empty tables gracefully", () => {
       render(
-        <QueryBuilder.Root schema={{} as any}>
+        <QueryBuilder.Root schema={invalid<SchemaSnapshot>({})}>
           <QueryBuilder.Joins />
         </QueryBuilder.Root>,
       );
@@ -588,7 +623,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("QueryBuilder.Root handles executeQuery without client/onExecuteQuery and with client execute in raw mode", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-      let capturedContext: any;
+      let capturedContext: ReturnType<typeof useCompoundQueryBuilder> | undefined;
       function TestChild() {
         capturedContext = useCompoundQueryBuilder();
         return null;
@@ -601,26 +636,26 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         </QueryBuilder.Root>,
       );
 
-      await capturedContext.executeQuery();
+      await capturedContext!.executeQuery();
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("neither `client` nor `onExecuteQuery` prop is provided"),
       );
 
       // With client, execute in raw mode
-      const clientMock = {
+      const clientMock = asMock<QueryBuilderClient>({
         execute: vi.fn().mockResolvedValue({ columns: [], rows: [], count: 0 }),
         getSchema: vi.fn().mockResolvedValue({ tables: {} }),
-      };
+      });
       rerender(
-        <QueryBuilder.Root client={clientMock as any} initialSpec={{ table: "users" }}>
+        <QueryBuilder.Root client={clientMock} initialSpec={loose<QuerySpec>({ table: "users" })}>
           <TestChild />
         </QueryBuilder.Root>,
       );
 
       act(() => {
-        capturedContext.setRawSql("SELECT 1");
+        capturedContext!.setRawSql("SELECT 1");
       });
-      await capturedContext.executeQuery();
+      await capturedContext!.executeQuery();
       expect(clientMock.execute).toHaveBeenCalledWith({ sql: "SELECT 1" });
       warnSpy.mockRestore();
     });
@@ -675,7 +710,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       // applySpec with custom argument
       act(() => {
-        result.current.applySpec({ table: "orders" } as any);
+        result.current.applySpec(loose<QuerySpec>({ table: "orders" }));
       });
       expect(onApplySpec).toHaveBeenCalledWith({ table: "orders" });
 
@@ -694,17 +729,17 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       const { result } = renderHook(() => useClientOlap());
 
-      let dropError: any;
+      let dropError: Error | undefined;
       try {
         await act(async () => {
           await result.current.dropTable("users");
         });
       } catch (err) {
-        dropError = err;
+        dropError = err as Error;
       }
       expect(dropError?.message).toBe("Cannot drop table");
 
-      let clearError: any;
+      let clearError: unknown;
       try {
         await act(async () => {
           await result.current.clear();
@@ -717,7 +752,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("useDashboardManager: computePivot with tile lacking pivotConfig", () => {
       const { result } = renderHook(() => useDashboardManager());
-      const tile: any = { id: "t1", title: "Tile 1" };
+      const tile = loose<DashboardTile>({ id: "t1", title: "Tile 1" });
       const rows = [{ category: "A", region: "North", amount: 100 }];
 
       const pivot = result.current.computePivot(tile, rows);
@@ -729,7 +764,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const { result } = renderHook(() => useQueryState());
 
       act(() => {
-        result.current.actions.setHybridSearch({ query: "find me", alpha: 0.7 } as any);
+        result.current.actions.setHybridSearch(invalid<HybridSearchSpec>({ query: "find me", alpha: 0.7 }));
       });
       expect(result.current.state.hybridSearch).toEqual({ query: "find me", alpha: 0.7 });
 
@@ -738,7 +773,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           table: "users",
           activeTables: ["users", "posts"],
           windowFunctions: [{ func: "ROW_NUMBER", alias: "rn", partitionBy: [], orderBy: [] }],
-        } as any);
+        });
       });
       expect(result.current.state.activeTables).toEqual(["users", "posts"]);
       expect(result.current.state.windowFunctions).toHaveLength(1);
@@ -746,7 +781,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       act(() => {
         result.current.actions.loadSpec({
           limit: 25,
-        } as any);
+        });
       });
       expect(result.current.state.activeTables).toEqual(["users", "posts"]);
       expect(result.current.state.limit).toBe(25);
@@ -754,7 +789,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("QueryBuilderProvider: handles controlled isAdvancedMode and synchronizes parent", () => {
       const onAdvancedModeChange = vi.fn();
-      let capturedContext: any;
+      let capturedContext: ReturnType<typeof useQueryBuilderContext> | undefined;
       function Consumer() {
         capturedContext = useQueryBuilderContext();
         return null;
@@ -771,15 +806,15 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         </QueryBuilderProvider>,
       );
 
-      expect(capturedContext.isAdvancedMode).toBe(true);
+      expect(capturedContext!.isAdvancedMode).toBe(true);
       act(() => {
-        capturedContext.setIsAdvancedMode(false);
+        capturedContext!.setIsAdvancedMode!(false);
       });
       expect(onAdvancedModeChange).toHaveBeenCalledWith(false);
     });
 
     it("compiler: handles RAW filter operator and rawExpression in group by", () => {
-      const selectedColumns: any = {
+      const selectedColumns: Record<string, VisualColumnSelect> = {
         "orders.date_col": {
           name: "date_col",
           table: "orders",
@@ -792,7 +827,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         },
       };
 
-      const filters: any = [
+      const filters = invalid<VisualFilter[]>([
         {
           tablePrefix: "orders",
           column: "raw_filter",
@@ -800,7 +835,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           rawExpression: "orders.amount > 50",
           value: null,
         },
-      ];
+      ]);
 
       const compiled = compileVisualState(
         "orders",
@@ -820,22 +855,22 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("featureUtils: fallback for custom feature tier and rollup clause detection", () => {
-      const isVisible = isFeatureVisible("ctes", { ctes: "custom_tier" as any }, true);
+      const isVisible = isFeatureVisible("ctes", invalid<ResolvedFeatureMap>({ ctes: "custom_tier" }), true);
       expect(isVisible).toBe(true);
 
       const clauses = detectActiveAdvancedClauses(
         { rollup: ["category"] },
-        { analytical_grouping: "advanced" } as any,
+        invalid<ResolvedFeatureMap>({ analytical_grouping: "advanced" }),
       );
       expect(clauses).toHaveLength(1);
       expect(clauses[0].key).toBe("analytical_grouping");
     });
 
     it("localDataIngest: handles object parameter with tableName", async () => {
-      const mockEngine: any = {
+      const mockEngine = asMock<ClientOlapEngine>({
         query: vi.fn(),
         ingestCsv: vi.fn().mockResolvedValue({ name: "custom_tbl", rowCount: 1, columns: [] }),
-      };
+      });
 
       const file = new File(["id,name\n1,alice"], "data.csv", { type: "text/csv" });
       const meta = await ingestLocalFile(file, mockEngine, { tableName: "custom_tbl" });
@@ -872,8 +907,8 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const spec = parseSqlToSpec(sql);
       expect(spec).toBeDefined();
       expect(spec?.window_functions?.[0].arguments).toEqual([]);
-      expect(spec?.columns?.some((c) => c.time_grain === "month")).toBe(true);
-      expect(spec?.columns?.some((c) => c.agg === "SUM")).toBe(true);
+      expect(spec?.columns?.some((c) => typeof c === "object" && Reflect.get(c, "time_grain") === "month")).toBe(true);
+      expect(spec?.columns?.some((c) => typeof c === "object" && c.agg === "SUM")).toBe(true);
     });
 
     it("drizzle: covers mysql decimal, timestamp, json, and sqlite text primary key", () => {
@@ -889,7 +924,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         },
       };
-      const mysqlRes = toDrizzle(mysqlSchema as any, { dialect: "mysql" });
+      const mysqlRes = toDrizzle(mysqlSchema, { dialect: "mysql" });
       expect(mysqlRes).toContain('decimal("price", { precision: 10, scale: 2 })');
       expect(mysqlRes).toContain('timestamp("created_at")');
       expect(mysqlRes).toContain('json("metadata")');
@@ -903,7 +938,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         },
       };
-      const sqliteRes = toDrizzle(sqliteSchema as any, { dialect: "sqlite" });
+      const sqliteRes = toDrizzle(sqliteSchema, { dialect: "sqlite" });
       expect(sqliteRes).toContain('text("uuid").primaryKey()');
     });
 
@@ -926,27 +961,27 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         },
       };
-      const prismaRes = toPrisma(schema as any);
+      const prismaRes = toPrisma(schema);
       expect(prismaRes).toMatch(/user\s+Users\??\s+@relation/);
       expect(prismaRes).toMatch(/users\s+Users\??\s+@relation/);
     });
 
     it("semantic: handles not_in with numeric array and string value", () => {
-      const metricWithNumArray: any = {
+      const metricWithNumArray = loose<MetricDefinition>({
         name: "test_m1",
         table: "orders",
         aggregation: "sum",
         filters: [{ field: "status_code", operator: "not_in", value: [1, 2, 3] }],
-      };
+      });
       const sql1 = expandMetricSql(metricWithNumArray);
       expect(sql1).toContain("status_code NOT IN (1, 2, 3)");
 
-      const metricWithString: any = {
+      const metricWithString = loose<MetricDefinition>({
         name: "test_m2",
         table: "orders",
         aggregation: "sum",
         filters: [{ field: "status_code", operator: "not in", value: "99" }],
-      };
+      });
       const sql2 = expandMetricSql(metricWithString);
       expect(sql2).toContain("status_code NOT IN (99)");
     });
@@ -970,7 +1005,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         },
       };
-      const result = toSqlAlchemy(schema as any);
+      const result = toSqlAlchemy(schema);
       expect(result).toContain("Column(DateTime,");
       expect(result).toContain("Column(String,");
       expect(result).toContain('user = relationship("Users", foreign_keys=[userid])');
@@ -988,7 +1023,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           },
         },
       };
-      const extracted = extractSnapshotData(snapshot as any);
+      const extracted = extractSnapshotData(snapshot);
       expect(extracted.foreignKeys).toHaveLength(1);
       expect(extracted.foreignKeys[0].foreign_table).toBe("customers");
     });
@@ -1012,7 +1047,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           table: "users",
           columns: ["profiles.bio"],
         },
-        schema as any,
+        invalid<ByoAiSchema>(schema),
       );
       expect(healed.healedSpec.joins).toHaveLength(1);
       expect(healed.healedSpec.joins![0].left_col).toBe("id");
@@ -1039,7 +1074,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const mockFetch = vi.fn();
       const client = createQueryBuilderClient({
         baseUrl: "https://api.example.com",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch,
       });
 
       mockFetch.mockResolvedValueOnce({
@@ -1049,7 +1084,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         headers: new Headers({ "content-type": "text/plain" }),
         text: async () => "Raw upstream text error",
       });
-      await expect(client.execute({ table: "users" })).rejects.toThrow("Raw upstream text error");
+      await expect(client.execute(loose<QuerySpec>({ table: "users" }))).rejects.toThrow("Raw upstream text error");
 
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -1060,13 +1095,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           throw new Error("Cannot read stream");
         },
       });
-      await expect(client.execute({ table: "users" })).rejects.toThrow("503: Service Unavailable");
+      await expect(client.execute(loose<QuerySpec>({ table: "users" }))).rejects.toThrow("503: Service Unavailable");
     });
 
     it("AiAssistantWidget: does not send suggestion message when already generating", () => {
       const sendMessageMock = vi.fn();
       render(
-        <AiAssistantWidget
+        <AiAssistantWidgetPartial
           isOpen={true}
           isGenerating={true}
           sendMessage={sendMessageMock}
@@ -1081,8 +1116,8 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("BiChartVisualizer: handles null category in NONE and aggregated modes, and unstyled echarts/vega", () => {
       const rowsNone = [{ cat: null, val: 100 }, { cat: undefined, val: 200 }];
       const { rerender } = render(
-        <BiChartVisualizer
-          results={{ columns: ["cat", "val"], rows: rowsNone }}
+        <BiChartVisualizerPartial
+          results={loose<QueryResultData>({ columns: ["cat", "val"], rows: rowsNone })}
           aggregation="NONE"
           adapter="builtin"
         />,
@@ -1090,8 +1125,8 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       expect(screen.getByRole("region", { name: "Visual Chart Preview" })).toBeDefined();
 
       rerender(
-        <BiChartVisualizer
-          results={{ columns: ["cat", "val"], rows: rowsNone }}
+        <BiChartVisualizerPartial
+          results={loose<QueryResultData>({ columns: ["cat", "val"], rows: rowsNone })}
           aggregation="SUM"
           adapter="builtin"
         />,
@@ -1100,7 +1135,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       rerender(
         <BiChartVisualizer
-          results={{ columns: ["cat", "val"], rows: [{ cat: "A", val: 10 }] }}
+          results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: "A", val: 10 }] })}
           adapter="echarts"
           unstyled={true}
         />,
@@ -1109,7 +1144,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       rerender(
         <BiChartVisualizer
-          results={{ columns: ["cat", "val"], rows: [{ cat: "A", val: 10 }] }}
+          results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: "A", val: 10 }] })}
           adapter="vega-lite"
           unstyled={true}
         />,
@@ -1121,7 +1156,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const onSave = vi.fn();
       const onClose = vi.fn();
 
-      const initialCaseField: any = {
+      const initialCaseField = loose<CalculatedFieldSpec>({
         id: "existing_calc_1",
         name: "Score",
         alias: "Score",
@@ -1131,9 +1166,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           else_value: null,
           branches: [{ condition: { column: "points", op: "gt", value: 10 }, then_value: "High" }],
         },
-      };
+      });
 
-      const testTables: any = [{ name: "users", columns: [{ name: "points", data_type: "int" }] }];
+      const testTables = [makeTable("users", [makeColumn("points", { data_type: "int" })])];
 
       const { unmount } = render(
         <CalculatedFieldEditor
@@ -1160,13 +1195,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       unmount();
 
-      const initialExprField: any = {
+      const initialExprField = loose<CalculatedFieldSpec>({
         id: "existing_calc_2",
         name: "TotalWithTax",
         alias: "TotalWithTax",
         type: "expression",
         expression: "price * 1.2",
-      };
+      });
       render(
         <CalculatedFieldEditor
           isOpen={true}
@@ -1188,7 +1223,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("ExportWorkbench: falls back to compiledSql on dialect mismatch and calls onDialectChange", () => {
       const onDialectChange = vi.fn();
-      const spec: any = { table: "users", columns: ["id", "name"] };
+      const spec = loose<QuerySpec>({ table: "users", columns: ["id", "name"] });
 
       const { container } = render(
         <ExportWorkbench
@@ -1213,13 +1248,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const onTableSelected = vi.fn();
       const engine = getClientOlapEngine();
       engine.tables = {
-        tbl1: {
+        tbl1: invalid<DuckDBTableMeta>({
           name: "tbl1",
           rowCount: 10,
           columns: [{ name: "id", type: "INTEGER" }],
           sourceType: "csv",
           fileSource: "test.csv",
-        } as any,
+        }),
       };
 
       render(
@@ -1257,12 +1292,12 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("QueryCanvas: passes undefined onAddJoin when isJoinsVisible is false, and calls onAddJoin or onAddTableToCanvas when true", () => {
       const onAddJoin = vi.fn();
       const onAddTableToCanvas = vi.fn();
-      const tables = [{ name: "users", columns: [{ name: "id", data_type: "int" }] } as any];
+      const tables = [makeTable("users", [makeColumn("id", { data_type: "int" })])];
 
       // isJoinsVisible false via QueryBuilderProvider feature toggle
       const { unmount } = render(
         <QueryBuilderProvider features={{ joins: "disabled" }}>
-          <QueryCanvas
+          <QueryCanvasPartial
             primaryTable="users"
             activeTables={tables}
             selectedColumns={{}}
@@ -1278,7 +1313,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       // isJoinsVisible true with onAddJoin
       const { rerender } = render(
-        <QueryCanvas
+        <QueryCanvasPartial
           primaryTable="users"
           activeTables={tables}
           selectedColumns={{}}
@@ -1294,7 +1329,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       // isJoinsVisible true without onAddJoin
       rerender(
-        <QueryCanvas
+        <QueryCanvasPartial
           primaryTable="users"
           activeTables={tables}
           selectedColumns={{}}
@@ -1309,15 +1344,17 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryPerformanceAdvisor: pluralizes warnings and index recommendations", () => {
-      const spy = vi.spyOn(perfAdvisorModule, "analyzeQueryPerformance").mockReturnValueOnce([
-        { id: "w1", type: "warning", title: "W1", message: "m1" },
-        { id: "w2", type: "warning", title: "W2", message: "m2" },
-        { id: "i1", type: "index", title: "I1", message: "i1", ddl: "CREATE INDEX..." },
-        { id: "i2", type: "index", title: "I2", message: "i2", ddl: "CREATE INDEX..." },
-      ]);
+      const spy = vi.spyOn(perfAdvisorModule, "analyzeQueryPerformance").mockReturnValueOnce(
+        invalid<PerformanceAdvisorInsight[]>([
+          { id: "w1", type: "warning", title: "W1", message: "m1" },
+          { id: "w2", type: "warning", title: "W2", message: "m2" },
+          { id: "i1", type: "index", title: "I1", message: "i1", ddl: "CREATE INDEX..." },
+          { id: "i2", type: "index", title: "I2", message: "i2", ddl: "CREATE INDEX..." },
+        ]),
+      );
       render(
         <QueryPerformanceAdvisor
-          querySpec={{ table: "users" }}
+          querySpec={loose<QuerySpec>({ table: "users" })}
           sql="SELECT * FROM users"
         />,
       );
@@ -1327,7 +1364,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryResultsTable: unstyled loading and unstyled empty states", () => {
-      const { rerender } = render(<QueryResultsTable isLoading={true} unstyled={true} />);
+      const { rerender } = render(<QueryResultsTable isLoading={true} results={null} unstyled={true} />);
       expect(screen.getByText(/Executing read-only query/i)).toBeDefined();
 
       rerender(<QueryResultsTable isLoading={false} results={null} unstyled={true} />);
@@ -1335,13 +1372,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("TableCard: customRenderer with classNames.columnItem and metrics without title and aggregation", () => {
-      const table: any = {
+      const table = invalid<TableMeta>({
         name: "orders",
         columns: [{ name: "status", data_type: "varchar" }],
         metrics: [
           { name: "total_sum" },
         ],
-      };
+      });
 
       render(
         <TableCard
@@ -1362,11 +1399,11 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("VisualQueryBuilder: unstyled feature tier settings panel", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           users: { name: "users", columns: [{ name: "id" }] },
         },
-      };
+      });
       render(
         <VisualQueryBuilder
           schema={schema}
@@ -1380,9 +1417,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("WindowFunctionBuilder: fallback colors with empty theme when frame boundaries enabled", () => {
-      const emptyTheme: any = {
+      const emptyTheme = invalid<ThemeProviderProps["theme"]>({
         colors: { background: "", text: "", border: "", textMuted: "" },
-      };
+      });
       render(
         <ThemeProvider theme={emptyTheme}>
           <WindowFunctionBuilder
@@ -1400,15 +1437,15 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryBuilderCanvas: add table select, table card actions, and unstyled empty/select", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           users: { name: "users", columns: [{ name: "id", data_type: "int" }, { name: "name", data_type: "text" }] },
           orders: { name: "orders", columns: [{ name: "id", data_type: "int" }, { name: "user_id", data_type: "int" }] },
         },
-      };
+      });
 
       const { container, unmount } = render(
-        <QueryBuilder initialSpec={{ table: "users" }} schema={schema}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })} schema={schema}>
           <QueryBuilder.Canvas unstyled={false} />
         </QueryBuilder>,
       );
@@ -1436,7 +1473,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       unmount();
 
       render(
-        <QueryBuilder initialSpec={{ table: "" }} schema={{ tables: {} }}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "" })} schema={{ tables: {} }}>
           <QueryBuilder.Canvas unstyled={true} />
         </QueryBuilder>,
       );
@@ -1444,7 +1481,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryBuilderColumns: distinct, limit, move left/right, timeGrain, aggregate, metric badge, unstyled", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           sales: {
             name: "sales",
@@ -1456,16 +1493,16 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
             metrics: [{ name: "total_sales", expression: "SUM(amount)" }],
           },
         },
-      };
+      });
 
-      const initialSpec: any = {
+      const initialSpec = invalid<QuerySpec>({
         table: "sales",
         columns: [
           { column: "sales.id", alias: "sale_id" },
           { column: "sales.date_col", alias: "sale_date" },
           { column: "sales.amount", metric: "total_sales", alias: "sales_sum" },
         ],
-      };
+      });
 
       const { rerender } = render(
         <QueryBuilder initialSpec={initialSpec} schema={schema}>
@@ -1526,21 +1563,21 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     it("QueryBuilderResults: effectiveError as Error instance vs object without message, and unstyled", () => {
       const { rerender } = render(
-        <QueryBuilder initialSpec={{ table: "users" }}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })}>
           <QueryBuilder.Results error={new Error("Custom database failure")} />
         </QueryBuilder>,
       );
       expect(screen.getByText(/Query Execution Failed: Custom database failure/i)).toBeDefined();
 
       rerender(
-        <QueryBuilder initialSpec={{ table: "users" }}>
-          <QueryBuilder.Results error={{ custom: "err" } as any} />
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })}>
+          <QueryBuilder.Results error={invalid<Error>({ custom: "err" })} />
         </QueryBuilder>,
       );
       expect(screen.getByText(/Query Execution Failed: \[object Object\]/i)).toBeDefined();
 
       rerender(
-        <QueryBuilder initialSpec={{ table: "users" }}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })}>
           <QueryBuilder.Results error="Plain string error" unstyled={true} />
         </QueryBuilder>,
       );
@@ -1548,18 +1585,18 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryBuilderRoot: controlled value prop update and syncSqlToCanvas", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           users: { name: "users", columns: [{ name: "id" }] },
           orders: { name: "orders", columns: [{ name: "id" }] },
         },
-      };
+      });
 
       const TestControlled = () => {
-        const [spec, setSpec] = React.useState<any>({ table: "users" });
+        const [spec, setSpec] = React.useState<QuerySpec>(loose<QuerySpec>({ table: "users" }));
         return (
           <div>
-            <button onClick={() => setSpec({ table: "orders" })}>Switch Table</button>
+            <button onClick={() => setSpec(loose<QuerySpec>({ table: "orders" }))}>Switch Table</button>
             <QueryBuilder value={spec} schema={schema}>
               <QueryBuilder.Canvas />
               <QueryBuilder.SqlEditor />
@@ -1582,14 +1619,14 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("QueryBuilderSqlEditor: unparseable SQL renders unsynced warning badge", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           users: { name: "users", columns: [{ name: "id" }] },
         },
-      };
+      });
 
       render(
-        <QueryBuilder initialSpec={{ table: "users" }} schema={schema}>
+        <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })} schema={schema}>
           <QueryBuilder.SqlEditor unstyled={false} />
         </QueryBuilder>,
       );
@@ -1629,7 +1666,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         }),
       );
 
-      const customSpec: any = { table: "orders" };
+      const customSpec = loose<QuerySpec>({ table: "orders" });
       act(() => {
         result.current.applySpec(customSpec);
       });
@@ -1642,7 +1679,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("useClientOlap: non-Error thrown in loadFromRows and query sets Error instance", async () => {
-      const mockEngine: any = {
+      const mockEngine = asMock<InMemoryOlapEngine>({
         isReady: true,
         isLoading: false,
         error: null,
@@ -1650,7 +1687,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         registerBackendResults: vi.fn().mockRejectedValue("string backend error"),
         query: vi.fn().mockRejectedValue("string query error"),
         getSchemaSnapshot: vi.fn().mockReturnValue({ tables: {} }),
-      };
+      });
 
       const engineSpy = vi.spyOn(duckdbDriverModule, "getClientOlapEngine").mockReturnValue(mockEngine);
 
@@ -1680,10 +1717,10 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     it("useDashboardManager: computePivot with empty rows and missing dimensions", () => {
       const { result } = renderHook(() => useDashboardManager());
 
-      const tile: any = {
+      const tile = loose<DashboardTile>({
         id: "tile_1",
         pivotConfig: { rowDimensions: [], columnDimensions: [], valueMetrics: [] },
-      };
+      });
       const pivotEmpty = result.current.computePivot(tile, []);
       expect(pivotEmpty.rowKeys).toEqual([]);
       expect(pivotEmpty.colKeys).toEqual([]);
@@ -1694,13 +1731,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("useQueryState: camelCase hybridSearch and setVectorSearch action", () => {
-      const initialSpec: any = {
+      const initialSpec = invalid<QuerySpec>({
         table: "articles",
         hybridSearch: { textQuery: "analytics", vectorColumn: "embedding", vectorValues: [0.1, 0.2] },
-      };
+      });
 
       const { result } = renderHook(() => useQueryState(initialSpec));
-      expect(result.current.state.hybridSearch?.textQuery).toBe("analytics");
+      expect(Reflect.get(result.current.state.hybridSearch ?? {}, "textQuery")).toBe("analytics");
 
       act(() => {
         result.current.actions.setVectorSearch({
@@ -1713,16 +1750,16 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("compiler: auto-synthesizes metric definition when missing and loops alias disambiguation", () => {
-      const schema: any = {
+      const schema = invalid<SchemaSnapshot>({
         tables: {
           orders: {
             name: "orders",
             columns: [{ name: "amount", data_type: "numeric" }],
           },
         },
-      };
+      });
 
-      const selectedCols: any = {
+      const selectedCols: Record<string, VisualColumnSelect> = {
         "orders.amount_col1": { table: "orders", name: "amount", alias: "amt" },
         "orders.amount_col2": { table: "orders", name: "amount", alias: "amt_orders" },
         "orders.amount_col3": { table: "orders", name: "amount", alias: "amt_2" },
@@ -1746,30 +1783,30 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("featureUtils: normalizeTier off/none, unknown preset, missing feature key, and calculated expression", () => {
-      expect(resolveFeatureConfig(undefined, "unknown_preset" as any)).toBeDefined();
+      expect(resolveFeatureConfig(undefined, invalid<FeaturePreset>("unknown_preset"))).toBeDefined();
 
-      const cfg = resolveFeatureConfig({ ctes: "off" as any, window_functions: "none" as any });
+      const cfg = resolveFeatureConfig({ ctes: invalid<FeatureTier>("off"), window_functions: invalid<FeatureTier>("none") });
       expect(cfg.ctes).toBe("disabled");
       expect(cfg.window_functions).toBe("disabled");
 
-      expect(isFeatureVisible("custom_key" as any, {} as any, false)).toBe(true);
+      expect(isFeatureVisible(invalid<FeatureKey>("custom_key"), invalid<ResolvedFeatureMap>({}), false)).toBe(true);
 
       const activeClauses = detectActiveAdvancedClauses(
         {
           selectedColumns: {
-            calc1: { expression: "price * 2" } as any,
+            calc1: invalid<VisualColumnSelect>({ expression: "price * 2" }),
           },
         },
-        { calculated_fields: "advanced" } as any,
+        invalid<ResolvedFeatureMap>({ calculated_fields: "advanced" }),
       );
       expect(activeClauses.some((c) => c.key === "calculated_fields")).toBe(true);
     });
 
     it("localDataIngest: engine as first param, and FileReader onerror callbacks", async () => {
-      const mockEngine: any = {
+      const mockEngine = asMock<ClientOlapEngine>({
         query: vi.fn(),
         ingestCsv: vi.fn().mockResolvedValue({ name: "data", rowCount: 1, columns: [] }),
-      };
+      });
       const file = new File(["a,b\n1,2"], "data.csv", { type: "text/csv" });
 
       const meta = await ingestLocalFile(mockEngine, file);
@@ -1778,7 +1815,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const origReadAsText = FileReader.prototype.readAsText;
       FileReader.prototype.readAsText = function () {
         setTimeout(() => {
-          this.onerror?.(new ProgressEvent("error") as any);
+          this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
         }, 0);
       };
       await expect(readFileAsText(new Blob(["test"]))).rejects.toThrow("Failed to read file as text");
@@ -1787,7 +1824,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       const origReadAsArrayBuffer = FileReader.prototype.readAsArrayBuffer;
       FileReader.prototype.readAsArrayBuffer = function () {
         setTimeout(() => {
-          this.onerror?.(new ProgressEvent("error") as any);
+          this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
         }, 0);
       };
       await expect(readFileAsArrayBuffer(new Blob([new Uint8Array([1, 2])]))).rejects.toThrow("Failed to read file as ArrayBuffer");
@@ -1795,7 +1832,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
     });
 
     it("performanceAdvisor: filter RAW / wildcard, join without type, cost > 0.05, and medium impact recommendation", () => {
-      const spec: any = {
+      const spec = invalid<QuerySpec>({
         table: "orders",
         columns: ["*"],
         filters: [
@@ -1810,7 +1847,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         order_by: [
           { column: "created_at", direction: "DESC" },
         ],
-      };
+      });
 
       const tableStats = {
         orders: { byteSize: 50 * 1024 * 1024 * 1024 },
@@ -1837,17 +1874,17 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
     describe("Final 100% Coverage Closer", () => {
       it("drizzle: handles postgres json and mysql non-int PK, bigint, double", () => {
-        const pgSchema: any = {
+        const pgSchema = invalid<SchemaSnapshot>({
           tables: {
             events: {
               columns: [{ name: "payload", dataType: "json" }],
             },
           },
-        };
+        });
         const pgCode = toDrizzle(pgSchema, "postgres");
         expect(pgCode).toContain('jsonb("payload")');
 
-        const mysqlSchema: any = {
+        const mysqlSchema = invalid<SchemaSnapshot>({
           tables: {
             items: {
               columns: [
@@ -1857,7 +1894,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
               ],
             },
           },
-        };
+        });
         const mysqlCode = toDrizzle(mysqlSchema, "mysql");
         expect(mysqlCode).toContain('varchar("code", { length: 255 }).primaryKey()');
         expect(mysqlCode).toContain('bigint("b_num", { mode: "number" })');
@@ -1865,7 +1902,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       });
 
       it("prisma: handles self-referencing foreign keys and incoming back relations", () => {
-        const schema: any = {
+        const schema = invalid<SchemaSnapshot>({
           tables: {
             categories: {
               name: "categories",
@@ -1883,14 +1920,14 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
               foreign_column: "id",
             },
           ],
-        };
+        });
         const prismaCode = toPrisma(schema);
         expect(prismaCode).toContain('parent Categories? @relation("Categories_parentId", fields: [parentId], references: [id])');
         expect(prismaCode).toContain('childCategoriesByParentId Categories[] @relation("Categories_parentId")');
       });
 
       it("sqlalchemy: handles undefined fksByTable, col without type, and python keyword fk", () => {
-        const schema: any = {
+        const schema = invalid<SchemaSnapshot>({
           tables: {
             t1: {
               name: "t1",
@@ -1904,7 +1941,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           foreign_keys: [
             { table: "t2", column: "for", foreign_table: "t1", foreign_column: "id" },
           ],
-        };
+        });
         const saCode = toSqlAlchemy(schema);
         expect(saCode).toContain("for_ = Column");
         expect(saCode).toContain('ForeignKey("t1.id")');
@@ -1915,29 +1952,29 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           tables: {},
           foreign_keys: [
             { table: "orders", column: "user_id", foreignTable: "users", foreignColumn: "id" },
-            { table: "", column: "" } as any,
+            { table: "", column: "" },
           ],
           relationships: [
             { sourceTable: "orders", sourceColumn: "prod_id", targetTable: "prods", targetColumn: "id" },
-            { sourceTable: "" } as any,
+            { sourceTable: "" },
           ],
-        } as any);
+        });
         expect(result.foreignKeys).toHaveLength(2);
       });
 
       it("ai selfHealing: handles foreignKeys targetTable with missing column properties", () => {
-        const spec: any = {
+        const spec = loose<QuerySpec>({
           table: "orders",
           columns: ["users.name"],
-        };
-        const schema: any = {
+        });
+        const schema = invalid<SchemaSnapshot>({
           tables: {
             users: {
               foreignKeys: [{ targetTable: "orders" }],
             },
           },
-        };
-        const healed = autoHealClientQuerySpec(spec, schema);
+        });
+        const healed = autoHealClientQuerySpec(spec, invalid<ByoAiSchema>(schema));
         expect(healed.healedSpec.joins?.[0].left_col).toBe("id");
         expect(healed.healedSpec.joins?.[0].right_col).toBe("id");
       });
@@ -1962,7 +1999,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
         const client = createQueryBuilderClient({
           baseUrl: "https://api.example.com",
-          fetchFn: mockFetch as any,
+          fetchFn: mockFetch,
         });
 
         const res = await client.request?.("https://custom.example.com/health");
@@ -1988,7 +2025,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       it("BiChartVisualizer: handles styled echarts/vega and empty category string in truncate", () => {
         const { rerender } = render(
           <BiChartVisualizer
-            results={{ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] }}
+            results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] })}
             adapter="echarts"
             unstyled={false}
           />,
@@ -1997,7 +2034,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
         rerender(
           <BiChartVisualizer
-            results={{ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] }}
+            results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] })}
             adapter="vega-lite"
             unstyled={false}
           />,
@@ -2006,7 +2043,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
         rerender(
           <BiChartVisualizer
-            results={{ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] }}
+            results={loose<QueryResultData>({ columns: ["cat", "val"], rows: [{ cat: "", val: 50 }] })}
             adapter="builtin"
             chartType="bar"
           />,
@@ -2022,7 +2059,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
             onClose={vi.fn()}
             onSave={onSave}
             tables={[]}
-            initialField={{
+            initialField={invalid<CalculatedFieldSpec>({
               id: "c1",
               name: "   ",
               alias: "   ",
@@ -2030,9 +2067,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
               case_when: {
                 alias: "   ",
                 else_value: null,
-                branches: [{ condition: { column: "", op: "eq", value: null as any }, then_value: null as any }],
+                branches: [{ condition: { column: "", op: "eq", value: null }, then_value: null }],
               },
-            } as any}
+            })}
           />,
         );
 
@@ -2045,7 +2082,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       it("ExportWorkbench: externalSql undefined and onDialectChange undefined", () => {
         const { container } = render(
           <ExportWorkbench
-            spec={{ table: "users" }}
+            spec={loose<QuerySpec>({ table: "users" })}
             dialect="postgres"
           />,
         );
@@ -2099,7 +2136,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       it("QueryCanvas: empty canvas with classNames.canvasEmpty", () => {
         render(
-          <QueryCanvas
+          <QueryCanvasPartial
             primaryTable=""
             activeTables={[]}
             selectedColumns={{}}
@@ -2117,6 +2154,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         const { rerender } = render(
           <QueryResultsTable
             isLoading={true}
+            results={null}
             classNames={{ results: "r-cls", resultsLoading: "rl-cls" }}
           />,
         );
@@ -2132,17 +2170,17 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       });
 
       it("VisualQueryBuilder: ref undo and redo methods", () => {
-        const ref = React.createRef<any>();
+        const ref = React.createRef<VisualQueryBuilderRef>();
         render(
           <VisualQueryBuilder
             ref={ref}
-            schema={{ tables: { users: { name: "users", columns: [{ name: "id" }] } } }}
+            schema={invalid<SchemaSnapshot>({ tables: { users: { name: "users", columns: [{ name: "id" }] } } })}
           />,
         );
         expect(ref.current).toBeDefined();
         act(() => {
-          ref.current.undo();
-          ref.current.redo();
+          ref.current!.undo();
+          ref.current!.redo();
         });
       });
 
@@ -2158,9 +2196,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         expect(screen.getByText("No columns available")).toBeDefined();
         unmount();
 
-        const emptyTheme: any = {
+        const emptyTheme = invalid<ThemeProviderProps["theme"]>({
           colors: { background: "", text: "", border: "" },
-        };
+        });
         render(
           <ThemeProvider theme={emptyTheme}>
             <WindowFunctionBuilder
@@ -2168,7 +2206,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
               onClose={vi.fn()}
               onSave={vi.fn()}
               availableColumns={[{ name: "score" }]}
-              initialSpec={{ id: "wf1", alias: "lead_col", function: "LEAD", arguments: ["score"], partition_by: [], order_by: [] }}
+              initialSpec={invalid<Partial<WindowFunctionSpec>>({ id: "wf1", alias: "lead_col", function: "LEAD", arguments: ["score"], partition_by: [], order_by: [] })}
             />
           </ThemeProvider>,
         );
@@ -2176,14 +2214,14 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       });
 
       it("QueryBuilderCanvas: unstyled with available tables to add", () => {
-        const schema: any = {
+        const schema = invalid<SchemaSnapshot>({
           tables: {
             users: { name: "users", columns: [{ name: "id" }] },
             orders: { name: "orders", columns: [{ name: "id" }] },
           },
-        };
+        });
         render(
-          <QueryBuilder initialSpec={{ table: "users" }} schema={schema}>
+          <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users" })} schema={schema}>
             <QueryBuilder.Canvas unstyled={true} />
           </QueryBuilder>,
         );
@@ -2192,7 +2230,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       it("QueryBuilderColumns: empty projections styled and unstyled, and custom limit option", () => {
         const { unmount } = render(
-          <QueryBuilder initialSpec={{ table: "users", columns: [] }}>
+          <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users", columns: [] })}>
             <QueryBuilder.Columns unstyled={false} />
           </QueryBuilder>,
         );
@@ -2200,7 +2238,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         unmount();
 
         render(
-          <QueryBuilder initialSpec={{ table: "users", columns: [{ column: "id" }], limit: 42 }}>
+          <QueryBuilder initialSpec={loose<QuerySpec>({ table: "users", columns: [{ column: "id" }], limit: 42 })}>
             <QueryBuilder.Columns />
           </QueryBuilder>,
         );
@@ -2218,11 +2256,11 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
       });
 
       it("QueryBuilderRoot: schema default table, client auto-fetch schema and rejection handling", async () => {
-        const schema: any = {
+        const schema = invalid<SchemaSnapshot>({
           tables: {
             products: { name: "products", columns: [{ name: "id" }] },
           },
-        };
+        });
         const { unmount } = render(
           <QueryBuilder schema={schema}>
             <QueryBuilder.Canvas />
@@ -2231,11 +2269,11 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         expect(screen.getByText("products")).toBeDefined();
         unmount();
 
-        const mockClient: any = {
+        const mockClient = asMock<QueryBuilderClient>({
           getSchema: vi.fn().mockResolvedValue({
             tables: { orders: { name: "orders", columns: [{ name: "id" }] } },
           }),
-        };
+        });
         const { unmount: unmount2 } = render(
           <QueryBuilder client={mockClient} initialTable="orders">
             <QueryBuilder.Canvas />
@@ -2246,9 +2284,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         });
         unmount2();
 
-        const failingClient: any = {
+        const failingClient = asMock<QueryBuilderClient>({
           getSchema: vi.fn().mockRejectedValue(new Error("fetch failed")),
-        };
+        });
         render(
           <QueryBuilder client={failingClient}>
             <QueryBuilder.Canvas />
@@ -2261,7 +2299,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
 
       it("QueryBuilderSqlEditor: classNames.sqlSyncBadge in raw mode", () => {
         render(
-          <QueryBuilder initialSpec={{ table: "users", rawSql: "SELECT 1", isRawMode: true }}>
+          <QueryBuilder initialSpec={invalid<QuerySpec>({ table: "users", rawSql: "SELECT 1", isRawMode: true })}>
             <QueryBuilder.SqlEditor classNames={{ sqlSyncBadge: "custom-sync-badge" }} />
           </QueryBuilder>,
         );
@@ -2285,19 +2323,19 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         const avgRes = await engine.query("SELECT role, AVG(val) AS avg_v FROM users GROUP BY role");
         expect(avgRes.rows.find((r) => r.role === "admin")?.avg_v).toBe(0);
 
-        const isTrue = (engine as any).constructor.name ? true : false;
+        const isTrue = engine.constructor.name ? true : false;
         expect(isTrue).toBe(true);
       });
 
       it("useClientOlap: ingestJson non-Error thrown sets Error instance", async () => {
-        const mockEngine: any = {
+        const mockEngine = asMock<InMemoryOlapEngine>({
           isReady: true,
           isLoading: false,
           error: null,
           tables: {},
           ingestJson: vi.fn().mockRejectedValue("string ingest error"),
           getSchemaSnapshot: vi.fn().mockReturnValue({ tables: {} }),
-        };
+        });
 
         const engineSpy = vi.spyOn(duckdbDriverModule, "getClientOlapEngine").mockReturnValue(mockEngine);
 
@@ -2319,25 +2357,27 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         const { result } = renderHook(() => useDashboardManager());
 
         act(() => {
-          result.current.addTile({
-            id: "tile_1",
-            title: "T1",
-            type: "table",
-            table: "users",
-            columns: ["id"],
-            cachedRows: [{ id: 1 }],
-          });
+          result.current.addTile(
+            invalid<Parameters<typeof result.current.addTile>[0]>({
+              id: "tile_1",
+              title: "T1",
+              type: "table",
+              table: "users",
+              columns: ["id"],
+              cachedRows: [{ id: 1 }],
+            }),
+          );
           result.current.setCrossFilter("t2", "status", "active");
         });
 
         const rowsWithMissing = result.current.getFilteredRowsForTile("tile_1");
         expect(rowsWithMissing).toHaveLength(1);
 
-        const emptyKpi = result.current.computeKpi({ id: "tile_kpi" } as any, []);
+        const emptyKpi = result.current.computeKpi(loose<DashboardTile>({ id: "tile_kpi" }), []);
         expect(emptyKpi.value).toBe(0);
 
         const floatKpi = result.current.computeKpi(
-          { id: "tile_kpi", kpiConfig: { valueField: "amount" } } as any,
+          loose<DashboardTile>({ id: "tile_kpi", kpiConfig: { valueField: "amount" } }),
           [{ amount: 10.555 }],
         );
         expect(floatKpi.value).toBe(10.55);
@@ -2348,13 +2388,13 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
           useQueryState({
             table: "docs",
             vector_search: { column: "embedding", vector: [0.1, 0.2] },
-          } as any),
+          }),
         );
         expect(result.current.state.vectorSearch?.column).toBe("embedding");
       });
 
       it("compiler: alias collision loop and semanticModels metric matching", () => {
-        const selectedColumns: any = {
+        const selectedColumns: Record<string, VisualColumnSelect> = {
           k1: { table: "sales", name: "d", timeGrain: "month", alias: "d_month" },
           k2: { table: "sales", name: "d2", timeGrain: "month", alias: "d_month_sales" },
           k3: { table: "sales", name: "d3", timeGrain: "month", alias: "d_month_2" },
@@ -2370,7 +2410,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         );
         expect(compiled.sql).toContain('AS "d_month_3"');
 
-        const semanticSelected: any = {
+        const semanticSelected: Record<string, VisualColumnSelect> = {
           k_rev: { table: "orders", name: "revenue", metric: "total_revenue" },
         };
         const semanticCompiled = compileVisualState(
@@ -2395,7 +2435,7 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
               name: "orders",
               tableName: "orders",
               metrics: [
-                { name: "total_revenue", sqlExpression: "SUM(price)", aggregation: "sum" },
+                loose<MetricDefinition>({ name: "total_revenue", sqlExpression: "SUM(price)", aggregation: "sum" }),
               ],
             },
           ],
