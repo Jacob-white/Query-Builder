@@ -53,6 +53,7 @@ def cloud_conn(request: pytest.FixtureRequest) -> Any:
         connector.close()
 
 
+@pytest.mark.qb_category("connect")
 @pytest.mark.parametrize("cloud_conn", PARAMS, indirect=True)
 def test_cloud_connect_and_test_connection(cloud_conn: Any) -> None:
     info = cloud_conn.test_connection()
@@ -61,12 +62,14 @@ def test_cloud_connect_and_test_connection(cloud_conn: Any) -> None:
     record_version(cloud_conn._qb_cloud_name, str(info["engine_version"]))
 
 
+@pytest.mark.qb_category("read_projection")
 @pytest.mark.parametrize("cloud_conn", PARAMS, indirect=True)
 def test_cloud_select_literal_round_trip(cloud_conn: Any) -> None:
     res = cloud_conn.execute(sql="SELECT 1 AS one")
     assert [int(next(iter(r.values()))) for r in res["rows"]] == [1]
 
 
+@pytest.mark.qb_category("introspect_tables")
 @pytest.mark.parametrize("cloud_conn", PARAMS, indirect=True)
 def test_cloud_introspection_returns_a_snapshot(cloud_conn: Any) -> None:
     snap = cloud_conn.introspect_schema()
@@ -77,11 +80,13 @@ def test_cloud_introspection_returns_a_snapshot(cloud_conn: Any) -> None:
 @pytest.mark.parametrize(
     "sql", ["DELETE FROM qbit_x", "DROP TABLE qbit_x", "INSERT INTO qbit_x VALUES (1)"]
 )
+@pytest.mark.qb_category("write_refused")
 def test_cloud_writes_rejected(cloud_conn: Any, sql: str) -> None:
     with pytest.raises(SecurityError):
         cloud_conn.execute(sql=sql)
 
 
+@pytest.mark.qb_category("secrets")
 @pytest.mark.parametrize("name", PARAMS)
 def test_cloud_wrong_secret_never_leaks(name: str) -> None:
     cloud = _skip_or_engine(name)
@@ -101,6 +106,7 @@ def test_cloud_wrong_secret_never_leaks(name: str) -> None:
     bad.close()
 
 
+@pytest.mark.qb_category("registry")
 def test_cloud_registry_is_wired() -> None:
     for cloud in CLOUD.values():
         assert cloud.connector_class_keys()

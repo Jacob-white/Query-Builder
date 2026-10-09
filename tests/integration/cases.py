@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from tests.integration.categories import case_category
 from tests.integration.dataset import (
     T_DEPT,
     T_EMP,
@@ -29,6 +30,12 @@ class Case:
     float_keys: tuple[str, ...] = ()
     group: str = "query"
     extra: dict[str, Any] = field(default_factory=dict)
+    #: check category for the live report (derived from group/id when left empty)
+    category: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.category:
+            self.category = case_category(self.group, self.id, self.requires)
 
 
 def norm(value: Any) -> Any:
