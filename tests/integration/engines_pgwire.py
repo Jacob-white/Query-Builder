@@ -490,7 +490,9 @@ register(
         ro_native=lambda e, n: _mysql_admin_run(
             e,
             "root",
-            _ro_stmts(e, "GRANT SELECT ON ALL TABLES IN DATABASE {db} TO USER '{ro}'@'%'"),
+            _ro_stmts(
+                e, "GRANT SELECT ON ALL TABLES IN DATABASE {db} TO USER '{ro}'@'%'"
+            ),
         ),
         slow_sql=(
             "SELECT count(*) FROM TABLE(generate_series(1, 100000000)) a "
@@ -516,7 +518,9 @@ register(
             e, bootstrap=_bootstrap_stmts(e, "GRANT ALL ON *.*.* TO '{user}'@'%'")
         ),
         ro_native=lambda e, n: _mysql_admin_run(
-            e, "root", _ro_stmts(e, "GRANT SELECT_PRIV ON internal.{db}.* TO '{ro}'@'%'")
+            e,
+            "root",
+            _ro_stmts(e, "GRANT SELECT_PRIV ON internal.{db}.* TO '{ro}'@'%'"),
         ),
         slow_sql=(
             "SELECT count(*) FROM numbers('number' = '100000000') a "

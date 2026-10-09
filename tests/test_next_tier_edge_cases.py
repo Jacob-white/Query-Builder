@@ -756,7 +756,9 @@ def test_cursor_close_and_introspection_final_branches():
         assert asyncio.run(async_conn.connect()) is mock_driver_no_connect
 
     # Introspection empty objects
-    with pytest.raises(IntrospectionError):  # not a client/cursor: fail, never "no tables"
+    with pytest.raises(
+        IntrospectionError
+    ):  # not a client/cursor: fail, never "no tables"
         introspect_surrealdb(object())
     assert introspect_arangodb(object())["tables"] == {}
 

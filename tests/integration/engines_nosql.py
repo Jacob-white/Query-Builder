@@ -59,7 +59,9 @@ def _seed_arango(e: Engine) -> None:
     if db.has_collection("qbit_people"):
         db.delete_collection("qbit_people")
     col = db.create_collection("qbit_people")
-    col.insert_many([{"_key": str(i), "id": i, "name": n, "age": a} for i, n, a in PEOPLE])
+    col.insert_many(
+        [{"_key": str(i), "id": i, "name": n, "age": a} for i, n, a in PEOPLE]
+    )
 
 
 def _arango_count(e: Engine) -> int:
@@ -132,7 +134,9 @@ def _seed_surreal(e: Engine) -> None:
         db.query("REMOVE TABLE IF EXISTS qbit_people")
         db.query("DEFINE TABLE qbit_people SCHEMALESS")
         for i, n, a in PEOPLE:
-            db.query(f"CREATE qbit_people:{i} SET id_num = {i}, name = '{n}', age = {a}")
+            db.query(
+                f"CREATE qbit_people:{i} SET id_num = {i}, name = '{n}', age = {a}"
+            )
     finally:
         db.close()
 
@@ -300,7 +304,9 @@ def _seed_scylla(e: Engine) -> None:
 def _scylla_count(e: Engine) -> int:
     cluster, session = _scylla_session(e)
     try:
-        return int(session.execute(f"SELECT COUNT(*) FROM {e.database_}.qbit_people").one()[0])
+        return int(
+            session.execute(f"SELECT COUNT(*) FROM {e.database_}.qbit_people").one()[0]
+        )
     finally:
         cluster.shutdown()
 
@@ -415,7 +421,7 @@ smoke.SMOKE["dynamodb"] = smoke.Smoke(
     expected=BY_AGE,
     writes=[
         'DELETE FROM "qbit_people" WHERE id = 1',
-        "UPDATE \"qbit_people\" SET age = 0 WHERE id = 1",
+        'UPDATE "qbit_people" SET age = 0 WHERE id = 1',
         "INSERT INTO \"qbit_people\" VALUE {'id': 9, 'name': 'x', 'age': 1}",
     ],
     check=_count_check(_dynamo_count),
@@ -553,10 +559,12 @@ smoke.SMOKE["bigtable"] = smoke.Smoke(
     table="qbit_people",
     columns={"row_key", "cf.name", "cf.age"},
     read='SELECT "cf.name" AS name, "cf.age" AS age FROM qbit_people ORDER BY "cf.age"',
-    expected=[{"name": r["name"], "age": str(r["age"])} for r in BY_AGE],  # bytes -> text
+    expected=[
+        {"name": r["name"], "age": str(r["age"])} for r in BY_AGE
+    ],  # bytes -> text
     writes=[
         "DELETE FROM qbit_people WHERE row_key = '1'",
-        "UPDATE qbit_people SET \"cf.age\" = 0",
+        'UPDATE qbit_people SET "cf.age" = 0',
         "INSERT INTO qbit_people (row_key) VALUES ('9')",
         "DROP TABLE qbit_people",
     ],
@@ -577,7 +585,11 @@ smoke.SMOKE["bigtable"] = smoke.Smoke(
 
 # =====================================================================  Couchbase
 def _cb_http(
-    e: Engine, port: int, path: str, data: dict[str, Any] | None = None, auth: bool = True
+    e: Engine,
+    port: int,
+    path: str,
+    data: dict[str, Any] | None = None,
+    auth: bool = True,
 ) -> Any:
     """Minimal REST client (urllib) for the cluster-init / bucket / query endpoints."""
     import base64
@@ -649,7 +661,12 @@ def _seed_couchbase(e: Engine) -> None:
             e,
             8091,
             "/pools/default/buckets",
-            {"name": bucket, "ramQuota": 128, "bucketType": "couchbase", "flushEnabled": 1},
+            {
+                "name": bucket,
+                "ramQuota": 128,
+                "bucketType": "couchbase",
+                "flushEnabled": 1,
+            },
         )
 
     def healthy() -> None:
@@ -667,7 +684,10 @@ def _seed_couchbase(e: Engine) -> None:
         if "already exists" not in str(exc):
             raise
     ks = f"default:`{bucket}`.`_default`.`qbit_people`"
-    _cb_retry(lambda: _cb_n1ql(e, f"CREATE PRIMARY INDEX IF NOT EXISTS ON {ks}"), "primary index")
+    _cb_retry(
+        lambda: _cb_n1ql(e, f"CREATE PRIMARY INDEX IF NOT EXISTS ON {ks}"),
+        "primary index",
+    )
     time.sleep(1)
     _cb_retry(lambda: _cb_n1ql(e, f"DELETE FROM {ks}"), "cleanup")
     for pid, name, age in PEOPLE:
@@ -734,9 +754,7 @@ smoke.SMOKE["couchbase"] = smoke.Smoke(
 
 # =====================================================================  Cosmos DB (Linux emulator)
 # The emulator's documented, published well-known key (not a secret).
-COSMOS_KEY = (
-    "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
-)
+COSMOS_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
 
 
 def _cosmos_client(e: Engine) -> Any:
@@ -748,8 +766,10 @@ def _cosmos_client(e: Engine) -> Any:
 
 
 def _cosmos_container(e: Engine) -> Any:
-    return _cosmos_client(e).get_database_client(e.database_).get_container_client(
-        "qbit_people"
+    return (
+        _cosmos_client(e)
+        .get_database_client(e.database_)
+        .get_container_client("qbit_people")
     )
 
 
@@ -772,7 +792,9 @@ def _seed_cosmos(e: Engine) -> None:
         db.delete_container("qbit_people")
     except Exception:  # noqa: BLE001, S110 - first run
         pass
-    container = db.create_container("qbit_people", partition_key=PartitionKey(path="/id"))
+    container = db.create_container(
+        "qbit_people", partition_key=PartitionKey(path="/id")
+    )
     for pid, name, age in PEOPLE:
         container.upsert_item({"id": str(pid), "name": name, "age": age})
 
@@ -786,7 +808,9 @@ def _cosmos_count(e: Engine) -> int:
 
 def _cosmos_cleanup(e: Engine) -> None:
     try:
-        _cosmos_client(e).get_database_client(e.database_).delete_container("qbit_people")
+        _cosmos_client(e).get_database_client(e.database_).delete_container(
+            "qbit_people"
+        )
     except Exception:  # noqa: BLE001, S110
         pass
 
@@ -887,7 +911,11 @@ def _spanner_cleanup(e: Engine) -> None:
 
 def _kw_spanner(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
     os.environ["SPANNER_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
-    return {"instance_id": SP_INSTANCE, "database_id": SP_DATABASE, "project": SP_PROJECT}
+    return {
+        "instance_id": SP_INSTANCE,
+        "database_id": SP_DATABASE,
+        "project": SP_PROJECT,
+    }
 
 
 register(

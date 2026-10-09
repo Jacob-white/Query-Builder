@@ -37,7 +37,9 @@ class SubsetPlan:
     columns: list[str] | None  # None = every column (``*``)
     out_names: list[str] = field(default_factory=list)  # output name per column
     predicates: list[Predicate] = field(default_factory=list)
-    order_by: list[tuple[str, bool]] = field(default_factory=list)  # (column, descending)
+    order_by: list[tuple[str, bool]] = field(
+        default_factory=list
+    )  # (column, descending)
     limit: int | None = None
     offset: int = 0
     count_star: bool = False
@@ -198,9 +200,7 @@ def parse_select_subset(sql: str, params: list[Any] | None = None) -> SubsetPlan
 
     where = tree.args.get("where")
     if where is not None:
-        plan.predicates = [
-            _predicate(n, params) for n in _flatten_and(where.this)
-        ]
+        plan.predicates = [_predicate(n, params) for n in _flatten_and(where.this)]
     order = tree.args.get("order")
     if order is not None:
         for o in order.expressions:

@@ -422,4 +422,3 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
             raise IntrospectionError(
                 f"Failed to introspect Firestore schema: {exc}"
             ) from exc
-

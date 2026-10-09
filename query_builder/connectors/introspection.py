@@ -1421,7 +1421,9 @@ def _arango_sample_fields(db_or_cursor: Any, collection: str) -> dict[str, str]:
     except Exception:  # noqa: BLE001 - sampling is best effort; never fail introspection
         return {}
     return {
-        str(k): _arango_json_type(v) for k, v in sample.items() if not str(k).startswith("_")
+        str(k): _arango_json_type(v)
+        for k, v in sample.items()
+        if not str(k).startswith("_")
     }
 
 
@@ -1881,7 +1883,9 @@ def introspect_cosmosdb(
         elif hasattr(target, "query_items"):  # a single container client
             name = str(getattr(target, "id", None) or "items")
             samples[name] = list(
-                target.query_items(query=sample_query, enable_cross_partition_query=True)
+                target.query_items(
+                    query=sample_query, enable_cross_partition_query=True
+                )
             )
         elif hasattr(target, "execute"):
             target.execute("SELECT VALUE c.id FROM c;")
@@ -4361,7 +4365,9 @@ def memgraph_schema_steps(
             for label in r.get("nodeLabels") or []:
                 cols = props.setdefault(str(label), {})
                 if r.get("propertyName"):
-                    cols[str(r["propertyName"])] = _graph_type_name(r.get("propertyTypes"))
+                    cols[str(r["propertyName"])] = _graph_type_name(
+                        r.get("propertyTypes")
+                    )
     else:
         label_rows = yield "MATCH (n) UNWIND labels(n) AS label RETURN DISTINCT label"
         for r in label_rows or []:

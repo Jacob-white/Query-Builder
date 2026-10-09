@@ -47,7 +47,9 @@ class _CouchbaseCursor:
             return []
         try:
             from couchbase.options import QueryOptions
-        except ImportError:  # pragma: no cover - the SDK is always present against a real cluster
+        except (
+            ImportError
+        ):  # pragma: no cover - the SDK is always present against a real cluster
             return []
         return [QueryOptions(**kwargs)]
 

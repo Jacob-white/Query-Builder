@@ -1922,7 +1922,7 @@ class MonetDBDialect(BaseDialect):
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
+            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE k.type = 2 AND s.name = {self.placeholder};",
             [schema_name],
         )
 

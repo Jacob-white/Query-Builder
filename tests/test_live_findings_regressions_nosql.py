@@ -255,7 +255,8 @@ def fake_firestore_filter() -> Any:
 
 PEOPLE_DOCS = [
     FakeDoc(
-        "a", {"id": 1, "name": "alice", "age": 30, "ref": types.SimpleNamespace(path="x/y")}
+        "a",
+        {"id": 1, "name": "alice", "age": 30, "ref": types.SimpleNamespace(path="x/y")},
     ),
     FakeDoc("b", {"name": "bob", "age": 45, "when": datetime.datetime(2020, 1, 1)}),
 ]
@@ -270,7 +271,7 @@ def test_firestore_adapter_runs_the_query_not_a_fixed_scan(
     adapter = _FirestoreCursorAdapter(client)
     adapter.execute(
         'SELECT "t"."name" AS n FROM "people" AS "t" WHERE age >= %s AND name = %s '
-        'AND score IN (1, 2) AND nick LIKE %s AND z IS NULL AND y IS NOT NULL '
+        "AND score IN (1, 2) AND nick LIKE %s AND z IS NULL AND y IS NOT NULL "
         "ORDER BY age DESC, name LIMIT 5 OFFSET 1",
         [30, "alice", "al%"],
     )
@@ -300,16 +301,16 @@ def test_firestore_adapter_runs_the_query_not_a_fixed_scan(
     assert (adapter.description, adapter.fetchall()) == ([("n",)], [[2]])
     adapter.execute("SELECT 1")
     assert adapter.fetchall() == [[1]]
-    with pytest.raises(UnsupportedQuery):  # never "the first documents" for what it cannot run
+    with pytest.raises(
+        UnsupportedQuery
+    ):  # never "the first documents" for what it cannot run
         adapter.execute("SELECT a FROM people GROUP BY a")
 
 
 def test_firestore_introspection_has_no_invented_collections_or_columns() -> None:
     from query_builder.connectors.firestore import FirestoreConnector
 
-    client = FakeFirestore(
-        {"people": PEOPLE_DOCS[:1], "empty": []}
-    )
+    client = FakeFirestore({"people": PEOPLE_DOCS[:1], "empty": []})
     snapshot = FirestoreConnector(connection=client).introspect_schema(
         filter_sensitive=False
     )
@@ -357,7 +358,9 @@ def test_async_firestore_awaits_the_async_client(fake_firestore_filter: Any) -> 
     from query_builder.connectors.firestore import AsyncFirestoreConnector
 
     async def body() -> None:
-        conn = AsyncFirestoreConnector(connection=AsyncFakeFirestore({"people": PEOPLE_DOCS}))
+        conn = AsyncFirestoreConnector(
+            connection=AsyncFakeFirestore({"people": PEOPLE_DOCS})
+        )
         cols, rows, _ = await conn.execute_raw(
             "SELECT name FROM people WHERE age > %s ORDER BY age", [10]
         )
@@ -406,6 +409,7 @@ def test_async_firestore_connection_paths() -> None:
         conn_cur = AsyncFirestoreConnector(connection=conn)
         assert isinstance((await conn_cur.introspect_schema())["tables"], dict)
         cur.close.assert_called()
+
         # awaitable collections() (older async clients)
         async def aw() -> list[Any]:
             return []
@@ -424,12 +428,16 @@ def test_async_firestore_connection_paths() -> None:
     run(body())
 
 
-def test_firestore_sync_unsupported_statement_is_an_error_through_the_connector() -> None:
+def test_firestore_sync_unsupported_statement_is_an_error_through_the_connector() -> (
+    None
+):
     from query_builder.connectors.firestore import FirestoreConnector
 
     conn = FirestoreConnector(connection=FakeFirestore({"people": PEOPLE_DOCS}))
     with pytest.raises(UnsupportedQuery):
-        conn.execute(sql="SELECT a FROM people WHERE a = 1 OR b = 2", validate_ast=False)
+        conn.execute(
+            sql="SELECT a FROM people WHERE a = 1 OR b = 2", validate_ast=False
+        )
 
 
 # ============================================================================
@@ -513,14 +521,19 @@ def test_bigtable_adapter_reads_rows_and_applies_the_query() -> None:
     assert adapter.fetchall() == [["k2"]]
     adapter.execute("SELECT row_key FROM people WHERE row_key LIKE 'k%' LIMIT 3")
     assert inst.log[-1]["start_key"] == b"k" and inst.log[-1]["end_key"] == b"l"
-    adapter.execute("SELECT row_key FROM people WHERE row_key > 'k1' AND row_key < 'k3'")
-    assert inst.log[-1]["start_key"] == b"k1\x00" and inst.log[-1]["end_inclusive"] is False
+    adapter.execute(
+        "SELECT row_key FROM people WHERE row_key > 'k1' AND row_key < 'k3'"
+    )
+    assert (
+        inst.log[-1]["start_key"] == b"k1\x00"
+        and inst.log[-1]["end_inclusive"] is False
+    )
     adapter.execute("SELECT row_key FROM people LIMIT 2")
     assert inst.log[-1]["limit"] == 2  # pushed down when nothing needs client-side work
     adapter.execute(
         "SELECT row_key FROM people WHERE row_key IN ('k1','k3') "
         'AND "cf.age" IS NOT NULL AND "cf.nope" IS NULL AND "cf.age" != 1 '
-        "AND \"cf.name\" NOT IN ('zed') AND \"cf.age\" < 100 AND \"cf.age\" > 1 "
+        'AND "cf.name" NOT IN (\'zed\') AND "cf.age" < 100 AND "cf.age" > 1 '
         'AND "cf.age" <= 99'
     )
     assert adapter.fetchall() == [["k1"], ["k3"]]
@@ -528,14 +541,16 @@ def test_bigtable_adapter_reads_rows_and_applies_the_query() -> None:
     assert adapter.description == [("row_key",)] or adapter.fetchall() == []
     adapter.execute("SELECT 1")
     assert adapter.fetchall() == [[1]]
-    adapter.execute("SELECT row_key FROM people WHERE row_key LIKE '%'")  # whole-table prefix
+    adapter.execute(
+        "SELECT row_key FROM people WHERE row_key LIKE '%'"
+    )  # whole-table prefix
     with pytest.raises(UnsupportedQuery):
         adapter.execute("DELETE FROM people")
 
 
 def test_bigtable_prefix_ending_in_0xff_has_no_upper_bound() -> None:
-    from query_builder.connectors.bigtable import _key_range
     from query_builder.connectors._sql_subset import Predicate, SubsetPlan
+    from query_builder.connectors.bigtable import _key_range
 
     plan = SubsetPlan(
         table="t", columns=None, predicates=[Predicate("row_key", "prefix", "\xff")]
@@ -558,9 +573,10 @@ def test_bigtable_introspection_lists_real_tables_and_cell_columns() -> None:
         "cf.age",
     }
     assert [c["name"] for c in snapshot["tables"]["empty"]["columns"]] == ["row_key"]
-    assert BigtableConnector(connection=FakeBtInstance({})).introspect_schema()[
-        "tables"
-    ] == {}
+    assert (
+        BigtableConnector(connection=FakeBtInstance({})).introspect_schema()["tables"]
+        == {}
+    )
 
 
 def test_async_bigtable_runs_the_sync_client_in_a_thread() -> None:
@@ -605,7 +621,10 @@ def test_bigtable_connect_uses_the_sync_admin_client() -> None:
         c = BigtableConnector(project_id="p", instance_id="i", admin=True, k=1)
         assert c.connect() == "instance"
         drv.Client.assert_called_with(project="p", admin=True, k=1)
-        assert run(AsyncBigtableConnector(project_id="p", instance_id="i").connect()) == "instance"
+        assert (
+            run(AsyncBigtableConnector(project_id="p", instance_id="i").connect())
+            == "instance"
+        )
         drv.Client.side_effect = RuntimeError("no")
         with pytest.raises(ConnectionFailedError):
             BigtableConnector().connect()
@@ -660,9 +679,15 @@ def test_arango_introspection_reports_real_fields_and_engine_version() -> None:
     assert conn.test_connection()["engine_version"] == "ArangoDB 3.12.4"
     bad = FakeArangoDb()
     bad.version = MagicMock(side_effect=RuntimeError("401"))  # type: ignore[method-assign]
-    assert ArangoDBConnector(connection=bad).test_connection()["engine_version"] == "ArangoDB"
+    assert (
+        ArangoDBConnector(connection=bad).test_connection()["engine_version"]
+        == "ArangoDB"
+    )
     bad.version = MagicMock(return_value=None)  # type: ignore[method-assign]
-    assert ArangoDBConnector(connection=bad).test_connection()["engine_version"] == "ArangoDB"
+    assert (
+        ArangoDBConnector(connection=bad).test_connection()["engine_version"]
+        == "ArangoDB"
+    )
 
 
 def test_arango_native_db_object_introspection_samples_documents() -> None:
@@ -685,12 +710,17 @@ def test_arango_native_db_object_introspection_samples_documents() -> None:
     failing = MagicMock(spec=["collections", "collection"])
     failing.collections.return_value = [{"name": "docs"}]
     failing.collection.side_effect = RuntimeError("denied")  # sampling is best effort
-    cols = introspect_arangodb(failing, filter_sensitive=False)["tables"]["docs"]["columns"]
+    cols = introspect_arangodb(failing, filter_sensitive=False)["tables"]["docs"][
+        "columns"
+    ]
     assert [c["name"] for c in cols] == ["_key", "_id"]
 
 
 def test_arango_adapter_refuses_aql_writes_below_the_ast_validator() -> None:
-    from query_builder.connectors.arangodb import ArangoDBConnector, _ArangoCursorAdapter
+    from query_builder.connectors.arangodb import (
+        ArangoDBConnector,
+        _ArangoCursorAdapter,
+    )
 
     db = FakeArangoDb()
     adapter = _ArangoCursorAdapter(db)
@@ -702,7 +732,9 @@ def test_arango_adapter_refuses_aql_writes_below_the_ast_validator() -> None:
         with pytest.raises(SecurityError):
             adapter.execute(statement)
     assert db.statements == []  # never reached the engine
-    _ArangoCursorAdapter(db, read_only=False).execute("FOR p IN people REMOVE p IN people")
+    _ArangoCursorAdapter(db, read_only=False).execute(
+        "FOR p IN people REMOVE p IN people"
+    )
     assert len(db.statements) == 1
     # through the connector, with the AST validator OFF
     conn = ArangoDBConnector(connection=FakeArangoDb())
@@ -726,7 +758,9 @@ def test_async_arango_is_not_empty_and_runs_off_the_event_loop() -> None:
     async def body() -> None:
         conn = AsyncArangoDBConnector(connection=FakeArangoDb())
         info = await conn.test_connection()
-        assert info["engine_version"] == "ArangoDB 3.12.4" and info["status"] == "healthy"
+        assert (
+            info["engine_version"] == "ArangoDB 3.12.4" and info["status"] == "healthy"
+        )
         snapshot = await conn.introspect_schema(filter_sensitive=False)
         assert "people" in snapshot["tables"]  # was always {}
         cols, rows, _ = await conn.execute_raw("RETURN 1")
@@ -781,7 +815,9 @@ class FakeRecordId:
 
 def _surreal_driver(client: Any, name: str = "Surreal") -> Any:
     drv = types.SimpleNamespace()
-    setattr(drv, name, lambda url, **kw: client(url, **kw) if callable(client) else client)
+    setattr(
+        drv, name, lambda url, **kw: client(url, **kw) if callable(client) else client
+    )
     return drv
 
 
@@ -803,7 +839,9 @@ def test_surreal_connect_signs_in_selects_namespace_and_fixes_url() -> None:
             password="pw",
         )
         client = conn.connect()
-    assert client.url == "ws://h:8000" and client.kw == {}  # no ns/db kwargs, no /rpc twice
+    assert (
+        client.url == "ws://h:8000" and client.kw == {}
+    )  # no ns/db kwargs, no /rpc twice
     assert client.calls == [
         ("signin", {"username": "root", "password": "pw"}),
         ("use", "ns", "db"),
@@ -870,7 +908,9 @@ def test_surreal_introspection_uses_info_for_db_and_samples_fields() -> None:
     from query_builder.connectors.surrealdb import SurrealDBConnector
 
     client = FakeSurrealClient("u")
-    client.answers["INFO FOR DB"] = {"tables": {"people": "DEFINE TABLE people", "t2": ""}}
+    client.answers["INFO FOR DB"] = {
+        "tables": {"people": "DEFINE TABLE people", "t2": ""}
+    }
     client.answers["INFO FOR TABLE `people`"] = {
         "fields": {
             "name": "DEFINE FIELD name ON people TYPE string",
@@ -883,14 +923,21 @@ def test_surreal_introspection_uses_info_for_db_and_samples_fields() -> None:
     conn = SurrealDBConnector(connection=client)
     snapshot = conn.introspect_schema(filter_sensitive=False)
     cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
-    assert cols == {"id": "record", "name": "string", "untyped": "number", "age": "number"}
+    assert cols == {
+        "id": "record",
+        "name": "string",
+        "untyped": "number",
+        "age": "number",
+    }
     assert [c["name"] for c in snapshot["tables"]["t2"]["columns"]] == ["id"]
     assert conn.test_connection()["engine_version"] == "surrealdb-2.3.7"
     client.version = None  # type: ignore[assignment] - an SDK without a usable version()
     assert conn.test_connection()["engine_version"] == "SurrealDB"
     with pytest.raises(IntrospectionError):
         SurrealDBConnector(
-            connection=MagicMock(spec=["query"], query=MagicMock(side_effect=RuntimeError("x")))
+            connection=MagicMock(
+                spec=["query"], query=MagicMock(side_effect=RuntimeError("x"))
+            )
         ).introspect_schema()
 
 
@@ -926,25 +973,38 @@ def test_async_surreal_uses_the_async_sdk_and_awaits_it() -> None:
         drv = _surreal_driver(client, name="AsyncSurreal")
         with patch.dict(sys.modules, {"surrealdb": drv}):
             conn = AsyncSurrealDBConnector(
-                url="ws://h:8000/rpc", namespace="n", database="d", username="u", password="p"
+                url="ws://h:8000/rpc",
+                namespace="n",
+                database="d",
+                username="u",
+                password="p",
             )
             info = await conn.test_connection()
-            assert info["engine_version"] == "surrealdb-2.3.7" and info["namespace"] == "n"
+            assert (
+                info["engine_version"] == "surrealdb-2.3.7" and info["namespace"] == "n"
+            )
             assert [c[0] for c in client.calls[:3]] == ["connect", "signin", "use"]
-            cols, rows, _ = await conn.execute_raw("SELECT name FROM people WHERE a = ?", [1])
+            cols, rows, _ = await conn.execute_raw(
+                "SELECT name FROM people WHERE a = ?", [1]
+            )
             assert cols == ["name"] and rows == [{"name": "a"}]
             snapshot = await conn.introspect_schema(filter_sensitive=False)
-            assert "people" in snapshot["tables"]  # was always {} (default async fallback)
+            assert (
+                "people" in snapshot["tables"]
+            )  # was always {} (default async fallback)
             with pytest.raises(SecurityError):
                 await conn.execute_raw("DELETE people")
             await conn.close()
+
         # failing sign-in releases the client and surfaces a connection error
         class Bad(AsyncFakeSurreal):
             async def signin(self, creds: dict[str, str]) -> None:  # type: ignore[override]
                 raise RuntimeError("nope")
 
         bad = Bad("u")
-        with patch.dict(sys.modules, {"surrealdb": _surreal_driver(bad, "AsyncSurreal")}):
+        with patch.dict(
+            sys.modules, {"surrealdb": _surreal_driver(bad, "AsyncSurreal")}
+        ):
             with pytest.raises(ConnectionFailedError):
                 await AsyncSurrealDBConnector(username="u", password="p").connect()
         assert ("close",) in bad.calls
@@ -962,7 +1022,9 @@ def test_async_surreal_uses_the_async_sdk_and_awaits_it() -> None:
         # fallback to driver.connect when the SDK has no Surreal class
         fb = types.SimpleNamespace(connect=lambda url: FakeSurrealClient(url))
         with patch.dict(sys.modules, {"surrealdb": fb}):
-            assert isinstance(await AsyncSurrealDBConnector().connect(), FakeSurrealClient)
+            assert isinstance(
+                await AsyncSurrealDBConnector().connect(), FakeSurrealClient
+            )
             assert isinstance(SurrealDBConnector().connect(), FakeSurrealClient)
 
     from query_builder.connectors.surrealdb import SurrealDBConnector
@@ -1189,7 +1251,10 @@ def test_scylla_health_probe_is_valid_cql_and_reports_the_version() -> None:
 
 
 def test_scylla_blocks_cql_batches_and_truncates_below_the_validator() -> None:
-    from query_builder.connectors.scylladb import ScyllaDBConnector, _ScyllaCursorAdapter
+    from query_builder.connectors.scylladb import (
+        ScyllaDBConnector,
+        _ScyllaCursorAdapter,
+    )
 
     session = FakeCqlSession()
     conn = ScyllaDBConnector(connection=session)
@@ -1260,7 +1325,9 @@ def test_dynamodb_introspection_includes_non_key_attributes() -> None:
     assert snapshot["tables"]["people"]["has_user_id"] is True
     client = FakeDynamo()
     client.scan = MagicMock(side_effect=RuntimeError("AccessDenied"))  # type: ignore[method-assign]
-    only_keys = DynamoDBConnector(client=client).introspect_schema(filter_sensitive=False)
+    only_keys = DynamoDBConnector(client=client).introspect_schema(
+        filter_sensitive=False
+    )
     assert [c["name"] for c in only_keys["tables"]["people"]["columns"]] == ["id"]
 
 
@@ -1345,7 +1412,10 @@ def fake_cb_options() -> Any:
             self.kw = kw
 
     mod.QueryOptions = QueryOptions  # type: ignore[attr-defined]
-    with patch.dict(sys.modules, {"couchbase": types.ModuleType("couchbase"), "couchbase.options": mod}):
+    with patch.dict(
+        sys.modules,
+        {"couchbase": types.ModuleType("couchbase"), "couchbase.options": mod},
+    ):
         yield
 
 
@@ -1380,7 +1450,9 @@ def test_couchbase_refuses_sqlpp_writes_even_without_the_ast_validator() -> None
     from query_builder.connectors.couchbase import CouchbaseConnector, _CouchbaseCursor
 
     cluster = FakeCbCluster()
-    conn = CouchbaseConnector(connection=types.SimpleNamespace(cursor=lambda: _CouchbaseCursor(cluster)))
+    conn = CouchbaseConnector(
+        connection=types.SimpleNamespace(cursor=lambda: _CouchbaseCursor(cluster))
+    )
     for statement in (
         "UPSERT INTO people (KEY, VALUE) VALUES ('k', {})",
         "MERGE INTO people t USING [{'k': 'p1'}] s ON KEY s.k WHEN MATCHED THEN DELETE",
@@ -1395,7 +1467,9 @@ def test_couchbase_refuses_sqlpp_writes_even_without_the_ast_validator() -> None
     assert conn._read_only() is True
 
 
-def test_couchbase_introspection_lists_the_buckets_collections_and_reports_version() -> None:
+def test_couchbase_introspection_lists_the_buckets_collections_and_reports_version() -> (
+    None
+):
     from query_builder.connectors.couchbase import CouchbaseConnector, _CouchbaseClient
 
     cluster = FakeCbCluster()
@@ -1480,7 +1554,9 @@ def test_cosmos_runs_the_query_against_the_container_named_in_from() -> None:
     client = FakeCosmosClient({"people": docs})
     conn = CosmosDBConnector(connection=client, database="db")
     result = conn.execute(
-        sql="SELECT * FROM people p WHERE p.age > @param", params=[21], validate_ast=False
+        sql="SELECT * FROM people p WHERE p.age > @param",
+        params=[21],
+        validate_ast=False,
     )
     assert [r["name"] for r in result["rows"]] == ["alice", "bob"]
     assert result["rows"][0]["ref"] == "people:1"  # SDK objects -> plain values
@@ -1534,12 +1610,20 @@ def test_cosmos_introspection_reports_containers_and_attributes_only() -> None:
         filter_sensitive=False
     )
     cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
-    assert cols == {"id": "string", "name": "string", "age": "number", "user_id": "string"}
+    assert cols == {
+        "id": "string",
+        "name": "string",
+        "age": "number",
+        "user_id": "string",
+    }
     assert snapshot["tables"]["people"]["has_user_id"] is True
     assert [c["name"] for c in snapshot["tables"]["empty"]["columns"]] == ["id"]
-    assert CosmosDBConnector(
-        connection=FakeCosmosClient({}), database="db"
-    ).introspect_schema()["tables"] == {}  # was {"items": ...}
+    assert (
+        CosmosDBConnector(
+            connection=FakeCosmosClient({}), database="db"
+        ).introspect_schema()["tables"]
+        == {}
+    )  # was {"items": ...}
 
 
 class AsyncCosmosItems:
@@ -1598,7 +1682,9 @@ def test_async_cosmos_awaits_the_aio_client() -> None:
         assert (await conn.test_connection())["status"] == "healthy"
         assert ("read_db",) in client.log
         snapshot = await conn.introspect_schema(filter_sensitive=False)
-        assert {"id", "name"} <= {c["name"] for c in snapshot["tables"]["people"]["columns"]}
+        assert {"id", "name"} <= {
+            c["name"] for c in snapshot["tables"]["people"]["columns"]
+        }
         with pytest.raises(SecurityError):
             await conn.execute_raw("DELETE FROM people")
         # the blocking SDK object also works (plain iterators)
@@ -1606,7 +1692,9 @@ def test_async_cosmos_awaits_the_aio_client() -> None:
         c2 = AsyncCosmosDBConnector(connection=sync_client, database="db")
         assert (await c2.execute_raw("SELECT * FROM people"))[1][0]["name"] == "alice"
         assert (await c2.test_connection())["status"] == "healthy"
-        assert "people" in (await c2.introspect_schema(filter_sensitive=False))["tables"]
+        assert (
+            "people" in (await c2.introspect_schema(filter_sensitive=False))["tables"]
+        )
         # DB-API style delegate
         cur = MagicMock(spec=["execute", "description", "fetchall"])
         cur.description, cur.fetchall.return_value = [("v",)], [[1]]
@@ -1620,13 +1708,21 @@ def test_async_cosmos_awaits_the_aio_client() -> None:
             await AsyncCosmosDBConnector(connection=broken).introspect_schema()
         # connection: prefers azure.cosmos.aio, reports failures
         aio = types.ModuleType("azure.cosmos.aio")
-        aio.CosmosClient = lambda endpoint, credential, **kw: ("aio", endpoint, credential)  # type: ignore[attr-defined]
+        aio.CosmosClient = lambda endpoint, credential, **kw: (
+            "aio",
+            endpoint,
+            credential,
+        )  # type: ignore[attr-defined]
         with patch.dict(sys.modules, {"azure.cosmos.aio": aio}):
             got = await AsyncCosmosDBConnector(endpoint="http://x", key="k").connect()
         assert got == ("aio", "http://x", "k")
         with patch.dict(
             sys.modules,
-            {"azure.cosmos.aio": None, "azure.cosmos": None, "azure.cosmos.cosmos_client": None},
+            {
+                "azure.cosmos.aio": None,
+                "azure.cosmos": None,
+                "azure.cosmos.cosmos_client": None,
+            },
         ):
             from query_builder.connectors.base import DriverNotInstalledError
 
@@ -1660,8 +1756,12 @@ def test_spanner_primary_key_is_read_from_the_primary_key_index() -> None:
         side_effect=lambda *a, **k: snapshot(),
     ):
         cols = conn.introspect_schema()["tables"]["t"]["columns"]
-        assert [(c["name"], c["is_primary"]) for c in cols] == [("id", False), ("k", True)]
+        assert [(c["name"], c["is_primary"]) for c in cols] == [
+            ("id", False),
+            ("k", True),
+        ]
         cur.execute.side_effect = RuntimeError("no index_columns")
-        cols = conn.introspect_schema()["tables"]["t"]["columns"]  # keeps the generic answer
+        cols = conn.introspect_schema()["tables"]["t"][
+            "columns"
+        ]  # keeps the generic answer
         assert cols[0]["is_primary"] is True
-
