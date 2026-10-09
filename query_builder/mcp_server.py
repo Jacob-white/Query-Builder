@@ -515,3 +515,13 @@ class McpServer:
                 }
                 self.stdout.write(json.dumps(err_resp) + "\n")
                 self.stdout.flush()
+
+
+def main() -> int:
+    """Console-script entry point (`query-builder-mcp`): serve MCP over stdio."""
+    McpServer().run_stdio()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
