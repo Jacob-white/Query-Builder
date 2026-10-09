@@ -2,6 +2,12 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
+
+// `gc` only exists under `node --expose-gc`.
+const gcHost = globalThis as { gc?: () => void };
+function gcIfAvailable(): void {
+  if (typeof gcHost.gc === "function") gcHost.gc();
+}
 import {
   VisualQueryBuilder,
   QueryPlayground,
@@ -91,6 +97,7 @@ const ssrSpec: QuerySpec = {
     { column: "total", op: ">=", value: 50, tablePrefix: "orders" },
   ],
   order_by: [{ column: "orders.total", direction: "DESC" }],
+  filter_join: "AND",
   distinct: false,
   limit: 25,
 };
@@ -111,7 +118,6 @@ describe("Milestone 3 DX SSR Hydration Safety & Stress Suite (Challenger 2)", ()
         <VisualQueryBuilder
           schema={enterpriseSsrSchema}
           initialTable="organizations"
-          initialLimit={25}
         />,
       );
       renderToString(
@@ -132,9 +138,7 @@ describe("Milestone 3 DX SSR Hydration Safety & Stress Suite (Challenger 2)", ()
 
   it("executes 500 repeated renderToString cycles without memory leakage or reference errors", () => {
     // Run garbage collection if available
-    if (typeof (globalThis as any).gc === "function") {
-      (globalThis as any).gc();
-    }
+    gcIfAvailable();
 
     const initialHeap = process.memoryUsage().heapUsed;
 
@@ -160,16 +164,14 @@ describe("Milestone 3 DX SSR Hydration Safety & Stress Suite (Challenger 2)", ()
       expect(html2).toContain('data-qb="playground-root"');
     }
 
-    if (typeof (globalThis as any).gc === "function") {
-      (globalThis as any).gc();
-    }
+    gcIfAvailable();
 
     const finalHeap = process.memoryUsage().heapUsed;
     const heapGrowthMb = (finalHeap - initialHeap) / (1024 * 1024);
 
     // Heap deltas are only meaningful after a forced GC (node --expose-gc). Without it, V8
     // and coverage-instrumentation buffers make the number noise, so only assert when exact.
-    if (typeof (globalThis as any).gc === "function") {
+    if (typeof gcHost.gc === "function") {
       expect(heapGrowthMb).toBeLessThan(100);
     }
   }, 60_000); // 500 render cycles exceed the 5s default when coverage-instrumented

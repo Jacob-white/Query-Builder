@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { findBestJoinCondition, findJoinPath } from "../src/utils/joinUtils";
-import type { SchemaSnapshot } from "../src/types";
+import type { ColumnMeta, SchemaSnapshot, TableMeta } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("joinUtils", () => {
   const mockSchema: SchemaSnapshot = {
@@ -202,8 +203,8 @@ describe("joinUtils", () => {
   it("skips malformed table metadata in entity bridges", () => {
     const badSchema: SchemaSnapshot = {
       tables: {
-        bad1: null as unknown as any,
-        bad2: { name: "bad2", columns: null as unknown as any },
+        bad1: invalid<TableMeta>(null),
+        bad2: { name: "bad2", columns: invalid<ColumnMeta[]>(null) },
       },
       foreign_keys: [],
     };

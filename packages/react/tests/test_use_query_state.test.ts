@@ -390,6 +390,8 @@ describe("useQueryState Standalone Hook & State History", () => {
       offset: 0,
       dialect: "postgres",
       isDirty: false,
+      ctes: [],
+      windowFunctions: [],
     };
 
     const generatedSpec = stateToSpec(fullState);
@@ -550,6 +552,8 @@ describe("useQueryState Standalone Hook & State History", () => {
       offset: 0,
       dialect: "postgres",
       isDirty: false,
+      ctes: [],
+      windowFunctions: [],
       activeTables: ["users"],
     });
     expect(specFromSortNoPrefix.order_by[0].column).toBe("id");

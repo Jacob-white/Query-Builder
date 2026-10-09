@@ -8,7 +8,6 @@
 import React, { useState, useMemo } from "react";
 import { analyzeQueryPerformance } from "../utils/performanceAdvisor";
 import type {
-  PerformanceAdvisorInsight,
   QuerySpec,
   SchemaSnapshot,
   SqlDialect,

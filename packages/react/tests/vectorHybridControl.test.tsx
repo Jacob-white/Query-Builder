@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { VectorHybridControl } from "../src/components/VectorHybridControl";
 import type { TableMeta } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("VectorHybridControl", () => {
   const activeTables: TableMeta[] = [
@@ -402,7 +403,7 @@ describe("VectorHybridControl", () => {
   });
 
   it("handles legacy/custom table column types and default fallbacks", () => {
-    const customTables: any[] = [
+    const customTables = invalid<TableMeta[]>([
       {
         name: "custom_tbl",
         columns: [
@@ -410,7 +411,7 @@ describe("VectorHybridControl", () => {
           { name: "fallback_col" }, // missing both data_type and type
         ],
       },
-    ];
+    ]);
 
     const { getByText } = render(
       <VectorHybridControl

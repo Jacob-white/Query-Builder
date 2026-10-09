@@ -3,22 +3,23 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CalculatedFieldEditor } from "../src/components/CalculatedFieldEditor";
 import type { TableMeta, CalculatedFieldSpec } from "../src/types";
+import { makeColumn } from "./helpers";
 
 describe("CalculatedFieldEditor", () => {
   const dummyTables: TableMeta[] = [
     {
       name: "customers",
       columns: [
-        { name: "id", type: "integer", nullable: false },
-        { name: "status", type: "varchar", nullable: true },
-        { name: "spend", type: "decimal", nullable: false },
+        makeColumn("id", { data_type: "integer", is_nullable: false }),
+        makeColumn("status", { data_type: "varchar", is_nullable: true }),
+        makeColumn("spend", { data_type: "decimal", is_nullable: false }),
       ],
     },
     {
       name: "orders",
       columns: [
-        { name: "order_id", type: "integer", nullable: false },
-        { name: "amount", type: "decimal", nullable: false },
+        makeColumn("order_id", { data_type: "integer", is_nullable: false }),
+        makeColumn("amount", { data_type: "decimal", is_nullable: false }),
       ],
     },
   ];
@@ -57,7 +58,7 @@ describe("CalculatedFieldEditor", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
 
     // Cancel button
-    const cancelBtn = screen.getByTestId ? screen.getByText("Cancel") : screen.getByText("Cancel");
+    const cancelBtn = screen.getByText("Cancel");
     fireEvent.click(cancelBtn);
     expect(onClose).toHaveBeenCalledTimes(2);
     expect(onSave).not.toHaveBeenCalled();

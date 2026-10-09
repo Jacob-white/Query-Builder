@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryResultsTable } from "../src/components/QueryResultsTable";
 import type { QueryResultData } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("QueryResultsTable", () => {
   beforeEach(() => {
@@ -123,7 +124,7 @@ describe("QueryResultsTable", () => {
 
   it("handles undefined columns/rows, and null values in search filter and CSV export", () => {
     // 1. undefined columns and rows (lines 50-51)
-    const { unmount: unmount1 } = render(<QueryResultsTable results={{} as any} />);
+    const { unmount: unmount1 } = render(<QueryResultsTable results={invalid<QueryResultData>({})} />);
     expect(screen.getByText(/Showing/)).toBeTruthy();
     unmount1();
 

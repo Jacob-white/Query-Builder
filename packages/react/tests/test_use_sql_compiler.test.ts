@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useSqlCompiler, type QuerySpec } from "../src";
+import { useSqlCompiler, type QuerySpec, type SqlDialect } from "../src";
 
 describe("useSqlCompiler Headless Reactive Compiler", () => {
   beforeEach(() => {
@@ -61,17 +61,17 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
 
     const { result, rerender } = renderHook(
       ({ dialect }) => useSqlCompiler(spec, { dialect }),
-      { initialProps: { dialect: "postgres" as const } },
+      { initialProps: { dialect: "postgres" as SqlDialect } },
     );
 
     expect(result.current.sql).toContain('"users"."name"');
 
     // Switch to MySQL backticks
-    rerender({ dialect: "mysql" as const });
+    rerender({ dialect: "mysql" });
     expect(result.current.sql).toContain("`users`.`name`");
 
     // Switch to MSSQL square brackets
-    rerender({ dialect: "mssql" as const });
+    rerender({ dialect: "mssql" });
     expect(result.current.sql).toContain("[users].[name]");
   });
 
@@ -124,8 +124,8 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
   it("handles compiler errors and sets error property", () => {
     // Pass object that triggers compiler edge-case or throws
     const throwingInput = {
-      primaryTable: { invalid: "object" } as any,
-      selectedColumns: null as any,
+      primaryTable: { invalid: "object" },
+      selectedColumns: null,
     };
 
     const { result } = renderHook(() => useSqlCompiler(throwingInput));
@@ -172,7 +172,7 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
       limit: 15,
     };
 
-    const { result } = renderHook(() => useSqlCompiler(visualState as any));
+    const { result } = renderHook(() => useSqlCompiler(visualState));
 
     expect(result.current.isValid).toBe(true);
     expect(result.current.sql).toContain('SELECT DISTINCT "users"."email"');
@@ -186,10 +186,10 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
     // Malformed join item causes TypeError inside spec parser
     const malformedSpec = {
       table: "users",
-      joins: [null as any],
+      joins: [null],
     };
 
-    const { result } = renderHook(() => useSqlCompiler(malformedSpec as any));
+    const { result } = renderHook(() => useSqlCompiler(malformedSpec));
 
     expect(result.current.isValid).toBe(false);
     expect(result.current.sql).toBe("");

@@ -6,12 +6,11 @@
  * reactive click-to-filter cross-filtering across tiles.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useDashboardManager } from "../hooks/useDashboardManager";
 import { BiChartVisualizer } from "./BiChartVisualizer";
 import type {
   DashboardState,
-  DashboardTile,
   DashboardTileType,
   ChartType,
 } from "../types";

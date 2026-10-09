@@ -3,7 +3,7 @@ import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { QueryPlanVisualizer } from "../src/components/QueryPlanVisualizer";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
-import type { QueryPlanNode } from "../src/types";
+import type { DatabaseSchemaDefinition, QueryPlanNode } from "../src/types";
 
 describe("QueryPlanVisualizer Component", () => {
   const samplePlan: QueryPlanNode = {
@@ -138,13 +138,12 @@ describe("QueryPlanVisualizer Component", () => {
   });
 
   it("renders Query Plan tab in VisualQueryBuilder when showPlanTab or queryPlan is provided", () => {
-    const mockSchema = {
+    const mockSchema: DatabaseSchemaDefinition = {
       tables: {
         users: {
-          name: "users",
           columns: {
-            id: { name: "id", type: "integer" },
-            name: { name: "name", type: "varchar" },
+            id: { dataType: "integer" },
+            name: { dataType: "varchar" },
           },
         },
       },
@@ -263,9 +262,9 @@ describe("QueryPlanVisualizer Component", () => {
   it("renders multiple warnings plural badge and handles fallback nullish cost/rows in node details", () => {
     const multiWarnPlan: QueryPlanNode = {
       node_type: "Nested Loop",
-      cost_estimate: undefined as any,
-      cost_percentage: undefined as any,
-      rows_estimated: undefined as any,
+      cost_estimate: undefined,
+      cost_percentage: undefined,
+      rows_estimated: undefined,
       warnings: ["Heavy loop join", "Cartesian volume risk"],
       children: [],
     };

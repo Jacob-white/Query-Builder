@@ -119,11 +119,11 @@ describe("Circular Foreign Keys across all TS Adapters", () => {
       expect(tables.map((t) => t.name).sort()).toEqual(["departments", "employees"]);
 
       const snapshot = toSchemaSnapshot(tables);
-      expect(snapshot.foreign_keys.length).toBe(2);
+      expect(snapshot.foreign_keys?.length).toBe(2);
 
       const normalized = normalizeSchema(tables);
       expect(normalized).not.toBeNull();
-      expect(normalized!.foreign_keys.length).toBe(2);
+      expect(normalized?.foreign_keys?.length).toBe(2);
 
       // Verify pathfinding terminates and doesn't cycle infinitely
       const path = findJoinPath(["departments"], "employees", normalized);

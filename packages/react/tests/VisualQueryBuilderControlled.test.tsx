@@ -9,6 +9,7 @@ import type {
   QueryResultData,
 } from "../src/types";
 import type { QueryBuilderClient } from "../src/client/index";
+import { partialSpec } from "./helpers/partial";
 
 describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () => {
   const mockSchema: SchemaSnapshot = {
@@ -41,11 +42,11 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
 
   it("supports controlled mode with value and onChange propagation", async () => {
     const handleChange = vi.fn();
-    const controlledSpec: QuerySpec = {
+    const controlledSpec: QuerySpec = partialSpec({
       table: "orders",
       columns: ["orders.id", "orders.amount"],
       limit: 25,
-    };
+    });
 
     const { rerender } = render(
       <VisualQueryBuilder
@@ -71,11 +72,11 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
     });
 
     // Outer prop update
-    const nextSpec: QuerySpec = {
+    const nextSpec: QuerySpec = partialSpec({
       table: "users",
       columns: ["users.id", "users.email"],
       limit: 10,
-    };
+    });
     rerender(
       <VisualQueryBuilder
         schema={mockSchema}
@@ -90,16 +91,18 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
 
   it("supports controlled mode with real React state, single-step undo and redo", async () => {
     function ControlledHost() {
-      const [spec, setSpec] = React.useState<QuerySpec>({
+      const [spec, setSpec] = React.useState<QuerySpec>(partialSpec({
         table: "orders",
         columns: ["orders.id"],
         limit: 25,
-      });
+      }));
       return (
         <VisualQueryBuilder
           schema={mockSchema}
           value={spec}
-          onChange={(newSpec) => setSpec(newSpec)}
+          onChange={(newSpec) => {
+            if (newSpec) setSpec(newSpec);
+          }}
         />
       );
     }
@@ -139,12 +142,12 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
   });
 
   it("supports uncontrolled mode with initialSpec", () => {
-    const initialSpec: QuerySpec = {
+    const initialSpec: QuerySpec = partialSpec({
       table: "orders",
       columns: ["orders.id", "orders.amount"],
       limit: 100,
       distinct: true,
-    };
+    });
 
     render(
       <VisualQueryBuilder
@@ -177,7 +180,7 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
     expect(typeof ref.current?.undo).toBe("function");
     expect(typeof ref.current?.redo).toBe("function");
 
-    const spec = ref.current!.getSpec();
+    const spec = ref.current!.getSpec()!;
     expect(spec.table).toBe("users");
 
     const sql = ref.current!.getSql();
@@ -185,21 +188,21 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
 
     // setSpec imperatively inside act
     act(() => {
-      ref.current!.setSpec({
+      ref.current!.setSpec(partialSpec({
         table: "orders",
         columns: ["orders.id", "orders.amount"],
         limit: 42,
-      });
+      }));
     });
 
-    const updatedSpec = ref.current!.getSpec();
+    const updatedSpec = ref.current!.getSpec()!;
     expect(updatedSpec.table).toBe("orders");
 
     // reset imperatively inside act
     act(() => {
       ref.current!.reset();
     });
-    const resetSpec = ref.current!.getSpec();
+    const resetSpec = ref.current!.getSpec()!;
     expect(resetSpec.table).toBe("users");
   });
 
@@ -276,6 +279,7 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
       execute: vi.fn().mockResolvedValue(mockResultData),
       export: vi.fn(),
       query: vi.fn(),
+      getCapabilities: vi.fn().mockResolvedValue({}),
     };
 
     render(<VisualQueryBuilder client={mockClient} />);
@@ -304,11 +308,11 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
     const handleChange = vi.fn();
 
     // Pass value with keys ordered differently
-    const specA: QuerySpec = {
+    const specA: QuerySpec = partialSpec({
       limit: 50,
       columns: ["orders.id"],
       table: "orders",
-    };
+    });
 
     const { rerender } = render(
       <VisualQueryBuilder
@@ -322,11 +326,11 @@ describe("VisualQueryBuilder Controlled/Uncontrolled & Undo/Redo & Client", () =
     expect(undoBtn.disabled).toBe(true);
 
     // Re-render with equivalent spec having reversed key order
-    const specB: any = {
+    const specB: QuerySpec = partialSpec({
       table: "orders",
       limit: 50,
       columns: ["orders.id"],
-    };
+    });
 
     rerender(
       <VisualQueryBuilder

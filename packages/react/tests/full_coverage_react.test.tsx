@@ -16,34 +16,40 @@ import { fromDrizzle } from "../src/adapters/drizzle";
 import { fromJsonSchema } from "../src/adapters/jsonSchema";
 import { fromPrisma } from "../src/adapters/prisma";
 import { fromSqlAlchemy } from "../src/adapters/sqlalchemy";
-import { TableSchema } from "../src/types";
+import type { LooseSpecJoin, TableSchema, TableMeta, SchemaSnapshot, VisualColumnSelect } from "../src/types";
+import { invalid } from "./helpers";
+import { partialSpec } from "./helpers/partial";
+
+// Legacy `TableSchema[]` input: accepted at runtime (normalizeSchema) but not in the explorer prop types.
+type NormalizeInput = Parameters<typeof normalizeSchema>[0];
+const legacy = (schema: unknown): SchemaSnapshot => invalid<SchemaSnapshot>(schema);
 
 describe("React SDK 100% Coverage Suite", () => {
   describe("1. QueryBuilderProvider & useQueryExecution", () => {
     it("inherits mode from parentContext when mode prop is null, and falls back to styled", () => {
-      let capturedContext: any = null;
+      let capturedContext = null as ReturnType<typeof useQueryBuilderContext> | null;
       const Consumer = () => {
         capturedContext = useQueryBuilderContext();
         return <div>Mode: {capturedContext?.mode}</div>;
       };
 
-      // Nested provider: outer has mode="unstyled", inner has mode={null as any}
+      // Nested provider: outer has mode="unstyled", inner has mode={invalid<"styled">(null)}
       render(
         <QueryBuilderProvider mode="unstyled">
-          <QueryBuilderProvider mode={null as any}>
+          <QueryBuilderProvider mode={invalid<"styled">(null)}>
             <Consumer />
           </QueryBuilderProvider>
         </QueryBuilderProvider>
       );
-      expect(capturedContext.mode).toBe("unstyled");
+      expect(capturedContext?.mode).toBe("unstyled");
 
       // Standalone provider with null mode falls back to "styled"
       render(
-        <QueryBuilderProvider mode={null as any}>
+        <QueryBuilderProvider mode={invalid<"styled">(null)}>
           <Consumer />
         </QueryBuilderProvider>
       );
-      expect(capturedContext.mode).toBe("styled");
+      expect(capturedContext?.mode).toBe("styled");
     });
 
     it("falls back to qbContext.onExecuteQuery when propExecuteQuery is not provided", async () => {
@@ -61,7 +67,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const { result } = renderHook(() => useQueryExecution(), { wrapper });
 
       await act(async () => {
-        await result.current.executeQuery("SELECT COUNT(*) FROM users;", { table: "users" });
+        await result.current.executeQuery("SELECT COUNT(*) FROM users;", partialSpec({ table: "users" }));
       });
 
       expect(mockQbExecute).toHaveBeenCalledWith("SELECT COUNT(*) FROM users;", { table: "users" });
@@ -72,17 +78,15 @@ describe("React SDK 100% Coverage Suite", () => {
   describe("2. TableCard custom column toggle", () => {
     it("executes custom column renderer onToggle callback", () => {
       const onToggleColumn = vi.fn();
-      const mockTable: TableSchema = {
+      const mockTable: TableMeta = {
         name: "users",
-        columns: [
-          { name: "id", data_type: "integer", is_primary: true },
-        ],
+        columns: [{ name: "id", data_type: "integer", is_nullable: false, is_primary: true }],
       };
 
       render(
         <TableCard
           table={mockTable}
-          selectedColumns={["id"]}
+          selectedColumns={invalid<Record<string, VisualColumnSelect>>(["id"])}
           onToggleColumn={onToggleColumn}
           fieldRenderers={{
             id: ({ onToggle, isSelected }) => (
@@ -105,17 +109,17 @@ describe("React SDK 100% Coverage Suite", () => {
     });
 
     it("renders custom column renderer for unselected column", () => {
-      const mockTable: TableSchema = {
+      const mockTable: TableMeta = {
         name: "users",
         columns: [
-          { name: "id", data_type: "integer" },
-          { name: "email", data_type: "varchar" },
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "email", data_type: "varchar", is_nullable: false, is_primary: false },
         ],
       };
       render(
         <TableCard
           table={mockTable}
-          selectedColumns={{ "users.id": { table: "users", column: "id" } as any }}
+          selectedColumns={{ "users.id": { table: "users", name: "id" } }}
           onToggleColumn={() => {}}
           fieldRenderers={{
             id: ({ isSelected }) => <div data-testid="sel-true">Selected: {String(isSelected)}</div>,
@@ -130,9 +134,9 @@ describe("React SDK 100% Coverage Suite", () => {
 
   describe("3. TableFiltersEditor custom operator fallback", () => {
     it("renders cop.value as label when cop.label is empty", () => {
-      const mockTable: TableSchema = {
+      const mockTable: TableMeta = {
         name: "items",
-        columns: [{ name: "price", data_type: "float" }],
+        columns: [{ name: "price", data_type: "float", is_nullable: false, is_primary: false }],
       };
 
       render(
@@ -144,7 +148,6 @@ describe("React SDK 100% Coverage Suite", () => {
             NEAR: {
               value: "NEAR",
               label: "", // Empty label triggers cop.value fallback on line 257
-              symbol: "~",
             },
           }}
         />
@@ -160,21 +163,21 @@ describe("React SDK 100% Coverage Suite", () => {
       {
         name: "orders",
         columns: [
-          { name: "id", data_type: "integer", is_primary: true },
-          { name: "user_id", data_type: "integer" },
+          { name: "id", dataType: "integer", data_type: "integer", is_primary: true },
+          { name: "user_id", dataType: "integer", data_type: "integer" },
         ],
         foreign_keys: [
           {
             table: "orders",
             column: "user_id",
             foreign_table: "users",
-            foreign_column: "id",
+            foreign_column: "id", foreignTable: "users", foreignColumn: "id",
           },
         ],
       },
       {
         name: "users",
-        columns: [{ name: "id", data_type: "integer", is_primary: true }],
+        columns: [{ name: "id", dataType: "integer", data_type: "integer", is_primary: true }],
       },
     ];
 
@@ -186,7 +189,7 @@ describe("React SDK 100% Coverage Suite", () => {
         <SchemaExplorerModal
           isOpen={true}
           onClose={onClose}
-          schema={sampleSchema}
+          schema={legacy(sampleSchema)}
           unstyled={true}
           theme="light"
         />
@@ -201,7 +204,7 @@ describe("React SDK 100% Coverage Suite", () => {
         <SchemaExplorerModal
           isOpen={true}
           onClose={onClose}
-          schema={sampleSchema}
+          schema={legacy(sampleSchema)}
           unstyled={false}
           theme="dark"
         />
@@ -212,7 +215,7 @@ describe("React SDK 100% Coverage Suite", () => {
     it("renders empty table placeholder in SchemaExplorer when no table is selected and unstyled=true", () => {
       render(
         <SchemaExplorer
-          schema={[]}
+          schema={legacy([])}
           unstyled={true}
         />
       );
@@ -226,7 +229,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const onSelectTable = vi.fn();
       render(
         <SchemaExplorer
-          schema={sampleSchema}
+          schema={legacy(sampleSchema)}
           selectedTable="orders"
           onSelectTable={onSelectTable}
           unstyled={true}
@@ -245,7 +248,7 @@ describe("React SDK 100% Coverage Suite", () => {
           isOpen={true}
           onClose={() => {}}
           theme={undefined}
-          schema={sampleSchema}
+          schema={legacy(sampleSchema)}
         />
       );
       expect(screen.getByRole("dialog")).toBeDefined();
@@ -254,7 +257,7 @@ describe("React SDK 100% Coverage Suite", () => {
     it("renders empty table placeholder in SchemaExplorer with styled mode", () => {
       render(
         <SchemaExplorer
-          schema={[]}
+          schema={legacy([])}
           unstyled={false}
         />
       );
@@ -266,7 +269,7 @@ describe("React SDK 100% Coverage Suite", () => {
     it("renders no FKs message in unstyled mode", () => {
       render(
         <SchemaExplorer
-          schema={[{ name: "isolated", columns: [{ name: "id", data_type: "int" }] }]}
+          schema={legacy([{ name: "isolated", columns: [{ name: "id", data_type: "int" }] }])}
           selectedTable="isolated"
           unstyled={true}
         />
@@ -278,17 +281,17 @@ describe("React SDK 100% Coverage Suite", () => {
       const wideTable: TableSchema = {
         name: "wide_table",
         columns: [
-          { name: "c1", data_type: "int" },
-          { name: "c2", data_type: "text" },
-          { name: "c3", data_type: "text" },
-          { name: "c4", data_type: "text" },
-          { name: "c5", data_type: "text" },
-          { name: "c6", data_type: "text" },
+          { name: "c1", dataType: "int", data_type: "int" },
+          { name: "c2", dataType: "text", data_type: "text" },
+          { name: "c3", dataType: "text", data_type: "text" },
+          { name: "c4", dataType: "text", data_type: "text" },
+          { name: "c5", dataType: "text", data_type: "text" },
+          { name: "c6", dataType: "text", data_type: "text" },
         ],
       };
       render(
         <SchemaExplorer
-          schema={[wideTable]}
+          schema={legacy([wideTable])}
           selectedTable="wide_table"
           unstyled={true}
           onQuickQuery={() => {}}
@@ -305,11 +308,11 @@ describe("React SDK 100% Coverage Suite", () => {
         {
           name: "orders",
           columns: [
-            { name: "id", data_type: "int" },
-            { name: "user_id", data_type: "int" },
+            { name: "id", dataType: "int", data_type: "int" },
+            { name: "user_id", dataType: "int", data_type: "int" },
           ],
           foreign_keys: [
-            { table: "orders", column: "user_id", foreign_table: "users", foreign_column: "id" },
+            { table: "orders", column: "user_id", foreign_table: "users", foreign_column: "id", foreignTable: "users", foreignColumn: "id" },
           ],
         },
       ];
@@ -317,7 +320,7 @@ describe("React SDK 100% Coverage Suite", () => {
       // 1. Unstyled with search input typed and copy clicked
       const { rerender } = render(
         <SchemaExplorer
-          schema={fkSchema}
+          schema={legacy(fkSchema)}
           selectedTable="orders"
           unstyled={true}
           onOpenErd={() => {}}
@@ -338,7 +341,7 @@ describe("React SDK 100% Coverage Suite", () => {
       // 2. Styled mode with foreignKeys > 0 and onOpenErd
       rerender(
         <SchemaExplorer
-          schema={fkSchema}
+          schema={legacy(fkSchema)}
           selectedTable="orders"
           unstyled={false}
           onOpenErd={() => {}}
@@ -352,7 +355,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const edgeSchema: TableSchema[] = [
         {
           name: "blob_table",
-          columns: [{ name: "binary_payload", data_type: "blob" }],
+          columns: [{ name: "binary_payload", dataType: "blob", data_type: "blob" }],
         },
         {
           name: "empty_cols_table",
@@ -363,7 +366,7 @@ describe("React SDK 100% Coverage Suite", () => {
       // 1. Unknown data type color
       const { rerender } = render(
         <SchemaExplorer
-          schema={edgeSchema}
+          schema={legacy(edgeSchema)}
           selectedTable="blob_table"
         />
       );
@@ -372,7 +375,7 @@ describe("React SDK 100% Coverage Suite", () => {
       // 2. Empty columns table with Copy SQL -> evaluates '*' on line 194
       rerender(
         <SchemaExplorer
-          schema={edgeSchema}
+          schema={legacy(edgeSchema)}
           selectedTable="empty_cols_table"
         />
       );
@@ -407,27 +410,27 @@ describe("React SDK 100% Coverage Suite", () => {
           schema: "analytics",
           comment: "Contains customer orders",
           columns: [
-            { name: "id", data_type: "int", comment: "Primary identity key" },
-            { name: "c1", data_type: "text" },
-            { name: "c2", data_type: "text" },
-            { name: "c3", data_type: "text" },
-            { name: "c4", data_type: "text" },
-            { name: "c5", data_type: "text" },
+            { name: "id", dataType: "int", data_type: "int", comment: "Primary identity key" },
+            { name: "c1", dataType: "text", data_type: "text" },
+            { name: "c2", dataType: "text", data_type: "text" },
+            { name: "c3", dataType: "text", data_type: "text" },
+            { name: "c4", dataType: "text", data_type: "text" },
+            { name: "c5", dataType: "text", data_type: "text" },
           ],
         },
         {
           name: "users",
           schema: "public",
-          columns: [{ name: "id", data_type: "int" }],
+          columns: [{ name: "id", dataType: "int", data_type: "int" }],
         },
         {
           name: "analytics_summary",
-          columns: [{ name: "id", data_type: "int" }],
+          columns: [{ name: "id", dataType: "int", data_type: "int" }],
         },
       ];
 
       // 1. Render and filter by category (covers lines 126-130)
-      const { rerender } = render(<SchemaExplorer schema={catSchema} />);
+      const { rerender } = render(<SchemaExplorer schema={legacy(catSchema)} />);
       const analyticsBtn = screen.getByRole("button", { name: "analytics" });
       fireEvent.click(analyticsBtn);
       expect(screen.getAllByText("orders").length).toBeGreaterThan(0);
@@ -479,11 +482,11 @@ describe("React SDK 100% Coverage Suite", () => {
       });
 
       // 6. Theme variants & empty activeTable ERD callback (covers lines 41-42, 337)
-      rerender(<SchemaExplorer schema={catSchema} theme="light" />);
-      rerender(<SchemaExplorer schema={catSchema} theme="dark" />);
+      rerender(<SchemaExplorer schema={legacy(catSchema)} theme="light" />);
+      rerender(<SchemaExplorer schema={legacy(catSchema)} theme="dark" />);
 
       const erdSpy = vi.fn();
-      rerender(<SchemaExplorer schema={[]} onOpenErd={erdSpy} />);
+      rerender(<SchemaExplorer schema={legacy([])} onOpenErd={erdSpy} />);
       const erdBtn = screen.getByRole("button", { name: "View interactive ERD graph" });
       fireEvent.click(erdBtn);
       expect(erdSpy).toHaveBeenCalledWith("");
@@ -497,7 +500,7 @@ describe("React SDK 100% Coverage Suite", () => {
     const mockSchema: TableSchema[] = [
       {
         name: "customers",
-        columns: [{ name: "id", data_type: "integer", is_primary: true }],
+        columns: [{ name: "id", dataType: "integer", data_type: "integer", is_primary: true }],
       },
     ];
 
@@ -505,7 +508,7 @@ describe("React SDK 100% Coverage Suite", () => {
       render(
         <VisualQueryBuilder
           schema={mockSchema}
-          defaultTable="customers"
+         
         />
       );
 
@@ -540,7 +543,7 @@ describe("React SDK 100% Coverage Suite", () => {
       render(
         <VisualQueryBuilder
           schema={mockSchema}
-          defaultTable="customers"
+         
           showPlanTab={true}
           unstyled={true}
         />
@@ -555,20 +558,20 @@ describe("React SDK 100% Coverage Suite", () => {
         {
           name: "orders",
           columns: [
-            { name: "id", data_type: "integer", is_primary: true },
-            { name: "customer_id", data_type: "integer" },
+            { name: "id", dataType: "integer", data_type: "integer", is_primary: true },
+            { name: "customer_id", dataType: "integer", data_type: "integer" },
           ],
         },
         {
           name: "customers",
-          columns: [{ name: "id", data_type: "integer", is_primary: true }],
+          columns: [{ name: "id", dataType: "integer", data_type: "integer", is_primary: true }],
         },
       ];
 
       render(
         <VisualQueryBuilder
           schema={multiTableSchema}
-          defaultTable="orders"
+         
         />
       );
 
@@ -581,7 +584,7 @@ describe("React SDK 100% Coverage Suite", () => {
       render(
         <VisualQueryBuilder
           schema={mockSchema}
-          defaultTable="customers"
+         
         />
       );
       const exploreBtn = screen.getByLabelText(/open schema explorer/i);
@@ -623,7 +626,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const res2 = compileVisualState(
         "docs",
         {
-          "docs.title": { table: "docs", column: "title", name: "title" } as any,
+          "docs.title": invalid<VisualColumnSelect>({ table: "docs", column: "title", name: "title" }),
         },
         ["docs.title"],
         [],
@@ -679,8 +682,8 @@ describe("React SDK 100% Coverage Suite", () => {
           {
             id: "f1",
             column: "bio",
-            operator: "IS_EMPTY" as any,
-            value: null,
+            operator: "IS_EMPTY",
+            value: invalid<string>(null),
           },
         ],
         [],
@@ -693,7 +696,6 @@ describe("React SDK 100% Coverage Suite", () => {
           IS_EMPTY: {
             value: "IS EMPTY",
             label: "Is Empty",
-            symbol: "Ø",
             hasValue: false,
           },
         },
@@ -711,7 +713,7 @@ describe("React SDK 100% Coverage Suite", () => {
         },
       });
       expect(hybridPlan.node_type).toBe("Limit");
-      const hybridScan = (hybridPlan.children?.[0] as any)?.children?.[0];
+      const hybridScan = hybridPlan.children?.[0]?.children?.[0];
       expect(hybridScan?.node_type).toBe("Hybrid Search Merge");
 
       // 2. Vector search plan
@@ -719,7 +721,7 @@ describe("React SDK 100% Coverage Suite", () => {
         table: "articles",
         vector_search: { vector: [0.1, 0.2] },
       });
-      const vectorScan = (vectorPlan.children?.[0] as any)?.children?.[0];
+      const vectorScan = vectorPlan.children?.[0]?.children?.[0];
       expect(vectorScan?.node_type).toBe("KNN Scan");
 
       // 3. Filters plan (Seq Scan with warnings on line 671-680)
@@ -727,7 +729,7 @@ describe("React SDK 100% Coverage Suite", () => {
         table: "articles",
         filters: [{ column: "author_id", operator: "=", value: 10 }],
       });
-      const filterScan = (filterPlan.children?.[0] as any)?.children?.[0];
+      const filterScan = filterPlan.children?.[0]?.children?.[0];
       expect(filterScan?.warnings?.[0]).toContain("Sequential table scan");
 
       // 4. Joins plan (lines 692-710)
@@ -735,10 +737,10 @@ describe("React SDK 100% Coverage Suite", () => {
         table: "articles",
         joins: [
           { table: "authors", type: "INNER", on: [] },
-          { on: [] }, // falsy table and falsy type
+          invalid<LooseSpecJoin>({ on: [] }), // falsy table and falsy type
         ],
       });
-      const joinNode = (joinPlan.children?.[0] as any)?.children?.[0];
+      const joinNode = joinPlan.children?.[0]?.children?.[0];
       expect(joinNode?.node_type).toBe("LEFT Join");
     });
   });
@@ -756,14 +758,14 @@ describe("React SDK 100% Coverage Suite", () => {
         },
       ];
 
-      const norm1 = normalizeSchema(rawTables as any);
+      const norm1 = normalizeSchema(invalid<NormalizeInput>(rawTables));
       expect(norm1?.tables.data.columns[0].is_nullable).toBe(false);
       expect(norm1?.tables.data.columns[1].is_nullable).toBe(true);
       expect(norm1?.tables.data.columns[1].data_type).toBe("text");
       expect(norm1?.tables.data.columns[2].is_nullable).toBe(true);
       expect(norm1?.tables.data.columns[2].data_type).toBe("varchar");
 
-      const snap = toSchemaSnapshot(rawTables as any);
+      const snap = toSchemaSnapshot(invalid<TableSchema[]>(rawTables));
       expect(snap.tables.data.columns[0].is_nullable).toBe(false);
       expect(snap.tables.data.columns[1].is_nullable).toBe(true);
     });
@@ -773,8 +775,8 @@ describe("React SDK 100% Coverage Suite", () => {
       expect(normalizeDataType("custom_unknown_type")).toBe("custom_unknown_type");
 
       const malformed = [
-        null as any,
-        { name: "" } as any,
+        null,
+        { name: "" },
         {
           name: "valid_tbl",
           schema: "custom_schema",
@@ -790,23 +792,23 @@ describe("React SDK 100% Coverage Suite", () => {
         },
       ];
 
-      const norm = normalizeSchema(malformed as any);
+      const norm = normalizeSchema(invalid<NormalizeInput>(malformed));
       expect(norm?.tables.valid_tbl.schema).toBe("custom_schema");
       expect(norm?.tables.valid_tbl.columns[0].is_primary).toBe(true);
-      expect(norm?.foreign_keys.length).toBe(2);
+      expect(norm?.foreign_keys!.length).toBe(2);
 
-      const snap = toSchemaSnapshot(malformed as any);
+      const snap = toSchemaSnapshot(invalid<TableSchema[]>(malformed));
       expect(snap.tables.valid_tbl.schema).toBe("custom_schema");
       expect(snap.tables.valid_tbl.columns[0].is_primary).toBe(true);
-      expect(snap.foreign_keys.length).toBe(1);
+      expect(snap.foreign_keys!.length).toBe(1);
     });
 
     it("handles table without columns array in normalizeSchema and toSchemaSnapshot", () => {
       const tableWithoutCols = [{ name: "no_cols_table" }];
-      const norm = normalizeSchema(tableWithoutCols as any);
+      const norm = normalizeSchema(invalid<NormalizeInput>(tableWithoutCols));
       expect(norm?.tables.no_cols_table.columns).toEqual([]);
 
-      const snap = toSchemaSnapshot(tableWithoutCols as any);
+      const snap = toSchemaSnapshot(invalid<TableSchema[]>(tableWithoutCols));
       expect(snap.tables.no_cols_table.columns).toEqual([]);
     });
   });
@@ -863,7 +865,7 @@ describe("React SDK 100% Coverage Suite", () => {
       expect(fromArr.length).toBe(2);
       expect(fromArr[0].name).toBe("users");
       expect(fromArr[0].primaryKeys).toEqual(["id"]);
-      expect(fromArr[0].foreignKeys[0].foreignTable).toBe("roles");
+      expect(fromArr[0].foreignKeys![0].foreignTable).toBe("roles");
       expect(fromArr[0].enums?.status).toEqual(["active", "inactive"]);
 
       // 2. Single table object
@@ -901,7 +903,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const fromObj = fromDrizzle({ inferred_name: namelessTable });
       expect(fromObj.length).toBe(1);
       expect(fromObj[0].name).toBe("inferred_name");
-      expect(fromObj[0].foreignKeys.length).toBe(0);
+      expect(fromObj[0].foreignKeys!.length).toBe(0);
     });
 
     it("handles Drizzle composite PK with non-existent column, external table references, double-quoted defaults, and Symbol table names", () => {
@@ -939,7 +941,7 @@ describe("React SDK 100% Coverage Suite", () => {
       };
       const resSym = fromDrizzle(symTable);
       expect(resSym[0].name).toBe("sym_table");
-      expect(resSym[0].foreignKeys[0].foreignColumn).toBe("target_col");
+      expect(resSym[0].foreignKeys![0].foreignColumn).toBe("target_col");
     });
 
     it("exercises all Drizzle parsing edge cases, runtime shapes, and symbol properties", () => {
@@ -1046,7 +1048,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const tables = fromJsonSchema(schemaObj);
       expect(tables[0].columns.find((c) => c.name === "tag")?.dataType).toBe("text");
       expect(tables[0].columns.find((c) => c.name === "rawCustom")?.dataType).toBe("custom_geom");
-      const vendorFk = tables[0].foreignKeys.find((fk) => fk.column === "vendorId");
+      const vendorFk = tables[0].foreignKeys!.find((fk) => fk.column === "vendorId");
       expect(vendorFk?.foreignTable).toBe("vendors");
       expect(vendorFk?.foreignColumn).toBe("v_id");
     });
@@ -1066,7 +1068,7 @@ describe("React SDK 100% Coverage Suite", () => {
 
     it("handles null source, empty schema, missing prop types, array types, formats, and empty x-foreign-key", () => {
       // 1. null source
-      const fromNull = fromJsonSchema(null as any);
+      const fromNull = fromJsonSchema(invalid<Parameters<typeof fromJsonSchema>[0]>(null));
       expect(fromNull.length).toBe(0);
 
       // 2. empty schema definition with no properties
@@ -1107,8 +1109,8 @@ describe("React SDK 100% Coverage Suite", () => {
       expect(cols.find((c) => c.name === "fCol")?.dataType).toBe("float");
       expect(cols.find((c) => c.name === "noType")?.dataType).toBe("text");
       expect(cols.find((c) => c.name === "nullType")?.dataType).toBe("text");
-      expect(res[0].foreignKeys.some((fk) => fk.foreignColumn === "id")).toBe(true);
-      expect(res[0].foreignKeys.some((fk) => fk.foreignTable === "unknown")).toBe(true);
+      expect(res[0].foreignKeys!.some((fk) => fk.foreignColumn === "id")).toBe(true);
+      expect(res[0].foreignKeys!.some((fk) => fk.foreignTable === "unknown")).toBe(true);
     });
   });
 
@@ -1200,8 +1202,8 @@ describe("React SDK 100% Coverage Suite", () => {
       expect(tables.length).toBe(2);
       const user = tables.find((t) => t.name === "users");
       expect(user?.columns[0].default).toBe("autoincrement()");
-      expect(user?.foreignKeys[0].foreignTable).toBe("roles");
-      expect(user?.foreignKeys[0].foreignColumn).toBe("id");
+      expect(user?.foreignKeys![0].foreignTable).toBe("roles");
+      expect(user?.foreignKeys![0].foreignColumn).toBe("id");
       expect(user?.enums?.roleType).toEqual(["ADMIN", "USER"]);
     });
 
@@ -1242,7 +1244,7 @@ describe("React SDK 100% Coverage Suite", () => {
       const fromDmmfRes = fromPrisma(dmmfEdge, { defaultSchema: "custom_dmmf" });
       expect(fromDmmfRes[0].schema).toBe("custom_dmmf");
       const relTable = fromDmmfRes.find((t) => t.name === "RelationEdge");
-      expect(relTable?.foreignKeys[0].foreignTable).toBe("ExternalModel");
+      expect(relTable?.foreignKeys![0].foreignTable).toBe("ExternalModel");
       expect(relTable?.columns.find((c) => c.name === "extId")?.dataType).toBe("unsupportedtype");
 
       // 2. Prisma string code with invalid single word line and relation mapped by column name
@@ -1256,8 +1258,8 @@ describe("React SDK 100% Coverage Suite", () => {
       `;
       const fromStrRes = fromPrisma(prismaString);
       const post = fromStrRes.find((t) => t.name === "Post");
-      expect(post?.foreignKeys[0].foreignTable).toBe("User");
-      expect(post?.foreignKeys[0].column).toBe("author_col");
+      expect(post?.foreignKeys![0].foreignTable).toBe("User");
+      expect(post?.foreignKeys![0].column).toBe("author_col");
     });
   });
 
