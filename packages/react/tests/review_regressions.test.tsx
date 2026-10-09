@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, renderHook, act, waitFor } from "@testing-library/react";
 import { ThemeProvider, useTheme, lightTheme, useQueryBuilder, useStreamingQuery, useSqlCompiler } from "../src/index";
 import { parseSqlToSpec } from "../src/utils/sqlParser";
-import type { CteSpec, VisualQueryBuilderRef } from "../src/types";
+import type { CteSpec, LooseQuerySpec, VisualQueryBuilderRef } from "../src/types";
 import type { ThemeProviderProps } from "../src/theme/ThemeProvider";
 import { invalid, makeColumn, makeSnapshot, makeSpec, makeTable } from "./helpers";
 
@@ -195,15 +195,17 @@ describe("follow-up review regressions", () => {
   it("normalizes filter_join casing/whitespace and warns on unsupported values", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const schema = usersSchema([["id", "integer"]]);
-    const spec = (fj: string) => ({
-      table: "users",
-      columns: ["id"],
-      filters: [
-        { column: "id", operator: "=", value: 1 },
-        { column: "id", operator: "=", value: 2 },
-      ],
-      filter_join: fj,
-    });
+    // Arbitrary filter_join strings are deliberately off-type: runtime normalization is under test.
+    const spec = (fj: string) =>
+      invalid<LooseQuerySpec>({
+        table: "users",
+        columns: ["id"],
+        filters: [
+          { column: "id", operator: "=", value: 1 },
+          { column: "id", operator: "=", value: 2 },
+        ],
+        filter_join: fj,
+      });
     const or = renderHook(() => useSqlCompiler(spec(" or "), { schema }));
     expect(or.result.current.sql).toMatch(/\sOR\s/);
     expect(warn).not.toHaveBeenCalled();
