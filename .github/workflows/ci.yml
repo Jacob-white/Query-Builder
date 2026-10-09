@@ -52,6 +52,9 @@ jobs:
         run: ruff check .
       - name: Format check
         run: ruff format --check .
+      - name: Type check (mypy ratchet, see docs/TYPING.md)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: python -m mypy query_builder
       - name: Test with coverage
         run: python -m pytest -q --cov --cov-report=term-missing:skip-covered
 

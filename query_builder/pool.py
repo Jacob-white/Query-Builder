@@ -435,7 +435,9 @@ class ConnectionPoolManager:
             elif isinstance(target, dict):
                 from query_builder.connectors.registry import ConnectorRegistry
 
-                dialect_name = target.get("dialect", target.get("connector", "sqlite"))
+                dialect_name = str(
+                    target.get("dialect", target.get("connector", "sqlite"))
+                )
                 clean_target = {
                     k: v for k, v in target.items() if k not in ("dialect", "connector")
                 }

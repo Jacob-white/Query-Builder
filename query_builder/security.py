@@ -805,7 +805,7 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     filters, subqueries, group by, order by, and window functions.
     """
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore
+        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
     elif isinstance(spec, dict):
         spec_dict = spec
     else:
@@ -926,7 +926,7 @@ def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
     missing join conditions, or prohibited CROSS JOIN expressions.
     """
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore
+        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
     elif isinstance(spec, dict):
         spec_dict = spec
     else:

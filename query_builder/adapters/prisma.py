@@ -421,10 +421,9 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
 
             # Check foreign key
             fk: ForeignKey | None = None
-            if field_name in relation_map or col_name in relation_map:
-                tgt_tbl, tgt_col = relation_map.get(
-                    field_name, relation_map.get(col_name)
-                )  # type: ignore[arg-type]
+            relation = relation_map.get(field_name) or relation_map.get(col_name)
+            if relation is not None:
+                tgt_tbl, tgt_col = relation
                 fk = ForeignKey(
                     table=table_name,
                     column=col_name,

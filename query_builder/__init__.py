@@ -484,7 +484,9 @@ from query_builder.mcp_server import (
 from query_builder.middleware import (
     LifecycleInterceptor,
     MiddlewarePipeline,
-    QueryCancelledError,
+)
+from query_builder.middleware import (
+    QueryCancelledError as MiddlewareQueryCancelledError,
 )
 from query_builder.models import (
     CaseWhenBranch,
@@ -933,6 +935,7 @@ __all__ = [
     "QueryBuilderConfig",
     "QueryBuilderError",
     "QueryCancelledError",
+    "MiddlewareQueryCancelledError",
     "QueryCompiler",
     "QueryExecutionError",
     "QueryResult",
