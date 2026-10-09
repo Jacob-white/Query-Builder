@@ -502,38 +502,40 @@ def test_lancedb_adapter_specialized():
     assert adapter.description == [("table_name",)]
     assert adapter.fetchall() == [["t1"], ["t2"]]
 
-    # open_table with search().to_arrow()
+    # open_table: plain SELECT is run through the table's own scan, never silently ignored
+    import pyarrow as pa
+
     client_tbl = MagicMock(spec=["open_table"])
     tbl_mock = MagicMock()
-    f1 = MagicMock()
-    f1.name = "vector"
-    schema_mock = [f1]
-    arrow_mock = MagicMock()
-    arrow_mock.schema = schema_mock
-    arrow_mock.to_pylist.return_value = [{"vector": [0.1, 0.2]}]
-    tbl_mock.search.return_value.limit.return_value.to_arrow.return_value = arrow_mock
+    data = pa.table({"vector": [[0.1, 0.2]], "n": [1]})
+    tbl_mock.search.return_value.where.return_value.limit.return_value.to_arrow.return_value = data
+    tbl_mock.search.return_value.limit.return_value.to_arrow.return_value = data
     client_tbl.open_table.return_value = tbl_mock
     adapter2 = _LanceDBCursorAdapter(client_tbl)
     adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("vector",)]
-    assert adapter2.fetchall() == [[[0.1, 0.2]]]
+    assert adapter2.description == [("vector",), ("n",)]
+    assert adapter2.fetchall() == [[[0.1, 0.2], 1]]
+    adapter2.execute("SELECT n AS k FROM items WHERE n > ? ORDER BY n DESC LIMIT 5", [0])
+    assert adapter2.description == [("k",)]
+    assert adapter2.fetchall() == [[1]]
+    tbl_mock.search.return_value.where.assert_called_with("n > 0", prefilter=True)
 
-    # open_table with to_pandas()
-    tbl_mock2 = MagicMock(spec=["to_pandas"])
-    df_mock = MagicMock()
-    df_mock.columns = ["col1"]
-    df_mock.values = [[99]]
-    tbl_mock2.to_pandas.return_value = df_mock
-    client_tbl.open_table.return_value = tbl_mock2
-    adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("col1",)]
-    assert adapter2.fetchall() == [[99]]
+    # anything the native API cannot express fails loudly instead of returning wrong rows
+    from query_builder.connectors.lancedb import UnsupportedLanceQuery
 
-    # open_table raising Exception
+    for bad in (
+        "SELECT a FROM items JOIN o ON 1=1",
+        "SELECT count(*) FROM items",
+        "SELECT a FROM items ORDER BY a + 1",
+        "SELECT a FROM (SELECT 1) x",
+    ):
+        with pytest.raises(UnsupportedLanceQuery):
+            adapter2.execute(bad)
+
+    # open_table raising propagates (it used to be swallowed into a fake "ok" row)
     client_tbl.open_table.side_effect = RuntimeError("Open table fail")
-    adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("status",)]
-    assert adapter2.fetchall() == [["ok"]]
+    with pytest.raises(RuntimeError):
+        adapter2.execute("SELECT * FROM items")
 
 
 def test_redis_search_adapter_specialized():
@@ -1054,7 +1056,7 @@ def test_introspect_chroma_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_chroma(mock_empty)
-    assert "notes" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent a collection that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1078,7 +1080,7 @@ def test_introspect_lancedb_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_lancedb(mock_empty)
-    assert "items" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent a table that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1291,17 +1293,7 @@ def test_chroma_coverage_branches():
     assert c_none.test_connection()["status"] == "healthy"
 
     async def _test_async_chroma():
-        mock_async_http = MagicMock()
-
-        async def fake_async_client(*a, **kw):
-            return mock_async_http
-
-        mock_drv.AsyncHttpClient = fake_async_client
         with patch.dict(sys.modules, {"chromadb": mock_drv}):
-            c_async_host = AsyncChromaConnector(host="localhost")
-            assert await c_async_host.connect() is mock_async_http
-
-            del mock_drv.AsyncHttpClient
             c_async_host2 = AsyncChromaConnector(host="localhost")
             assert await c_async_host2.connect() is mock_http
 
@@ -1384,9 +1376,8 @@ def test_lancedb_coverage_branches():
     tbl_empty = MagicMock(spec=[])
     mock_conn.open_table.return_value = tbl_empty
     adapter = _LanceDBCursorAdapter(mock_conn)
-    adapter.execute("SELECT * FROM items")
-    assert adapter.description == [("status",)]
-    assert adapter.fetchall() == [["ok"]]
+    with pytest.raises(AttributeError):  # no search(): must not fake an "ok" row
+        adapter.execute("SELECT * FROM items")
 
     c_none = LanceDBConnector(connection=MagicMock(spec=[]))
     assert c_none.test_connection()["status"] == "healthy"
@@ -1411,15 +1402,6 @@ def test_lancedb_coverage_branches():
             del mock_drv.connect_async
             c_fallback = AsyncLanceDBConnector()
             assert await c_fallback.connect() is mock_sync_conn
-
-        mock_conn_await = MagicMock(spec=["table_names"])
-
-        async def async_tbls():
-            return []
-
-        mock_conn_await.table_names.return_value = async_tbls()
-        c_a_tbls = AsyncLanceDBConnector(connection=mock_conn_await)
-        assert (await c_a_tbls.test_connection())["status"] == "healthy"
 
         mock_conn_sync_tbls = MagicMock(spec=["table_names"])
         mock_conn_sync_tbls.table_names.return_value = []

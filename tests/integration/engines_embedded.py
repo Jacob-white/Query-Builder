@@ -273,10 +273,10 @@ def _kw_generic_psycopg(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
 
     if o.get("password"):  # the wrong-password test: the failure must surface in connect()
 
-        class _LazyEngine:
-            raw_connection = staticmethod(raw_connection)
+        from types import SimpleNamespace
 
-        return {"engine": _LazyEngine(), "dialect": "postgres"}
+        lazy = SimpleNamespace(raw_connection=raw_connection)
+        return {"engine": lazy, "dialect": "postgres"}
     return {"connection": raw_connection(), "dialect": "postgres"}
 
 
@@ -297,6 +297,264 @@ register(
         unsupported={
             "statement_timeout": "GenericDBAPIConnector does not set a statement timeout (driver-agnostic)",
             "db_read_only": "no separate read-only login is provisioned for the generic class",
+        },
+    )
+)
+
+
+# ------------------------------------------------------ LanceDB / ChromaDB (smoke engines)
+_DIRS: dict[str, str] = {}
+
+
+def _fresh_dir(name: str) -> str:
+    import shutil
+    import uuid
+
+    old = _DIRS.get(name)
+    if old:
+        shutil.rmtree(old, ignore_errors=True)
+    _SCRATCH.mkdir(parents=True, exist_ok=True)
+    path = str(_SCRATCH / f"qb_it_{name}_{uuid.uuid4().hex[:8]}")
+    _DIRS[name] = path
+    return path
+
+
+def _seed_lancedb(e: Engine) -> None:
+    import lancedb
+
+    from tests.integration import smoke
+
+    db = lancedb.connect(_fresh_dir("lancedb"))
+    db.create_table(
+        "qbit_people",
+        data=[
+            {"id": i, "name": n, "age": a, "vector": [float(i), 1.0]}
+            for i, n, a in smoke.PEOPLE
+        ],
+    )
+
+
+def _lancedb_count(e: Engine) -> list[dict[str, Any]]:
+    import lancedb
+
+    table = lancedb.connect(_DIRS["lancedb"]).open_table("qbit_people")
+    return [{"count": table.count_rows()}]
+
+
+def _seed_chroma(e: Engine) -> None:
+    import chromadb
+
+    from tests.integration import smoke
+
+    client = chromadb.PersistentClient(path=_fresh_dir("chroma"))
+    col = client.create_collection("qbit_people")
+    col.add(
+        ids=[str(i) for i, _, _ in smoke.PEOPLE],
+        documents=[n for _, n, _ in smoke.PEOPLE],
+        metadatas=[{"name": n, "age": a} for _, n, a in smoke.PEOPLE],
+        embeddings=[[float(i), 1.0] for i, _, _ in smoke.PEOPLE],
+    )
+
+
+def _chroma_count(e: Engine) -> list[dict[str, Any]]:
+    import chromadb
+
+    client = chromadb.PersistentClient(path=_DIRS["chroma"])
+    return [{"count": client.get_collection("qbit_people").count()}]
+
+
+def _register_vector_smoke() -> None:
+    from tests.integration import smoke
+
+    smoke.SMOKE["lancedb"] = smoke.Smoke(
+        seed=_seed_lancedb,
+        table="qbit_people",
+        columns={"id", "name", "age", "vector"},
+        read="SELECT name, age FROM qbit_people ORDER BY age",
+        expected=smoke.BY_AGE,
+        writes=smoke.SQL_WRITES,
+        check=_lancedb_count,
+    )
+    smoke.SMOKE["chroma"] = smoke.Smoke(
+        seed=_seed_chroma,
+        table="qbit_people",
+        columns={"id", "document", "name", "age"},
+        read="SELECT name, age FROM qbit_people WHERE age >= 28 ORDER BY age",
+        expected=smoke.BY_AGE,
+        writes=smoke.SQL_WRITES,
+        check=_chroma_count,
+    )
+
+
+_register_vector_smoke()
+
+register(
+    Engine(
+        name="lancedb",
+        connector="lancedb",
+        async_connector="async_lancedb",
+        tier="embedded",
+        family="",
+        drivers=("lancedb",),
+        pip="lancedb",
+        connector_factory=lambda e, o: {"uri": _DIRS["lancedb"]},
+        password="",
+    )
+)
+register(
+    Engine(
+        name="chroma",
+        connector="chroma",
+        async_connector="async_chroma",
+        tier="embedded",
+        family="",
+        drivers=("chromadb",),
+        pip="chromadb",
+        connector_factory=lambda e, o: {"path": _DIRS["chroma"]},
+        password="",
+    )
+)
+
+
+# ------------------------------------------------- Snowflake through the fakesnow emulator
+_FAKESNOW: dict[str, Any] = {}
+
+
+def _fakesnow_up() -> None:
+    """Patch snowflake.connector.connect to the DuckDB-backed emulator, once per process."""
+    if "ctx" in _FAKESNOW:
+        return
+    import atexit
+
+    import fakesnow
+
+    path = _fresh_dir("fakesnow")
+    Path(path).mkdir(parents=True, exist_ok=True)
+    ctx = fakesnow.patch(db_path=path)
+    ctx.__enter__()
+    _FAKESNOW["ctx"] = ctx
+    atexit.register(lambda: ctx.__exit__(None, None, None))
+
+
+class _SnowCursor:
+    """fakesnow does not implement ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS (an
+    emulator gap, the real service does): swallow exactly that statement, nothing else."""
+
+    def __init__(self, cur: Any) -> None:
+        self._cur = cur
+
+    def execute(self, sql: str, *a: Any, **kw: Any) -> Any:
+        if sql.strip().upper().startswith("ALTER SESSION SET STATEMENT_TIMEOUT"):
+            return self
+        self._cur.execute(sql, *a, **kw)
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._cur, name)
+
+    def __iter__(self) -> Any:
+        return iter(self._cur)
+
+
+class _SnowConn:
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def cursor(self) -> _SnowCursor:
+        return _SnowCursor(self._conn.cursor())
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
+
+
+def _snow_connect() -> Any:
+    _fakesnow_up()
+    import snowflake.connector
+
+    return snowflake.connector.connect(database="QB_IT", schema="PUBLIC")
+
+
+def _snow_statements() -> list[str]:
+    """The standard dataset with EVERY identifier quoted (Snowflake folds unquoted names to
+    upper case, while the compiler emits quoted lower-case names)."""
+    d, e, r, m = dataset.T_DEPT, dataset.T_EMP, dataset.T_RES, dataset.T_MIXED
+
+    def lit(v: Any) -> str:
+        if v is None:
+            return "NULL"
+        return str(v) if isinstance(v, int) else "'" + str(v).replace("'", "''") + "'"
+
+    stmts = [f'DROP TABLE IF EXISTS "{t}"' for t in (e, r, m, d)]
+    stmts += [
+        f'CREATE TABLE "{d}" ("id" INTEGER NOT NULL, "name" VARCHAR(100) NOT NULL, '
+        'PRIMARY KEY ("id"))',
+        f'CREATE TABLE "{e}" ("id" INTEGER NOT NULL, "name" VARCHAR(100) NOT NULL, '
+        '"dept_id" INTEGER, "salary" INTEGER NOT NULL, "age" INTEGER NOT NULL, '
+        '"email" VARCHAR(100), PRIMARY KEY ("id"), '
+        f'FOREIGN KEY ("dept_id") REFERENCES "{d}" ("id"))',
+        f'CREATE TABLE "{r}" ("id" INTEGER NOT NULL, "select" INTEGER NOT NULL, '
+        '"group" VARCHAR(100) NOT NULL, "order" INTEGER NOT NULL, '
+        '"MixedCase" VARCHAR(100) NOT NULL, '
+        f'"{dataset.UNICODE_COL}" VARCHAR(100) NOT NULL, PRIMARY KEY ("id"))',
+        f'CREATE TABLE "{m}" ("id" INTEGER NOT NULL, "val" VARCHAR(100) NOT NULL, '
+        'PRIMARY KEY ("id"))',
+    ]
+    stmts += [
+        f'INSERT INTO "{d}" ("id", "name") VALUES ({row[0]}, {lit(row[1])})'
+        for row in dataset.DEPARTMENTS
+    ]
+    stmts += [
+        f'INSERT INTO "{e}" ("id", "name", "dept_id", "salary", "age", "email") '
+        f"VALUES ({', '.join(lit(v) for v in row)})"
+        for row in dataset.EMPLOYEES
+    ]
+    cols = ", ".join(
+        f'"{c}"' for c in ("id", "select", "group", "order", "MixedCase", dataset.UNICODE_COL)
+    )
+    stmts += [
+        f'INSERT INTO "{r}" ({cols}) VALUES ({", ".join(lit(v) for v in row)})'
+        for row in dataset.RESERVED
+    ]
+    stmts.append(f"INSERT INTO \"{m}\" (\"id\", \"val\") VALUES (1, 'mixed')")
+    return stmts
+
+
+@dataclass
+class _SnowflakeEmulatedEngine(Engine):
+    def seed(self) -> None:
+        conn = _snow_connect()
+        try:
+            cur = conn.cursor()
+            for stmt in _snow_statements():
+                cur.execute(stmt)
+        finally:
+            conn.close()
+
+    def cleanup(self) -> None:
+        return None
+
+
+register(
+    _SnowflakeEmulatedEngine(
+        name="snowflake_fakesnow",
+        connector="snowflake",
+        tier="embedded",
+        family="pg",
+        drivers=("fakesnow", "snowflake.connector"),
+        pip="fakesnow snowflake-connector-python",
+        password="",
+        emulated=True,
+        connector_factory=lambda e, o: {"connection": _SnowConn(_snow_connect())},
+        native_factory=None,
+        unsupported={
+            "statement_timeout": "fakesnow does not implement STATEMENT_TIMEOUT or cancellation",
+            "introspect_fk": (
+                "fakesnow's SHOW IMPORTED KEYS returns the PRIMARY keys with swapped columns "
+                "(emulator bug): the connector's FK path follows the Snowflake docs but "
+                "is NOT live-verified"
+            ),
+            "db_read_only": "fakesnow has no roles/grants",
+            "case_sensitive_identifiers": "DuckDB (fakesnow) folds identifier case",
         },
     )
 )

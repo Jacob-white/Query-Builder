@@ -253,6 +253,10 @@ class SnowflakeDialect(BaseDialect):
     """Snowflake dialect."""
 
     name: str = "snowflake"
+    # '\\' is itself an escape character inside Snowflake string literals, so use a plain
+    # character as the LIKE escape and declare it.
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats Snowflake vector similarity expression."""

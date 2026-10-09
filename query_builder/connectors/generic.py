@@ -55,6 +55,24 @@ class GenericDBAPIConnector(BaseConnector):
             "GenericDBAPIConnector requires an explicit connection, cursor, or engine."
         )
 
+    @contextlib.contextmanager
+    def get_cursor(self) -> Any:
+        """Cursor that rolls back after a failed statement.
+
+        DB-API connections are non-autocommit by default; on PostgreSQL-style engines one
+        failed statement otherwise leaves the transaction aborted and EVERY later query on
+        the connection fails ("current transaction is aborted").
+        """
+        try:
+            with super().get_cursor() as cur:
+                yield cur
+        except Exception:
+            conn = self._connection
+            if conn is not None and hasattr(conn, "rollback"):
+                with contextlib.suppress(Exception):
+                    conn.rollback()
+            raise
+
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         version = self._probe_engine_version()
