@@ -104,9 +104,9 @@ services:
           - name: qbit
             interval: 2s
             rules:
-              - {record: qbit_people_age, expr: 'label_replace(vector(30), "name", "alice", "", "")'}
-              - {record: qbit_people_age, expr: 'label_replace(vector(45), "name", "bob", "", "")'}
-              - {record: qbit_people_age, expr: 'label_replace(vector(28), "name", "carol", "", "")'}
+              - {record: qbit_people_age, expr: 'label_replace(label_replace(vector(30), "name", "alice", "", ""), "age", "30", "", "")'}
+              - {record: qbit_people_age, expr: 'label_replace(label_replace(vector(45), "name", "bob", "", ""), "age", "45", "", "")'}
+              - {record: qbit_people_age, expr: 'label_replace(label_replace(vector(28), "name", "carol", "", ""), "age", "28", "", "")'}
         EOF
         exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus
     ports: ["127.0.0.1:${QB_IT_PORT_PROMETHEUS:-44090}:9090"]
