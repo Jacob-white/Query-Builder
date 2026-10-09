@@ -14,7 +14,9 @@ import { CalculatedFieldEditor } from "../src/components/CalculatedFieldEditor";
 import { VisualQueryBuilder, type VisualQueryBuilderRef } from "../src/components/VisualQueryBuilder";
 import { parseSqlToSpec } from "../src/utils/sqlParser";
 import { estimateClientPlan } from "../src/utils/compiler";
-import type { SchemaSnapshot, SqlDialect } from "../src/types";
+import type { HybridSearchSpec, SchemaSnapshot, SqlDialect, VectorSearchSpec } from "../src/types";
+import { invalid } from "./helpers";
+import { makeCanvasProps } from "./helpers/canvas";
 
 describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
   const sampleSchema: SchemaSnapshot = {
@@ -22,25 +24,19 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
       users: {
         name: "users",
         columns: [
-          { name: "id", type: "integer", nullable: false },
-          { name: "name", type: "varchar", nullable: true },
-          { name: "department", type: "varchar", nullable: true },
-          { name: "embedding", type: "vector", nullable: true },
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "name", data_type: "varchar", is_nullable: true, is_primary: false },
+          { name: "department", data_type: "varchar", is_nullable: true, is_primary: false },
+          { name: "embedding", data_type: "vector", is_nullable: true, is_primary: false },
         ],
-        primaryKey: ["id"],
-        foreignKeys: [],
       },
       orders: {
         name: "orders",
         columns: [
-          { name: "id", type: "integer", nullable: false },
-          { name: "user_id", type: "integer", nullable: false },
-          { name: "amount", type: "numeric", nullable: false },
-          { name: "created_at", type: "timestamp", nullable: false },
-        ],
-        primaryKey: ["id"],
-        foreignKeys: [
-          { column: "user_id", targetTable: "users", targetColumn: "id" },
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "amount", data_type: "numeric", is_nullable: false, is_primary: false },
+          { name: "created_at", data_type: "timestamp", is_nullable: false, is_primary: false },
         ],
       },
     },
@@ -383,25 +379,25 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
 
       // Set Vector Search dynamically
       act(() => {
-        result.current.actions.setVectorSearch?.({
+        result.current.actions.setVectorSearch?.(invalid<VectorSearchSpec>({
           column: "embedding",
           vector: [0.1, 0.2, 0.3],
           metric: "l2",
           topK: 5,
           include_distances: true,
-        });
+        }));
       });
 
       expect(result.current.compiled.sql).toContain('"_distance"');
 
       // Verify hybrid search spec and query plan node estimation
       act(() => {
-        result.current.actions.setHybridSearch?.({
+        result.current.actions.setHybridSearch?.(invalid<HybridSearchSpec>({
           vector: [0.1, 0.2, 0.3],
           query_text: "finance director",
           vector_weight: 0.7,
           text_weight: 0.3,
-        });
+        }));
       });
 
       expect(result.current.state.hybridSearch?.query_text).toBe("finance director");
@@ -511,7 +507,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         body: mockStream,
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete, onBatch }),
@@ -551,7 +547,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         body: mockStream,
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete, onBatch }),
@@ -579,7 +575,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         body: mockStream,
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete }),
@@ -613,7 +609,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
         return Promise.resolve({
           ok: true,
           body: mockStream,
-        } as any);
+        } as unknown as Response);
       });
 
       const { result } = renderHook(() =>
@@ -664,7 +660,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         body: mockStream,
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete, onError }),
@@ -689,7 +685,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
         ok: false,
         status: 500,
         json: vi.fn().mockResolvedValue({ error: { message: "Internal server error" } }),
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete, onError }),
@@ -812,7 +808,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
           isOpen={true}
           onClose={onClose}
           onSave={() => {}}
-          tables={[{ name: "users", columns: [{ name: "id", type: "int" }] }]}
+          tables={[{ name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] }]}
         />,
       );
 
@@ -887,7 +883,7 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
               direction: "DESC",
             },
           ]}
-          activeTables={[{ name: "users", columns: [{ name: "id", type: "int" }] }]}
+          activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] }]}
           onChange={() => {}}
         />,
       );
@@ -900,9 +896,10 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
 
       render(
         <QueryCanvas
+          {...makeCanvasProps()}
           schema={sampleSchema}
           primaryTable="users"
-          activeTables={[{ name: "users", columns: [{ name: "id", type: "int" }] }]}
+          activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] }]}
           selectedColumns={{ "users.id": { table: "users", name: "id" } }}
           orderedProjectionKeys={["users.id"]}
           joins={[]}
@@ -913,7 +910,6 @@ describe("Milestone 2: Empirical Adversarial Stress Test Suite", () => {
           onReorderProjections={() => {}}
           onLimitChange={() => {}}
           onAddTableToCanvas={() => {}}
-          onRemoveTableFromCanvas={() => {}}
         />,
       );
 

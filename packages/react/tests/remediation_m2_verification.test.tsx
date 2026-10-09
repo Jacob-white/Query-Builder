@@ -12,8 +12,10 @@ import { QueryCanvas } from "../src/components/QueryCanvas";
 import { WindowFunctionBuilder } from "../src/components/WindowFunctionBuilder";
 import { CalculatedFieldEditor } from "../src/components/CalculatedFieldEditor";
 import { parseSqlToSpec } from "../src/utils/sqlParser";
+import { invalid, makeSpec } from "./helpers";
+import { makeCanvasProps } from "./helpers/canvas";
 import { VisualQueryBuilder, type VisualQueryBuilderRef } from "../src/components/VisualQueryBuilder";
-import type { SchemaSnapshot } from "../src/types";
+import type { CteSpec, SchemaSnapshot } from "../src/types";
 
 describe("Milestone 2 Remediations Verification", () => {
   const sampleSchema: SchemaSnapshot = {
@@ -21,27 +23,17 @@ describe("Milestone 2 Remediations Verification", () => {
       users: {
         name: "users",
         columns: [
-          { name: "id", type: "integer", nullable: false },
-          { name: "name", type: "varchar", nullable: true },
-          { name: "embedding", type: "vector", nullable: true },
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "name", data_type: "varchar", is_nullable: true, is_primary: false },
+          { name: "embedding", data_type: "vector", is_nullable: true, is_primary: false },
         ],
-        primaryKey: ["id"],
-        foreignKeys: [],
       },
       orders: {
         name: "orders",
         columns: [
-          { name: "id", type: "integer", nullable: false },
-          { name: "user_id", type: "integer", nullable: false },
-          { name: "amount", type: "numeric", nullable: false },
-        ],
-        primaryKey: ["id"],
-        foreignKeys: [
-          {
-            column: "user_id",
-            targetTable: "users",
-            targetColumn: "id",
-          },
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          { name: "amount", data_type: "numeric", is_nullable: false, is_primary: false },
         ],
       },
     },
@@ -93,7 +85,7 @@ describe("Milestone 2 Remediations Verification", () => {
           ctes: [
             {
               name: "v_active",
-              query: "SELECT id FROM users",
+              query: invalid<CteSpec["query"]>("SELECT id FROM users"), // legacy string form: deliberately off-type
             },
           ],
           windowFunctions: [
@@ -137,12 +129,10 @@ describe("Milestone 2 Remediations Verification", () => {
 
       // Imperatively set spec -> should reset isRawMode to false
       act(() => {
-        ref.current?.setSpec({
+        ref.current?.setSpec(makeSpec({
           table: "users",
           columns: ["users.id", "users.name"],
-          joins: [],
-          filters: [],
-        });
+        }));
       });
 
       // Now currentSql reflects compiled SQL, not stale raw SQL
@@ -223,7 +213,7 @@ describe("Milestone 2 Remediations Verification", () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         body: mockStream,
-      } as any);
+      } as unknown as Response);
 
       const { result } = renderHook(() =>
         useStreamingQuery(undefined, { onComplete }),
@@ -320,7 +310,7 @@ describe("Milestone 2 Remediations Verification", () => {
           activeTables={[
             {
               name: "users",
-              columns: [{ name: "id", type: "int" }],
+              columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }],
             },
           ]}
           onChange={() => {}}
@@ -336,9 +326,10 @@ describe("Milestone 2 Remediations Verification", () => {
     it("renders aria-labels on QueryCanvas controls", () => {
       render(
         <QueryCanvas
+          {...makeCanvasProps()}
           schema={sampleSchema}
           primaryTable="users"
-          activeTables={[{ name: "users", columns: [{ name: "id", type: "int" }] }]}
+          activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] }]}
           selectedColumns={{ "users.id": { table: "users", name: "id" } }}
           orderedProjectionKeys={["users.id"]}
           joins={[]}
@@ -349,7 +340,6 @@ describe("Milestone 2 Remediations Verification", () => {
           onReorderProjections={() => {}}
           onLimitChange={() => {}}
           onAddTableToCanvas={() => {}}
-          onRemoveTableFromCanvas={() => {}}
         />,
       );
 
@@ -380,7 +370,7 @@ describe("Milestone 2 Remediations Verification", () => {
           isOpen={true}
           onClose={onClose}
           onSave={() => {}}
-          tables={[{ name: "users", columns: [{ name: "id", type: "int" }] }]}
+          tables={[{ name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] }]}
         />,
       );
 
