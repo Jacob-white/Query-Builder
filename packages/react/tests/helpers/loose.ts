@@ -1,3 +1,5 @@
+import type { ComponentType } from "react";
+
 /**
  * Deliberately-incomplete fixtures.
  *
@@ -17,6 +19,16 @@ export function loose<T>(value: Partial<T>): T {
  */
 export function asMock<T>(mock: { [K in keyof T]?: unknown }): T {
   return mock as T;
+}
+
+/**
+ * A component that accepts any subset of its props plus arbitrary extras, for tests that render
+ * a component with required props omitted (or legacy/unknown props) to exercise runtime defaults.
+ */
+export function partialProps<P>(
+  component: ComponentType<P>,
+): ComponentType<Partial<P> & Record<string, unknown>> {
+  return component as unknown as ComponentType<Partial<P> & Record<string, unknown>>;
 }
 
 /**
