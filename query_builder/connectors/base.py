@@ -17,12 +17,13 @@ import time
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from typing import Any, Self
+from typing import Any, NoReturn, Self
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig, get_security_config
 from query_builder.dialects import BaseDialect, get_dialect
+from query_builder.exceptions import QueryBuilderError
 from query_builder.executor import execute_cursor_query
 from query_builder.middleware import (
     LifecycleInterceptor,
@@ -62,6 +63,56 @@ class IntrospectionError(ConnectorError):
     """Raised when schema introspection cannot complete successfully."""
 
 
+_PASSTHROUGH_ERRORS: tuple[type[BaseException], ...] = (
+    ConnectorError,
+    QueryBuilderError,
+    ValueError,
+    TypeError,
+    KeyError,
+    TimeoutError,
+    NotImplementedError,
+)
+
+
+def as_connector_error(exc: Exception) -> Exception:
+    """Map an unexpected driver exception onto :class:`QueryExecutionError`.
+
+    Our own error families (and plain argument/validation errors) pass through
+    unchanged; anything else is a vendor exception and is wrapped, chained with
+    ``from exc`` so the original stays available as ``__cause__``.
+    """
+    if isinstance(exc, _PASSTHROUGH_ERRORS):
+        return exc
+    message = f"{type(exc).__name__}: {exc}"
+    wrapped: Exception
+    try:
+        # Also an instance of the vendor class, so existing ``except sqlite3.Error`` /
+        # ``except psycopg.Error`` handlers keep working alongside ``except ConnectorError``.
+        wrapped = _compat_class(type(exc)).__new__(_compat_class(type(exc)))
+        BaseException.__init__(wrapped, message)
+    except TypeError:
+        wrapped = QueryExecutionError(message)
+    wrapped.__cause__ = exc
+    return wrapped
+
+
+@functools.lru_cache(maxsize=256)
+def _compat_class(vendor: type[BaseException]) -> type[QueryExecutionError]:
+    return type(  # type: ignore[return-value]
+        f"QueryExecutionError[{vendor.__name__}]",
+        (QueryExecutionError, vendor),
+        {"__module__": QueryExecutionError.__module__},
+    )
+
+
+def raise_mapped(exc: Exception) -> NoReturn:
+    """Re-raise ``exc`` unchanged if it is ours, else as a chained ``QueryExecutionError``."""
+    mapped = as_connector_error(exc)
+    if mapped is exc:
+        raise exc
+    raise mapped from exc
+
+
 class BaseConnector(ABC):
     """
     Abstract base database connector providing standardized query compilation,
@@ -80,6 +131,22 @@ class BaseConnector(ABC):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        if "execute_raw" in cls.__dict__:
+            orig_raw = cls.execute_raw
+            if not getattr(orig_raw, "_error_mapped", False):
+
+                @functools.wraps(orig_raw)
+                def mapped_execute_raw(self: Any, *args: Any, **kw: Any) -> Any:
+                    try:
+                        return orig_raw(self, *args, **kw)
+                    except Exception as exc:
+                        mapped = as_connector_error(exc)
+                        if mapped is exc:
+                            raise
+                        raise mapped from exc
+
+                mapped_execute_raw._error_mapped = True  # type: ignore[attr-defined]
+                cls.execute_raw = mapped_execute_raw  # type: ignore[method-assign]
         if "connect" in cls.__dict__:
             orig_connect = cls.connect
             if not getattr(orig_connect, "_security_wrapped", False):
@@ -406,8 +473,14 @@ class BaseConnector(ABC):
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         """Executes a raw SQL statement against a cursor and maps rows to dicts."""
-        with self.get_cursor() as cur:
-            return execute_cursor_query(cur, sql, params)
+        try:
+            with self.get_cursor() as cur:
+                return execute_cursor_query(cur, sql, params)
+        except Exception as exc:
+            mapped = as_connector_error(exc)
+            if mapped is exc:
+                raise
+            raise mapped from exc
 
     def execute(
         self,
@@ -514,11 +587,14 @@ class BaseConnector(ABC):
                 if short_circuited:
                     return pipeline.run_post_execute(result_or_plan, ctx)
 
-                with self.get_cursor() as cur:
-                    self.apply_statement_timeout(cur, timeout)
-                    col_names, dict_rows, latency_ms = execute_cursor_query(
-                        cur, main_sql, main_params
-                    )
+                try:
+                    with self.get_cursor() as cur:
+                        self.apply_statement_timeout(cur, timeout)
+                        col_names, dict_rows, latency_ms = execute_cursor_query(
+                            cur, main_sql, main_params
+                        )
+                except Exception as db_exc:
+                    raise_mapped(db_exc)
                 total_count = len(dict_rows)
             else:
                 if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
@@ -623,21 +699,24 @@ class BaseConnector(ABC):
                 if short_circuited:
                     return pipeline.run_post_execute(result_or_plan, ctx)
 
-                with self.get_cursor() as cur:
-                    self.apply_statement_timeout(cur, timeout)
+                try:
+                    with self.get_cursor() as cur:
+                        self.apply_statement_timeout(cur, timeout)
 
-                    if count_params:
-                        cur.execute(count_sql, count_params)
-                    else:
-                        cur.execute(count_sql)
-                    count_row = cur.fetchone()
-                    total_count = (
-                        count_row[0] if (count_row and len(count_row) > 0) else 0
-                    )
+                        if count_params:
+                            cur.execute(count_sql, count_params)
+                        else:
+                            cur.execute(count_sql)
+                        count_row = cur.fetchone()
+                        total_count = (
+                            count_row[0] if (count_row and len(count_row) > 0) else 0
+                        )
 
-                    col_names, dict_rows, latency_ms = execute_cursor_query(
-                        cur, main_sql, main_params
-                    )
+                        col_names, dict_rows, latency_ms = execute_cursor_query(
+                            cur, main_sql, main_params
+                        )
+                except Exception as db_exc:
+                    raise_mapped(db_exc)
 
             limit = int(compiled_spec.get("limit", 50))
             offset = int(compiled_spec.get("offset", 0))

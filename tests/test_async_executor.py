@@ -13,7 +13,7 @@ import pytest
 
 from query_builder.compiler import CompilationError
 from query_builder.connectors.async_base import AsyncBaseConnector
-from query_builder.connectors.base import BaseConnector
+from query_builder.connectors.base import BaseConnector, QueryExecutionError
 from query_builder.dialects import BaseDialect
 from query_builder.exceptions import SecurityError
 from query_builder.executor import async_execute
@@ -278,7 +278,7 @@ def test_async_base_connector_middleware_error_hook():
                 raise RuntimeError("Database execution error")
 
         conn = FailingAsyncConnector(middleware=[ErrorInterceptor()])
-        with pytest.raises(RuntimeError, match="Database execution error"):
+        with pytest.raises(QueryExecutionError, match="Database execution error"):
             await conn.execute({"table": "users"})
 
         assert len(errors) == 1

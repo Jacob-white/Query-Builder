@@ -9,6 +9,13 @@
 - **Node 22.22.2+ required** for the React package's toolchain (`jsdom@30` / `undici@8`).
 - **React public types tightened** where `any` was removed; see `packages/react/CHANGELOG.md`.
 - `RedisQueryCache(socket_timeout=...)` (never released) is now `connect_timeout` / `command_timeout`.
+- **Database errors from `execute()` / `execute_raw()` are now `QueryExecutionError`** (a
+  `ConnectorError`) instead of the raw vendor exception. Backward compatible by design: the raised
+  object is *also* an instance of the original driver class (e.g. `sqlite3.OperationalError`,
+  `psycopg.Error`), so existing `except <driver error>` handlers keep working, and the original
+  is kept as `__cause__`. Falls back to a plain `QueryExecutionError` if the driver class cannot
+  be combined. `SecurityError`, `CompilationError`, `ValueError`, `TimeoutError` and middleware
+  errors still pass through unchanged. Code that checks `type(exc) is ...` is affected.
 
 ### Packaging (breaking for install commands)
 - Optional extras rebuilt (`pyproject.toml`): `mysql` now installs pure-Python `pymysql` (the C

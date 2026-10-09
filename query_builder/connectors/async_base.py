@@ -21,7 +21,7 @@ from typing import Any, Self
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig, get_security_config
-from query_builder.connectors.base import ConnectionFailedError
+from query_builder.connectors.base import ConnectionFailedError, as_connector_error
 from query_builder.dialects import BaseDialect, get_dialect
 from query_builder.middleware import (
     LifecycleInterceptor,
@@ -55,6 +55,22 @@ class AsyncBaseConnector(ABC):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        if "execute_raw" in cls.__dict__:
+            orig_raw = cls.execute_raw
+            if not getattr(orig_raw, "_error_mapped", False):
+
+                @functools.wraps(orig_raw)
+                async def mapped_execute_raw(self: Any, *args: Any, **kw: Any) -> Any:
+                    try:
+                        return await orig_raw(self, *args, **kw)
+                    except Exception as exc:
+                        mapped = as_connector_error(exc)
+                        if mapped is exc:
+                            raise
+                        raise mapped from exc
+
+                mapped_execute_raw._error_mapped = True  # type: ignore[attr-defined]
+                cls.execute_raw = mapped_execute_raw  # type: ignore[method-assign]
         if "connect" in cls.__dict__:
             orig_connect = cls.connect
             if not getattr(orig_connect, "_security_wrapped", False):

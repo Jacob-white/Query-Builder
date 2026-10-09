@@ -282,30 +282,10 @@ def test_wrong_password_error_never_leaks_the_password(engine: Engine) -> None:
     bad.close()
 
 
-#: Defects found by the error_mapping battery and REPORTED, not fixed here: the connector lets
-#: the vendor driver's exception escape instead of wrapping it in the ConnectorError family.
-#: They run as strict xfails (flip to failures once fixed; never count towards `certified`).
-#: Engines not listed run the checks for real and fail if they leak.
-RAW_ERROR_LEAKS: dict[str, str] = {
-    "postgres": "psycopg.errors.* escape PostgresConnector.execute unwrapped",
-    "sqlite": "sqlite3.OperationalError escapes SQLiteConnector.execute unwrapped",
-    "duckdb": "duckdb.BinderException/ParserException escape DuckDBConnector.execute unwrapped",
-}
-
-
-def _known_raw_leak(request: pytest.FixtureRequest, engine: Engine) -> None:
-    reason = RAW_ERROR_LEAKS.get(engine.name)
-    if reason:
-        request.applymarker(
-            pytest.mark.xfail(reason=f"known issue, reported: {reason}", strict=True)
-        )
-
-
 @cat("error_mapping")
 def test_unknown_table_fails_cleanly(
     request: pytest.FixtureRequest, conn: Any, engine: Engine
 ) -> None:
-    _known_raw_leak(request, engine)
     with pytest.raises(Exception) as err:  # noqa: PT011
         conn.execute(
             spec={"table": "qbit_no_such_table", "columns": ["id"], "limit": 5}
@@ -328,7 +308,6 @@ def test_bad_native_sql_maps_to_the_connector_error_family(
 ) -> None:
     """A database error must surface as the library's error family, never a raw driver
     exception (``psycopg.Error``, ``sqlite3.OperationalError``, ...)."""
-    _known_raw_leak(request, engine)
     with pytest.raises(Exception) as err:  # noqa: PT011
         conn.execute(sql=sql, validate_ast=False)
     assert_mapped_error(err.value)
