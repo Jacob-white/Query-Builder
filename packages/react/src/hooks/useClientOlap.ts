@@ -34,23 +34,24 @@ export interface UseClientOlapResult {
 
 export function useClientOlap(config?: DuckDBDriverConfig): UseClientOlapResult {
   const engine = useMemo(() => getClientOlapEngine(config), [config]);
-  const [tables, setTables] = useState<Record<string, DuckDBTableMeta>>(() => ({ ...engine.tables }));
+  // `tables` and the schema snapshot derived from them are captured together on every sync so the
+  // snapshot can never lag behind (or run ahead of) the table list it describes.
+  const [{ tables, schemaSnapshot }, setCatalog] = useState<{
+    tables: Record<string, DuckDBTableMeta>;
+    schemaSnapshot: SchemaSnapshot;
+  }>(() => ({ tables: { ...engine.tables }, schemaSnapshot: engine.getSchemaSnapshot() }));
   const [activeTable, setActiveTableState] = useState<string | undefined>(engine.activeTable);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const syncState = useCallback(() => {
-    setTables({ ...engine.tables });
+    setCatalog({ tables: { ...engine.tables }, schemaSnapshot: engine.getSchemaSnapshot() });
     setActiveTableState(engine.activeTable);
   }, [engine]);
 
   useEffect(() => {
     syncState();
   }, [syncState]);
-
-  const schemaSnapshot = useMemo<SchemaSnapshot>(() => {
-    return engine.getSchemaSnapshot();
-  }, [engine, tables]);
 
   const ingestFile = useCallback(
     async (file: File, tableName?: string): Promise<DuckDBTableMeta> => {

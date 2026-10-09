@@ -147,7 +147,7 @@ export class FluentQuery {
   join(
     table: string,
     leftCol: string,
-    op: string = "=",
+    _op: string = "=",
     rightCol: string = "id",
     type: string = "LEFT JOIN",
   ): this {
