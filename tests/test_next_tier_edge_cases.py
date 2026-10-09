@@ -683,8 +683,9 @@ def test_introspection_missing_branches():
     assert cols_taos[0]["name"] == "ts" and cols_taos[0]["is_primary"] is True
 
     # 3. SurrealDB: cur.fetchone() returning None
-    mock_surreal_empty = MagicMock(spec=["execute", "fetchone"])
-    mock_surreal_empty.fetchone.return_value = None
+    mock_surreal_empty = MagicMock(spec=["execute", "fetchall", "description"])
+    mock_surreal_empty.description = []
+    mock_surreal_empty.fetchall.return_value = []
     snap_surreal_empty = introspect_surrealdb(mock_surreal_empty)
     assert snap_surreal_empty["tables"] == {}
 
@@ -754,7 +755,8 @@ def test_cursor_close_and_introspection_final_branches():
         assert asyncio.run(async_conn.connect()) is mock_driver_no_connect
 
     # Introspection empty objects
-    assert introspect_surrealdb(object())["tables"] == {}
+    with pytest.raises(IntrospectionError):  # not a client/cursor: fail, never "no tables"
+        introspect_surrealdb(object())
     assert introspect_arangodb(object())["tables"] == {}
 
     mock_cur_empty = MagicMock(spec=["execute", "fetchall"])

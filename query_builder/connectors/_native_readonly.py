@@ -38,7 +38,8 @@ _WORD = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 _RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "aql": (
-        frozenset({"FOR", "RETURN", "LET", "WITH"}),
+        # SELECT is not AQL; it is allowed through so the ENGINE reports the syntax error
+        frozenset({"FOR", "RETURN", "LET", "WITH", "SELECT"}),
         frozenset({"INSERT", "UPDATE", "REPLACE", "REMOVE", "UPSERT"}),
     ),
     "surrealql": (

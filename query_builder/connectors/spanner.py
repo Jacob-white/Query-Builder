@@ -20,6 +20,7 @@ class SpannerConnector(BaseConnector):
     """Connector for Google Cloud Spanner."""
 
     dialect_name = "spanner"
+    read_only_support = "enforced"
 
     def __init__(
         self,
@@ -46,9 +47,10 @@ class SpannerConnector(BaseConnector):
             ) from err
 
         try:
+            # spanner_dbapi.connect(instance_id, database_id, project=..., credentials=...)
             self._connection = connect(
-                instance=self.instance_id,
-                database=self.database_id,
+                self.instance_id,
+                self.database_id,
                 **self.config,
             )
             return self._connection
@@ -56,6 +58,10 @@ class SpannerConnector(BaseConnector):
             raise ConnectionFailedError(
                 f"Failed to connect to Google Cloud Spanner: {exc}"
             ) from exc
+
+    def apply_read_only(self, connection: Any) -> None:
+        """Spanner DB-API read-only connections use read-only snapshot transactions."""
+        connection.read_only = True
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
