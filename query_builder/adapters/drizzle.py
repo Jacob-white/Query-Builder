@@ -390,9 +390,9 @@ def from_drizzle(source: str | dict[str, Any]) -> SchemaDict:
         # Parse column definitions inside columns_block
         # e.g.: id: serial('id').primaryKey(),
         # userId: integer('user_id').references(() => users.id).notNull(),
-        col_lines = []
+        col_lines: list[str] = []
         # Split by comma or newline while respecting parentheses
-        current = []
+        current: list[str] = []
         paren_depth = 0
         for char in columns_block:
             if char in "({[":

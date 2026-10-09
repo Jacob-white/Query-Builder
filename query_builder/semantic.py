@@ -315,7 +315,7 @@ def parse_simple_yaml_or_json(content: str) -> dict[str, Any]:
 
     # Try importing PyYAML or PySyck if available
     try:
-        import yaml  # type: ignore
+        import yaml
 
         parsed = yaml.safe_load(content)
         if isinstance(parsed, dict):

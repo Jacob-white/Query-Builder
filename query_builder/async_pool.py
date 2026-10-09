@@ -62,7 +62,7 @@ class AsyncCancellationToken:
             try:
                 res = callback()
                 if inspect.isawaitable(res):
-                    asyncio.create_task(res)
+                    asyncio.ensure_future(res)
             except Exception:  # noqa: BLE001, S110
                 pass
         else:
