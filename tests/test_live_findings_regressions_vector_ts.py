@@ -604,19 +604,7 @@ def _filter_modules() -> dict[str, Any]:
         def all_of(parts: list[Any]) -> Any:
             return ("all", parts)
 
-    class Sort:
-        def __init__(self, items: list[Any]) -> None:
-            self.items = items
-
-        @classmethod
-        def by_property(cls, name: str, ascending: bool = True) -> Sort:
-            return cls([(name, ascending)])
-
-        def by_property_chain(self) -> None:  # pragma: no cover
-            pass
-
-    Sort.by_property.__func__  # classmethod access check
-    q = types.ModuleType("weaviate.classes.query")
+    q =types.ModuleType("weaviate.classes.query")
     q.Filter = Filter  # type: ignore[attr-defined]
     q.Sort = type(
         "Sort",
