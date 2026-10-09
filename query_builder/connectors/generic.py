@@ -82,9 +82,7 @@ class GenericDBAPIConnector(BaseConnector):
                         conn.rollback()
         # fall back to the DB-API driver module's own version
         root = type(self._connection).__module__.split(".")[0] if self._connection else ""
-        ver = getattr(sys.modules.get(root), "__version__", None) or getattr(
-            sys.modules.get(root), "version", None
-        )
+        ver = getattr(sys.modules.get(root), "__version__", None)
         return f"{root} {ver}" if root and isinstance(ver, str) else (root or None)
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
