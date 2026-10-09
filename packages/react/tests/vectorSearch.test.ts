@@ -10,6 +10,7 @@ import {
   type HybridSearchSpec,
   type QuerySpec,
 } from "../src";
+import { invalid } from "./helpers";
 
 describe("Vector Search TypeScript SDK & Utilities", () => {
   it("attaches vector search spec via withVectorSearch", () => {
@@ -192,7 +193,7 @@ describe("Vector Search TypeScript SDK & Utilities", () => {
     expect(
       isValidHybridSearch({
         vector: [0.1],
-        query_text: 123 as any,
+        query_text: invalid<string>(123),
         text_columns: ["content"],
       })
     ).toBe(false);
@@ -200,7 +201,7 @@ describe("Vector Search TypeScript SDK & Utilities", () => {
       isValidHybridSearch({
         vector: [0.1],
         query_text: "valid",
-        text_columns: "not-an-array" as any,
+        text_columns: invalid<string[]>("not-an-array"),
       })
     ).toBe(false);
   });
@@ -211,7 +212,7 @@ describe("Vector Search TypeScript SDK & Utilities", () => {
       "docs",
       { vector: [0.1, 0.2] }, // no top_k
       {
-        joins: [{ table: "tags", type: "INNER", on: ["docs.id", "tags.doc_id"] }],
+        joins: [{ table: "tags", type: "INNER", on: [{ left: "docs.id", right: "tags.doc_id" }] }],
         filters: [{ column: "archived", op: "=", value: false }],
         filter_join: "OR",
         order_by: [{ column: "created_at", direction: "DESC" }],
@@ -234,7 +235,7 @@ describe("Vector Search TypeScript SDK & Utilities", () => {
       }, // no top_k
       {
         columns: ["id", "title"],
-        joins: [{ table: "tags", type: "LEFT", on: ["docs.id", "tags.doc_id"] }],
+        joins: [{ table: "tags", type: "LEFT", on: [{ left: "docs.id", right: "tags.doc_id" }] }],
         filters: [{ column: "status", op: "=", value: "active" }],
         filter_join: "AND",
         order_by: [{ column: "id", direction: "ASC" }],

@@ -16,7 +16,7 @@ from typing import Any, Self
 try:
     import sqlparse
 except ImportError:
-    sqlparse = None  # type: ignore[assignment]
+    sqlparse = None  # type: ignore[assignment]  # optional-import fallback; callers check for None
 
 from query_builder._regex_utils import strip_block_comments
 from query_builder.config import SecurityConfig, get_security_config
@@ -145,7 +145,7 @@ class LifecycleInterceptor:
         """Invoked after query results have been fetched and formatted."""
         return None
 
-    def on_error(self, error: Exception, context: dict[str, Any]) -> None:
+    def on_error(self, error: BaseException, context: dict[str, Any]) -> None:
         """Invoked whenever an exception is raised during compilation or execution."""
 
 
@@ -367,7 +367,7 @@ class SecurityMiddleware(LifecycleInterceptor):
 
         return result
 
-    def on_error(self, error: Exception, context: dict[str, Any]) -> None:
+    def on_error(self, error: BaseException, context: dict[str, Any]) -> None:
         """Sanitizes exception messages in error contexts."""
         context["sanitized_error"] = scrub_secrets(str(error))
 
@@ -466,7 +466,7 @@ class MiddlewarePipeline:
                 current_result = res
         return current_result
 
-    def run_error(self, error: Exception, context: dict[str, Any]) -> None:
+    def run_error(self, error: BaseException, context: dict[str, Any]) -> None:
         """Executes error hooks across all interceptors, suppressing secondary errors."""
         handled = context.setdefault("_handled_errors", set())
         if id(error) in handled:

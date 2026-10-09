@@ -13,6 +13,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Third-party actions are pinned to full commit SHAs (the trailing comment is the release the
+# SHA belongs to). Dependabot (.github/dependabot.yml) keeps them current.
 jobs:
   python:
     name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
@@ -23,15 +25,17 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10
       - name: Install React package (needed by schema-converter TypeScript tests)
@@ -40,15 +44,44 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # `dev` covers pytest, ruff, duckdb, sqlalchemy, polars; the rest are framework
-          # integrations exercised by the integration test modules.
-          pip install -e ".[dev]" fastapi httpx django djangorestframework django-ninja
+          # `dev` covers pytest, ruff, duckdb, sqlalchemy, polars; `server` and `django`
+          # are the framework integrations exercised by the integration test modules (and
+          # double as a check that those extras install).
+          pip install -e ".[dev,server,django]"
       - name: Lint
         run: ruff check .
       - name: Format check
         run: ruff format --check .
+      - name: Type check (mypy ratchet, see docs/TYPING.md)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: python -m mypy query_builder
       - name: Test with coverage
         run: python -m pytest -q --cov --cov-report=term-missing:skip-covered
+
+  python-package:
+    name: Python sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Build and validate distributions
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check --strict dist/*
+      - name: Smoke-test the wheel in a clean virtualenv
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install "$(ls dist/*.whl)[server]"
+          cd /tmp
+          /tmp/smoke/bin/python -I -c "import query_builder, query_builder.integrations.fastapi as f; assert f.FASTAPI_AVAILABLE; print(query_builder.__version__)"
+          /tmp/smoke/bin/query-builder --version
+          echo '{"jsonrpc":"2.0","id":1,"method":"ping"}' | /tmp/smoke/bin/query-builder-mcp
 
   react:
     name: React (Node ${{ matrix.node-version }})
@@ -61,19 +94,24 @@ jobs:
       run:
         working-directory: packages/react
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
           cache-dependency-path: packages/react/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - run: pnpm run typecheck:tests
       - run: pnpm run lint
       - run: pnpm run build
+      - name: Package correctness (exports exist and load, publint, are-the-types-wrong)
+        run: pnpm run check:package
       - name: Test with coverage (build must exist for the consumer-simulation suite)
         run: pnpm run test:coverage
 
@@ -81,11 +119,13 @@ jobs:
     name: Starter frontend builds against the package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - name: Build the React package (the starter links to its dist)
@@ -98,3 +138,79 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+
+  # Supply-chain checks run in parallel with the jobs above, so they do not lengthen the gate.
+  supply-chain:
+    name: Dependency audit and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 10
+
+      - name: Resolve runtime dependencies (core + server + django extras)
+        run: |
+          python -m venv "$RUNNER_TEMP/runtime"
+          "$RUNNER_TEMP/runtime/bin/pip" install ".[server,django]"
+          "$RUNNER_TEMP/runtime/bin/pip" freeze --exclude query-builder-engine > "$RUNNER_TEMP/runtime-requirements.txt"
+          cat "$RUNNER_TEMP/runtime-requirements.txt"
+
+      - name: pip-audit (fails on known vulnerabilities)
+        run: |
+          python -m venv "$RUNNER_TEMP/tools"
+          "$RUNNER_TEMP/tools/bin/pip" install pip-audit cyclonedx-bom
+          # Accepted findings live in .github/pip-audit-allowlist.txt, one per line:
+          #   <advisory-id>  # justification and review-by date
+          IGNORES=$(sed -e 's/#.*//' .github/pip-audit-allowlist.txt | awk 'NF {print "--ignore-vuln " $1}')
+          # shellcheck disable=SC2086
+          "$RUNNER_TEMP/tools/bin/pip-audit" -r "$RUNNER_TEMP/runtime-requirements.txt" \
+            --no-deps --disable-pip --strict $IGNORES
+
+      - name: pnpm audit (packages/react)
+        working-directory: packages/react
+        run: pnpm audit --audit-level high
+
+      - name: pnpm audit (starter frontend)
+        working-directory: examples/fullstack_starter/frontend
+        run: pnpm audit --audit-level high
+
+      - name: CycloneDX SBOMs
+        run: |
+          mkdir -p sbom
+          "$RUNNER_TEMP/tools/bin/cyclonedx-py" environment --of JSON \
+            -o sbom/python-runtime.cdx.json "$RUNNER_TEMP/runtime"
+          npx --yes @cyclonedx/cdxgen@12.8.5 -t pnpm --no-install-deps \
+            -o sbom/react-package.cdx.json packages/react
+          npx --yes @cyclonedx/cdxgen@12.8.5 -t pnpm --no-install-deps \
+            -o sbom/starter-frontend.cdx.json examples/fullstack_starter/frontend
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Requires the repository's dependency graph to be enabled (Settings > Advanced Security).
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never

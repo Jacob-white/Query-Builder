@@ -951,7 +951,7 @@ def test_alloydb_connector_lifecycle():
     # test_connection
     conn._cursor = mock_cur
     info = conn.test_connection()
-    assert info["engine_version"] == "Google Cloud AlloyDB for PostgreSQL"
+    assert info["product"] == "Google Cloud AlloyDB for PostgreSQL"
     assert info["alloydb_cluster"] == "alloydb-cluster"
     assert info["alloydb_instance"] == "primary-instance"
     assert info["columnar_engine"] is True

@@ -6,7 +6,8 @@ import {
   quoteAlias,
   quoteIdent,
 } from "../src/utils/compiler";
-import type { SchemaSnapshot } from "../src/types";
+import type { SchemaSnapshot, VisualColumnSelect, VisualJoin, VisualSort } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("compileVisualState", () => {
   const mockSchema: SchemaSnapshot = {
@@ -237,7 +238,7 @@ describe("compileVisualState", () => {
         {
           id: "f1",
           column: "status",
-          operator: "EXEC_COMMAND;" as any,
+          operator: "EXEC_COMMAND;",
           value: "test",
         },
       ],
@@ -261,7 +262,7 @@ describe("compileVisualState", () => {
       [
         {
           id: "j1",
-          type: "INVALID_JOIN" as any,
+          type: invalid<VisualJoin["type"]>("INVALID_JOIN"),
           table: "orders",
           left_col: "id",
           right_col: "user_id",
@@ -272,7 +273,7 @@ describe("compileVisualState", () => {
         {
           id: "s1",
           column: "created_at",
-          direction: "SIDEWAYS" as any,
+          direction: invalid<VisualSort["direction"]>("SIDEWAYS"),
         },
       ],
     );
@@ -292,7 +293,7 @@ describe("compileVisualState", () => {
           tablePrefix: "users",
           column: "age",
           operator: "=",
-          value: 25 as any,
+          value: 25,
         },
       ],
       [],
@@ -328,9 +329,9 @@ describe("compileVisualState", () => {
       "users",
       {},
       [],
-      undefined as any,
-      undefined as any,
-      undefined as any,
+      invalid<never>(undefined),
+      invalid<never>(undefined),
+      invalid<never>(undefined),
     );
     expect(resUndefSorts.sql).toContain('FROM "users"');
 
@@ -355,7 +356,7 @@ describe("compileVisualState", () => {
           tablePrefix: "",
           column: "status",
           operator: "=",
-          value: null as any,
+          value: invalid<string>(null),
         },
         {
           id: "f2",
@@ -375,7 +376,7 @@ describe("compileVisualState", () => {
     const resMissingItem = compileVisualState(
       "users",
       {
-        "users.invalid_agg": { table: "users", name: "id", aggregate: "INVALID_AGG" },
+        "users.invalid_agg": { table: "users", name: "id", aggregate: invalid<VisualColumnSelect["aggregate"]>("INVALID_AGG") },
       },
       ["missing_item", "users.invalid_agg"],
       [],
@@ -388,7 +389,7 @@ describe("compileVisualState", () => {
     const resUndefProjections = compileVisualState(
       "users",
       {},
-      undefined as any,
+      invalid<never>(undefined),
       [],
       [],
       [],
@@ -1348,16 +1349,16 @@ describe("compileVisualState", () => {
           columns: ["id", "salary"],
           materialized: true,
           query: {
-            table: "users" as any,
-          } as any,
+            table: "users",
+          },
         },
         {
           name: "recursive_stage",
           recursive: true,
           query: {
-            table: "raw_stage" as any,
+            table: "raw_stage",
             sql: 'SELECT 1 AS "id"',
-          } as any,
+          },
         },
       ],
       [

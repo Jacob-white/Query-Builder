@@ -8,6 +8,7 @@ execution protocols, Cypher-SQL translation, cursor adapters, and graph schema i
 from __future__ import annotations
 
 import contextlib
+import inspect
 import re
 import time
 from typing import Any, NamedTuple
@@ -194,7 +195,9 @@ class _Neo4jCursorAdapter:
         elif _has_attr(self.target, "session") or _has_attr(self.target, "run"):
             created_session = False
             if _has_attr(self.target, "session"):
-                session = self.target.session()
+                # READ access mode: the server itself refuses writes ("Writing in
+                # read access mode not allowed"), independent of client checks.
+                session = self.target.session(default_access_mode="READ")
                 created_session = True
             else:
                 session = self.target
@@ -264,6 +267,80 @@ class _Neo4jCursorAdapter:
 
     def close(self) -> None:
         pass
+
+
+class _CaptureRun:
+    """Session stand-in that records the Cypher + parameters the adapter builds."""
+
+    query = ""
+    parameters: dict[str, Any] = {}  # noqa: RUF012 - replaced, never mutated
+
+    def run(self, query: str, parameters: dict[str, Any] | None = None) -> list[Any]:
+        self.query, self.parameters = query, dict(parameters or {})
+        return []
+
+
+def _translate_to_cypher(
+    sql: str, params: list[Any] | None
+) -> tuple[str, dict[str, Any]]:
+    """Reuse the sync adapter's SQL->Cypher mapping and parameter binding."""
+    capture = _CaptureRun()
+    _Neo4jCursorAdapter(capture).execute(sql, params)
+    return capture.query, capture.parameters
+
+
+def _is_async_driver(conn: Any) -> bool:
+    """A real ``neo4j.AsyncDriver`` (its methods are coroutines; Mocks' are not)."""
+    return inspect.iscoroutinefunction(getattr(conn, "verify_connectivity", None))
+
+
+async def _fetch_records(
+    conn: Any, cypher: str, parameters: dict[str, Any] | None = None
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Run one read-only query on an async driver; returns (column names, rows)."""
+    async with conn.session(default_access_mode="READ") as session:
+        result = await session.run(cypher, parameters or {})
+        records = [record async for record in result]
+        keys = list(result.keys())
+    return keys, [dict(zip(keys, record.values(), strict=False)) for record in records]
+
+
+class _ReplaySession:
+    """Sync view over query results already fetched asynchronously."""
+
+    def __init__(self, results: dict[str, Any]) -> None:
+        self._results = results
+
+    def run(self, query: str, parameters: Any = None) -> list[dict[str, Any]]:
+        outcome = self._results.get(query.strip().rstrip(";").strip())
+        if outcome is None:
+            raise KeyError(query)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return list(outcome)
+
+
+async def _prefetch_schema_queries(conn: Any) -> dict[str, Any]:
+    """Everything ``introspect_neo4j`` asks of its session, fetched up front."""
+    results: dict[str, Any] = {}
+
+    async def attempt(query: str) -> list[dict[str, Any]] | None:
+        try:
+            _, rows = await _fetch_records(conn, query)
+        except Exception as exc:  # noqa: BLE001 - replayed to the sync introspection
+            results[query] = exc
+            return None
+        results[query] = rows
+        return rows
+
+    labels = await attempt("SHOW NODE LABELS")
+    if labels is None:
+        labels = await attempt("CALL db.labels()") or []
+    for record in labels:
+        label = record.get("label", next(iter(record.values()), None))
+        await attempt(f"MATCH (n:`{label}`) RETURN keys(n) AS keys LIMIT 1")
+    await attempt("SHOW RELATIONSHIP TYPES")
+    return results
 
 
 @register_connector("neo4j", aliases=["cypher", "neo4j_sql"])
@@ -423,6 +500,10 @@ class AsyncNeo4jConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_async_driver(conn):
+            cypher, parameters = _translate_to_cypher(sql, params)
+            keys, dict_rows = await _fetch_records(conn, cypher, parameters)
+            return keys, dict_rows, (time.perf_counter() - start) * 1000.0
         adapter = _Neo4jCursorAdapter(conn)
         try:
             adapter.execute(sql, params)
@@ -435,9 +516,30 @@ class AsyncNeo4jConnector(AsyncBaseConnector):
         finally:
             adapter.close()
 
+    async def test_connection(self) -> dict[str, Any]:
+        info = await super().test_connection()
+        conn = self._connection
+        if conn is not None and _is_async_driver(conn):
+            try:
+                _, rows = await _fetch_records(
+                    conn,
+                    "CALL dbms.components() YIELD versions RETURN versions[0] AS version",
+                )
+                if rows:
+                    info["engine_version"] = f"Neo4j {rows[0]['version']}"
+            except Exception:  # noqa: BLE001, S110 - version is informational
+                pass
+        info["database"] = self.database
+        return info
+
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
         try:
+            if _is_async_driver(conn):
+                replay = await _prefetch_schema_queries(conn)
+                return introspect_neo4j(
+                    _ReplaySession(replay), filter_sensitive=filter_sensitive
+                )
             return introspect_neo4j(conn, filter_sensitive=filter_sensitive)
         except Exception as exc:
             raise IntrospectionError(

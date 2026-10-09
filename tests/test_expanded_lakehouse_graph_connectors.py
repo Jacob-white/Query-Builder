@@ -562,10 +562,14 @@ def test_drill_connector_lifecycle():
     mock_drill_res.rows = [{"version": "1.21.1"}]
     mock_cur.query.return_value = mock_drill_res
     conn_preset = DrillConnector(cursor=mock_cur)
-    conn_preset.apply_statement_timeout(mock_cur, 5000)
-    mock_cur.execute.assert_called_with(
-        "ALTER SESSION SET `exec.query.max__idle__seconds` = 5;"
-    )
+    # Drill's REST API is stateless: no ALTER SESSION, the timeout rides on the adapter
+    with conn_preset.get_cursor() as adapter:
+        conn_preset.apply_statement_timeout(adapter, 5000)
+        assert adapter.timeout_s == 5.0
+        conn_preset.apply_statement_timeout(adapter, 100)
+        assert adapter.timeout_s == 1.0  # floored at one second
+    conn_preset.apply_statement_timeout(mock_cur, 5000)  # raw cursor: nothing to apply
+    mock_cur.execute.assert_not_called()
 
     info = conn_preset.test_connection()
     assert info["status"] == "healthy"

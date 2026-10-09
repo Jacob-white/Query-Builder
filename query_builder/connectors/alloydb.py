@@ -85,7 +85,7 @@ class AlloyDBConnector(PostgresConnector):
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        info["engine_version"] = "Google Cloud AlloyDB for PostgreSQL"
+        info["product"] = "Google Cloud AlloyDB for PostgreSQL"
         if self.cluster_id:
             info["alloydb_cluster"] = self.cluster_id
         if self.instance_id:

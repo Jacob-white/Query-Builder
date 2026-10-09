@@ -1,0 +1,231 @@
+# Live-engine fixtures for the opt-in integration suite (tests/integration).
+#
+#   docker compose -p qb-integration -f docker/docker-compose.integration.yml up -d --wait
+#   docker compose -p qb-integration -f docker/docker-compose.integration.yml --profile extended up -d --wait
+#   docker compose -p qb-integration -f docker/docker-compose.integration.yml --profile extended down -v
+#
+# Everything binds to 127.0.0.1 on NON-default high host ports so it can never
+# collide with (or be confused for) a developer's own database. Every port is
+# overridable through QB_IT_PORT_<ENGINE>. Credentials are throw-away.
+# Volumes are named and are removed by `down -v`.
+name: qb-integration
+
+x-creds: &creds
+  QB_IT_USER: qb
+  QB_IT_PASSWORD: qb_it_password
+  QB_IT_DATABASE: qb_it
+
+services:
+  # ------------------------------------------------------------------ required tier
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: qb
+      POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_POSTGRES:-35432}:5432"]
+    volumes: ["qb_it_postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qb -d qb_it"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4.2
+    environment:
+      MYSQL_ROOT_PASSWORD: qb_it_root_password
+      MYSQL_USER: qb
+      MYSQL_PASSWORD: qb_it_password
+      MYSQL_DATABASE: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_MYSQL:-35306}:3306"]
+    volumes: ["qb_it_mysql:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uqb -pqb_it_password --silent"]
+      interval: 4s
+      timeout: 4s
+      retries: 40
+
+  mariadb:
+    image: mariadb:11.4.3
+    environment:
+      MARIADB_ROOT_PASSWORD: qb_it_root_password
+      MARIADB_USER: qb
+      MARIADB_PASSWORD: qb_it_password
+      MARIADB_DATABASE: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_MARIADB:-35307}:3306"]
+    volumes: ["qb_it_mariadb:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 4s
+      timeout: 4s
+      retries: 40
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.4.13-alpine
+    environment:
+      CLICKHOUSE_USER: qb
+      CLICKHOUSE_PASSWORD: qb_it_password
+      CLICKHOUSE_DB: qb_it
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_CLICKHOUSE:-38123}:8123"
+      - "127.0.0.1:${QB_IT_PORT_CLICKHOUSE_NATIVE:-39000}:9000"
+    volumes: ["qb_it_clickhouse:/var/lib/clickhouse"]
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # ------------------------------------------------------------------ extended tier
+  cockroachdb:
+    profiles: [extended]
+    image: cockroachdb/cockroach:v24.2.3
+    command: start-single-node --insecure --store=type=mem,size=1GiB
+    ports: ["127.0.0.1:${QB_IT_PORT_COCKROACH:-35257}:26257"]
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "select 1"]
+      interval: 4s
+      timeout: 5s
+      retries: 40
+
+  timescaledb:
+    profiles: [extended]
+    image: timescale/timescaledb:2.17.0-pg16
+    environment:
+      POSTGRES_USER: qb
+      POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_TIMESCALE:-35433}:5432"]
+    volumes: ["qb_it_timescale:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qb -d qb_it"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  mssql:
+    profiles: [extended]
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Qb_it_Passw0rd!"
+      MSSQL_PID: Developer
+    ports: ["127.0.0.1:${QB_IT_PORT_MSSQL:-35143}:1433"]
+    volumes: ["qb_it_mssql:/var/opt/mssql"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Qb_it_Passw0rd!' -Q 'SELECT 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  trino:
+    profiles: [extended]
+    image: trinodb/trino:455
+    ports: ["127.0.0.1:${QB_IT_PORT_TRINO:-38080}:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  mongodb:
+    profiles: [extended]
+    image: mongo:7.0.14
+    ports: ["127.0.0.1:${QB_IT_PORT_MONGODB:-35017}:27017"]
+    volumes: ["qb_it_mongodb:/data/db"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' || exit 1"]
+      interval: 4s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    profiles: [extended]
+    image: redis/redis-stack-server:7.4.0-v1
+    ports: ["127.0.0.1:${QB_IT_PORT_REDIS:-36379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  elasticsearch:
+    profiles: [extended]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["127.0.0.1:${QB_IT_PORT_ELASTICSEARCH:-39200}:9200"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  opensearch:
+    profiles: [extended]
+    image: opensearchproject/opensearch:2.17.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["127.0.0.1:${QB_IT_PORT_OPENSEARCH:-39201}:9200"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  neo4j:
+    profiles: [extended]
+    image: neo4j:5.24.1-community
+    environment:
+      NEO4J_AUTH: neo4j/qb_it_password
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_NEO4J:-38687}:7687"
+      - "127.0.0.1:${QB_IT_PORT_NEO4J_HTTP:-38474}:7474"
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p qb_it_password 'RETURN 1' || exit 1"]
+      interval: 5s
+      timeout: 8s
+      retries: 40
+
+  cassandra:
+    profiles: [extended]
+    image: cassandra:4.1.7
+    environment:
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports: ["127.0.0.1:${QB_IT_PORT_CASSANDRA:-39042}:9042"]
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
+      interval: 8s
+      timeout: 10s
+      retries: 40
+
+  questdb:
+    profiles: [extended]
+    image: questdb/questdb:8.1.2
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_QUESTDB:-38812}:8812"
+      - "127.0.0.1:${QB_IT_PORT_QUESTDB_HTTP:-39010}:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8812' || exit 1"]
+      interval: 4s
+      timeout: 4s
+      retries: 30
+
+volumes:
+  qb_it_postgres:
+  qb_it_mysql:
+  qb_it_mariadb:
+  qb_it_clickhouse:
+  qb_it_timescale:
+  qb_it_mssql:
+  qb_it_mongodb:

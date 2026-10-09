@@ -12,7 +12,7 @@ import io
 import json
 import zipfile
 from collections.abc import Iterable, Iterator
-from typing import Any
+from typing import Any, Protocol
 
 from query_builder.models import QueryResult
 
@@ -328,6 +328,12 @@ def export_dataset(
 # ==============================================================================
 
 
+class StreamExporter(Protocol):
+    """Structural type shared by every streaming exporter."""
+
+    def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]: ...
+
+
 class CsvStreamExporter:
     """Streams tabular data as CSV byte chunks."""
 
@@ -560,6 +566,7 @@ def stream_export_dataset(
     mime_type = MIME_TYPES[fmt]
     ext = EXTENSIONS[fmt]
 
+    exporter: StreamExporter
     if fmt == "csv":
         exporter = CsvStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
     elif fmt in ("jsonl", "ndjson"):

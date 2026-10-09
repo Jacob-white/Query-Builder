@@ -8,6 +8,8 @@ and foreign key relationships across supported SQL database engines.
 from __future__ import annotations
 
 import contextlib
+import re
+from collections.abc import Generator
 from typing import Any
 
 from query_builder.connectors.base import DriverNotInstalledError, IntrospectionError
@@ -224,35 +226,97 @@ def introspect_duckdb(
                 cur.close()
 
 
+_PRIMARY_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name
+    FROM information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+        AND tc.table_name = kcu.table_name
+    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;
+"""
+
+# MySQL/MariaDB have no constraint_column_usage; the referenced side lives on
+# key_column_usage itself.
+_MYSQL_FOREIGN_KEY_SQL = """
+    SELECT table_name, column_name, referenced_table_name, referenced_column_name
+    FROM information_schema.key_column_usage
+    WHERE table_schema = %s AND referenced_table_name IS NOT NULL;
+"""
+
+
+# SQL Server's constraint_column_usage lists the REFERENCING column for a foreign
+# key, so the referenced side must come from referential_constraints instead.
+_MSSQL_FOREIGN_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name, pk.table_name, pk.column_name
+    FROM information_schema.referential_constraints AS rc
+    JOIN information_schema.key_column_usage AS kcu
+        ON kcu.constraint_name = rc.constraint_name
+        AND kcu.constraint_schema = rc.constraint_schema
+    JOIN information_schema.key_column_usage AS pk
+        ON pk.constraint_name = rc.unique_constraint_name
+        AND pk.constraint_schema = rc.unique_constraint_schema
+        AND pk.ordinal_position = kcu.ordinal_position
+    WHERE kcu.table_schema = %s;
+"""
+
+
 def introspect_information_schema(
-    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+    cursor: Any,
+    schema_name: str = "public",
+    filter_sensitive: bool = True,
+    fk_style: str = "ansi",
+    placeholder: str = "%s",
+    pk_guess: bool = True,
 ) -> dict[str, Any]:
     """
     Introspects standard ANSI/PostgreSQL/MySQL/MSSQL schemas via information_schema catalogs.
+
+    Primary keys come from the catalog (``table_constraints``); only when the
+    engine lacks that catalog does it fall back (``pk_guess``) to treating a
+    column named ``id`` as the key. ``fk_style="mysql"`` / ``"mssql"`` read
+    foreign keys the way those engines expose them. ``placeholder`` is the
+    driver's bind marker (``?`` for Trino/Presto); statements are sent without a
+    trailing semicolon, which Trino and Presto reject.
     """
+
+    def _sql(text: str) -> str:
+        return text.strip().rstrip(";").replace("%s", placeholder)
+
     try:
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = %s AND table_type = 'BASE TABLE'
             ORDER BY table_name;
-            """,
+            """
+            ),
             [schema_name],
         )
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_schema = %s
             ORDER BY table_name, ordinal_position;
-            """,
+            """
+            ),
             [schema_name],
         )
         col_rows = cursor.fetchall()
+
+        pk_cols: set[tuple[str, str]] | None = None
+        with contextlib.suppress(Exception):
+            cursor.execute(_sql(_PRIMARY_KEY_SQL), [schema_name])
+            pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+        if pk_cols is None and not pk_guess:
+            pk_cols = set()
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
@@ -262,7 +326,9 @@ def introspect_information_schema(
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": is_null.upper() == "YES",
-                    "is_primary": c_name == "id",
+                    "is_primary": (t_name, c_name) in pk_cols
+                    if pk_cols is not None
+                    else c_name == "id",
                     "comment": None,
                 }
             )
@@ -270,9 +336,12 @@ def introspect_information_schema(
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        with contextlib.suppress(Exception):
-            cursor.execute(
-                """
+        fk_sql = (
+            _MYSQL_FOREIGN_KEY_SQL
+            if fk_style == "mysql"
+            else _MSSQL_FOREIGN_KEY_SQL
+            if fk_style == "mssql"
+            else """
                 SELECT
                     kcu.table_name AS src_table,
                     kcu.column_name AS src_column,
@@ -282,13 +351,15 @@ def introspect_information_schema(
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
+                    AND tc.table_name = kcu.table_name
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
                     AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;
-                """,
-                [schema_name],
-            )
+                """
+        )
+        with contextlib.suppress(Exception):
+            cursor.execute(_sql(fk_sql), [schema_name])
             for fk_row in cursor.fetchall():
                 src_tbl, src_col, tgt_tbl, tgt_col = (
                     str(fk_row[0]),
@@ -352,7 +423,7 @@ def introspect_clickhouse(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            "SELECT table, name, type FROM system.columns WHERE database = %s ORDER BY table, position;",
+            "SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = %s ORDER BY table, position;",
             [database],
         )
         col_rows = cursor.fetchall()
@@ -360,12 +431,14 @@ def introspect_clickhouse(
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+            # The sorting/primary key comes from the catalog, not a name guess.
+            is_pk = bool(r[3]) if len(r) > 3 else c_name == "id"
             table_cols_map.setdefault(t_name, []).append(
                 {
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": "Nullable" in d_type,
-                    "is_primary": c_name == "id",
+                    "is_primary": is_pk,
                     "comment": None,
                 }
             )
@@ -399,73 +472,111 @@ def introspect_clickhouse(
 def introspect_oracle(
     cursor: Any, owner: str | None = None, filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects Oracle schema using user_tables or all_tables."""
+    """Introspects an Oracle schema (``user_*`` views, or ``all_*`` for another ``owner``).
+
+    Names are returned exactly as stored in the catalog: the compiler QUOTES every identifier,
+    so folding the case here would produce names that do not exist (Oracle stores unquoted
+    names in upper case and quoted names verbatim).  Primary and foreign keys come from the
+    constraint catalog.
+    """
     try:
         if owner:
-            cursor.execute(
-                "SELECT table_name FROM all_tables WHERE owner = %s ORDER BY table_name",
-                [owner.upper()],
-            )
+            own = " AND {a}.owner = :1"
+            params: list[Any] = [owner.upper()]
+            pre = "all"
         else:
-            cursor.execute("SELECT table_name FROM user_tables ORDER BY table_name")
-        table_rows = cursor.fetchall()
-        table_names = [r[0] for r in table_rows if r and r[0]]
+            own = ""
+            params = []
+            pre = "user"
 
-        if owner:
-            cursor.execute(
-                """
-                SELECT table_name, column_name, data_type, nullable
-                FROM all_tab_columns
-                WHERE owner = %s
-                ORDER BY table_name, column_id
-                """,
-                [owner.upper()],
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT table_name, column_name, data_type, nullable
-                FROM user_tab_columns
-                ORDER BY table_name, column_id
-                """
-            )
+        def q(sql: str, **fmt: str) -> None:
+            cursor.execute(sql.format(pre=pre, **fmt), params)
+
+        # plain tables only (no views, no nested/IOT overflow noise)
+        q(
+            "SELECT t.table_name FROM {pre}_tables t WHERE t.nested = 'NO'"
+            + own.format(a="t")
+            + " ORDER BY t.table_name"
+        )
+        table_names = [str(r[0]) for r in cursor.fetchall() if r and r[0]]
+        known = set(table_names)
+
+        q(
+            "SELECT c.table_name, c.column_name, c.data_type, c.nullable "
+            "FROM {pre}_tab_columns c WHERE 1 = 1" + own.format(a="c") + " "
+            "ORDER BY c.table_name, c.column_id"
+        )
         col_rows = cursor.fetchall()
+
+        pk: dict[str, set[str]] = {}
+        q(
+            "SELECT cc.table_name, cc.column_name FROM {pre}_constraints c "
+            "JOIN {pre}_cons_columns cc ON c.constraint_name = cc.constraint_name "
+            "AND c.owner = cc.owner WHERE c.constraint_type = 'P'" + own.format(a="c")
+        )
+        for r in cursor.fetchall():
+            pk.setdefault(str(r[0]), set()).add(str(r[1]))
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        q(
+            "SELECT cc.table_name, cc.column_name, rcc.table_name, rcc.column_name "
+            "FROM {pre}_constraints c "
+            "JOIN {pre}_cons_columns cc ON c.constraint_name = cc.constraint_name "
+            "AND c.owner = cc.owner "
+            "JOIN {pre}_cons_columns rcc ON c.r_constraint_name = rcc.constraint_name "
+            "AND c.r_owner = rcc.owner AND cc.position = rcc.position "
+            "WHERE c.constraint_type = 'R'" + own.format(a="c")
+        )
+        for r in cursor.fetchall():
+            src_t, src_c, tgt_t, tgt_c = (str(x) for x in r[:4])
+            foreign_keys.append(
+                {
+                    "table": src_t,
+                    "column": src_c,
+                    "foreign_table": tgt_t,
+                    "foreign_column": tgt_c,
+                }
+            )
+            relationships.append(
+                {
+                    "source_table": src_t,
+                    "source_column": src_c,
+                    "target_table": tgt_t,
+                    "target_column": tgt_c,
+                }
+            )
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
-            t_name, c_name, d_type, nullable = (
-                str(r[0]),
-                str(r[1]),
-                str(r[2]),
-                str(r[3]),
-            )
+            t_name, c_name, d_type, nullable = (str(x) for x in r[:4])
+            if t_name not in known:
+                continue
             table_cols_map.setdefault(t_name, []).append(
                 {
-                    "name": c_name.lower(),
+                    "name": c_name,
                     "data_type": d_type.lower(),
                     "is_nullable": nullable == "Y",
-                    "is_primary": c_name.lower() == "id",
+                    "is_primary": c_name in pk.get(t_name, set()),
                     "comment": None,
                 }
             )
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            clean_tbl = tbl.lower()
             cols = table_cols_map.get(tbl, [])
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[clean_tbl] = {
-                "name": clean_tbl,
+            tables[tbl] = {
+                "name": tbl,
                 "columns": cols,
-                "has_user_id": has_user,
+                "has_user_id": any(c["name"].lower() == "user_id" for c in cols),
                 "user_col": "user_id",
                 "comment": None,
             }
 
         raw_snapshot = {
             "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
+            "foreign_keys": foreign_keys,
+            "relationships": relationships,
         }
         return normalize_schema_snapshot(
             raw_snapshot, filter_sensitive=filter_sensitive
@@ -1152,66 +1263,108 @@ def introspect_tdengine(
         ) from exc
 
 
+def surreal_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """SurrealDB introspection as a coroutine-free generator.
+
+    It yields a SurrealQL statement, is sent that statement's records (a list of dicts) and
+    finally returns the normalized snapshot.  A synchronous cursor and an ``async`` driver
+    can both drive it (see :func:`introspect_surrealdb` and the async connector), so the
+    sync and async classes share one algorithm.  Tables come from ``INFO FOR DB``; columns
+    from ``INFO FOR TABLE`` (declared fields) merged with a sample of the records, because
+    SurrealDB tables are schemaless unless fields are DEFINEd.  Nothing is invented.
+    """
+    info_rows = yield "INFO FOR DB"
+    info = info_rows[0] if info_rows else {}
+    table_names = sorted((info.get("tables") or {}).keys())
+    tables: dict[str, dict[str, Any]] = {}
+    for tbl in table_names:
+        safe = str(tbl).replace("`", "")
+        cols: dict[str, str] = {}
+        tinfo_rows = yield f"INFO FOR TABLE `{safe}`"
+        declared = (tinfo_rows[0] if tinfo_rows else {}).get("fields") or {}
+        for fname, definition in declared.items():
+            m = re.search(r"\bTYPE\s+(\S+)", str(definition), re.IGNORECASE)
+            cols[str(fname)] = m.group(1) if m else "any"
+        sample = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        for rec in sample:
+            for k, v in rec.items():
+                if k != "id" and (k not in cols or cols[k] == "any"):
+                    cols[k] = _arango_json_type(v)
+        columns: list[dict[str, Any]] = [
+            {
+                "name": "id",
+                "data_type": "record",
+                "is_nullable": False,
+                "is_primary": True,
+                "comment": None,
+            }
+        ]
+        columns += [
+            {
+                "name": n,
+                "data_type": t,
+                "is_nullable": True,
+                "is_primary": False,
+                "comment": None,
+            }
+            for n, t in cols.items()
+        ]
+        tables[tbl] = {
+            "name": tbl,
+            "columns": columns,
+            "has_user_id": "user_id" in cols,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
+def drive_steps(steps: Any, run: Any) -> Any:
+    """Run a statement-yielding generator to completion against a synchronous ``run(sql)``.
+
+    A failing statement is thrown INTO the generator, which may catch it (to fall back to
+    another statement) or let it propagate.
+    """
+    try:
+        statement = next(steps)
+        while True:
+            try:
+                result = run(statement)
+            except Exception as exc:  # noqa: BLE001 - handed to the generator
+                statement = steps.throw(exc)
+                continue
+            statement = steps.send(result)
+    except StopIteration as done:
+        return done.value
+
+
 def introspect_surrealdb(
     client_or_cursor: Any, database: str = "test", filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects SurrealDB schema using INFO FOR DB and table metadata."""
+    """Introspects SurrealDB: tables from INFO FOR DB, columns from DEFINEd fields + samples."""
     cur = None
     own_cur = False
     try:
-        if hasattr(client_or_cursor, "execute") or hasattr(client_or_cursor, "query"):
-            cur = client_or_cursor
-        elif hasattr(client_or_cursor, "cursor"):
-            cur = client_or_cursor.cursor()
+        cur = client_or_cursor
+        if not hasattr(cur, "execute") and hasattr(cur, "cursor"):
+            cur = cur.cursor()
             own_cur = True
-        else:
-            cur = client_or_cursor
-        table_names: list[str] = []
-        if hasattr(cur, "execute"):
-            cur.execute("INFO FOR DB;")
-            res = cur.fetchone()
-            if isinstance(res, dict) and "tables" in res:
-                table_names = list(res["tables"].keys())
-            elif isinstance(res, (list, tuple)) and res:
-                first = res[0]
-                if isinstance(first, dict) and "tables" in first:
-                    table_names = list(first["tables"].keys())
-                else:
-                    table_names = [str(r[0]) for r in res if r and r[0]]
-            elif isinstance(res, str):
-                table_names = [res]
-        elif hasattr(cur, "query"):
-            res = cur.query("INFO FOR DB;")
-            if isinstance(res, list) and res and isinstance(res[0], dict):
-                table_names = list(res[0].get("result", {}).get("tables", {}).keys())
+        elif not hasattr(cur, "execute") and hasattr(cur, "query"):
+            from query_builder.connectors.surrealdb import _SurrealCursorAdapter
 
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = [
-                {
-                    "name": "id",
-                    "data_type": "record",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                }
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": False,
-                "user_col": "user_id",
-                "comment": None,
-            }
+            cur = _SurrealCursorAdapter(cur)  # a raw SDK client
 
-        raw_snapshot = {
-            "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
-        }
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        def run(sql: str) -> list[dict[str, Any]]:
+            cur.execute(sql)
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
+
+        return drive_steps(surreal_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect SurrealDB database '{database}': {exc}"
@@ -1220,6 +1373,58 @@ def introspect_surrealdb(
         if own_cur and cur is not None and hasattr(cur, "close"):
             with contextlib.suppress(Exception):
                 cur.close()
+
+
+def _arango_json_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    if value is None:
+        return "null"
+    if isinstance(value, (bytes, bytearray)):
+        return "bytes"
+    if hasattr(value, "isoformat"):
+        return "timestamp"
+    return type(value).__name__.lower()
+
+
+def _arango_sample_fields(db_or_cursor: Any, collection: str) -> dict[str, str]:
+    """Attribute -> JSON type, merged over a sample of the collection's documents.
+
+    ArangoDB collections are schemaless, so the only truthful column list is what the
+    documents actually contain.  Returns {} for an empty collection or when the source
+    cannot run AQL (nothing is invented).
+    """
+    sample: dict[str, Any] = {}
+    try:
+        if hasattr(db_or_cursor, "execute") and hasattr(db_or_cursor, "fetchall"):
+            safe = collection.replace("`", "")
+            db_or_cursor.execute(f"RETURN MERGE(FOR d IN `{safe}` LIMIT 100 RETURN d)")
+            rows = db_or_cursor.fetchall() or []
+            desc = [d[0] for d in (getattr(db_or_cursor, "description", None) or [])]
+            if rows and desc and isinstance(rows[0], (list, tuple)):
+                sample = dict(zip(desc, rows[0], strict=False))
+        elif hasattr(db_or_cursor, "collection"):
+            docs = list(db_or_cursor.collection(collection).all(limit=100))
+            for doc in docs:
+                if isinstance(doc, dict):
+                    for k, v in doc.items():
+                        if sample.get(k) is None:
+                            sample[k] = v
+    except Exception:  # noqa: BLE001 - sampling is best effort; never fail introspection
+        return {}
+    return {
+        str(k): _arango_json_type(v)
+        for k, v in sample.items()
+        if not str(k).startswith("_")
+    }
 
 
 def introspect_arangodb(
@@ -1276,10 +1481,21 @@ def introspect_arangodb(
                     "comment": None,
                 },
             ]
+            sampled = _arango_sample_fields(db_or_cursor, tbl)
+            for field_name, field_type in sampled.items():
+                cols.append(
+                    {
+                        "name": field_name,
+                        "data_type": field_type,
+                        "is_nullable": True,
+                        "is_primary": False,
+                        "comment": None,
+                    }
+                )
             tables[tbl] = {
                 "name": tbl,
                 "columns": cols,
-                "has_user_id": False,
+                "has_user_id": "user_id" in sampled,
                 "user_col": "user_id",
                 "comment": None,
             }
@@ -1607,78 +1823,76 @@ def introspect_db2(
         ) from exc
 
 
+def cosmos_snapshot(
+    samples: dict[str, list[dict[str, Any]]], filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Cosmos DB snapshot from ``{container: sampled documents}``.
+
+    ``id`` (always present, a string) is the primary key; the other columns are the
+    attributes found in the sample.  System properties (``_rid``, ``_self``, ``_etag``,
+    ``_attachments``, ``_ts``) are not columns.  No container -> no tables.
+    """
+    tables: dict[str, dict[str, Any]] = {}
+    for name, docs in samples.items():
+        found: dict[str, str] = {}
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            for k, v in doc.items():
+                if k.startswith("_"):
+                    continue
+                if k not in found or found[k] == "null":
+                    found[k] = _arango_json_type(v)
+        found.setdefault("id", "string")
+        tables[name] = {
+            "name": name,
+            "columns": _sampled_columns(found, "id", "string"),
+            "has_user_id": "user_id" in found,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_cosmosdb(
     client_or_container: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects Azure Cosmos DB container schemas."""
+    """Introspects Azure Cosmos DB: real containers and the attributes of sampled documents."""
     try:
         target = getattr(client_or_container, "target", client_or_container)
-        table_names: list[str] = []
+        samples: dict[str, list[dict[str, Any]]] = {}
+        sample_query = "SELECT * FROM c OFFSET 0 LIMIT 100"
         if hasattr(target, "get_database_client"):
             db_client = target.get_database_client(database)
-            if hasattr(db_client, "list_containers"):
-                for container in db_client.list_containers():
-                    c_id = (
-                        container.get("id")
-                        if isinstance(container, dict)
-                        else getattr(container, "id", None)
+            for container in db_client.list_containers():
+                c_id = (
+                    container.get("id")
+                    if isinstance(container, dict)
+                    else getattr(container, "id", None)
+                )
+                if c_id:
+                    proxy = db_client.get_container_client(c_id)
+                    samples[str(c_id)] = list(
+                        proxy.query_items(
+                            query=sample_query, enable_cross_partition_query=True
+                        )
                     )
-                    if c_id:
-                        table_names.append(c_id)
-        elif hasattr(target, "query_items"):
-            items = list(target.query_items("SELECT VALUE c.id FROM c;"))
-            table_names = [str(i) for i in items]
+        elif hasattr(target, "query_items"):  # a single container client
+            name = str(getattr(target, "id", None) or "items")
+            samples[name] = list(
+                target.query_items(
+                    query=sample_query, enable_cross_partition_query=True
+                )
+            )
         elif hasattr(target, "execute"):
             target.execute("SELECT VALUE c.id FROM c;")
-            rows = target.fetchall()
-            for r in rows:
+            for r in target.fetchall() or []:
                 if r:
-                    table_names.append(str(r[0]))
-
-        if not table_names:
-            table_names = ["items"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = [
-                {
-                    "name": "id",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "_rid",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "_ts",
-                    "data_type": "number",
-                    "is_nullable": False,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": False,
-                "user_col": "user_id",
-                "comment": None,
-            }
-
-        raw_snapshot = {
-            "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
-        }
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+                    samples[str(r[0])] = []
+        return cosmos_snapshot(samples, filter_sensitive)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Cosmos DB database '{database}': {exc}"
@@ -2005,6 +2219,49 @@ def introspect_kyuubi(
         ) from exc
 
 
+def _drill_qualified(schema_name: str, table: str) -> str:
+    parts = [p for p in schema_name.split(".") if p] + [table]
+    return ".".join("`" + p.replace("`", "``") + "`" for p in parts)
+
+
+def _drill_file_tables(cur: Any, schema_name: str) -> list[str]:
+    """Directories/data files of a file-system workspace (``SHOW FILES``), as table names."""
+    names: list[str] = []
+    try:
+        workspace = ".".join(
+            "`" + p.replace("`", "``") + "`" for p in schema_name.split(".") if p
+        )
+        cur.execute(f"SHOW FILES IN {workspace}")
+        cols = [str(d[0]).lower() for d in (cur.description or [])]
+        name_ix = cols.index("name") if "name" in cols else 0
+        dir_ix = cols.index("isdirectory") if "isdirectory" in cols else None
+        for row in cur.fetchall():
+            name = str(row[name_ix])
+            if name.startswith((".", "_")):
+                continue
+            is_dir = dir_ix is not None and str(row[dir_ix]).lower() in ("true", "1")
+            if is_dir or name.rsplit(".", 1)[-1] in ("parquet", "json", "csv", "csvh"):
+                names.append(name)
+    except Exception:  # noqa: BLE001
+        return []
+    return sorted(names)
+
+
+def _drill_probe_columns(
+    cur: Any, schema_name: str, table: str
+) -> list[tuple[str, str]]:
+    """Column names/types of a file table: a ``LIMIT 0`` read still reports the schema."""
+    try:
+        cur.execute(f"SELECT * FROM {_drill_qualified(schema_name, table)} LIMIT 0")
+        cur.fetchall()
+        return [
+            (str(d[0]), str(d[1]) if len(d) > 1 and d[1] else "VARCHAR")
+            for d in (cur.description or [])
+        ]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def introspect_drill(
     cursor_or_client: Any,
     schema_name: str = "dfs.default",
@@ -2013,10 +2270,20 @@ def introspect_drill(
     cur = None
     own_cur = False
     try:
-        cur = _unwrap_cursor(cursor_or_client)
-        own_cur = cur is not cursor_or_client and cur is not getattr(
-            cursor_or_client, "target", None
-        )
+        if (
+            not hasattr(cursor_or_client, "_mock_children")
+            and hasattr(cursor_or_client, "execute")
+            and hasattr(cursor_or_client, "fetchall")
+        ):
+            # already a cursor (e.g. the Drill REST adapter): unwrapping it would hand the
+            # raw PyDrill client (which has no execute()) to the queries below
+            cur = cursor_or_client
+            own_cur = False
+        else:
+            cur = _unwrap_cursor(cursor_or_client)
+            own_cur = cur is not cursor_or_client and cur is not getattr(
+                cursor_or_client, "target", None
+            )
         table_names: list[str] = []
         try:
             cur.execute(
@@ -2035,8 +2302,17 @@ def introspect_drill(
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
 
+        # File-system workspaces (dfs.*) are NOT listed by INFORMATION_SCHEMA.TABLES: their
+        # tables are directories/files, found with SHOW FILES and described by a LIMIT 0 read.
+        file_tables = False
+        if not table_names:
+            table_names = _drill_file_tables(cur, schema_name)
+            file_tables = bool(table_names)
+
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         try:
+            if file_tables:
+                raise LookupError("file tables are described by probing")
             cur.execute(
                 """
                 SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
@@ -2067,6 +2343,20 @@ def introspect_drill(
                 )
         except Exception:  # noqa: BLE001
             for tbl in table_names:
+                if file_tables:
+                    for c_name, d_type in _drill_probe_columns(cur, schema_name, tbl):
+                        if filter_sensitive and _is_sensitive_column(c_name):
+                            continue
+                        table_cols_map.setdefault(tbl, []).append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name == "id",
+                                "comment": None,
+                            }
+                        )
+                    continue
                 cur.execute(f"DESCRIBE `{tbl}`;")
                 col_rows = cur.fetchall()
                 for r in col_rows:
@@ -2257,19 +2547,31 @@ def introspect_yugabyte(
 
 
 def introspect_opensearch(
-    client_or_cursor: Any, catalog: str = "default", filter_sensitive: bool = True
+    client_or_cursor: Any,
+    catalog: str = "default",
+    filter_sensitive: bool = True,
+    _mappings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API."""
+    """
+    Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API.
+
+    ``_mappings`` lets an async caller pass an already-awaited ``get_mapping()`` result.
+    """
     cur = None
     own_cur = False
     try:
         table_names: list[str] = []
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
 
-        if _has_attr(client_or_cursor, "indices") and hasattr(
-            client_or_cursor.indices, "get_mapping"
+        if _mappings is not None or (
+            _has_attr(client_or_cursor, "indices")
+            and hasattr(client_or_cursor.indices, "get_mapping")
         ):
-            mappings = client_or_cursor.indices.get_mapping()
+            mappings = (
+                _mappings
+                if _mappings is not None
+                else client_or_cursor.indices.get_mapping()
+            )
             for idx, meta in mappings.items():
                 if idx.startswith("."):
                     continue
@@ -2412,7 +2714,7 @@ def introspect_neo4j(
         ):
             driver_or_session = driver_or_session.target
         if _has_attr(driver_or_session, "session"):
-            session = driver_or_session.session()
+            session = driver_or_session.session(default_access_mode="READ")
             session_created = True
         else:
             session = driver_or_session
@@ -2932,7 +3234,7 @@ def introspect_monetdb(
                 SELECT t.name
                 FROM sys.tables t
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name;
                 """,
                 [schema_name],
@@ -2942,11 +3244,11 @@ def introspect_monetdb(
 
             cur.execute(
                 """
-                SELECT t.name, c.name, c.type, c.null
+                SELECT t.name, c.name, c.type, c."null"
                 FROM sys.columns c
                 JOIN sys.tables t ON c.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name, c.number;
                 """,
                 [schema_name],
@@ -2957,7 +3259,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                WHERE table_schema = %s AND table_type = 'BASE TABLE'
                 ORDER BY table_name;
                 """,
                 [schema_name],
@@ -2969,7 +3271,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name, column_name, data_type, is_nullable
                 FROM information_schema.columns
-                WHERE table_schema = ?
+                WHERE table_schema = %s
                 ORDER BY table_name, ordinal_position;
                 """,
                 [schema_name],
@@ -2977,23 +3279,23 @@ def introspect_monetdb(
             col_rows = cur.fetchall() or []
 
         pk_cols_map: dict[str, set[str]] = {}
+        pk_loaded = False
         with contextlib.suppress(Exception):
             cur.execute(
                 """
                 SELECT t.name, kc.name
                 FROM sys.keys k
-                JOIN sys.keycolumns kc ON k.id = kc.id
+                JOIN sys.objects kc ON k.id = kc.id
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE k.type = 0 AND s.name = ?;
+                WHERE k.type = 0 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for pkr in cur.fetchall() or []:
                 if pkr and len(pkr) >= 2:
-                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
-                        str(pkr[1]).lower()
-                    )
+                    pk_cols_map.setdefault(str(pkr[0]), set()).add(str(pkr[1]))
+            pk_loaded = True
 
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
@@ -3001,25 +3303,24 @@ def introspect_monetdb(
             cur.execute(
                 """
                 SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column
-                FROM sys.fkeys fk
-                JOIN sys.keys k ON fk.id = k.id
+                FROM sys.keys k
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                JOIN sys.keycolumns kc ON k.id = kc.id
-                JOIN sys.keys rk ON fk.rkey = rk.id
+                JOIN sys.objects kc ON k.id = kc.id
+                JOIN sys.keys rk ON k.rkey = rk.id
                 JOIN sys.tables rt ON rk.table_id = rt.id
-                JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
-                WHERE s.name = ?;
+                JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
+                WHERE k.type = 2 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for fkr in cur.fetchall() or []:
                 if fkr and len(fkr) >= 4:
                     src_tbl, src_col, tgt_tbl, tgt_col = (
-                        str(fkr[0]).lower(),
-                        str(fkr[1]).lower(),
-                        str(fkr[2]).lower(),
-                        str(fkr[3]).lower(),
+                        str(fkr[0]),
+                        str(fkr[1]),
+                        str(fkr[2]),
+                        str(fkr[3]),
                     )
                     foreign_keys.append(
                         {
@@ -3046,12 +3347,15 @@ def introspect_monetdb(
             c_name = str(r[1])
             d_type = str(r[2])
             is_null = str(r[3]).upper() in ("TRUE", "YES", "Y", "1")
-            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
-                c_name.lower() == "id"
+            # catalog unreadable -> fall back to the `id` convention; otherwise trust it
+            is_pk = (
+                c_name in pk_cols_map.get(t_name, set())
+                if pk_loaded
+                else c_name.lower() == "id"
             )
-            table_cols_map.setdefault(t_name.lower(), []).append(
+            table_cols_map.setdefault(t_name, []).append(
                 {
-                    "name": c_name.lower(),
+                    "name": c_name,
                     "data_type": d_type.lower(),
                     "is_nullable": is_null,
                     "is_primary": is_pk,
@@ -3061,8 +3365,8 @@ def introspect_monetdb(
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            clean_tbl = tbl.lower()
-            cols = table_cols_map.get(clean_tbl, [])
+            clean_tbl = tbl
+            cols = table_cols_map.get(tbl, [])
             has_user = any(c["name"] == "user_id" for c in cols)
             tables[clean_tbl] = {
                 "name": clean_tbl,
@@ -4032,59 +4336,90 @@ def introspect_timestream(
                 cur.close()
 
 
+def _graph_type_name(types: Any) -> str:
+    first = types[0] if isinstance(types, (list, tuple)) and types else types
+    return str(first).lower() if first else "any"
+
+
+def memgraph_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]] | None, dict[str, Any]]:
+    """Memgraph introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Labels and property names/types come from ``schema.node_type_properties()``; when that
+    procedure is unavailable they come from ``labels(n)`` plus a sample of ``properties(n)``.
+    Relationship types come from ``schema.rel_type_properties()``/``type(r)``.  Nothing is
+    invented: a graph with no nodes introspects to no tables, and a node label has no
+    primary key (graph nodes are identified by an internal id, not a column).
+    """
+    props: dict[str, dict[str, str]] = {}
+    try:
+        rows = yield (
+            "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, "
+            "propertyTypes RETURN nodeLabels, propertyName, propertyTypes"
+        )
+    except Exception:  # noqa: BLE001 - procedure missing: fall back to sampling below
+        rows = None
+    if rows is not None:
+        for r in rows:
+            for label in r.get("nodeLabels") or []:
+                cols = props.setdefault(str(label), {})
+                if r.get("propertyName"):
+                    cols[str(r["propertyName"])] = _graph_type_name(
+                        r.get("propertyTypes")
+                    )
+    else:
+        label_rows = yield "MATCH (n) UNWIND labels(n) AS label RETURN DISTINCT label"
+        for r in label_rows or []:
+            label = str(r["label"])
+            safe = label.replace("`", "")
+            sample = yield f"MATCH (n:`{safe}`) RETURN properties(n) AS props LIMIT 100"
+            cols = props.setdefault(label, {})
+            for rec in sample or []:
+                for k, v in (rec.get("props") or {}).items():
+                    cols.setdefault(str(k), _arango_json_type(v))
+
+    tables: dict[str, dict[str, Any]] = {}
+    for label in sorted(props):
+        columns = [
+            {
+                "name": name,
+                "data_type": dtype,
+                "is_nullable": True,
+                "is_primary": name == "id",
+                "comment": None,
+            }
+            for name, dtype in props[label].items()
+        ]
+        tables[label] = {
+            "name": label,
+            "columns": columns,
+            "has_user_id": "user_id" in props[label],
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_memgraph(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Memgraph OpenCypher graph schema."""
+    """Introspects a Memgraph graph: node labels as tables, their real properties as columns."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        labels: list[str] = []
-        if hasattr(cur, "execute"):
-            cur.execute("CALL mg.labels() YIELD label RETURN label;")
-            rows = cur.fetchall() or []
-            labels = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
-        if not labels:
-            labels = ["Node"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for lbl in labels:
-            cols = [
-                {
-                    "name": "id",
-                    "data_type": "integer",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "name",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[lbl] = {
-                "name": lbl,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        if not hasattr(cur, "execute"):
+            return _empty_snapshot(filter_sensitive)
+        return drive_steps(memgraph_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Memgraph database: {exc}"
@@ -4658,6 +4993,59 @@ def introspect_milvus(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
                 cur.close()
 
 
+def _chroma_sample_columns(client: Any, name: str) -> list[dict[str, Any]] | None:
+    """Columns of a real Chroma collection: id, document and the metadata keys seen in a sample."""
+    if client is None or not hasattr(client, "get_collection"):
+        return None
+    try:
+        res = client.get_collection(name).get(limit=200, include=["metadatas"])
+        metas = res.get("metadatas") if isinstance(res, dict) else None
+    except Exception:  # noqa: BLE001 - fall back to the generic id/document shape
+        return None
+    if metas is None:
+        return None
+    kinds: dict[str, str] = {}
+    for meta in metas:
+        for key, val in (meta or {}).items():
+            kinds.setdefault(
+                key,
+                "boolean"
+                if isinstance(val, bool)
+                else "integer"
+                if isinstance(val, int)
+                else "float"
+                if isinstance(val, float)
+                else "string",
+            )
+    cols = [
+        {
+            "name": "id",
+            "data_type": "string",
+            "is_nullable": False,
+            "is_primary": True,
+            "comment": None,
+        },
+        {
+            "name": "document",
+            "data_type": "string",
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        },
+    ]
+    cols += [
+        {
+            "name": key,
+            "data_type": kind,
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        }
+        for key, kind in kinds.items()
+    ]
+    return cols
+
+
 def introspect_chroma(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """Introspects ChromaDB collections and schema metadata."""
     cur = None
@@ -4679,11 +5067,23 @@ def introspect_chroma(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
             rows = cur.fetchall() or []
             names = [str(r[0]) for r in rows if r and r[0]]
 
-        if not names:
-            names = ["notes"]
+        # the cursor adapter wraps the real client: sample real metadata keys from it
+        source = cur if hasattr(cur, "get_collection") else getattr(cur, "conn", None)
 
         tables: dict[str, dict[str, Any]] = {}
         for name in names:
+            sampled = _chroma_sample_columns(source, name)
+            if sampled is not None:
+                tables[name] = {
+                    "name": name,
+                    "columns": sampled,
+                    "has_user_id": any(c["name"] == "user_id" for c in sampled),
+                    "user_col": "user_id"
+                    if any(c["name"] == "user_id" for c in sampled)
+                    else None,
+                    "comment": None,
+                }
+                continue
             cols = [
                 {
                     "name": "id",
@@ -4755,15 +5155,15 @@ def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, 
             rows = cur.fetchall() or []
             names = [str(r[0]) for r in rows if r and r[0]]
 
-        if not names:
-            names = ["items"]
+        # the cursor adapter wraps the real connection: read the true Arrow schemas from it
+        source = cur if hasattr(cur, "open_table") else getattr(cur, "conn", None)
 
         tables: dict[str, dict[str, Any]] = {}
         for name in names:
             cols: list[dict[str, Any]] = []
-            if hasattr(cur, "open_table"):
+            if source is not None and hasattr(source, "open_table"):
                 with contextlib.suppress(Exception):
-                    tbl_obj = cur.open_table(name)
+                    tbl_obj = source.open_table(name)
                     if hasattr(tbl_obj, "schema"):
                         for f in tbl_obj.schema:
                             fname = getattr(f, "name", str(f))
@@ -4821,10 +5221,69 @@ def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, 
                 cur.close()
 
 
+def _redis_text(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
+    """Real columns of a RediSearch index from ``FT.INFO`` (``[]`` if unavailable)."""
+    if client is None or not hasattr(client, "execute_command"):
+        return []
+    try:
+        info = client.execute_command("FT.INFO", index)
+    except Exception:  # noqa: BLE001
+        return []
+    return parse_ft_info(info)
+
+
+def parse_ft_info(info: Any) -> list[dict[str, Any]]:
+    """Columns from an ``FT.INFO`` reply (RESP2 flat list or RESP3 mapping)."""
+    attributes: Any = None
+    if isinstance(info, dict):  # RESP3
+        attributes = next(
+            (v for k, v in info.items() if _redis_text(k) == "attributes"), None
+        )
+    elif isinstance(info, (list, tuple)):  # RESP2: flat key, value, key, value ...
+        for pos in range(0, len(info) - 1, 2):
+            if _redis_text(info[pos]) == "attributes":
+                attributes = info[pos + 1]
+                break
+    cols: list[dict[str, Any]] = []
+    for attr in attributes if isinstance(attributes, (list, tuple)) else []:
+        if isinstance(attr, dict):
+            fields = {_redis_text(k): _redis_text(v) for k, v in attr.items()}
+        elif isinstance(attr, (list, tuple)):
+            fields = {
+                _redis_text(attr[i]).lower(): _redis_text(attr[i + 1])
+                for i in range(0, len(attr) - 1, 2)
+            }
+        else:
+            continue
+        name = fields.get("attribute") or fields.get("identifier")
+        if name:
+            cols.append(
+                {
+                    "name": name,
+                    "data_type": fields.get("type", "text").lower(),
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                }
+            )
+    return cols
+
+
 def introspect_redis_search(
-    cursor: Any, filter_sensitive: bool = True
+    cursor: Any,
+    filter_sensitive: bool = True,
+    _indexes: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Introspects Redis RediSearch index definitions."""
+    """
+    Introspects Redis RediSearch index definitions.
+
+    ``_indexes`` (index name -> columns) lets an async caller, whose client calls
+    must be awaited, hand over already-fetched ``FT.INFO`` results.
+    """
     cur = None
     own_cur = False
     try:
@@ -4832,7 +5291,9 @@ def introspect_redis_search(
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
         index_names: list[str] = []
-        if hasattr(cur, "execute"):
+        if _indexes is not None:
+            index_names = list(_indexes)
+        elif hasattr(cur, "execute"):
             cur.execute("FT._LIST")
             rows = cur.fetchall() or []
             index_names = [str(r[0]) for r in rows if r and r[0]]
@@ -4842,11 +5303,26 @@ def introspect_redis_search(
                 r.decode() if isinstance(r, bytes) else str(r) for r in (res or [])
             ]
 
-        if not index_names:
-            index_names = ["idx:users"]
+        raw_client = (
+            cur if hasattr(cur, "execute_command") else getattr(cur, "conn", None)
+        )
 
         tables: dict[str, dict[str, Any]] = {}
         for idx in index_names:
+            real_cols = (
+                _indexes[idx]
+                if _indexes is not None
+                else _redis_index_columns(raw_client, idx)
+            )
+            if real_cols:
+                tables[idx] = {
+                    "name": idx,
+                    "columns": real_cols,
+                    "has_user_id": any(c["name"] == "user_id" for c in real_cols),
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+                continue
             cols = [
                 {
                     "name": "id",
@@ -4891,66 +5367,105 @@ def introspect_redis_search(
                 cur.close()
 
 
+def _rows_as_dicts(names: list[str], rows: Any) -> list[dict[str, Any]]:
+    """Rows as dicts; columns without a reported name are called ``col0``, ``col1``, ..."""
+    out = []
+    for row in rows or []:
+        keys = names or [f"col{i}" for i in range(len(row))]
+        out.append(dict(zip(keys, row, strict=False)))
+    return out
+
+
+def _empty_snapshot(filter_sensitive: bool = True) -> dict[str, Any]:
+    return normalize_schema_snapshot(
+        {"tables": {}, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
+def _sampled_columns(
+    samples: dict[str, str], primary: str, primary_type: str
+) -> list[dict[str, Any]]:
+    """Column list from ``{name: type}`` plus a leading primary-key column."""
+    cols = [
+        {
+            "name": primary,
+            "data_type": samples.get(primary, primary_type),
+            "is_nullable": False,
+            "is_primary": True,
+            "comment": None,
+        }
+    ]
+    cols += [
+        {
+            "name": n,
+            "data_type": t,
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        }
+        for n, t in samples.items()
+        if n != primary
+    ]
+    return cols
+
+
+def firestore_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """Firestore introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Collections come from ``collections``; fields from a sample of 100 documents each.
+    Firestore collections are schemaless and an empty collection does not exist, so there
+    is nothing to invent: no collections -> no tables.  ``id`` is the document id.
+    """
+    names_rows = yield "collections"
+    tables: dict[str, dict[str, Any]] = {}
+    for row in names_rows:
+        if not row:
+            continue
+        name = str(next(iter(row.values())))
+        safe = name.replace("`", "")
+        docs = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        samples: dict[str, str] = {}
+        for doc in docs:
+            for k, v in doc.items():
+                if k not in samples or samples[k] == "null":
+                    samples[k] = _arango_json_type(v)
+        cols = _sampled_columns(samples, "id", "string")
+        tables[name] = {
+            "name": name,
+            "columns": cols,
+            "has_user_id": "user_id" in samples,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Google Cloud Firestore document collections."""
+    """Introspects Firestore collections: real collection names and sampled document fields."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        coll_names: list[str] = []
-        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
-            cur.execute("collections")
-            rows = cur.fetchall() or []
-            coll_names = [str(r[0]) for r in rows if r and r[0]]
-        elif hasattr(cur, "collections"):
-            colls = cur.collections()
-            coll_names = [getattr(c, "id", str(c)) for c in colls]
-        elif hasattr(cur, "execute"):
-            cur.execute("collections")
-            rows = cur.fetchall() or []
-            coll_names = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
-        if not coll_names:
-            coll_names = ["users"]
+        if not hasattr(cur, "execute"):
+            if not hasattr(cur, "collections"):
+                return _empty_snapshot(filter_sensitive)
+            from query_builder.connectors.firestore import _FirestoreCursorAdapter
 
-        tables: dict[str, dict[str, Any]] = {}
-        for coll in coll_names:
-            cols = [
-                {
-                    "name": "id",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "data",
-                    "data_type": "map",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[coll] = {
-                "name": coll,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+            cur = _FirestoreCursorAdapter(cur)  # a raw SDK client
+        return drive_steps(firestore_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Firestore collections: {exc}"
@@ -4961,66 +5476,61 @@ def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str
                 cur.close()
 
 
+def bigtable_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """Bigtable introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Tables come from ``list_tables``; each table's columns are ``row_key`` (the primary key)
+    plus one ``family.qualifier`` column per cell column seen in a sample of 100 rows.
+    Bigtable stores raw bytes, so every column is ``bytes``.  No table -> no tables.
+    """
+    table_rows = yield "list_tables"
+    tables: dict[str, dict[str, Any]] = {}
+    for row in table_rows:
+        if not row:
+            continue
+        name = str(next(iter(row.values())))
+        safe = name.replace("`", "")
+        sample = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        seen: dict[str, str] = {}
+        for rec in sample:
+            for col in rec:
+                if col != "row_key":
+                    seen[col] = "bytes"
+        tables[name] = {
+            "name": name,
+            "columns": _sampled_columns(seen, "row_key", "bytes"),
+            "has_user_id": False,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_bigtable(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Google Cloud Bigtable tables and column families."""
+    """Introspects Bigtable: real table ids and the cell columns present in sampled rows."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        table_names: list[str] = []
-        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
-            cur.execute("list_tables")
-            rows = cur.fetchall() or []
-            table_names = [str(r[0]) for r in rows if r and r[0]]
-        elif hasattr(cur, "list_tables"):
-            tbls = cur.list_tables()
-            table_names = [getattr(t, "table_id", str(t)) for t in tbls]
-        elif hasattr(cur, "execute"):
-            cur.execute("list_tables")
-            rows = cur.fetchall() or []
-            table_names = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (getattr(cur, "description", None) or [])]
+            return _rows_as_dicts(names, cur.fetchall())
 
-        if not table_names:
-            table_names = ["metrics"]
+        if not hasattr(cur, "execute"):
+            if not hasattr(cur, "list_tables"):
+                return _empty_snapshot(filter_sensitive)
+            from query_builder.connectors.bigtable import _BigtableCursorAdapter
 
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols = [
-                {
-                    "name": "row_key",
-                    "data_type": "bytes",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "bytes",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "cf1",
-                    "data_type": "column_family",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+            cur = _BigtableCursorAdapter(cur)  # a raw SDK client
+        return drive_steps(bigtable_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Bigtable tables: {exc}"

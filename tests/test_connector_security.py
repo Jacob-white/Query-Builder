@@ -673,7 +673,7 @@ def test_base_connector_execute_error_telemetry_emission():
     )
 
     conn = ConcreteSyncConnector(cursor=mock_cur, security=sec)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(QueryExecutionError) as exc_info:
         conn.execute({"table": "faulty"}, validate_ast=False)
 
     assert "exposed_pw" not in str(exc_info.value)
@@ -789,7 +789,7 @@ def test_async_base_connector_execution_boundaries():
             profile="production",
         )
         conn_fail = FailingAsync(security=sec_tel)
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(QueryExecutionError) as exc_info:
             await conn_fail.execute({"table": "err_test"}, validate_ast=False)
 
         assert "leaked_secret" not in str(exc_info.value)
@@ -1334,7 +1334,7 @@ def test_base_connector_precision_branches():
     mock_clean_err_cur = MagicMock()
     mock_clean_err_cur.execute.side_effect = RuntimeError("Clean error without secrets")
     c_clean_err = ConcreteSyncConnector(cursor=mock_clean_err_cur)
-    with pytest.raises(RuntimeError, match="Clean error without secrets"):
+    with pytest.raises(QueryExecutionError, match="Clean error without secrets"):
         c_clean_err.execute({"table": "users"}, validate_ast=False)
 
     # 5. Error handling when emit_audit_events is False
@@ -1348,7 +1348,7 @@ def test_base_connector_precision_branches():
     c_no_audit = ConcreteSyncConnector(
         cursor=mock_secret_err_cur, security=sec_no_audit
     )
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(QueryExecutionError) as exc_info:
         c_no_audit.execute({"table": "users"}, validate_ast=False)
     assert "secret_token" not in str(exc_info.value)
 
@@ -1391,7 +1391,7 @@ def test_async_base_connector_precision_branches():
                 raise RuntimeError("Clean async error")
 
         c_clean_err = CleanErrAsync()
-        with pytest.raises(RuntimeError, match="Clean async error"):
+        with pytest.raises(QueryExecutionError, match="Clean async error"):
             await c_clean_err.execute({"table": "users"}, validate_ast=False)
 
         # 3. Error handling when emit_audit_events is False
@@ -1406,7 +1406,7 @@ def test_async_base_connector_precision_branches():
                 raise RuntimeError("Secret async error password=token_abc")
 
         c_sec_err = SecretErrAsync(security=sec_no_audit)
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(QueryExecutionError) as exc_info:
             await c_sec_err.execute({"table": "users"}, validate_ast=False)
         assert "token_abc" not in str(exc_info.value)
 

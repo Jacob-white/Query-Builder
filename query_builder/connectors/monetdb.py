@@ -7,6 +7,7 @@ protocols, query statement isolation, and sys catalog introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -83,6 +84,16 @@ class _MonetDBCursorAdapter:
         self._rows = []
 
 
+def _monetdb_version(cur: Any) -> str:
+    """Real server version (``MonetDB 11.55.7``); falls back to the bare product name."""
+    with contextlib.suppress(Exception):  # version is informational only
+        cur.execute("SELECT value FROM sys.env() WHERE name = 'monet_version'")
+        row = cur.fetchone()
+        if row and isinstance(row[0], str) and row[0]:
+            return f"MonetDB {row[0]}"
+    return "MonetDB"
+
+
 @register_connector("monetdb", aliases=["monet"])
 class MonetDBConnector(BaseConnector):
     """Connector for MonetDB column-store analytical database management system."""
@@ -146,16 +157,21 @@ class MonetDBConnector(BaseConnector):
             finally:
                 adapter.close()
 
+    def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        # MonetDB aborts a running query after N seconds (session scoped).
+        cursor.execute(f"CALL sys.setquerytimeout({max(int(timeout_ms // 1000), 1)})")
+
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         with self.get_cursor() as cur:
             cur.execute("SELECT 1;")
             cur.fetchone()
+            version = _monetdb_version(cur)
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "MonetDB",
+            "engine_version": version,
             "schema_name": self.schema_name,
             "latency_ms": round(latency_ms, 2),
         }
@@ -208,23 +224,20 @@ class AsyncMonetDBConnector(AsyncBaseConnector):
             )
 
         try:
-            self._connection = driver.connect(**self.config)
+            # pymonetdb is a blocking driver: connect off the event loop
+            self._connection = await asyncio.to_thread(driver.connect, **self.config)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
                 f"Failed to connect asynchronously to MonetDB database: {exc}"
             ) from exc
 
-    async def execute_raw(
-        self, sql: str, params: list[Any] | None = None
+    def _run_sync(
+        self, sql: str, params: list[Any] | None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
-        conn = await self.connect()
+        conn = self._connection
         start = time.perf_counter()
-        if hasattr(conn, "cursor"):
-            cur = conn.cursor()
-        else:
-            cur = _MonetDBCursorAdapter(conn)
-
+        cur = conn.cursor() if hasattr(conn, "cursor") else _MonetDBCursorAdapter(conn)
         try:
             if params:
                 cur.execute(sql, params)
@@ -234,37 +247,58 @@ class AsyncMonetDBConnector(AsyncBaseConnector):
             col_names = [col[0] for col in desc]
             rows = cur.fetchall() or []
             dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
+            return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
         finally:
             if hasattr(cur, "close"):
                 cur.close()
 
+    async def execute_raw(
+        self, sql: str, params: list[Any] | None = None
+    ) -> tuple[list[str], list[dict[str, Any]], float]:
+        await self.connect()
+        # the driver blocks: run it in a worker thread so the event loop (and
+        # asyncio.wait_for timeouts) stay responsive
+        return await asyncio.to_thread(self._run_sync, sql, params)
+
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         await self.execute_raw("SELECT 1;")
+        _, rows, _ = await self.execute_raw(
+            "SELECT value FROM sys.env() WHERE name = 'monet_version'"
+        )
+        value = next(iter(rows[0].values())) if rows else None
+        version = f"MonetDB {value}" if isinstance(value, str) and value else "MonetDB"
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "MonetDB",
+            "engine_version": version,
             "schema_name": self.schema_name,
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _MonetDBCursorAdapter(conn)
-        try:
-            return introspect_monetdb(
-                cur,
-                schema_name=self.schema_name,
-                filter_sensitive=filter_sensitive,
+
+        def run() -> dict[str, Any]:
+            cur = (
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _MonetDBCursorAdapter(conn)
             )
+            try:
+                return introspect_monetdb(
+                    cur,
+                    schema_name=self.schema_name,
+                    filter_sensitive=filter_sensitive,
+                )
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
+        try:
+            return await asyncio.to_thread(run)
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect MonetDB schema '{self.schema_name}': {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()

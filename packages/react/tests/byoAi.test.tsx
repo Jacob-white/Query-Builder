@@ -9,7 +9,10 @@ import {
   AiAssistantWidget,
 } from "../src/ai";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
-import type { QuerySpec, SchemaDict } from "../src/types";
+import type { QuerySpec, DatabaseSchemaDefinition } from "../src/types";
+import type { SchemaDict } from "./helpers/partial";
+import { invalid } from "./helpers";
+import type { ByoAiHandler, ByoAiResponse } from "../src/ai/types";
 
 describe("BYO-AI Agent Tool Definitions & Execution", () => {
   it("generates agent tool definitions for all supported formats", () => {
@@ -36,7 +39,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     expect(mcpTools.length).toBe(4);
     expect(mcpTools[0].inputSchema).toBeDefined();
 
-    expect(() => getAgentToolDefinitions("unsupported" as any)).toThrow(
+    expect(() => getAgentToolDefinitions(invalid<"openai">("unsupported"))).toThrow(
       /Unsupported agent tool format 'unsupported'/
     );
   });
@@ -77,8 +80,8 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     );
     expect(res.success).toBe(true);
     expect(res.tool).toBe("build_query");
-    expect(res.spec.table).toBe("orders");
-    expect(res.spec.limit).toBe(10);
+    expect(res.spec!.table).toBe("orders");
+    expect(res.spec!.limit).toBe(10);
     expect(res.sql).toContain("orders");
 
     // Custom onCompile callback
@@ -99,7 +102,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
       { intent: "Find invoices" },
       { schema: [{ name: "invoices" }] }
     );
-    expect(arrRes.spec.table).toBe("invoices");
+    expect(arrRes.spec!.table).toBe("invoices");
 
     // Matching dict schema
     const dictRes = executeAgentToolCall(
@@ -107,7 +110,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
       { intent: "Find customers" },
       { schema: { customers: {} } }
     );
-    expect(dictRes.spec.table).toBe("customers");
+    expect(dictRes.spec!.table).toBe("customers");
 
     // Unmatched words in intent defaults to users
     const unmatchRes = executeAgentToolCall(
@@ -115,7 +118,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
       { intent: "Something completely different" },
       { schema: mockSchema }
     );
-    expect(unmatchRes.spec.table).toBe("users");
+    expect(unmatchRes.spec!.table).toBe("users");
   });
 
   it("executes validate_and_compile_query tool call", () => {
@@ -129,7 +132,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     });
     expect(sqlRes.success).toBe(true);
     expect(sqlRes.valid).toBe(true);
-    expect(sqlRes.spec.table).toBe("users");
+    expect(sqlRes.spec!.table).toBe("users");
     expect(sqlRes.sql).toContain("users");
 
     // With unparsable SQL (valid SELECT statement structure, but lacking FROM table)
@@ -156,13 +159,13 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     );
     expect(specRes.success).toBe(true);
     expect(specRes.valid).toBe(true);
-    expect(specRes.spec.table).toBe("users");
+    expect(specRes.spec!.table).toBe("users");
     expect(specRes.sql).toBe("SELECT custom FROM users [postgres]");
   });
 
   it("enforces security validation and input hardening in executeAgentToolCall", () => {
     // 1. Non-string tool name
-    const badNameRes = executeAgentToolCall(12345 as any, {});
+    const badNameRes = executeAgentToolCall(invalid<string>(12345), {});
     expect(badNameRes.success).toBe(false);
     expect(badNameRes.error).toContain("Tool name must be a string");
 
@@ -172,7 +175,7 @@ describe("BYO-AI Agent Tool Definitions & Execution", () => {
     expect(badJsonRes.error).toContain("Invalid JSON arguments");
 
     // 3. Invalid argument types (neither object nor string)
-    const badTypeRes = executeAgentToolCall("build_query", 9999 as any);
+    const badTypeRes = executeAgentToolCall("build_query", invalid<string>(9999));
     expect(badTypeRes.success).toBe(false);
     expect(badTypeRes.error).toContain("Arguments must be an object or JSON string");
 
@@ -396,7 +399,7 @@ describe("useBringYourOwnAi Hook", () => {
   it("handles empty prompt gracefully", async () => {
     const { result } = renderHook(() => useBringYourOwnAi({}));
 
-    let res: any;
+    let res = null as ByoAiResponse | null;
     await act(async () => {
       res = await result.current.sendMessage("   ");
     });
@@ -455,7 +458,7 @@ describe("useBringYourOwnAi Hook", () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
-    } as any);
+    } as unknown as Response);
 
     const { result } = renderHook(() =>
       useBringYourOwnAi({ apiUrl: "/api/test-ai", onError })
@@ -476,7 +479,7 @@ describe("useBringYourOwnAi Hook", () => {
         spec: { table: "departments", columns: ["id", "dept_name"] },
         explanation: "Departments list",
       }),
-    } as any);
+    } as unknown as Response);
 
     const { result } = renderHook(() =>
       useBringYourOwnAi({ apiUrl: "/api/test-ai" })
@@ -585,7 +588,7 @@ describe("useBringYourOwnAi Hook", () => {
     expect(r1.current.latestSpec?.table).toBe("custom_tbl");
 
     const { result: r2 } = renderHook(() =>
-      useBringYourOwnAi({ handler: { bad: 123 } as any })
+      useBringYourOwnAi({ handler: invalid<ByoAiHandler>({ bad: 123 }) })
     );
     await act(async () => {
       await r2.current.sendMessage("Bad handler");
@@ -749,7 +752,7 @@ describe("<AiAssistantWidget /> UI Component", () => {
 
     const { unmount } = render(
       <AiAssistantWidget
-        widgetPosition="embedded"
+        widgetPosition={invalid<"docked-right">("embedded")}
         isOpen={true}
       />
     );
@@ -781,12 +784,12 @@ describe("<AiAssistantWidget /> UI Component", () => {
 });
 
 describe("<VisualQueryBuilder /> BYO-AI Integration", () => {
-  const schema: SchemaDict = {
+  const schema: DatabaseSchemaDefinition = {
     tables: {
       users: {
         columns: {
-          id: { data_type: "int" },
-          username: { data_type: "text" },
+          id: { dataType: "int" },
+          username: { dataType: "text" },
         },
       },
     },

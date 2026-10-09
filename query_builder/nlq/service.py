@@ -26,6 +26,24 @@ from query_builder.nlq.providers import (
 from query_builder.nlq.validator import NlqAstValidator
 
 
+def query_spec_from_validated_ast(validated_ast: dict[str, Any]) -> QuerySpec:
+    """Builds a QuerySpec dataclass from a fully-normalized `NlqAstValidator` result."""
+    return QuerySpec(
+        table=validated_ast["table"],
+        columns=validated_ast["columns"],
+        joins=[JoinSpec(**j) for j in validated_ast["joins"]],
+        filters=[FilterSpec(**f) for f in validated_ast["filters"]],
+        filter_join=validated_ast["filter_join"],
+        having=[HavingSpec(**h) for h in validated_ast["having"]],
+        order_by=[OrderBySpec(**o) for o in validated_ast["order_by"]],
+        limit=validated_ast["limit"],
+        offset=validated_ast["offset"],
+        distinct=validated_ast["distinct"],
+        vector_search=validated_ast["vector_search"],
+        hybrid_search=validated_ast["hybrid_search"],
+    )
+
+
 class NlqService:
     """Service facade managing natural language to QuerySpec translation and explanation."""
 
@@ -68,21 +86,7 @@ class NlqService:
         validator = NlqAstValidator(schema=req.schema)
         validated_ast, warnings = validator.validate(raw_ast)
 
-        # Build QuerySpec dataclass instance
-        query_spec = QuerySpec(
-            table=validated_ast["table"],
-            columns=validated_ast["columns"],
-            joins=[JoinSpec(**j) for j in validated_ast["joins"]],
-            filters=[FilterSpec(**f) for f in validated_ast["filters"]],
-            filter_join=validated_ast["filter_join"],
-            having=[HavingSpec(**h) for h in validated_ast["having"]],
-            order_by=[OrderBySpec(**o) for o in validated_ast["order_by"]],
-            limit=validated_ast["limit"],
-            offset=validated_ast["offset"],
-            distinct=validated_ast["distinct"],
-            vector_search=validated_ast["vector_search"],
-            hybrid_search=validated_ast["hybrid_search"],
-        )
+        query_spec = query_spec_from_validated_ast(validated_ast)
 
         # Confidence calculation
         confidence = 1.0 - (len(warnings) * 0.15)

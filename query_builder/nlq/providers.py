@@ -116,6 +116,10 @@ class NlqProvider(ABC):
         self.timeout = timeout
         self.extra_kwargs = kwargs
 
+    def _root_url(self) -> str:
+        """The configured base URL without a trailing slash ('' when unset)."""
+        return (self.base_url or "").rstrip("/")
+
     def _safe_execute_http_request(
         self,
         url: str,
@@ -512,7 +516,7 @@ class OpenAiProvider(NlqProvider):
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
         user_prompt = build_user_prompt(prompt)
 
-        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        url = f"{self._root_url()}/chat/completions"
         payload = {
             "model": self.model,
             "messages": [
@@ -542,7 +546,7 @@ class OpenAiProvider(NlqProvider):
             raise NlqProviderError("OPENAI_API_KEY not configured for OpenAiProvider.")
 
         prompt = build_explain_prompt(query_dict, dialect=dialect)
-        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        url = f"{self._root_url()}/chat/completions"
         payload = {
             "model": self.model,
             "messages": [
@@ -616,7 +620,7 @@ class AnthropicProvider(NlqProvider):
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
         user_prompt = build_user_prompt(prompt)
 
-        url = f"{self.base_url.rstrip('/')}/messages"
+        url = f"{self._root_url()}/messages"
         payload = {
             "model": self.model,
             "max_tokens": 1024,
@@ -646,7 +650,7 @@ class AnthropicProvider(NlqProvider):
             )
 
         prompt = build_explain_prompt(query_dict, dialect=dialect)
-        url = f"{self.base_url.rstrip('/')}/messages"
+        url = f"{self._root_url()}/messages"
         payload = {
             "model": self.model,
             "max_tokens": 1024,
@@ -720,7 +724,7 @@ class OllamaProvider(NlqProvider):
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
         user_prompt = build_user_prompt(prompt)
 
-        url = f"{self.base_url.rstrip('/')}/api/generate"
+        url = f"{self._root_url()}/api/generate"
         payload = {
             "model": self.model,
             "system": sys_prompt,
@@ -746,7 +750,7 @@ class OllamaProvider(NlqProvider):
         **kwargs: Any,
     ) -> dict[str, Any]:
         prompt = build_explain_prompt(query_dict, dialect=dialect)
-        url = f"{self.base_url.rstrip('/')}/api/generate"
+        url = f"{self._root_url()}/api/generate"
         payload = {
             "model": self.model,
             "system": "You explain SQL and AST queries. Output only structured JSON.",

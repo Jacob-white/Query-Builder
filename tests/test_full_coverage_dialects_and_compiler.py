@@ -10,7 +10,6 @@ from query_builder import (
     get_dialect,
 )
 from query_builder.connectors.chroma import _ChromaCursorAdapter
-from query_builder.connectors.lancedb import _LanceDBCursorAdapter
 from query_builder.connectors.milvus import _MilvusCursorAdapter
 from query_builder.connectors.pinecone import _PineconeCursorAdapter
 from query_builder.connectors.qdrant import _QdrantCursorAdapter
@@ -50,25 +49,6 @@ def test_vector_connectors_params_and_limits_branches():
         "SELECT * FROM items WHERE vector_search", params=["invalid-json"]
     )
     assert cur_chroma.fetchall()
-
-    # 2. LanceDB with list, json string, invalid json string, and no limit
-    mock_lance_conn = MagicMock(spec=["open_table"])
-    mock_tbl = MagicMock()
-    mock_search = MagicMock()
-    mock_arrow = MagicMock()
-    mock_field = MagicMock()
-    mock_field.name = "id"
-    mock_arrow.schema = [mock_field]
-    mock_arrow.to_pylist.return_value = [{"id": "1"}]
-    mock_search.limit.return_value.to_arrow.return_value = mock_arrow
-    mock_tbl.search.return_value = mock_search
-    mock_lance_conn.open_table.return_value = mock_tbl
-
-    cur_lance = _LanceDBCursorAdapter(mock_lance_conn)
-    cur_lance.execute("SELECT * FROM items LIMIT 15", params=[[0.1, 0.2]])
-    cur_lance.execute("SELECT * FROM items", params=[json.dumps([0.1, 0.2])])
-    cur_lance.execute("SELECT * FROM items", params=["invalid-json"])
-    assert cur_lance.fetchall()
 
     # 3. Milvus with json string and without limit
     mock_milvus_conn = MagicMock(spec=["search"])

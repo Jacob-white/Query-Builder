@@ -54,6 +54,42 @@ class BaseDialect:
     supports_materialized_cte: bool = False
     supports_window_functions: bool = True
     supports_window_groups_frame: bool = False
+    # LIKE wildcard handling for the contains/starts_with/ends_with operators.
+    # ``None`` (default): the bound value is passed through unchanged, so a user
+    # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live
+    # set the escape character (and whether it must be declared with ESCAPE).
+    avg_template: str = "AVG({})"
+    count_distinct_template: str = "COUNT(DISTINCT {})"
+    #: keyword between a derived table's ")" and its alias; Oracle rejects ``AS`` there
+    subquery_alias_keyword: str = "AS "
+    neq_operator: str = "!="  # Drill rejects "!=" ("Bang equal is not allowed")
+    like_escape_char: str | None = None
+    like_escape_clause: bool = False
+    like_special_chars: str = "%_"
+
+    def escape_like(self, value: Any) -> str:
+        """Escape LIKE wildcards in a literal substring (no-op if unsupported)."""
+        text = str(value)
+        esc = self.like_escape_char
+        if not esc:
+            return text
+        for ch in (esc, *self.like_special_chars):
+            text = text.replace(ch, esc + ch)
+        return text
+
+    def substring_param(self, mode: str, value: Any) -> str:
+        """Bound value for contains ("contains") / starts_with ("starts") / ends_with ("ends")."""
+        escaped = self.escape_like(value)
+        if mode == "contains":
+            return f"%{escaped}%"
+        return f"{escaped}%" if mode == "starts" else f"%{escaped}"
+
+    def format_substring_match(self, col_ref: str) -> str:
+        """Case-insensitive LIKE used by contains/starts_with/ends_with."""
+        expr = self.format_ilike(col_ref)
+        if self.like_escape_clause and self.like_escape_char:
+            expr = f"{expr} ESCAPE '{self.like_escape_char}'"
+        return expr
 
     def format_cte_materialized(self, materialized: bool | None) -> str:
         """Returns MATERIALIZED or NOT MATERIALIZED hint if supported, else empty string."""
@@ -192,6 +228,7 @@ class PostgresDialect(BaseDialect):
     name: str = "postgres"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"  # PostgreSQL's default LIKE escape
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats pgvector distance operator expression."""
@@ -219,6 +256,10 @@ class SnowflakeDialect(BaseDialect):
     """Snowflake dialect."""
 
     name: str = "snowflake"
+    # '\\' is itself an escape character inside Snowflake string literals, so use a plain
+    # character as the LIKE escape and declare it.
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats Snowflake vector similarity expression."""
@@ -249,6 +290,11 @@ class MSSQLDialect(BaseDialect):
     name: str = "mssql"
     placeholder: str = "%s"
     requires_order_by_for_pagination: bool = True
+    # AVG over an integer column does integer division in T-SQL (AVG(1,2) = 1).
+    avg_template = "AVG(CAST({} AS FLOAT))"
+    like_escape_char = "\\"
+    like_escape_clause = True
+    like_special_chars = "%_["
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -277,6 +323,8 @@ class SQLiteDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = False
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         # SQLite LIKE is case-insensitive by default for ASCII
@@ -312,6 +360,7 @@ class MySQLDialect(BaseDialect):
 
     name: str = "mysql"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # MySQL's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -334,6 +383,8 @@ class DuckDBDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
@@ -373,6 +424,7 @@ class ClickHouseDialect(BaseDialect):
 
     name: str = "clickhouse"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # ClickHouse's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -453,7 +505,10 @@ class OracleDialect(BaseDialect):
     """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
 
     name: str = "oracle"
-    placeholder: str = "%s"
+    placeholder: str = "%s"  # OracleConnector rewrites to :1, :2, ... for the driver
+    subquery_alias_keyword = ""  # ORA-03048: no AS before a derived-table alias
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -485,6 +540,8 @@ class TrinoDialect(BaseDialect):
 
     name: str = "trino"
     placeholder: str = "?"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -537,9 +594,24 @@ class PolarsDialect(BaseDialect):
 
     name: str = "polars"
     placeholder: str = "?"
+    _REGEX_SPECIAL = frozenset(r"\.+*?()|[]{}^$#&-~")
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    # Polars' LIKE/ILIKE has NO ESCAPE support (a literal % or _ cannot be expressed), so the
+    # contains/starts_with/ends_with operators use its regex match operator instead.
+    def substring_param(self, mode: str, value: Any) -> str:
+        text = "".join(
+            "\\" + ch if ch in self._REGEX_SPECIAL else ch for ch in str(value)
+        )
+        anchored = (
+            ("^" if mode == "starts" else "") + text + ("$" if mode == "ends" else "")
+        )
+        return "(?i)" + anchored
+
+    def format_substring_match(self, col_ref: str) -> str:
+        return f"{col_ref} ~ {self.placeholder}"
 
 
 class DataFusionDialect(BaseDialect):
@@ -547,6 +619,8 @@ class DataFusionDialect(BaseDialect):
 
     name: str = "datafusion"
     placeholder: str = "?"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -589,19 +663,38 @@ class QuestDBDialect(BaseDialect):
 
     name: str = "questdb"
     placeholder: str = "%s"
+    count_distinct_template = (
+        "count_distinct({})"  # COUNT(DISTINCT x) is a syntax error
+    )
+    like_escape_char = "\\"
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # QuestDB has no OFFSET keyword: pagination is `LIMIT lower, upper`
+        # (row range [lower, upper)). Integers are inlined after int() coercion.
+        lo = max(int(offset), 0)
+        return f"LIMIT {lo}, {lo + max(int(limit), 0)}", []
 
 
 class ElasticsearchDialect(BaseDialect):
     """Elasticsearch / OpenSearch SQL dialect."""
 
     name: str = "elasticsearch"
-    placeholder: str = "%s"
+    placeholder: str = "?"  # the /_sql endpoint binds positional `?` parameters
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # Elasticsearch SQL has no OFFSET and cannot bind LIMIT: inline the
+        # (int-coerced) row count and refuse a skip it cannot honour.
+        if int(offset) > 0:
+            raise DialectError(
+                "Elasticsearch SQL does not support OFFSET; page with a cursor instead."
+            )
+        return f"LIMIT {int(limit)}", []
 
 
 class DynamoDBPartiQLDialect(BaseDialect):
@@ -693,6 +786,14 @@ class MongoDBSQLDialect(BaseDialect):
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # pymongosql cannot bind LIMIT/OFFSET (`Invalid LIMIT value '?'`) and then
+        # silently returns no rows: inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
 
 class NeonDialect(PostgresDialect):
@@ -1504,6 +1605,11 @@ class DrillDialect(BaseDialect):
 
     name: str = "drill"
     placeholder: str = "%s"
+    neq_operator = "<>"
+    # '!' not '\': sqlglot's Drill tokenizer reads a backslash in a string as an escape,
+    # so the AST validator would reject ESCAPE '\'
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -1516,7 +1622,8 @@ class DrillDialect(BaseDialect):
         return f"`{cleaned}`"
 
     def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
+        # Drill has no ILIKE operator (only an ILIKE(col, pattern) function without ESCAPE)
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "dfs.default"
@@ -1560,6 +1667,13 @@ class OpenSearchDialect(ElasticsearchDialect):
     """OpenSearch distributed search & analytics SQL plugin dialect."""
 
     name: str = "opensearch"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # The SQL plugin cannot bind LIMIT/OFFSET; inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -1694,13 +1808,18 @@ class FirebirdDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
+    like_escape_char = "\\"
+    like_escape_clause = True
+    # AVG over an INTEGER column is integer division in Firebird
+    avg_template = "AVG(CAST({} AS DOUBLE PRECISION))"
+
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        if offset > 0:
-            return (
-                f"ROWS {self.placeholder} TO {self.placeholder}",
-                [offset + 1, offset + limit],
-            )
-        return f"ROWS {self.placeholder}", [limit]
+        # SQL:2008 OFFSET/FETCH (Firebird 3.0+): standard, so the structural validator can
+        # parse it (the legacy ``ROWS m TO n`` form is not parseable and was rejected).
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
 
     def inspect_tables_query(
         self, schema_name: str = "public"
@@ -1754,7 +1873,10 @@ class MonetDBDialect(BaseDialect):
     """MonetDB columnar analytical database dialect using double-quote escaping and LIMIT/OFFSET."""
 
     name: str = "monetdb"
-    placeholder: str = "?"
+    placeholder: str = "%s"  # pymonetdb paramstyle is pyformat
+    # MonetDB rejects a backslash ESCAPE; "!" works
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
@@ -1770,11 +1892,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;",
+                f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;',
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;",
+            f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;',
             [schema_name],
         )
 
@@ -1783,11 +1905,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
+                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
+            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
             [schema_name],
         )
 
@@ -1796,11 +1918,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder} AND t.name = {self.placeholder};",
+                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE k.type = 2 AND s.name = {self.placeholder} AND t.name = {self.placeholder};",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
+            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE k.type = 2 AND s.name = {self.placeholder};",
             [schema_name],
         )
 
@@ -1810,6 +1932,8 @@ class H2Dialect(BaseDialect):
 
     name: str = "h2"
     placeholder: str = "?"
+    like_escape_char = "\\"  # H2's default LIKE escape
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
@@ -1867,6 +1991,8 @@ class DerbyDialect(BaseDialect):
 
     name: str = "derby"
     placeholder: str = "?"
+    like_escape_char = "\\"  # Derby has no default LIKE escape: declare it
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"

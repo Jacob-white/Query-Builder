@@ -502,38 +502,42 @@ def test_lancedb_adapter_specialized():
     assert adapter.description == [("table_name",)]
     assert adapter.fetchall() == [["t1"], ["t2"]]
 
-    # open_table with search().to_arrow()
+    # open_table: plain SELECT is run through the table's own scan, never silently ignored
+    import pyarrow as pa
+
     client_tbl = MagicMock(spec=["open_table"])
     tbl_mock = MagicMock()
-    f1 = MagicMock()
-    f1.name = "vector"
-    schema_mock = [f1]
-    arrow_mock = MagicMock()
-    arrow_mock.schema = schema_mock
-    arrow_mock.to_pylist.return_value = [{"vector": [0.1, 0.2]}]
-    tbl_mock.search.return_value.limit.return_value.to_arrow.return_value = arrow_mock
+    data = pa.table({"vector": [[0.1, 0.2]], "n": [1]})
+    tbl_mock.search.return_value.where.return_value.limit.return_value.to_arrow.return_value = data
+    tbl_mock.search.return_value.limit.return_value.to_arrow.return_value = data
     client_tbl.open_table.return_value = tbl_mock
     adapter2 = _LanceDBCursorAdapter(client_tbl)
     adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("vector",)]
-    assert adapter2.fetchall() == [[[0.1, 0.2]]]
+    assert adapter2.description == [("vector",), ("n",)]
+    assert adapter2.fetchall() == [[[0.1, 0.2], 1]]
+    adapter2.execute(
+        "SELECT n AS k FROM items WHERE n > ? ORDER BY n DESC LIMIT 5", [0]
+    )
+    assert adapter2.description == [("k",)]
+    assert adapter2.fetchall() == [[1]]
+    tbl_mock.search.return_value.where.assert_called_with("n > 0", prefilter=True)
 
-    # open_table with to_pandas()
-    tbl_mock2 = MagicMock(spec=["to_pandas"])
-    df_mock = MagicMock()
-    df_mock.columns = ["col1"]
-    df_mock.values = [[99]]
-    tbl_mock2.to_pandas.return_value = df_mock
-    client_tbl.open_table.return_value = tbl_mock2
-    adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("col1",)]
-    assert adapter2.fetchall() == [[99]]
+    # anything the native API cannot express fails loudly instead of returning wrong rows
+    from query_builder.connectors.lancedb import UnsupportedLanceQuery
 
-    # open_table raising Exception
+    for bad in (
+        "SELECT a FROM items JOIN o ON 1=1",
+        "SELECT count(*) FROM items",
+        "SELECT a FROM items ORDER BY a + 1",
+        "SELECT a FROM (SELECT 1) x",
+    ):
+        with pytest.raises(UnsupportedLanceQuery):
+            adapter2.execute(bad)
+
+    # open_table raising propagates (it used to be swallowed into a fake "ok" row)
     client_tbl.open_table.side_effect = RuntimeError("Open table fail")
-    adapter2.execute("SELECT * FROM items")
-    assert adapter2.description == [("status",)]
-    assert adapter2.fetchall() == [["ok"]]
+    with pytest.raises(RuntimeError):
+        adapter2.execute("SELECT * FROM items")
 
 
 def test_redis_search_adapter_specialized():
@@ -590,18 +594,17 @@ def test_firestore_adapter_specialized():
     doc1 = MagicMock()
     doc1.id = "doc_1"
     doc1.to_dict.return_value = {"name": "Bob", "age": 30}
-    coll_ref.limit.return_value.stream.return_value = [doc1]
+    coll_ref.stream.return_value = [doc1]
     conn_coll.collection.return_value = coll_ref
     adapter2 = _FirestoreCursorAdapter(conn_coll)
     adapter2.execute("SELECT * FROM users")
     assert adapter2.description == [("id",), ("name",), ("age",)]
     assert adapter2.fetchall() == [["doc_1", "Bob", 30]]
 
-    # collection raising exception
+    # a failing engine call is an ERROR, never "no documents"
     conn_coll.collection.side_effect = RuntimeError("Firestore down")
-    adapter2.execute("SELECT * FROM users")
-    assert adapter2.description == [("id",), ("data",)]
-    assert adapter2.fetchall() == []
+    with pytest.raises(RuntimeError, match="Firestore down"):
+        adapter2.execute("SELECT * FROM users")
 
 
 def test_bigtable_adapter_specialized():
@@ -615,31 +618,39 @@ def test_bigtable_adapter_specialized():
     assert adapter.description == [("table_id",)]
     assert adapter.fetchall() == [["metrics"]]
 
-    # table read_rows
+    # table read_rows: cells are {family: {qualifier: [Cell, ...]}}, latest cell first
     conn_tbl = MagicMock(spec=["table"])
     tbl_obj = MagicMock()
     r1 = MagicMock()
     r1.row_key = b"key-001"
-    r1.cells = {"cf": {"col": b"val"}}
+    r1.cells = {"cf": {b"col": [MagicMock(value=b"val"), MagicMock(value=b"old")]}}
     tbl_obj.read_rows.return_value = [r1]
     conn_tbl.table.return_value = tbl_obj
     adapter2 = _BigtableCursorAdapter(conn_tbl)
     adapter2.execute("SELECT * FROM metrics")
-    assert adapter2.description == [("row_key",), ("user_id",), ("data",)]
-    rows = adapter2.fetchall()
-    assert rows[0][0] == "key-001"
-    assert "cf" in rows[0][2]
+    assert adapter2.description == [("row_key",), ("cf.col",)]
+    assert adapter2.fetchall() == [["key-001", "val"]]
 
-    # table raising exception
+    # a failing engine call is an ERROR, never "no rows"
     conn_tbl.table.side_effect = RuntimeError("Bigtable down")
-    adapter2.execute("SELECT * FROM metrics")
-    assert adapter2.description == [("row_key",), ("data",)]
-    assert adapter2.fetchall() == []
+    with pytest.raises(RuntimeError, match="Bigtable down"):
+        adapter2.execute("SELECT * FROM metrics")
 
 
 # ============================================================================
 # 5. Full Lifecycle Sync & Async Connector Tests (Phase 4)
 # ============================================================================
+
+
+_DRIVER_FALLBACKS = {
+    "google.cloud.firestore": ("google.cloud.firestore_v1",),
+    "google.cloud.bigtable": ("google.cloud.bigtable_v2",),
+}
+
+
+def _missing(driver_path):
+    # sys.modules patch that makes the driver AND its fallback import names unimportable
+    return {m: None for m in (driver_path, *_DRIVER_FALLBACKS.get(driver_path, ()))}
 
 
 def _test_sync_lifecycle(conn_cls, driver_path, mock_client, introspect_fn_name):
@@ -650,7 +661,7 @@ def _test_sync_lifecycle(conn_cls, driver_path, mock_client, introspect_fn_name)
 
     # Missing driver
     with (
-        patch.dict(sys.modules, {driver_path: None}),
+        patch.dict(sys.modules, _missing(driver_path)),
         pytest.raises(DriverNotInstalledError),
     ):
         conn_cls().connect()
@@ -746,7 +757,7 @@ def _test_async_lifecycle(async_conn_cls, driver_path, mock_client, introspect_f
 
         # Missing driver
         with (
-            patch.dict(sys.modules, {driver_path: None}),
+            patch.dict(sys.modules, _missing(driver_path)),
             pytest.raises(DriverNotInstalledError),
         ):
             await conn.connect()
@@ -762,6 +773,9 @@ def _test_async_lifecycle(async_conn_cls, driver_path, mock_client, introspect_f
             "connect",
             "connect_async",
             "connect_to_custom",
+            "use_async_with_custom",
+            "PineconeAsyncio",
+            "AsyncMilvusClient",
             "Redis",
             "from_url",
             "BigtableDataClientAsync",
@@ -1054,7 +1068,7 @@ def test_introspect_chroma_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_chroma(mock_empty)
-    assert "notes" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent a collection that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1078,7 +1092,7 @@ def test_introspect_lancedb_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_lancedb(mock_empty)
-    assert "items" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent a table that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1102,7 +1116,7 @@ def test_introspect_redis_search_branches():
     mock_empty = MagicMock()
     mock_empty.fetchall.return_value = []
     schema_empty = introspect_redis_search(mock_empty)
-    assert "idx:users" in schema_empty["tables"]
+    assert schema_empty["tables"] == {}  # never invent an index that does not exist
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1111,22 +1125,50 @@ def test_introspect_redis_search_branches():
         introspect_redis_search(mock_err)
 
 
-def test_introspect_firestore_branches():
-    mock_cur = MagicMock()
-    mock_cur.fetchall.return_value = [["users"], ["passwords"]]
-    schema = introspect_firestore(mock_cur, filter_sensitive=True)
-    assert any(k.lower() == "users" for k in schema["tables"])
-    assert not any(k.lower() == "passwords" for k in schema["tables"])
-    tbl_name = next(k for k in schema["tables"] if k.lower() == "users")
-    cols = [col["name"] for col in schema["tables"][tbl_name]["columns"]]
-    assert "id" in cols
-    assert "user_id" in cols
+class _ScriptedCursor:
+    # DB-API-ish cursor answering by statement prefix: {prefix: (description, rows)}
 
-    # Empty branch
-    mock_empty = MagicMock()
-    mock_empty.fetchall.return_value = []
-    schema_empty = introspect_firestore(mock_empty)
-    assert "users" in schema_empty["tables"]
+    def __init__(self, script):
+        self.script = script
+        self.description = None
+        self._rows = []
+
+    def execute(self, sql, params=None):
+        for prefix, (desc, rows) in self.script.items():
+            if sql.startswith(prefix):
+                self.description, self._rows = desc, rows
+                return
+        self.description, self._rows = [], []
+
+    def fetchall(self):
+        return self._rows
+
+
+def test_introspect_firestore_branches():
+    cur = _ScriptedCursor(
+        {
+            "collections": ([("collection_name",)], [["users"], ["passwords"]]),
+            "SELECT * FROM `users`": (
+                [("id",), ("user_id",), ("name",), ("tags",)],
+                [[1, "u1", "x", ["a"]], [2, None, "y", ["b"]]],
+            ),
+            "SELECT * FROM `passwords`": ([("id",)], [[1]]),
+        }
+    )
+    schema = introspect_firestore(cur, filter_sensitive=True)
+    assert set(schema["tables"]) == {"users"}  # sensitive collection filtered
+    cols = {c["name"]: c["data_type"] for c in schema["tables"]["users"]["columns"]}
+    assert cols == {
+        "id": "number",
+        "user_id": "string",
+        "name": "string",
+        "tags": "array",
+    }
+    assert schema["tables"]["users"]["has_user_id"] is True
+
+    # No collections: no tables. Nothing is invented.
+    empty = _ScriptedCursor({"collections": ([("collection_name",)], [])})
+    assert introspect_firestore(empty)["tables"] == {}
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1136,21 +1178,25 @@ def test_introspect_firestore_branches():
 
 
 def test_introspect_bigtable_branches():
-    mock_cur = MagicMock()
-    mock_cur.fetchall.return_value = [["events"], ["passwords"]]
-    schema = introspect_bigtable(mock_cur, filter_sensitive=True)
-    assert any(k.lower() == "events" for k in schema["tables"])
-    assert not any(k.lower() == "passwords" for k in schema["tables"])
-    tbl_name = next(k for k in schema["tables"] if k.lower() == "events")
-    cols = [col["name"] for col in schema["tables"][tbl_name]["columns"]]
-    assert "row_key" in cols
-    assert "user_id" in cols
+    cur = _ScriptedCursor(
+        {
+            "list_tables": ([("table_id",)], [["events"], ["passwords"]]),
+            "SELECT * FROM `events`": (
+                [("row_key",), ("cf.kind",), ("cf.n",)],
+                [["k1", "a", "1"]],
+            ),
+            "SELECT * FROM `passwords`": ([("row_key",)], [["k"]]),
+        }
+    )
+    schema = introspect_bigtable(cur, filter_sensitive=True)
+    assert set(schema["tables"]) == {"events"}
+    columns = schema["tables"]["events"]["columns"]
+    assert [c["name"] for c in columns] == ["row_key", "cf.kind", "cf.n"]
+    assert [c["name"] for c in columns if c["is_primary"]] == ["row_key"]
 
-    # Empty branch
-    mock_empty = MagicMock()
-    mock_empty.fetchall.return_value = []
-    schema_empty = introspect_bigtable(mock_empty)
-    assert "metrics" in schema_empty["tables"]
+    # No tables: no tables. Nothing is invented.
+    empty = _ScriptedCursor({"list_tables": ([("table_id",)], [])})
+    assert introspect_bigtable(empty)["tables"] == {}
 
     # Error wrapping
     mock_err = MagicMock()
@@ -1228,7 +1274,8 @@ def test_bigtable_coverage_branches():
         mock_async_client = MagicMock()
         mock_async_inst = MagicMock()
         mock_async_client.instance.return_value = mock_async_inst
-        mock_async_drv.BigtableDataClientAsync.return_value = mock_async_client
+        # the async class drives the SYNC client (admin API) in a worker thread
+        mock_async_drv.Client.return_value = mock_async_client
         with patch.dict(
             sys.modules,
             {
@@ -1291,17 +1338,7 @@ def test_chroma_coverage_branches():
     assert c_none.test_connection()["status"] == "healthy"
 
     async def _test_async_chroma():
-        mock_async_http = MagicMock()
-
-        async def fake_async_client(*a, **kw):
-            return mock_async_http
-
-        mock_drv.AsyncHttpClient = fake_async_client
         with patch.dict(sys.modules, {"chromadb": mock_drv}):
-            c_async_host = AsyncChromaConnector(host="localhost")
-            assert await c_async_host.connect() is mock_async_http
-
-            del mock_drv.AsyncHttpClient
             c_async_host2 = AsyncChromaConnector(host="localhost")
             assert await c_async_host2.connect() is mock_http
 
@@ -1328,7 +1365,7 @@ def test_firestore_coverage_branches():
     mock_conn.collection.return_value = coll_mock
     adapter = _FirestoreCursorAdapter(mock_conn)
     adapter.execute("SELECT * FROM users")
-    assert adapter.description == [("id",), ("data",)]
+    assert adapter.description == []  # no documents: no columns to report
     assert adapter.fetchall() == []
 
     mock_conn_exec = MagicMock(spec=["execute"])
@@ -1384,9 +1421,8 @@ def test_lancedb_coverage_branches():
     tbl_empty = MagicMock(spec=[])
     mock_conn.open_table.return_value = tbl_empty
     adapter = _LanceDBCursorAdapter(mock_conn)
-    adapter.execute("SELECT * FROM items")
-    assert adapter.description == [("status",)]
-    assert adapter.fetchall() == [["ok"]]
+    with pytest.raises(AttributeError):  # no search(): must not fake an "ok" row
+        adapter.execute("SELECT * FROM items")
 
     c_none = LanceDBConnector(connection=MagicMock(spec=[]))
     assert c_none.test_connection()["status"] == "healthy"
@@ -1411,15 +1447,6 @@ def test_lancedb_coverage_branches():
             del mock_drv.connect_async
             c_fallback = AsyncLanceDBConnector()
             assert await c_fallback.connect() is mock_sync_conn
-
-        mock_conn_await = MagicMock(spec=["table_names"])
-
-        async def async_tbls():
-            return []
-
-        mock_conn_await.table_names.return_value = async_tbls()
-        c_a_tbls = AsyncLanceDBConnector(connection=mock_conn_await)
-        assert (await c_a_tbls.test_connection())["status"] == "healthy"
 
         mock_conn_sync_tbls = MagicMock(spec=["table_names"])
         mock_conn_sync_tbls.table_names.return_value = []
@@ -1501,6 +1528,7 @@ def test_pinecone_coverage_branches():
         mock_idx2 = MagicMock()
         mock_pc2.Index.return_value = mock_idx2
         mock_drv2.Pinecone.return_value = mock_pc2
+        del mock_drv2.PineconeAsyncio  # legacy driver without an asyncio client
         with patch.dict(sys.modules, {"pinecone": mock_drv2}):
             c_a_idx = AsyncPineconeConnector(index_name="my_idx")
             assert await c_a_idx.connect() is mock_idx2
@@ -1574,8 +1602,16 @@ def test_redis_search_coverage_branches():
     assert adapter.fetchall() == [["item1"]]
 
     mock_conn.execute_command.return_value = b"OK"
-    adapter.execute("SET key val")
+    adapter.execute("GET key")
     assert adapter.fetchall() == [["OK"]]
+    # the raw path only sends read commands: writes never reach the server
+    from query_builder.exceptions import SecurityError as _SecurityError
+
+    for write in ("SET key val", "FLUSHALL", "FT.DROPINDEX idx", "DEL key"):
+        mock_conn.execute_command.reset_mock()
+        with pytest.raises(_SecurityError, match="Read-only session"):
+            adapter.execute(write)
+        mock_conn.execute_command.assert_not_called()
 
     c_none = RedisSearchConnector(connection=MagicMock(spec=[]))
     assert c_none.test_connection()["status"] == "healthy"
@@ -1661,6 +1697,7 @@ def test_weaviate_coverage_branches():
         mock_async_drv = MagicMock()
         mock_async_client = MagicMock()
         mock_async_drv.Client.return_value = mock_async_client
+        del mock_async_drv.use_async_with_custom  # legacy driver without async API
         del mock_async_drv.connect_to_custom
         with patch.dict(sys.modules, {"weaviate": mock_async_drv}):
             c_a_client = AsyncWeaviateConnector()

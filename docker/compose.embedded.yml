@@ -1,0 +1,29 @@
+# Fixtures for the "embedded / in-process / emulator" engine family
+# (tests/integration/engines_embedded.py). Almost everything in this family needs NO server;
+# the only container is a PostgreSQL used to run GenericDBAPIConnector over a server DB-API
+# driver (psycopg).
+#
+#   python scripts/it_batch.py --label generic_pg --engines generic_psycopg \
+#       --compose docker/compose.embedded.yml --profile embedded --services generic_pg
+#
+# Host ports: 127.0.0.1:45000-45999 only. Named volumes only (removed by `down -v`).
+name: qb-integration
+
+services:
+  generic_pg:
+    profiles: ["embedded"]
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: qb
+      POSTGRES_PASSWORD: qb_it_password
+      POSTGRES_DB: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_GENERIC_PSYCOPG:-45432}:5432"]
+    volumes: ["qb_it_generic_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qb -d qb_it"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  qb_it_generic_pg:

@@ -4,9 +4,13 @@ import {
   useQueryBuilder,
   type DatabaseSchemaDefinition,
   type SchemaSnapshot,
+  type TableDefinition,
+  type RelationshipDefinition,
+  type ColumnDefinition,
   isSchemaSnapshot,
   normalizeSchema,
 } from "../src";
+import { invalid } from "./helpers";
 
 // Type-level test schema
 interface AppSchema extends DatabaseSchemaDefinition {
@@ -404,7 +408,7 @@ describe("useQueryBuilder<Schema> Generic Inference & Backward Compatibility", (
     // Table with null tableDef
     const nullTableDefSchema = normalizeSchema({
       tables: {
-        t_null: null as any,
+        t_null: invalid<TableDefinition>(null),
       },
     });
     expect(nullTableDefSchema?.tables).toEqual({});
@@ -417,9 +421,9 @@ describe("useQueryBuilder<Schema> Generic Inference & Backward Compatibility", (
             id: { dataType: "int", primaryKey: true },
           },
           relationships: {
-            child_rel: { targetTable: "child" } as any,
-            null_rel: null as any,
-            empty_rel: {} as any,
+            child_rel: invalid<RelationshipDefinition>({ targetTable: "child" }),
+            null_rel: invalid<RelationshipDefinition>(null),
+            empty_rel: invalid<RelationshipDefinition>({}),
           },
         },
       },
@@ -436,7 +440,7 @@ describe("useQueryBuilder<Schema> Generic Inference & Backward Compatibility", (
       tables: {
         items: {
           columns: {
-            title: { primaryKey: false } as any,
+            title: invalid<ColumnDefinition>({ primaryKey: false }),
           },
         },
       },
@@ -444,7 +448,7 @@ describe("useQueryBuilder<Schema> Generic Inference & Backward Compatibility", (
     expect(fallbackDataTypeSchema?.tables.items.columns[0].data_type).toBe("string");
 
     // Schema without tables object
-    expect(normalizeSchema({} as any)).toBeNull();
+    expect(normalizeSchema(invalid<DatabaseSchemaDefinition>({}))).toBeNull();
   });
 
   it("initializes useQueryBuilder with initialSpec.table when initialTable and primaryTable are omitted", () => {

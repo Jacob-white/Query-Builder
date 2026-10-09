@@ -5,7 +5,7 @@
  * reactive cross-filtering event bus, and KPI/Pivot aggregation compute.
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import type {
   CrossFilterState,
   DashboardState,

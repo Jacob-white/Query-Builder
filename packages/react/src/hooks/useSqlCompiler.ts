@@ -5,6 +5,7 @@ import type {
   SqlDialect,
   SqlSafetyValidation,
   QuerySpec,
+  SerializedQuerySpec,
   VisualColumnSelect,
   VisualFilter,
   VisualJoin,
@@ -19,7 +20,8 @@ import type {
 import { compileVisualState, type CompiledVisualQuery } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { normalizeSchema } from "../utils/schemaUtils";
-import { specToState, type QueryState } from "./useQueryState";
+import { specToState } from "../utils/queryStateTransitions";
+import type { QueryState } from "./useQueryState";
 import type { QueryBuilderState } from "./useQueryBuilder";
 
 const WS_CHAR = /\s/;
@@ -131,7 +133,8 @@ function compileInput(
     | QuerySpec
     | QueryState
     | QueryBuilderState
-    | Record<string, unknown>
+    | Partial<QuerySpec>
+    | SerializedQuerySpec
     | null
     | undefined,
   options?: UseSqlCompilerOptions,
@@ -291,7 +294,8 @@ export function useSqlCompiler(
     | QuerySpec
     | QueryState
     | QueryBuilderState
-    | Record<string, unknown>
+    | Partial<QuerySpec>
+    | SerializedQuerySpec
     | null
     | undefined,
   options?: UseSqlCompilerOptions,
@@ -299,27 +303,36 @@ export function useSqlCompiler(
   const debounceMs = options?.debounceMs;
   const isDebounced = typeof debounceMs === "number" && debounceMs > 0;
 
+  const dialectOption = options?.dialect;
+  const schemaOption = options?.schema;
+  const allowedSchemasOption = options?.allowedSchemas;
+  const customOperatorsOption = options?.customOperators;
+  // The compile-relevant options, keyed by the identity of each field (not of the options object,
+  // which callers usually re-create inline on every render).
+  const compileOptions = useMemo<UseSqlCompilerOptions>(
+    () => ({
+      dialect: dialectOption,
+      schema: schemaOption,
+      allowedSchemas: allowedSchemasOption,
+      customOperators: customOperatorsOption,
+    }),
+    [dialectOption, schemaOption, allowedSchemasOption, customOperatorsOption],
+  );
+
   const [debouncedResult, setDebouncedResult] = useState<CompiledInternal>(() =>
-    compileInput(specOrState, options),
+    compileInput(specOrState, compileOptions),
   );
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
 
   // For immediate synchronous compilation when not debounced
   const syncResult = useMemo(() => {
     if (isDebounced) return null;
-    return compileInput(specOrState, options);
-  }, [
-    specOrState,
-    options?.dialect,
-    options?.schema,
-    options?.allowedSchemas,
-    options?.customOperators,
-    isDebounced,
-  ]);
+    return compileInput(specOrState, compileOptions);
+  }, [specOrState, compileOptions, isDebounced]);
 
   // Ref to track latest options/input for debounce
-  const latestRef = useRef({ specOrState, options });
-  latestRef.current = { specOrState, options };
+  const latestRef = useRef({ specOrState, compileOptions });
+  latestRef.current = { specOrState, compileOptions };
 
   useEffect(() => {
     if (!isDebounced) {
@@ -330,7 +343,7 @@ export function useSqlCompiler(
     const timer = setTimeout(() => {
       const res = compileInput(
         latestRef.current.specOrState,
-        latestRef.current.options,
+        latestRef.current.compileOptions,
       );
       setDebouncedResult(res);
       setIsCompiling(false);
@@ -339,15 +352,7 @@ export function useSqlCompiler(
     return () => {
       clearTimeout(timer);
     };
-  }, [
-    specOrState,
-    options?.dialect,
-    options?.schema,
-    options?.allowedSchemas,
-    options?.customOperators,
-    debounceMs,
-    isDebounced,
-  ]);
+  }, [specOrState, compileOptions, debounceMs, isDebounced]);
 
   const activeResult = isDebounced ? debouncedResult : syncResult!;
 

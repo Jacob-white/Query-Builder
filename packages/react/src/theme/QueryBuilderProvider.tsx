@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { ThemeProvider } from "./ThemeProvider";
 import type {
   QueryBuilderTheme,
@@ -79,11 +79,15 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
   const effectiveAdvanced =
     propAdvancedMode !== undefined ? propAdvancedMode : (parentContext?.isAdvancedMode ?? internalAdvanced);
 
-  const handleSetAdvanced = (val: boolean) => {
-    setInternalAdvanced(val);
-    onAdvancedModeChange?.(val);
-    parentContext?.setIsAdvancedMode?.(val);
-  };
+  const parentSetAdvanced = parentContext?.setIsAdvancedMode;
+  const handleSetAdvanced = useCallback(
+    (val: boolean) => {
+      setInternalAdvanced(val);
+      onAdvancedModeChange?.(val);
+      parentSetAdvanced?.(val);
+    },
+    [onAdvancedModeChange, parentSetAdvanced],
+  );
 
   const resolvedFeatures = useMemo(() => {
     return resolveFeatureConfig(features, featurePreset, parentContext?.features);
@@ -118,6 +122,7 @@ export const QueryBuilderProvider: React.FC<QueryBuilderProviderProps> = ({
       cellRenderers,
       onExecuteQuery,
       effectiveAdvanced,
+      handleSetAdvanced,
       resolvedFeatures,
     ],
   );

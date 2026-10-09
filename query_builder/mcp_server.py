@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, TextIO
 
 from query_builder import __version__
 from query_builder.advisor import analyze_query_performance, recommend_indexes
@@ -217,7 +217,9 @@ TOOLS = [
 class McpServer:
     """Standard Model Context Protocol JSON-RPC server running over stdio."""
 
-    def __init__(self, stdin=None, stdout=None):
+    def __init__(
+        self, stdin: TextIO | None = None, stdout: TextIO | None = None
+    ) -> None:
         self.stdin = stdin or sys.stdin
         self.stdout = stdout or sys.stdout
 
@@ -265,7 +267,7 @@ class McpServer:
             }
 
         if method == "tools/call":
-            tool_name = params.get("name")
+            tool_name = str(params.get("name"))
             arguments = params.get("arguments") or {}
             try:
                 content = self._dispatch_tool(tool_name, arguments)
@@ -387,7 +389,7 @@ class McpServer:
                     filter_sensitive=filter_sensitive
                 )
 
-            if is_dataclass(snapshot):
+            if is_dataclass(snapshot) and not isinstance(snapshot, type):
                 snap_dict = asdict(snapshot)
             elif hasattr(snapshot, "to_dict"):
                 snap_dict = snapshot.to_dict()
@@ -399,7 +401,7 @@ class McpServer:
 
         if name == "query_builder_execute":
             spec = args.get("spec")
-            sql = args.get("sql")
+            raw_sql = args.get("sql")
             params = args.get("params") or []
             connector_name = args.get("connector", "sqlite")
             config = args.get("config") or {}
@@ -410,12 +412,12 @@ class McpServer:
             if isinstance(config, str):
                 config = json.loads(config)
 
-            if not spec and not sql:
+            if not spec and not raw_sql:
                 raise QueryBuilderError("Either 'spec' or 'sql' must be provided.")
 
             # Validate AST safety on raw SQL
-            if sql:
-                val_res = validate_sql_ast(sql)
+            if raw_sql:
+                val_res = validate_sql_ast(raw_sql)
                 if not val_res.get("valid") or not val_res.get("is_read_only"):
                     violations = val_res.get(
                         "violations", ["Query rejected: Non-read-only statement."]
@@ -440,10 +442,10 @@ class McpServer:
             connector = ConnectorRegistry.get(connector_name, **config)
             if isinstance(connector, AsyncBaseConnector):
                 res = _run_coroutine_safely(
-                    connector.execute(spec=spec, sql=sql, params=params)
+                    connector.execute(spec=spec, sql=raw_sql, params=params)
                 )
             else:
-                res = connector.execute(spec=spec, sql=sql, params=params)
+                res = connector.execute(spec=spec, sql=raw_sql, params=params)
 
             if hasattr(res, "to_dict"):
                 res_dict = res.to_dict()
@@ -515,3 +517,13 @@ class McpServer:
                 }
                 self.stdout.write(json.dumps(err_resp) + "\n")
                 self.stdout.flush()
+
+
+def main() -> int:
+    """Console-script entry point (`query-builder-mcp`): serve MCP over stdio."""
+    McpServer().run_stdio()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

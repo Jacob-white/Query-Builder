@@ -12,8 +12,11 @@ We provide security patches, bug fixes, and vulnerability reviews for the follow
 
 | Version | Supported | Status |
 | :--- | :--- | :--- |
-| `1.x` | :white_check_mark: | Current Active Production (Full Security Support) |
-| `< 1.0.0` | :x: | Unsupported — Please upgrade immediately |
+| Latest release (`1.x`; `2.x` once released) | :white_check_mark: | Beta: security fixes land on the latest release only |
+| Older releases | :x: | Unsupported — please upgrade |
+
+The project is classified **Beta** on PyPI (`Development Status :: 4 - Beta`). Public APIs may
+still change between major versions; see `CHANGELOG.md`.
 
 ---
 
@@ -233,9 +236,28 @@ When embedding Query-Builder into web applications (e.g. Django, FastAPI, Flask,
 ## 6. Audit & Test Invariants
 
 Query-Builder maintains strict test invariants to guarantee security integrity:
-- **100.0% Statement Coverage** and **100.0% Branch Coverage** are required across all security, policy, and connector modules.
-- **Zero Suppression Directives**: No `# pragma: no cover` or `/* v8 ignore */` exemptions are permitted.
-- **Adversarial Regression Testing**: Automated fuzzing and penetration tests run on every build to prevent SSRF bypasses, bracketed host exploits, unicode normalization bypasses, and concurrency race conditions.
+- **Coverage floors enforced in CI**: Python statement + branch coverage must stay at or above 99%
+  (`[tool.coverage.report] fail_under` in `pyproject.toml`); the React package enforces
+  99% statements / 96% branches / 99% functions / 99% lines (`vitest.config.ts`).
+- **Suppressions are rare and reviewed**: a handful of `# pragma: no cover` / `/* v8 ignore */`
+  exemptions exist for genuinely unreachable branches; new ones need a justification in review.
+- **Adversarial Regression Testing**: The test suites include adversarial cases for SSRF bypasses,
+  bracketed hosts, unicode normalization, ReDoS-prone patterns and concurrency races, and run on every
+  pull request.
+
+## 6a. Supply-Chain Controls
+
+- **CI on every pull request** (`.github/workflows/ci.yml`): `pip-audit` on the resolved runtime
+  dependencies (accepted findings are listed with justification in
+  `.github/pip-audit-allowlist.txt`), `pnpm audit --audit-level high` for the React package and the
+  starter frontend, GitHub dependency review, and CycloneDX SBOM generation (uploaded as a build artifact).
+- **Dependabot** (`.github/dependabot.yml`) proposes weekly updates for pip, npm and GitHub Actions;
+  third-party actions are pinned to commit SHAs.
+- **Release process** (`.github/workflows/release.yml`, `docs/RELEASING.md`): releases are built from a
+  tag in CI, published to PyPI via trusted publishing (OIDC, no long-lived PyPI token) and to npm with
+  `--provenance`, and ship with SBOMs and SHA-256 checksums. This pipeline requires one-time maintainer
+  setup (see `docs/RELEASING.md`); **no release has been published through it yet**, so provenance
+  attestations exist only for releases made after that setup.
 
 ---
 

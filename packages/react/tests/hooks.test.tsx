@@ -601,7 +601,7 @@ describe("useQueryExecution Hook", () => {
     // onExecuteQuery returning void/null
     const { result: nullResult } = renderHook(() =>
       useQueryExecution({
-        onExecuteQuery: async () => {},
+        onExecuteQuery: () => {},
       }),
     );
     await act(async () => {

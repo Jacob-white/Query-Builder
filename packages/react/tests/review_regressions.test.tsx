@@ -3,6 +3,16 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, renderHook, act, waitFor } from "@testing-library/react";
 import { ThemeProvider, useTheme, lightTheme, useQueryBuilder, useStreamingQuery, useSqlCompiler } from "../src/index";
 import { parseSqlToSpec } from "../src/utils/sqlParser";
+import type { CteSpec, LooseQuerySpec, VisualQueryBuilderRef } from "../src/types";
+import type { ThemeProviderProps } from "../src/theme/ThemeProvider";
+import { invalid, makeColumn, makeSnapshot, makeSpec, makeTable } from "./helpers";
+
+const emptySchema = () => makeSnapshot({});
+/** Single-table schema from [column, data_type] pairs. */
+const usersSchema = (cols: [string, string][]) =>
+  makeSnapshot({
+    users: makeTable("users", cols.map(([n, t]) => makeColumn(n, { data_type: t }))),
+  });
 
 describe("ThemeProvider (review regressions)", () => {
   it("honours the mode carried by an explicit theme when no mode prop is given", () => {
@@ -27,7 +37,7 @@ describe("ThemeProvider (review regressions)", () => {
       return null;
     };
     const Wrapper = ({ tick }: { tick: number }) => (
-      <ThemeProvider theme={{ colors: { primary: "#123456" } }} data-tick={tick as any}>
+      <ThemeProvider theme={{ colors: { primary: "#123456" } }} data-tick={tick}>
         <Probe />
       </ThemeProvider>
     );
@@ -45,7 +55,7 @@ describe("ThemeProvider (review regressions)", () => {
 describe("useQueryBuilder reset (review regressions)", () => {
   it("keeps a stable reset identity when options contain inline arrays", () => {
     const { result, rerender } = renderHook(() =>
-      useQueryBuilder({ schema: { tables: {} } as any, ctes: [{ name: "c", spec: {} } as any] }),
+      useQueryBuilder({ schema: emptySchema(), ctes: [invalid<CteSpec>({ name: "c", spec: {} })] }),
     );
     const first = result.current.actions.reset;
     rerender();
@@ -56,18 +66,18 @@ describe("useQueryBuilder reset (review regressions)", () => {
 
 describe("parseSqlToSpec aliases (review regressions)", () => {
   it("does not treat trailing clause keywords as the table alias", () => {
-    const spec = parseSqlToSpec("SELECT id FROM users WHERE id = 1", { tables: {} } as any);
+    const spec = parseSqlToSpec("SELECT id FROM users WHERE id = 1", emptySchema());
     expect(spec?.table).toBe("users");
   });
 
   it("still resolves explicit and implicit aliases in joins", () => {
     const spec = parseSqlToSpec(
       "SELECT u.id FROM users AS u LEFT JOIN orders o ON u.id = o.user_id",
-      { tables: {} } as any,
+      emptySchema(),
     );
     expect(spec?.table).toBe("users");
     expect(spec?.joins?.[0]?.table).toBe("orders");
-    expect((spec?.joins?.[0] as any)?.left_table).toBe("users");
+    expect(spec?.joins?.[0]?.left_table).toBe("users");
   });
 });
 
@@ -122,11 +132,10 @@ describe("useStreamingQuery terminal events (review regressions)", () => {
 });
 
 describe("VisualQueryBuilder raw SQL safeguard (review regressions)", () => {
-  const schema = {
-    tables: {
-      users: { name: "users", columns: [{ name: "id", type: "integer" }, { name: "name", type: "text" }] },
-    },
-  } as any;
+  const schema = usersSchema([
+    ["id", "integer"],
+    ["name", "text"],
+  ]);
 
   it("offers to restore custom SQL replaced by a visual edit", async () => {
     const store: Record<string, string> = {};
@@ -136,7 +145,7 @@ describe("VisualQueryBuilder raw SQL safeguard (review regressions)", () => {
       removeItem: (k: string) => void delete store[k],
       clear: () => Object.keys(store).forEach((k) => delete store[k]),
     });
-    const ref = React.createRef<any>();
+    const ref = React.createRef<VisualQueryBuilderRef>();
     const { fireEvent, screen } = await import("@testing-library/react");
     const { VisualQueryBuilder } = await import("../src/index");
     render(<VisualQueryBuilder ref={ref} schema={schema} />);
@@ -146,7 +155,7 @@ describe("VisualQueryBuilder raw SQL safeguard (review regressions)", () => {
     fireEvent.change(screen.getByLabelText("Raw SQL code"), { target: { value: custom } });
     expect(screen.queryByText(/replaced your custom SQL/)).toBeNull();
 
-    act(() => ref.current.setSpec({ table: "users", columns: ["name"] }));
+    act(() => ref.current!.setSpec(makeSpec({ table: "users", columns: ["name"] })));
     expect(await screen.findByText(/replaced your custom SQL/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("Restore my SQL"));
@@ -160,7 +169,7 @@ describe("follow-up review regressions", () => {
   it("keeps aliases in comma-joined FROM lists", () => {
     const spec = parseSqlToSpec(
       "SELECT u.id FROM users u, orders o LEFT JOIN items i ON i.order_id = o.id",
-      { tables: {} } as any,
+      emptySchema(),
     );
     expect(spec?.table).toBe("users");
   });
@@ -172,7 +181,7 @@ describe("follow-up review regressions", () => {
       return null;
     };
     const view = (primary: string) => (
-      <ThemeProvider theme={{ colors: { primary } } as any}>
+      <ThemeProvider theme={{ colors: { primary } }}>
         <Probe />
       </ThemeProvider>
     );
@@ -185,20 +194,22 @@ describe("follow-up review regressions", () => {
 
   it("normalizes filter_join casing/whitespace and warns on unsupported values", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const schema = { tables: { users: { name: "users", columns: [{ name: "id", type: "integer" }] } } } as any;
-    const spec = (fj: string) => ({
-      table: "users",
-      columns: ["id"],
-      filters: [
-        { column: "id", operator: "=", value: 1 },
-        { column: "id", operator: "=", value: 2 },
-      ],
-      filter_join: fj,
-    });
-    const or = renderHook(() => useSqlCompiler(spec(" or ") as any, { schema }));
+    const schema = usersSchema([["id", "integer"]]);
+    // Arbitrary filter_join strings are deliberately off-type: runtime normalization is under test.
+    const spec = (fj: string) =>
+      invalid<LooseQuerySpec>({
+        table: "users",
+        columns: ["id"],
+        filters: [
+          { column: "id", operator: "=", value: 1 },
+          { column: "id", operator: "=", value: 2 },
+        ],
+        filter_join: fj,
+      });
+    const or = renderHook(() => useSqlCompiler(spec(" or "), { schema }));
     expect(or.result.current.sql).toMatch(/\sOR\s/);
     expect(warn).not.toHaveBeenCalled();
-    renderHook(() => useSqlCompiler(spec("xor") as any, { schema }));
+    renderHook(() => useSqlCompiler(spec("xor"), { schema }));
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -206,20 +217,20 @@ describe("follow-up review regressions", () => {
 
 describe("second follow-up review regressions", () => {
   it("keeps bracket/backtick qualified table names and their aliases whole", () => {
-    const a = parseSqlToSpec("SELECT u.id FROM [dbo].[users] u WHERE u.id = 1", { tables: {} } as any);
+    const a = parseSqlToSpec("SELECT u.id FROM [dbo].[users] u WHERE u.id = 1", emptySchema());
     expect(a?.table).toBe("dbo.users");
-    const b = parseSqlToSpec("SELECT o.id FROM `db`.`orders` AS o", { tables: {} } as any);
+    const b = parseSqlToSpec("SELECT o.id FROM `db`.`orders` AS o", emptySchema());
     expect(b?.table).toBe("db.orders");
   });
 
   it("does not treat table hints as aliases", () => {
-    const spec = parseSqlToSpec("SELECT id FROM users WITH (NOLOCK) WHERE id = 1", { tables: {} } as any);
+    const spec = parseSqlToSpec("SELECT id FROM users WITH (NOLOCK) WHERE id = 1", emptySchema());
     expect(spec?.table).toBe("users");
   });
 
   it("round-trips mixed AND/OR precedence through per-filter combiners", () => {
-    const spec: any = parseSqlToSpec("SELECT id FROM users WHERE a = 1 AND b = 2 OR c = 3", { tables: {} } as any);
-    expect(spec.filters.map((f: any) => f.combiner)).toEqual(["AND", "AND", "OR"]);
+    const spec = parseSqlToSpec("SELECT id FROM users WHERE a = 1 AND b = 2 OR c = 3", emptySchema());
+    expect(spec?.filters.map((f) => f.combiner)).toEqual(["AND", "AND", "OR"]);
   });
 
   it("lets a user-picked mode win over a controlled mode prop on token changes", () => {
@@ -229,7 +240,7 @@ describe("second follow-up review regressions", () => {
       return null;
     };
     const view = (primary: string) => (
-      <ThemeProvider mode="dark" customTokens={{ colors: { primary } } as any}>
+      <ThemeProvider mode="dark" customTokens={{ colors: { primary } }}>
         <Probe />
       </ThemeProvider>
     );
@@ -247,7 +258,7 @@ describe("second follow-up review regressions", () => {
       return null;
     };
     const view = (fn: () => number) => (
-      <ThemeProvider customTokens={{ extra: fn } as any}>
+      <ThemeProvider customTokens={invalid<ThemeProviderProps["customTokens"]>({ extra: fn })}>
         <Probe />
       </ThemeProvider>
     );
@@ -258,10 +269,9 @@ describe("second follow-up review regressions", () => {
   });
 
   it("restores a clean (non-dirty) state after reset when init values changed post-mount", () => {
-    const schema = (cols: string[]) =>
-      ({ tables: { users: { name: "users", columns: cols.map((name) => ({ name, type: "text" })) } } }) as any;
+    const schema = (cols: string[]) => usersSchema(cols.map((name): [string, string] => [name, "text"]));
     const { result, rerender } = renderHook(
-      ({ initialSql }: { initialSql: string }) => useQueryBuilder({ schema: schema(["id"]), initialSql } as any),
+      ({ initialSql }: { initialSql: string }) => useQueryBuilder({ schema: schema(["id"]), initialSql }),
       { initialProps: { initialSql: "SELECT 1" } },
     );
     rerender({ initialSql: "SELECT 2" });
@@ -271,9 +281,7 @@ describe("second follow-up review regressions", () => {
 });
 
 describe("per-filter combiners reach the emitted spec", () => {
-  const schema = {
-    tables: { users: { name: "users", columns: ["a", "b", "c"].map((name) => ({ name, type: "integer" })) } },
-  } as any;
+  const schema = usersSchema(["a", "b", "c"].map((name): [string, string] => [name, "integer"]));
 
   it("emits mixed AND/OR combiners instead of collapsing them to one filter_join", () => {
     const { result } = renderHook(() =>
@@ -286,16 +294,16 @@ describe("per-filter combiners reach the emitted spec", () => {
             { column: "b", operator: "=", value: 2, combiner: "AND" },
             { column: "c", operator: "=", value: 3, combiner: "OR" },
           ],
-        } as any,
+        },
         { schema },
       ),
     );
     expect(result.current.sql).toMatch(/"a" = 1 AND .*"b" = 2 OR .*"c" = 3/);
-    const combiners = (result.current.ast as any).filters.map((f: any) => f.combiner);
+    const combiners = result.current.ast?.filters.map((f) => f.combiner);
     // Every filter states its combiner once any OR is present, so a backend cannot reinterpret
     // the explicit ANDs through filter_join.
     expect(combiners).toEqual(["AND", "AND", "OR"]);
-    expect((result.current.ast as any).filter_join).toBe("OR");
+    expect(result.current.ast?.filter_join).toBe("OR");
   });
 
   it("keeps AND-only specs free of per-filter combiners (exact round-trip)", () => {
@@ -308,15 +316,15 @@ describe("per-filter combiners reach the emitted spec", () => {
             { column: "a", operator: "=", value: 1 },
             { column: "b", operator: "=", value: 2 },
           ],
-        } as any,
+        },
         { schema },
       ),
     );
-    expect((result.current.ast as any).filters.every((f: any) => f.combiner === undefined)).toBe(true);
+    expect(result.current.ast?.filters.every((f) => f.combiner === undefined)).toBe(true);
   });
 
   it("loadSpec applies a spec-level filter_join to filters without their own combiner", () => {
-    const { result } = renderHook(() => useQueryBuilder({ schema } as any));
+    const { result } = renderHook(() => useQueryBuilder({ schema }));
     act(() =>
       result.current.actions.loadSpec({
         table: "users",
@@ -326,9 +334,9 @@ describe("per-filter combiners reach the emitted spec", () => {
           { column: "b", operator: "=", value: 2 },
         ],
         filter_join: "OR",
-      } as any),
+      }),
     );
-    expect(result.current.state.filters.map((f: any) => f.combiner)).toEqual(["OR", "OR"]);
+    expect(result.current.state.filters.map((f) => f.combiner)).toEqual(["OR", "OR"]);
     expect(result.current.compiled.sql).toMatch(/\sOR\s/);
   });
 });

@@ -284,8 +284,18 @@ def test_base_connector_lifecycle_and_errors():
 # ============================================================================
 
 
+def _writable_security():
+    """These tests build their fixtures through the connector, so they opt out of the
+    database-side read-only session (which now really refuses writes)."""
+    from query_builder.config import SecurityConfig
+
+    sec = SecurityConfig()
+    sec.execution.enforce_read_only_session = False
+    return sec
+
+
 def test_sqlite_connector_full_flow():
-    connector = SQLiteConnector(database=":memory:")
+    connector = SQLiteConnector(database=":memory:", security=_writable_security())
     # Re-connect when already connected
     conn1 = connector.connect()
     assert connector.connect() is conn1
@@ -1057,6 +1067,7 @@ def test_introspect_information_schema_mock():
             ("accounts", "name", "varchar", "YES"),
             ("accounts", "user_id", "integer", "NO"),
         ],
+        [("accounts", "user_id")],  # primary keys come from the catalog
         [("accounts", "org_id", "organizations", "id")],  # FKs
     ]
     res = introspect_information_schema(
@@ -1066,6 +1077,48 @@ def test_introspect_information_schema_mock():
     assert "auth_user" not in res["tables"]
     assert res["tables"]["accounts"]["has_user_id"] is True
     assert len(res["foreign_keys"]) == 1
+    primary = {
+        c["name"] for c in res["tables"]["accounts"]["columns"] if c["is_primary"]
+    }
+    assert primary == {"user_id"}  # NOT guessed from a column called "id"
+
+
+def test_introspect_information_schema_falls_back_to_id_guess_without_pk_catalog():
+    mock_cursor = MagicMock()
+    mock_cursor.execute.side_effect = [
+        None,
+        None,
+        RuntimeError("no table_constraints here"),
+        None,
+    ]
+    mock_cursor.fetchall.side_effect = [
+        [("t",)],
+        [("t", "id", "integer", "NO"), ("t", "v", "integer", "YES")],
+        [],
+    ]
+    res = introspect_information_schema(mock_cursor, schema_name="s")
+    assert [c["is_primary"] for c in res["tables"]["t"]["columns"]] == [True, False]
+
+
+def test_introspect_information_schema_mysql_foreign_key_style():
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.side_effect = [
+        [("child",)],
+        [("child", "id", "int", "NO"), ("child", "parent_id", "int", "YES")],
+        [("child", "id")],
+        [("child", "parent_id", "parent", "id")],
+    ]
+    res = introspect_information_schema(mock_cursor, schema_name="db", fk_style="mysql")
+    sql = mock_cursor.execute.call_args_list[-1].args[0]
+    assert "referenced_table_name" in sql and "constraint_column_usage" not in sql
+    assert res["foreign_keys"] == [
+        {
+            "table": "child",
+            "column": "parent_id",
+            "foreign_table": "parent",
+            "foreign_column": "id",
+        }
+    ]
 
 
 def test_introspect_duckdb_mock():
@@ -1116,11 +1169,14 @@ def test_introspect_oracle_mock():
             ("EMPLOYEES", "ID", "NUMBER", "N"),
             ("EMPLOYEES", "NAME", "VARCHAR2", "Y"),
         ],
+        [],
+        [],
     ]
     res = introspect_oracle(mock_cursor, owner="HR")
-    assert "employees" in res["tables"]
-    assert res["tables"]["employees"]["columns"][0]["is_nullable"] is False
-    assert res["tables"]["employees"]["columns"][1]["is_nullable"] is True
+    # catalog case is preserved: the compiler quotes identifiers, so "employees" would not exist
+    assert "EMPLOYEES" in res["tables"]
+    assert res["tables"]["EMPLOYEES"]["columns"][0]["is_nullable"] is False
+    assert res["tables"]["EMPLOYEES"]["columns"][1]["is_nullable"] is True
 
     # Case 2: owner not specified (user_tables)
     mock_cursor_no_owner = MagicMock()
@@ -1130,9 +1186,11 @@ def test_introspect_oracle_mock():
             ("DEPTS", "ID", "NUMBER", "N"),
             ("DEPTS", "TITLE", "VARCHAR2", "Y"),
         ],
+        [],
+        [],
     ]
     res_no_owner = introspect_oracle(mock_cursor_no_owner, owner=None)
-    assert "depts" in res_no_owner["tables"]
+    assert "DEPTS" in res_no_owner["tables"]
 
 
 def test_introspection_error_handling():

@@ -6,6 +6,7 @@ Provides high-performance analytical query execution and Parquet/Iceberg explora
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -20,6 +21,16 @@ class DuckDBConnector(BaseConnector):
     """Connector for DuckDB embedded analytical databases."""
 
     dialect_name = "duckdb"
+    # File databases are opened with read_only=True (enforced by the engine).  An
+    # in-memory database or a caller-supplied connection cannot be flipped to read-only
+    # after the fact, so for those the validator is the only barrier.
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """No-op by design: DuckDB's access mode can only be chosen when the database is
+        opened (``read_only=True`` in ``connect``) and cannot be changed on an open
+        connection."""
+        return None
 
     def __init__(
         self,
@@ -42,7 +53,15 @@ class DuckDBConnector(BaseConnector):
             ) from err
 
         try:
-            self._connection = duckdb.connect(self.database, **self.config)
+            kwargs = dict(self.config)
+            if (
+                self.security.execution.enforce_read_only_session
+                and "read_only" not in kwargs
+                and str(self.database) not in ("", ":memory:")
+                and os.path.isfile(str(self.database))
+            ):
+                kwargs["read_only"] = True
+            self._connection = duckdb.connect(self.database, **kwargs)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
