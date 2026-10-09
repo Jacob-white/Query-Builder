@@ -48,6 +48,12 @@ class NetworkSecurityConfig:
     verify_ssl_certs: bool = True
     ca_bundle_path: str | None = None
     socket_timeout_seconds: float = 10.0
+    #: Resolve hostnames once, validate every address and connect to the validated
+    #: address (closes the DNS-rebinding / TOCTOU window) where the driver allows it.
+    pin_resolved_addresses: bool = True
+    #: Reject hostnames that do not resolve instead of letting the driver resolve
+    #: (and possibly get a different, private answer) later.
+    fail_closed_on_dns_error: bool = False
 
     def __post_init__(self) -> None:
         if (

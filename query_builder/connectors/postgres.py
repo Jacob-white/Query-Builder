@@ -73,7 +73,9 @@ class PostgresConnector(BaseConnector):
             )
 
         try:
-            self._connection = driver.connect(**self.config)
+            # `hostaddr` pins the already-validated address (no DNS at connect time);
+            # `host` stays the name for TLS verification.
+            self._connection = driver.connect(**self.pinned_connect_config())
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
