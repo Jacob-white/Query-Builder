@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ExportWorkbench, generateSdkSnippet } from "../src/components/ExportWorkbench";
 import type { QuerySpec } from "../src/types";
+import { makeSpec } from "./helpers";
 
 describe("ExportWorkbench Component", () => {
   const sampleSpec: QuerySpec = {
@@ -295,15 +296,12 @@ describe("ExportWorkbench Component", () => {
   });
 
   it("generates SDK snippet with column without alias and join without cols", () => {
-    const customSpec: QuerySpec = {
+    const customSpec: QuerySpec = makeSpec({
       table: "users",
       columns: [{ column: "name" }],
-      joins: [{ table: "roles", type: "INNER JOIN" } as any],
-      filters: [],
-      order_by: [],
-      distinct: false,
+      joins: [{ table: "roles", type: "INNER JOIN" }],
       limit: 10,
-    };
+    });
     const code = generateSdkSnippet(customSpec);
     expect(code).toContain('.select(["name"])');
     expect(code).toContain('.join("roles", "id", "=", "id")');

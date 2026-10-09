@@ -6,6 +6,7 @@ import {
   FluentQuery,
 } from "../src/client/index";
 import type { QuerySpec, SchemaSnapshot, QueryResultData } from "../src/types";
+import { makeSpec } from "./helpers";
 
 describe("QueryBuilderClient", () => {
   const mockFetch = vi.fn();
@@ -17,7 +18,7 @@ describe("QueryBuilderClient", () => {
   it("normalizes trailing slashes in baseUrl and sets default timeout", () => {
     const client = createQueryBuilderClient({
       baseUrl: "https://api.example.com/qb///",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
     expect(client).toBeDefined();
     expect(typeof client.getSchema).toBe("function");
@@ -31,7 +32,7 @@ describe("QueryBuilderClient", () => {
   it("throws if globalThis.fetch is missing and fetchFn is not supplied", () => {
     const originalFetch = globalThis.fetch;
     try {
-      (globalThis as any).fetch = undefined;
+      Reflect.set(globalThis, "fetch", undefined);
       expect(() => createQueryBuilderClient({ baseUrl: "/api" })).toThrow(
         /globalThis\.fetch is not defined/,
       );
@@ -49,7 +50,7 @@ describe("QueryBuilderClient", () => {
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
       headers: async () => ({ "X-Custom-Tenant": "tenant_123" }),
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     await client.getSchema();
@@ -69,7 +70,7 @@ describe("QueryBuilderClient", () => {
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
       token: "secret_token_abc",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     await client.getSchema();
@@ -87,7 +88,7 @@ describe("QueryBuilderClient", () => {
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
       token: () => "Token my_custom_django_token",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     await client.getSchema();
@@ -106,10 +107,10 @@ describe("QueryBuilderClient", () => {
 
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
-    const spec: QuerySpec = { table: "users", columns: ["id"] };
+    const spec: QuerySpec = makeSpec({ table: "users", columns: ["id"] });
 
     await expect(client.execute(spec)).rejects.toThrow(QueryBuilderApiError);
     try {
@@ -125,7 +126,7 @@ describe("QueryBuilderClient", () => {
       const apiErr = err as QueryBuilderApiError;
       expect(apiErr.status).toBe(403);
       expect(apiErr.statusText).toBe("Forbidden");
-      expect(apiErr.data.code).toBe("QUOTA_EXCEEDED");
+      expect((apiErr.data as { code: string }).code).toBe("QUOTA_EXCEEDED");
       expect(apiErr.message).toContain("403: Forbidden");
     }
   });
@@ -143,7 +144,7 @@ describe("QueryBuilderClient", () => {
 
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     await expect(client.getSchema()).rejects.toThrow(QueryBuilderApiError);
@@ -165,7 +166,7 @@ describe("QueryBuilderClient", () => {
 
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     setTimeout(() => controller.abort(), 10);
@@ -189,7 +190,7 @@ describe("QueryBuilderClient", () => {
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
       timeoutMs: 20,
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     await expect(client.getSchema()).rejects.toThrow(/timed out|aborted/i);
@@ -198,7 +199,7 @@ describe("QueryBuilderClient", () => {
   it("calls getSchema, compile, validate, execute, and export endpoints with proper methods and bodies", async () => {
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     // 1. getSchema
@@ -210,7 +211,7 @@ describe("QueryBuilderClient", () => {
     expect(mockFetch.mock.calls[0][1].method).toBe("GET");
 
     // 2. compile
-    const mockSpec: QuerySpec = { table: "users", columns: ["id", "email"] };
+    const mockSpec: QuerySpec = makeSpec({ table: "users", columns: ["id", "email"] });
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ sql: 'SELECT id, email FROM "users"', params: [] }),
@@ -236,10 +237,10 @@ describe("QueryBuilderClient", () => {
 
     // 4. execute with spec
     const mockResult: QueryResultData = {
-      columns: [{ name: "id", type: "integer" }],
+      columns: ["id"],
       rows: [{ id: 1 }],
-      totalRows: 1,
-      executionTimeMs: 12,
+      count: 1,
+      latency_ms: 12,
     };
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => mockResult });
     const execRes = await client.execute(mockSpec);
@@ -315,7 +316,7 @@ describe("FluentQuery Builder", () => {
 
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     const res = await client
@@ -341,7 +342,7 @@ describe("FluentQuery Builder", () => {
 
     const client = createQueryBuilderClient({
       baseUrl: "/api/qb",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch,
     });
 
     const controller = new AbortController();

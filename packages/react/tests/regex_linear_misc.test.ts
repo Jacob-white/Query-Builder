@@ -162,7 +162,7 @@ describe("useSqlCompiler count query helpers", () => {
 
 describe("VisualQueryBuilder normalizeSqlForCompare", () => {
   const vqb = loadPrivate<{ normalizeSqlForCompare(s: string): string }>(
-    "src/components/VisualQueryBuilder.tsx",
+    "src/utils/rawSql.ts",
     ["normalizeSqlForCompare", "stripTrailingSemicolons"],
   );
   it("reproduces the recorded results", () =>
@@ -279,7 +279,7 @@ describe("adversarial inputs run in linear time", () => {
       stripTrailingOrderBy(s: string): string;
     }>("src/hooks/useSqlCompiler.ts", ["stripTrailingSemicolons", "stripTrailingOrderBy"]);
     const vqb = loadPrivate<{ normalizeSqlForCompare(s: string): string }>(
-      "src/components/VisualQueryBuilder.tsx",
+      "src/utils/rawSql.ts",
       ["normalizeSqlForCompare", "stripTrailingSemicolons"],
     );
     expect(await timed(() => hook.stripTrailingSemicolons(";".repeat(N) + "x"))).toBeLessThan(BUDGET_MS);

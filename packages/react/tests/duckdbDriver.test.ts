@@ -72,7 +72,7 @@ describe("InMemoryOlapEngine & DuckDB Driver", () => {
     });
 
     it("throws an error when JSON rows are empty or not an array", async () => {
-      await expect(engine.ingestJson("invalid", [] as any)).rejects.toThrow(
+      await expect(engine.ingestJson("invalid", [])).rejects.toThrow(
         "JSON content for table 'invalid' must be a non-empty array of objects.",
       );
     });

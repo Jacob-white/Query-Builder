@@ -102,6 +102,7 @@ describe("Milestone 3 DX Empirical Adversarial Challenge Suite", () => {
             direction: "DESC",
           },
         ],
+        filter_join: "AND",
         distinct: true,
         limit: 10,
       };
@@ -168,7 +169,7 @@ describe("Milestone 3 DX Empirical Adversarial Challenge Suite", () => {
 
       const normalized = normalizeSchema(circularSchema);
       expect(normalized).not.toBeNull();
-      expect(normalized?.foreign_keys.length).toBe(2);
+      expect(normalized?.foreign_keys?.length).toBe(2);
 
       // Add self-referential / circular joins in hook
       const { result } = renderHook(() =>
@@ -481,6 +482,8 @@ describe("Milestone 3 DX Empirical Adversarial Challenge Suite", () => {
         offset: 50,
         dialect: "postgres",
         isDirty: false,
+        ctes: [],
+        windowFunctions: [],
       };
 
       const serializedSpec = stateToSpec(complexState);
@@ -971,8 +974,8 @@ describe("Milestone 3 DX Empirical Adversarial Challenge Suite", () => {
 
     it("safely handles environments where navigator.clipboard is undefined", async () => {
       // Temporarily remove clipboard
-      const originalClipboard = (navigator as any).clipboard;
-      delete (navigator as any).clipboard;
+      const originalClipboard = (navigator as { clipboard?: unknown }).clipboard;
+      delete (navigator as { clipboard?: unknown }).clipboard;
 
       render(<QueryPlayground schema={playgroundSchema} initialTable="users" />);
 

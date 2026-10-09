@@ -198,8 +198,8 @@ describe("useStreamingQuery Hook", () => {
     const sseData = ['event: batch\ndata: {"rows": [{"id": 42}]}\n\n', 'event: done\ndata: {}\n\n'];
     globalThis.fetch = vi.fn().mockResolvedValue(createMockSseResponse(sseData));
 
-    let hookResult: any;
-    let hookUnmount: any;
+    let hookResult!: { current: ReturnType<typeof useStreamingQuery> };
+    let hookUnmount!: () => void;
 
     await act(async () => {
       const rendered = renderHook(() =>
