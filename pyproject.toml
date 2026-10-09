@@ -406,6 +406,7 @@ disallow_any_generics = true
 module = [
     "query_builder.compiler",
     "query_builder.dialects",
+    "query_builder.dialects.*",
     "query_builder.parser",
     "query_builder.cli",
     "query_builder.server",
