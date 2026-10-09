@@ -84,6 +84,7 @@ class MSSQLDialect(BaseDialect):
     like_escape_char = "\\"
     like_escape_clause = True
     like_special_chars = "%_["
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -94,9 +95,6 @@ class MSSQLDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("]", "]]")
         return f"[{cleaned}]"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -114,10 +112,7 @@ class SQLiteDialect(BaseDialect):
     supports_window_groups_frame: bool = False
     like_escape_char = "\\"
     like_escape_clause = True
-
-    def format_ilike(self, col_ref: str) -> str:
-        # SQLite LIKE is case-insensitive by default for ASCII
-        return f"{col_ref} LIKE {self.placeholder}"
+    ilike_template: str = "{col} LIKE {ph}"
 
     def inspect_tables_query(self, schema_name: str = "main") -> tuple[str, list[Any]]:
         return (
@@ -150,6 +145,7 @@ class MySQLDialect(BaseDialect):
     name: str = "mysql"
     placeholder: str = "%s"
     like_escape_char = "\\"  # MySQL's default LIKE escape
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -160,9 +156,6 @@ class MySQLDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
 
 class DuckDBDialect(BaseDialect):
@@ -175,9 +168,6 @@ class DuckDBDialect(BaseDialect):
     like_escape_char = "\\"
     like_escape_clause = True
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
 
 class OracleDialect(BaseDialect):
     """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
@@ -187,9 +177,7 @@ class OracleDialect(BaseDialect):
     subquery_alias_keyword = ""  # ORA-03048: no AS before a derived-table alias
     like_escape_char = "\\"
     like_escape_clause = True
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -230,6 +218,7 @@ class SpannerDialect(BaseDialect):
 
     name: str = "spanner"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -240,9 +229,6 @@ class SpannerDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
 
 class TiDBDialect(MySQLDialect):
@@ -262,9 +248,7 @@ class TeradataDialect(BaseDialect):
 
     name: str = "teradata"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -309,9 +293,6 @@ class CrateDBDialect(BaseDialect):
     name: str = "cratedb"
     placeholder: str = "%s"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
     def inspect_tables_query(self, schema_name: str = "doc") -> tuple[str, list[Any]]:
         return (
             f"SELECT table_name FROM information_schema.tables WHERE table_schema = {self.placeholder} ORDER BY table_name;",
@@ -344,18 +325,13 @@ class VerticaDialect(BaseDialect):
     name: str = "vertica"
     placeholder: str = "%s"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
 
 class SAPHANADialect(BaseDialect):
     """SAP HANA in-memory database dialect."""
 
     name: str = "saphana"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def inspect_tables_query(
         self, schema_name: str = "SYSTEM"
@@ -390,9 +366,7 @@ class ExasolDialect(BaseDialect):
 
     name: str = "exasol"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def inspect_tables_query(
         self, schema_name: str = "PUBLIC"
@@ -447,9 +421,7 @@ class DB2Dialect(BaseDialect):
 
     name: str = "db2"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -517,13 +489,11 @@ class FirebirdDialect(BaseDialect):
     name: str = "firebird"
     placeholder: str = "?"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
     like_escape_char = "\\"
     like_escape_clause = True
     # AVG over an INTEGER column is integer division in Firebird
     avg_template = "AVG(CAST({} AS DOUBLE PRECISION))"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # SQL:2008 OFFSET/FETCH (Firebird 3.0+): standard, so the structural validator can
@@ -590,9 +560,6 @@ class MonetDBDialect(BaseDialect):
     like_escape_char = "!"
     like_escape_clause = True
 
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
-
     def inspect_tables_query(self, schema_name: str = "sys") -> tuple[str, list[Any]]:
         return (
             f"SELECT t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name;",
@@ -646,9 +613,6 @@ class H2Dialect(BaseDialect):
     placeholder: str = "?"
     like_escape_char = "\\"  # H2's default LIKE escape
     like_escape_clause = True
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
     def inspect_tables_query(
         self, schema_name: str = "PUBLIC"
@@ -705,9 +669,7 @@ class DerbyDialect(BaseDialect):
     placeholder: str = "?"
     like_escape_char = "\\"  # Derby has no default LIKE escape: declare it
     like_escape_clause = True
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -766,6 +728,7 @@ class SybaseDialect(BaseDialect):
 
     name: str = "sybase"
     placeholder: str = "?"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -776,9 +739,6 @@ class SybaseDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("]", "]]")
         return f"[{cleaned}]"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -838,9 +798,7 @@ class InformixDialect(BaseDialect):
     name: str = "informix"
     placeholder: str = "%s"
     pagination_placement: str = "prefix"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"SKIP {self.placeholder} FIRST {self.placeholder}", [offset, limit]

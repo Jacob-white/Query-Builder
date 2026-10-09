@@ -17,9 +17,7 @@ class ElasticsearchDialect(BaseDialect):
 
     name: str = "elasticsearch"
     placeholder: str = "?"  # the /_sql endpoint binds positional `?` parameters
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # Elasticsearch SQL has no OFFSET and cannot bind LIMIT: inline the
@@ -36,9 +34,7 @@ class DynamoDBPartiQLDialect(BaseDialect):
 
     name: str = "dynamodb"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]
@@ -49,6 +45,7 @@ class CouchbaseDialect(BaseDialect):
 
     name: str = "couchbase"
     placeholder: str = "?"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -60,18 +57,13 @@ class CouchbaseDialect(BaseDialect):
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
 
 class MongoDBSQLDialect(BaseDialect):
     """MongoDB Atlas SQL interface dialect."""
 
     name: str = "mongodb"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # pymongosql cannot bind LIMIT/OFFSET (`Invalid LIMIT value '?'`) and then
@@ -87,9 +79,7 @@ class ScyllaDBDialect(BaseDialect):
 
     name: str = "scylladb"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]
@@ -139,6 +129,7 @@ class SurrealDBDialect(BaseDialect):
 
     name: str = "surrealdb"
     placeholder: str = "?"
+    ilike_template: str = "string::lowercase({col}) CONTAINS string::lowercase({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -149,9 +140,6 @@ class SurrealDBDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"string::lowercase({col_ref}) CONTAINS string::lowercase({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} START {self.placeholder}", [limit, offset]
@@ -184,6 +172,7 @@ class ArangoDBDialect(BaseDialect):
 
     name: str = "arangodb"
     placeholder: str = "?"
+    ilike_template: str = "CONTAINS(LOWER({col}), LOWER({ph}))"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -194,9 +183,6 @@ class ArangoDBDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"CONTAINS(LOWER({col_ref}), LOWER({self.placeholder}))"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}, {self.placeholder}", [offset, limit]
@@ -233,9 +219,7 @@ class CosmosDBDialect(BaseDialect):
 
     name: str = "cosmosdb"
     placeholder: str = "@param"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"CONTAINS(LOWER({col_ref}), LOWER({self.placeholder}))"
+    ilike_template: str = "CONTAINS(LOWER({col}), LOWER({ph}))"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"OFFSET {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
@@ -314,6 +298,7 @@ class Neo4jDialect(BaseDialect):
 
     name: str = "neo4j"
     placeholder: str = "$param"
+    ilike_template: str = "toLower({col}) CONTAINS toLower({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -324,9 +309,6 @@ class Neo4jDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
 
     def format_like(self, col_ref: str) -> str:
         return f"{col_ref} CONTAINS {self.placeholder}"
@@ -362,9 +344,7 @@ class KdbDialect(BaseDialect):
 
     name: str = "kdb"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -396,14 +376,12 @@ class MemgraphDialect(BaseDialect):
 
     name: str = "memgraph"
     placeholder: str = "%s"
+    ilike_template: str = "toLower({col}) CONTAINS toLower({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
         parts = ident.split(".")
         return ".".join(f"`{part}`" for part in parts)
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
@@ -437,14 +415,12 @@ class NeptuneDialect(BaseDialect):
 
     name: str = "neptune"
     placeholder: str = "%s"
+    ilike_template: str = "toLower({col}) CONTAINS toLower({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
         parts = ident.split(".")
         return ".".join(f"`{part}`" for part in parts)
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"toLower({col_ref}) CONTAINS toLower({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"SKIP {self.placeholder} LIMIT {self.placeholder}", [offset, limit]
@@ -475,12 +451,8 @@ class FirestoreDialect(BaseDialect):
 
     name: str = "firestore"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -494,25 +466,14 @@ class FirestoreDialect(BaseDialect):
             return f"collection:{table_name}", []
         return "collections", []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class BigtableDialect(BaseDialect):
     """Google Cloud Bigtable wide-column database dialect."""
 
     name: str = "bigtable"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]
@@ -528,13 +489,3 @@ class BigtableDialect(BaseDialect):
         if table_name:
             return f"list_column_families:{table_name}", []
         return "list_tables", []
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []

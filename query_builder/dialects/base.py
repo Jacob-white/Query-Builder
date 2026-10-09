@@ -61,6 +61,12 @@ class BaseDialect:
     like_escape_char: str | None = None
     like_escape_clause: bool = False
     like_special_chars: str = "%_"
+    #: case-insensitive match template; ``{col}`` is the column reference and
+    #: ``{ph}`` the bind placeholder (see ``format_ilike``)
+    ilike_template: str = "{col} ILIKE {ph}"
+    #: False for engines with no primary/foreign key catalog: the key
+    #: introspection queries then return ``("", [])``
+    introspects_keys: bool = True
 
     def escape_like(self, value: Any) -> str:
         """Escape LIKE wildcards in a literal substring (no-op if unsupported)."""
@@ -108,7 +114,7 @@ class BaseDialect:
 
     def format_ilike(self, col_ref: str) -> str:
         """Formats a case-insensitive string matching expression."""
-        return f"{col_ref} ILIKE {self.placeholder}"
+        return self.ilike_template.format(col=col_ref, ph=self.placeholder)
 
     def format_like(self, col_ref: str) -> str:
         """Formats a case-sensitive string matching expression."""
@@ -170,6 +176,8 @@ class BaseDialect:
         self, schema_name: str = "public", table_name: str | None = None
     ) -> tuple[str, list[Any]]:
         """Returns the SQL query and parameters to introspect primary keys for this dialect."""
+        if not self.introspects_keys:
+            return "", []
         if table_name:
             return (
                 f"SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = {self.placeholder} AND tc.table_name = {self.placeholder};",
@@ -184,6 +192,8 @@ class BaseDialect:
         self, schema_name: str = "public", table_name: str | None = None
     ) -> tuple[str, list[Any]]:
         """Returns the SQL query and parameters to introspect foreign keys for this dialect."""
+        if not self.introspects_keys:
+            return "", []
         if table_name:
             return (
                 f"SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = {self.placeholder} AND tc.table_name = {self.placeholder};",
