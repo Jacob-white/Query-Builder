@@ -126,7 +126,7 @@ jobs:
           "$RUNNER_TEMP/smoke/bin/python" -I -c "import query_builder, query_builder.integrations.fastapi as f; assert f.FASTAPI_AVAILABLE; print(query_builder.__version__)"
           "$RUNNER_TEMP/smoke/bin/query-builder" --version
           echo '{"jsonrpc":"2.0","id":1,"method":"ping"}' | "$RUNNER_TEMP/smoke/bin/query-builder-mcp"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: python-dist
           path: dist/*
@@ -162,7 +162,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/npm-dist"
           pnpm pack --pack-destination "$GITHUB_WORKSPACE/npm-dist"
           ls -l "$GITHUB_WORKSPACE/npm-dist"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: npm-dist
           path: npm-dist/*.tgz
@@ -206,7 +206,7 @@ jobs:
         run: |
           sha256sum -- * | grep -v 'SHA256SUMS' > SHA256SUMS
           cat SHA256SUMS
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-assets
           path: release/*
