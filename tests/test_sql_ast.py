@@ -216,19 +216,19 @@ def test_allowed_schemas_unblocks_public() -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    "hostile",
-    [
-        "'" + "'" * 30000,
-        '"' + '\\"' * 30000,
-        "SELECT 1 /*" + "a/*" * 30000,
-        "'" * 60000,
-    ],
-)
-def test_literal_and_comment_scanning_is_linear_on_hostile_input(hostile):
+HOSTILE = {
+    "single-quote-escapes": "'" + "'" * 30000,
+    "double-quote-escapes": '"' + '\\"' * 30000,
+    "unterminated-block-comments": "SELECT 1 /*" + "a/*" * 30000,
+    "many-quotes": "'" * 60000,
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_literal_and_comment_scanning_is_linear_on_hostile_input(name):
     """Unterminated quotes/comments must not trigger polynomial regex backtracking."""
     import time
 
     start = time.perf_counter()
-    analyze_sql(hostile, "postgres")
+    analyze_sql(HOSTILE[name], "postgres")
     assert time.perf_counter() - start < 2.0
