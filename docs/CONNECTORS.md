@@ -11,11 +11,36 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 
 | Tier | Meaning | Classes |
 | --- | --- | --- |
-| `certified` | The live conformance suite (`tests/integration`) ran against a real engine through this class and passed in the latest recorded run. | 0 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 138 |
+| `certified` | The live conformance suite (`tests/integration`) ran against a real engine through this class and passed in the latest recorded run. | 20 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 118 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
-No live run recorded.
+Latest recorded live run: **2026-10-09 13:54 UTC**.
+
+### Engines in the latest live run
+
+| Engine | Version | Passed | Failed | Known issues | Skipped | Run | Platform |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| cassandra | Apache Cassandra | 9 | 0 | 0 | 2 | 2026-10-09 13:54 UTC | Linux-6.6.87.2-microsoft-sta |
+| clickhouse | 24.8.4.13 | 88 | 0 | 0 | 1 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| clickhouse_native | ClickHouse Native 24.8.4.13 | 92 | 0 | 0 | 1 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| cockroach | CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built 2024/09/23 22:30:5 | 88 | 0 | 0 | 1 | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
+| duckdb | v1.5.6 | 86 | 0 | 0 | 3 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| elasticsearch | Elasticsearch 8.15.2 | 6 | 0 | 0 | 1 | 2026-10-09 13:50 UTC | Windows-11-10.0.26200-SP0 |
+| mariadb | 11.4.3-MariaDB-ubu2404 | 88 | 0 | 0 | 1 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| mongodb | MongoDB 7.0.14 | 5 | 0 | 1 | 1 | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
+| mssql | Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)   | 89 | 0 | 0 | 0 | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
+| mysql | 8.4.2 | 88 | 0 | 0 | 1 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| neo4j | Neo4j 5.24.1 | 10 | 0 | 0 | 1 | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
+| opensearch | OpenSearch 2.17.0 | 10 | 0 | 0 | 1 | 2026-10-09 13:50 UTC | Windows-11-10.0.26200-SP0 |
+| postgres | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 89 | 0 | 0 | 0 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| questdb | QuestDB | 80 | 0 | 0 | 9 | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
+| redis | Redis / RediSearch | 9 | 0 | 0 | 2 | 2026-10-09 13:49 UTC | Windows-11-10.0.26200-SP0 |
+| sqlite | 3.49.1 | 86 | 0 | 0 | 3 | 2026-10-09 13:47 UTC | Windows-11-10.0.26200-SP0 |
+| timescale | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 89 | 0 | 0 | 0 | 2026-10-09 13:48 UTC | Windows-11-10.0.26200-SP0 |
+| trino | 455 | 83 | 0 | 0 | 6 | 2026-10-09 13:52 UTC | Windows-11-10.0.26200-SP0 |
+
+Selected but not exercised in that run (engine unreachable, driver missing or credentials not set): athena, bigquery, databricks, redshift, snowflake, synapse.
 
 ## Connectors
 
@@ -24,27 +49,27 @@ No live run recorded.
 | `AlloyDBConnector` | sync | verified | `[alloydb]` | - | `alloydb` |
 | `ArangoDBConnector` | sync | verified | `[arangodb]` | - | `aql`, `arango`, `arangodb` |
 | `AsyncArangoDBConnector` | async | verified | `[arangodb]` | - | `async_aql`, `async_arango`, `async_arangodb` |
-| `AthenaConnector` | sync | verified | `[athena]` | - | `athena` |
-| `BigQueryConnector` | sync | verified | `[bigquery]` | - | `bigquery` |
+| `AthenaConnector` | sync | verified | `[athena]` | athena (0 pass) | `athena` |
+| `BigQueryConnector` | sync | verified | `[bigquery]` | bigquery (0 pass) | `bigquery` |
 | `BigtableConnector` | sync | verified | `[bigtable]` | - | `bigtable`, `gcp_bigtable`, `google_bigtable` |
 | `AsyncBigtableConnector` | async | verified | `[bigtable]` | - | `async_bigtable`, `async_gcp_bigtable`, `async_google_bigtable` |
-| `ApacheCassandraConnector` | sync | verified | `[cassandra]` | - | `apache_cassandra`, `apache-cassandra` |
-| `AsyncApacheCassandraConnector` | async | verified | `[cassandra]` | - | `async_cql`, `async_apache-cassandra`, `async_apache_cassandra`, `async_cassandra` |
+| `ApacheCassandraConnector` | sync | certified | `[cassandra]` | cassandra (9 pass) | `apache_cassandra`, `apache-cassandra` |
+| `AsyncApacheCassandraConnector` | async | certified | `[cassandra]` | cassandra (9 pass) | `async_cql`, `async_apache-cassandra`, `async_apache_cassandra`, `async_cassandra` |
 | `ChDBConnector` | sync | verified | `[chdb]` | - | `chdb` |
 | `AsyncChDBConnector` | async | verified | `[chdb]` | - | `async_chdb` |
 | `ChromaConnector` | sync | verified | `[chroma]` | - | `chroma`, `chromadb` |
 | `AsyncChromaConnector` | async | verified | `[chroma]` | - | `async_chroma`, `async_chromadb` |
-| `ClickHouseConnector` | sync | verified | `[clickhouse]` | - | `clickhouse` |
-| `ClickHouseNativeConnector` | sync | verified | `[clickhouse-native]` | - | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
-| `AsyncClickHouseNativeConnector` | async | verified | `[clickhouse-native]` | - | `async_ch_native`, `async_clickhouse_native` |
-| `CockroachConnector` | sync | verified | `[postgres]` | - | `cockroach`, `cockroachdb` |
+| `ClickHouseConnector` | sync | certified | `[clickhouse]` | clickhouse (88 pass) | `clickhouse` |
+| `ClickHouseNativeConnector` | sync | certified | `[clickhouse-native]` | clickhouse_native (92 pass) | `ch_native`, `clickhouse_native`, `clickhouse_tcp` |
+| `AsyncClickHouseNativeConnector` | async | certified | `[clickhouse-native]` | clickhouse_native (92 pass) | `async_ch_native`, `async_clickhouse_native` |
+| `CockroachConnector` | sync | certified | `[postgres]` | cockroach (88 pass) | `cockroach`, `cockroachdb` |
 | `CosmosDBConnector` | sync | verified | `[cosmosdb]` | - | `cosmosdb`, `azure_cosmos` |
 | `AsyncCosmosDBConnector` | async | verified | `[cosmosdb]` | - | `async_cosmosdb`, `async_azure_cosmos` |
 | `CouchbaseConnector` | sync | verified | `[couchbase]` | - | `n1ql`, `couchbase` |
 | `CrateDBConnector` | sync | verified | `[cratedb]` | - | `crate`, `cratedb` |
 | `AsyncCrateDBConnector` | async | verified | `[cratedb]` | - | `async_crate`, `async_cratedb` |
 | `D1Connector` | sync | verified | `[d1]` | - | `d1`, `cloudflare_d1` |
-| `DatabricksConnector` | sync | verified | `[databricks]` | - | `spark`, `databricks` |
+| `DatabricksConnector` | sync | verified | `[databricks]` | databricks (0 pass) | `spark`, `databricks` |
 | `DataFusionConnector` | sync | verified | `[datafusion]` | - | `datafusion` |
 | `DB2Connector` | sync | verified | `[db2]` | - | `db2`, `ibm_db2` |
 | `AsyncDB2Connector` | async | verified | `[db2]` | - | `async_db2`, `async_ibm_db2` |
@@ -56,9 +81,9 @@ No live run recorded.
 | `DrillConnector` | sync | verified | `[drill]` | - | `drill`, `apache_drill`, `pydrill` |
 | `AsyncDrillConnector` | async | verified | `[drill]` | - | `async_drill`, `async_apache_drill` |
 | `DruidConnector` | sync | verified | `[druid]` | - | `druid`, `apache_druid` |
-| `DuckDBConnector` | sync | verified | `[duckdb]` | - | `duckdb` |
+| `DuckDBConnector` | sync | certified | `[duckdb]` | duckdb (86 pass) | `duckdb` |
 | `DynamoDBConnector` | sync | verified | `[dynamodb]` | - | `partiql`, `dynamodb` |
-| `ElasticsearchConnector` | sync | verified | `[elasticsearch]` | - | `elasticsearch` |
+| `ElasticsearchConnector` | sync | certified | `[elasticsearch]` | elasticsearch (6 pass) | `elasticsearch` |
 | `ExasolConnector` | sync | verified | `[exasol]` | - | `exasol` |
 | `AsyncExasolConnector` | async | verified | `[exasol]` | - | `async_exasol` |
 | `FirebirdConnector` | sync | verified | `[firebird]` | - | `firebird`, `firebirdsql` |
@@ -98,23 +123,23 @@ No live run recorded.
 | `AsyncMilvusConnector` | async | verified | `[milvus]` | - | `async_milvus`, `async_pymilvus`, `async_zilliz` |
 | `MonetDBConnector` | sync | verified | `[monetdb]` | - | `monet`, `monetdb` |
 | `AsyncMonetDBConnector` | async | verified | `[monetdb]` | - | `async_monet`, `async_monetdb` |
-| `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | - | `mongo`, `atlas_sql`, `mongodb` |
-| `MSSQLConnector` | sync | verified | `[mssql]` | - | `mssql`, `sqlserver` |
-| `MySQLConnector` | sync | verified | `[mysql]` | - | `mysql`, `mariadb` |
-| `Neo4jConnector` | sync | verified | `[neo4j]` | - | `neo4j`, `cypher`, `neo4j_sql` |
-| `AsyncNeo4jConnector` | async | verified | `[neo4j]` | - | `async_neo4j`, `async_cypher` |
+| `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | mongodb (5 pass, 1 known) | `mongo`, `atlas_sql`, `mongodb` |
+| `MSSQLConnector` | sync | verified | `[mssql]` | synapse (0 pass) | `mssql`, `sqlserver` |
+| `MySQLConnector` | sync | certified | `[mysql]` | mysql (88 pass) | `mysql`, `mariadb` |
+| `Neo4jConnector` | sync | certified | `[neo4j]` | neo4j (10 pass) | `neo4j`, `cypher`, `neo4j_sql` |
+| `AsyncNeo4jConnector` | async | certified | `[neo4j]` | neo4j (10 pass) | `async_neo4j`, `async_cypher` |
 | `NeonConnector` | sync | verified | `[neon]` | - | `neon` |
 | `NeptuneConnector` | sync | verified | `[neptune]` | - | `neptune`, `amazon_neptune`, `aws_neptune`, `neptune_gremlin`, `neptune_sparql` |
 | `AsyncNeptuneConnector` | async | verified | `[neptune]` | - | `async_neptune`, `async_amazon_neptune`, `async_aws_neptune` |
 | `OceanBaseConnector` | sync | verified | `[oceanbase]` | - | `oceanbase` |
-| `OpenSearchConnector` | sync | verified | `[opensearch]` | - | `opensearch`, `opensearch_connector`, `opensearch_sql` |
-| `AsyncOpenSearchConnector` | async | verified | `[opensearch]` | - | `async_opensearch`, `async_opensearch_sql` |
+| `OpenSearchConnector` | sync | certified | `[opensearch]` | opensearch (10 pass) | `opensearch`, `opensearch_connector`, `opensearch_sql` |
+| `AsyncOpenSearchConnector` | async | certified | `[opensearch]` | opensearch (10 pass) | `async_opensearch`, `async_opensearch_sql` |
 | `OracleConnector` | sync | verified | `[oracle]` | - | `oracle` |
 | `PineconeConnector` | sync | verified | `[pinecone]` | - | `pinecone`, `pinecone_db`, `pinecone_vector` |
 | `AsyncPineconeConnector` | async | verified | `[pinecone]` | - | `async_pinecone`, `async_pinecone_db`, `async_pinecone_vector` |
 | `PinotConnector` | sync | verified | `[pinot]` | - | `pinot`, `apache_pinot` |
 | `PolarsConnector` | sync | verified | `[polars]` | - | `polars` |
-| `PostgresConnector` | sync | verified | `[postgres]` | - | `postgres`, `postgresql` |
+| `PostgresConnector` | sync | certified | `[postgres]` | postgres (89 pass) | `postgres`, `postgresql` |
 | `PrestoDBConnector` | sync | verified | `[prestodb]` | - | `presto`, `prestodb` |
 | `AsyncPrestoDBConnector` | async | verified | `[prestodb]` | - | `async_presto`, `async_prestodb` |
 | `PrometheusConnector` | sync | verified | `[prometheus]` | - | `prom`, `prometheus`, `promql` |
@@ -123,20 +148,20 @@ No live run recorded.
 | `AsyncPulsarSQLConnector` | async | verified | `[pulsar]` | - | `async_pulsar`, `async_apache_pulsar`, `async_pulsar_sql` |
 | `QdrantConnector` | sync | verified | `[qdrant]` | - | `qdrant`, `qdrant_db`, `qdrant_vector` |
 | `AsyncQdrantConnector` | async | verified | `[qdrant]` | - | `async_qdrant`, `async_qdrant_db`, `async_qdrant_vector` |
-| `QuestDBConnector` | sync | verified | `[postgres]` | - | `questdb` |
-| `RedisSearchConnector` | sync | verified | `[redis]` | - | `redis`, `redis_ft`, `redis_search`, `redisearch` |
-| `AsyncRedisSearchConnector` | async | verified | `[redis]` | - | `async_redis`, `async_redis_ft`, `async_redis_search`, `async_redisearch` |
-| `RedshiftConnector` | sync | verified | `[redshift]` | - | `redshift` |
+| `QuestDBConnector` | sync | certified | `[postgres]` | questdb (80 pass) | `questdb` |
+| `RedisSearchConnector` | sync | certified | `[redis]` | redis (9 pass) | `redis`, `redis_ft`, `redis_search`, `redisearch` |
+| `AsyncRedisSearchConnector` | async | certified | `[redis]` | redis (9 pass) | `async_redis`, `async_redis_ft`, `async_redis_search`, `async_redisearch` |
+| `RedshiftConnector` | sync | verified | `[redshift]` | redshift (0 pass) | `redshift` |
 | `RisingWaveConnector` | sync | verified | `[risingwave]` | - | `rw`, `risingwave` |
 | `AsyncRisingWaveConnector` | async | verified | `[risingwave]` | - | `async_rw`, `async_risingwave` |
 | `SAPHANAConnector` | sync | verified | `[saphana]` | - | `hana`, `sap_hana`, `saphana` |
 | `ScyllaDBConnector` | sync | verified | `[scylladb]` | - | `cql`, `cassandra`, `scylla`, `scylladb` |
 | `SingleStoreConnector` | sync | verified | `[singlestore]` | - | `memsql`, `singlestore` |
-| `SnowflakeConnector` | sync | verified | `[snowflake]` | - | `snowflake` |
+| `SnowflakeConnector` | sync | verified | `[snowflake]` | snowflake (0 pass) | `snowflake` |
 | `SpannerConnector` | sync | verified | `[spanner]` | - | `spanner` |
 | `SparkSQLConnector` | sync | verified | `[spark]` | - | `pyspark`, `spark_sql`, `sparksql` |
 | `AsyncSparkSQLConnector` | async | verified | `[spark]` | - | `async_pyspark`, `async_spark_sql`, `async_sparksql` |
-| `SQLiteConnector` | sync | verified | none | - | `sqlite` |
+| `SQLiteConnector` | sync | certified | none | sqlite (86 pass) | `sqlite` |
 | `StarRocksConnector` | sync | verified | `[starrocks]` | - | `starrocks` |
 | `AsyncStarRocksConnector` | async | verified | `[starrocks]` | - | `async_starrocks` |
 | `SupabaseConnector` | sync | verified | `[supabase]` | - | `supabase` |
@@ -148,10 +173,10 @@ No live run recorded.
 | `AsyncTDengineConnector` | async | verified | `[tdengine]` | - | `async_taos`, `async_tdengine` |
 | `TeradataConnector` | sync | verified | `[teradata]` | - | `teradata` |
 | `TiDBConnector` | sync | verified | `[tidb]` | - | `tidb` |
-| `TimescaleConnector` | sync | verified | `[postgres]` | - | `timescale`, `timescaledb` |
+| `TimescaleConnector` | sync | certified | `[postgres]` | timescale (89 pass) | `timescale`, `timescaledb` |
 | `TimestreamConnector` | sync | verified | `[timestream]` | - | `timestream`, `aws_timestream` |
 | `AsyncTimestreamConnector` | async | verified | `[timestream]` | - | `async_timestream`, `async_aws_timestream` |
-| `TrinoConnector` | sync | verified | `[trino]` | - | `trino` |
+| `TrinoConnector` | sync | certified | `[trino]` | trino (83 pass) | `trino` |
 | `VerticaConnector` | sync | verified | `[vertica]` | - | `vertica` |
 | `VictoriaMetricsConnector` | sync | verified | `[victoriametrics]` | - | `vm`, `metricsql`, `victoria_metrics`, `victoriametrics` |
 | `AsyncVictoriaMetricsConnector` | async | verified | `[victoriametrics]` | - | `async_vm`, `async_metricsql`, `async_victoria_metrics`, `async_victoriametrics` |

@@ -1,0 +1,481 @@
+{
+  "engines": {
+    "athena": {
+      "connectors": [
+        "query_builder.connectors.athena.AthenaConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "athena: set QB_IT_ATHENA_S3_STAGING_DIR, QB_IT_ATHENA_REGION to run this test (AWS credentials come from the standard AWS environment/profile)": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "bigquery": {
+      "connectors": [
+        "query_builder.connectors.bigquery.BigQueryConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "bigquery: set QB_IT_BIGQUERY_DATASET to run this test (also set GOOGLE_APPLICATION_CREDENTIALS (service-account JSON))": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "cassandra": {
+      "connectors": [
+        "query_builder.connectors.cassandra.ApacheCassandraConnector",
+        "query_builder.connectors.cassandra.AsyncApacheCassandraConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 9,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "cassandra: container runs without authentication": 1,
+        "cassandra: no SQL compiler path (native query language)": 1
+      },
+      "skipped": 2,
+      "tier": "extended",
+      "version": "Apache Cassandra",
+      "xfailed": 0
+    },
+    "clickhouse": {
+      "connectors": [
+        "query_builder.connectors.clickhouse.ClickHouseConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 88,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "clickhouse: introspect_fk unsupported - ClickHouse has no foreign keys": 1
+      },
+      "skipped": 1,
+      "tier": "required",
+      "version": "24.8.4.13",
+      "xfailed": 0
+    },
+    "clickhouse_native": {
+      "connectors": [
+        "query_builder.connectors.clickhouse_native.ClickHouseNativeConnector",
+        "query_builder.connectors.clickhouse_native.AsyncClickHouseNativeConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "clickhouse_native: introspect_fk unsupported - ClickHouse has no foreign keys": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "ClickHouse Native 24.8.4.13",
+      "xfailed": 0
+    },
+    "cockroach": {
+      "connectors": [
+        "query_builder.connectors.cockroachdb.CockroachConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 88,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:48 UTC",
+      "skip_reasons": {
+        "cockroach: no password-based authentication": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built 2024/09/23 22:30:53, go1.22.5 X:nocoverageredesign)",
+      "xfailed": 0
+    },
+    "databricks": {
+      "connectors": [
+        "query_builder.connectors.databricks.DatabricksConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "databricks: set QB_IT_DATABRICKS_HOST, QB_IT_DATABRICKS_HTTP_PATH, QB_IT_DATABRICKS_TOKEN to run this test": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "duckdb": {
+      "connectors": [
+        "query_builder.connectors.duckdb.DuckDBConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 86,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "duckdb: case_sensitive_identifiers unsupported - DuckDB identifiers are case-insensitive": 1,
+        "duckdb: no password-based authentication": 1,
+        "duckdb: statement_timeout unsupported - DuckDB has no statement timeout setting": 1
+      },
+      "skipped": 3,
+      "tier": "embedded",
+      "version": "v1.5.6",
+      "xfailed": 0
+    },
+    "elasticsearch": {
+      "connectors": [
+        "query_builder.connectors.elasticsearch.ElasticsearchConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 6,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:50 UTC",
+      "skip_reasons": {
+        "elasticsearch: container runs without authentication": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "Elasticsearch 8.15.2",
+      "xfailed": 0
+    },
+    "mariadb": {
+      "connectors": [
+        "query_builder.connectors.mysql.MySQLConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 88,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "mariadb: case_sensitive_identifiers unsupported - MariaDB table names follow the filesystem": 1
+      },
+      "skipped": 1,
+      "tier": "required",
+      "version": "11.4.3-MariaDB-ubu2404",
+      "xfailed": 0
+    },
+    "mongodb": {
+      "connectors": [
+        "query_builder.connectors.mongodb.MongoDBAtlasSQLConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [
+        "tests/integration/test_smoke.py::test_query_spec_compiled_and_executed[mongodb]: known issue, reported: pymongosql rejects the compiler's table aliases and double-quoted identifiers and SILENTLY returns no rows for the compiled SQL"
+      ],
+      "passed": 5,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:49 UTC",
+      "skip_reasons": {
+        "mongodb: container runs without authentication": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "MongoDB 7.0.14",
+      "xfailed": 1
+    },
+    "mssql": {
+      "connectors": [
+        "query_builder.connectors.mssql.MSSQLConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 89,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:49 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)  \tJul 10 2024 14:09:09  \tCopyright (C) 2022 Microso",
+      "xfailed": 0
+    },
+    "mysql": {
+      "connectors": [
+        "query_builder.connectors.mysql.MySQLConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 88,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "mysql: case_sensitive_identifiers unsupported - MySQL table names follow the filesystem": 1
+      },
+      "skipped": 1,
+      "tier": "required",
+      "version": "8.4.2",
+      "xfailed": 0
+    },
+    "neo4j": {
+      "connectors": [
+        "query_builder.connectors.neo4j.Neo4jConnector",
+        "query_builder.connectors.neo4j.AsyncNeo4jConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 10,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:49 UTC",
+      "skip_reasons": {
+        "neo4j: no SQL compiler path (native query language)": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "Neo4j 5.24.1",
+      "xfailed": 0
+    },
+    "opensearch": {
+      "connectors": [
+        "query_builder.connectors.opensearch.OpenSearchConnector",
+        "query_builder.connectors.opensearch.AsyncOpenSearchConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 10,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:50 UTC",
+      "skip_reasons": {
+        "opensearch: container runs without authentication": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "OpenSearch 2.17.0",
+      "xfailed": 0
+    },
+    "postgres": {
+      "connectors": [
+        "query_builder.connectors.postgres.PostgresConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 89,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "required",
+      "version": "PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit",
+      "xfailed": 0
+    },
+    "questdb": {
+      "connectors": [
+        "query_builder.connectors.questdb.QuestDBConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 80,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:48 UTC",
+      "skip_reasons": {
+        "questdb: case_sensitive_identifiers unsupported - QuestDB table names are case-insensitive": 1,
+        "questdb: db_read_only unsupported - QuestDB (OSS) has no read-only users": 1,
+        "questdb: having unsupported - QuestDB has no HAVING clause": 1,
+        "questdb: in_subquery unsupported - QuestDB cannot compare a column with a subquery result in IN": 1,
+        "questdb: introspect_fk unsupported - QuestDB has no foreign keys": 1,
+        "questdb: introspect_pk unsupported - QuestDB has no primary keys": 1,
+        "questdb: right_join unsupported - QuestDB has no RIGHT JOIN": 1,
+        "questdb: sql_null_semantics unsupported - QuestDB compares NULL as a regular value (NULL != 1 is true)": 1,
+        "questdb: statement_timeout unsupported - QuestDB has no per-session statement timeout": 1
+      },
+      "skipped": 9,
+      "tier": "extended",
+      "version": "QuestDB",
+      "xfailed": 0
+    },
+    "redis": {
+      "connectors": [
+        "query_builder.connectors.redis_search.RedisSearchConnector",
+        "query_builder.connectors.redis_search.AsyncRedisSearchConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 9,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:49 UTC",
+      "skip_reasons": {
+        "redis: container runs without authentication": 1,
+        "redis: no SQL compiler path (native query language)": 1
+      },
+      "skipped": 2,
+      "tier": "extended",
+      "version": "Redis / RediSearch",
+      "xfailed": 0
+    },
+    "redshift": {
+      "connectors": [
+        "query_builder.connectors.redshift.RedshiftConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "redshift: set QB_IT_REDSHIFT_HOST, QB_IT_REDSHIFT_USER, QB_IT_REDSHIFT_PASSWORD, QB_IT_REDSHIFT_DATABASE to run this test": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "snowflake": {
+      "connectors": [
+        "query_builder.connectors.snowflake.SnowflakeConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "snowflake: set QB_IT_SNOWFLAKE_ACCOUNT, QB_IT_SNOWFLAKE_USER, QB_IT_SNOWFLAKE_PASSWORD, QB_IT_SNOWFLAKE_WAREHOUSE, QB_IT_SNOWFLAKE_DATABASE to run this test": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "sqlite": {
+      "connectors": [
+        "query_builder.connectors.sqlite.SQLiteConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 86,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:47 UTC",
+      "skip_reasons": {
+        "sqlite: case_sensitive_identifiers unsupported - SQLite identifiers are case-insensitive": 1,
+        "sqlite: no password-based authentication": 1,
+        "sqlite: statement_timeout unsupported - SQLite has no server-side statement timeout": 1
+      },
+      "skipped": 3,
+      "tier": "embedded",
+      "version": "3.49.1",
+      "xfailed": 0
+    },
+    "synapse": {
+      "connectors": [
+        "query_builder.connectors.mssql.MSSQLConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 0,
+      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "python": "3.12.13",
+      "run_at": "2026-10-09 13:54 UTC",
+      "skip_reasons": {
+        "synapse: set QB_IT_SYNAPSE_SERVER, QB_IT_SYNAPSE_USER, QB_IT_SYNAPSE_PASSWORD, QB_IT_SYNAPSE_DATABASE to run this test (Azure Synapse dedicated/serverless SQL pool via the SQL Server connector)": 7
+      },
+      "skipped": 7,
+      "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "timescale": {
+      "connectors": [
+        "query_builder.connectors.timescaledb.TimescaleConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 89,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:48 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit",
+      "xfailed": 0
+    },
+    "trino": {
+      "connectors": [
+        "query_builder.connectors.trino.TrinoConnector"
+      ],
+      "failed": 0,
+      "failures": [],
+      "known_issues": [],
+      "passed": 83,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 13:52 UTC",
+      "skip_reasons": {
+        "trino: case_sensitive_identifiers unsupported - Trino folds identifiers to lower case": 1,
+        "trino: db_read_only unsupported - no read-only login in the memory catalog": 1,
+        "trino: introspect_fk unsupported - Trino memory catalog has no foreign keys": 1,
+        "trino: introspect_pk unsupported - Trino memory catalog has no primary keys": 1,
+        "trino: no password-based authentication": 1,
+        "trino: statement_timeout unsupported - Trino timeouts are session properties, not applied": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "455",
+      "xfailed": 0
+    }
+  },
+  "run_at": "2026-10-09 13:54 UTC"
+}
