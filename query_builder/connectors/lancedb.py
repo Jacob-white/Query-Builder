@@ -28,6 +28,74 @@ from query_builder.connectors.registry import register_connector
 DEFAULT_LANCEDB_URI = os.path.join(tempfile.gettempdir(), "lancedb")
 
 
+class UnsupportedLanceQuery(ValueError):
+    """The statement is outside what LanceDB's native API can run."""
+
+
+def _inline_params(sql: str, params: list[Any] | None) -> str:
+    """Substitute positional ``?`` / ``%s`` markers (outside string literals) with literals."""
+    if not params:
+        return sql
+    out: list[str] = []
+    idx = 0
+    in_quote = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if ch == "'":
+            in_quote = not in_quote
+            out.append(ch)
+        elif (
+            not in_quote
+            and idx < len(params)
+            and (ch == "?" or sql.startswith("%s", i))
+        ):
+            val = params[idx]
+            idx += 1
+            if ch == "%":
+                i += 1
+            if val is None:
+                out.append("NULL")
+            elif isinstance(val, bool):
+                out.append("TRUE" if val else "FALSE")
+            elif isinstance(val, (int, float)):
+                out.append(str(val))
+            else:
+                out.append("'" + str(val).replace("'", "''") + "'")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _lancedb_version() -> str:
+    try:
+        import lancedb
+
+        return f"LanceDB {getattr(lancedb, '__version__', '')}".strip()
+    except ImportError:  # pragma: no cover - only reached without the driver
+        return "LanceDB"
+
+
+def _run_sync(
+    conn: Any, sql: str, params: list[Any] | None
+) -> tuple[list[str], list[dict[str, Any]], float]:
+    start = time.perf_counter()
+    cur = conn.cursor() if hasattr(conn, "cursor") else _LanceDBCursorAdapter(conn)
+    try:
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        col_names = [col[0] for col in (cur.description or [])]
+        rows = cur.fetchall() or []
+        dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
+        return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
+    finally:
+        if hasattr(cur, "close"):
+            cur.close()
+
+
 class _LanceDBCursorAdapter:
     """Adapts a LanceDB connection into a standard DB-API cursor interface."""
 
@@ -57,49 +125,7 @@ class _LanceDBCursorAdapter:
             self.description = [("table_name",)]
             self._rows = [[t] for t in tbls]
         elif hasattr(self.conn, "open_table"):
-            import re
-
-            m = re.search(
-                r"\b(?:FROM|INTO|UPDATE|TABLE)\s+[`\"\[]?([a-zA-Z0-9_.-]+)[`\"\]]?",
-                clean_sql,
-                re.IGNORECASE,
-            )
-            tbl_name = m.group(1) if m else "items"
-            try:
-                tbl = self.conn.open_table(tbl_name)
-                if hasattr(tbl, "search"):
-                    vector = None
-                    if params and len(params) > 0:
-                        if isinstance(params[0], (list, tuple)):
-                            vector = list(params[0])
-                        elif isinstance(params[0], str):
-                            with contextlib.suppress(Exception):
-                                parsed = json.loads(params[0])
-                                if isinstance(parsed, list):
-                                    vector = parsed
-                    limit_val = 10
-                    lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
-                    if lm:
-                        limit_val = int(lm.group(1))
-                    search_builder = (
-                        tbl.search(vector) if vector is not None else tbl.search()
-                    )
-                    arrow_tbl = search_builder.limit(limit_val).to_arrow()
-                    self.description = [(f.name,) for f in arrow_tbl.schema]
-                    pylist = arrow_tbl.to_pylist()
-                    self._rows = [
-                        [r.get(f.name) for f in arrow_tbl.schema] for r in pylist
-                    ]
-                elif hasattr(tbl, "to_pandas"):
-                    df = tbl.to_pandas()
-                    self.description = [(c,) for c in df.columns]
-                    self._rows = [list(r) for r in df.values]
-                else:
-                    self.description = [("status",)]
-                    self._rows = [["ok"]]
-            except Exception:  # noqa: BLE001
-                self.description = [("status",)]
-                self._rows = [["ok"]]
+            self._execute_native(clean_sql, params)
         elif hasattr(self.conn, "execute"):
             res = (
                 self.conn.execute(clean_sql, params)
@@ -116,6 +142,106 @@ class _LanceDBCursorAdapter:
         else:
             self.description = None
             self._rows = []
+
+    def _execute_native(self, clean_sql: str, params: list[Any] | None) -> None:
+        """Run ``SELECT <cols> FROM <table> [WHERE ..] [ORDER BY ..] [LIMIT n [OFFSET m]]``
+        (or a vector search when a vector parameter is given) with LanceDB's own API.
+
+        LanceDB has no SQL engine of its own, so anything this subset cannot express raises
+        ``UnsupportedLanceQuery`` instead of silently returning unfiltered rows.
+        """
+        if params and (
+            "distance" in clean_sql.lower() or "vector" in clean_sql.lower()
+        ):
+            self._vector_search(clean_sql, params)
+            return
+        import sqlglot
+        from sqlglot import exp
+
+        parsed = sqlglot.parse_one(_inline_params(clean_sql, params), read="postgres")
+        unsupported = ("joins", "group", "having", "distinct", "with", "laterals")
+        if not isinstance(parsed, exp.Select) or any(
+            parsed.args.get(k) for k in unsupported
+        ):
+            raise UnsupportedLanceQuery(
+                "LanceDB supports only single-table SELECT ... [WHERE] [ORDER BY] [LIMIT] "
+                f"(got: {clean_sql[:80]!r})"
+            )
+        from_ = parsed.args.get("from_") or parsed.args.get("from")
+        table_expr = from_.this if from_ is not None else None
+        if not isinstance(table_expr, exp.Table):
+            raise UnsupportedLanceQuery("LanceDB SELECT needs a plain FROM <table>.")
+        tbl = self.conn.open_table(table_expr.name)
+        where = parsed.args.get("where")
+        builder = tbl.search()
+        if where is not None:
+            builder = builder.where(where.this.sql(dialect="postgres"), prefilter=True)
+        order = parsed.args.get("order")
+        limit_node = parsed.args.get("limit")
+        offset_node = parsed.args.get("offset")
+        limit = int(limit_node.expression.name) if limit_node is not None else None
+        offset = int(offset_node.expression.name) if offset_node is not None else 0
+        if order is None and limit is not None:
+            builder = builder.limit(limit + offset)
+        else:
+            builder = builder.limit(None)
+        table = builder.to_arrow()
+        if order is not None:
+            keys = []
+            for o in order.expressions:
+                if not isinstance(o.this, exp.Column):
+                    raise UnsupportedLanceQuery("ORDER BY supports plain columns only.")
+                keys.append(
+                    (o.this.name, "descending" if o.args.get("desc") else "ascending")
+                )
+            table = table.sort_by(keys)
+        if offset or (order is not None and limit is not None):
+            table = table.slice(offset, limit)
+        elif offset:
+            table = table.slice(offset)
+        names: list[str] = []
+        arrays: list[Any] = []
+        for item in parsed.expressions:
+            if isinstance(item, exp.Star):
+                for f in table.schema.names:
+                    names.append(f)
+                    arrays.append(table.column(f))
+                continue
+            col = item.this if isinstance(item, exp.Alias) else item
+            if not isinstance(col, exp.Column):
+                raise UnsupportedLanceQuery(
+                    "LanceDB projections support plain columns and * only."
+                )
+            names.append(item.alias_or_name)
+            arrays.append(table.column(col.name))
+        self.description = [(n,) for n in names]
+        columns = [a.to_pylist() for a in arrays]
+        self._rows = [list(r) for r in zip(*columns, strict=True)] if columns else []
+
+    def _vector_search(self, clean_sql: str, params: list[Any]) -> None:
+        import re
+
+        tbl_name = re.search(
+            r"FROM\s+[`\"\[]?([a-zA-Z0-9_.-]+)[`\"\]]?", clean_sql, re.IGNORECASE
+        )
+        tbl = self.conn.open_table(tbl_name.group(1) if tbl_name else "items")
+        vector = None
+        if isinstance(params[0], (list, tuple)):
+            vector = list(params[0])
+        elif isinstance(params[0], str):
+            with contextlib.suppress(Exception):
+                parsed_vec = json.loads(params[0])
+                if isinstance(parsed_vec, list):
+                    vector = parsed_vec
+        if vector is None:
+            raise UnsupportedLanceQuery(
+                "vector search needs a vector as first parameter"
+            )
+        lm = re.search(r"LIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
+        arrow_tbl = tbl.search(vector).limit(int(lm.group(1)) if lm else 10).to_arrow()
+        self.description = [(f.name,) for f in arrow_tbl.schema]
+        names = [f.name for f in arrow_tbl.schema]
+        self._rows = [[r.get(n) for n in names] for r in arrow_tbl.to_pylist()]
 
     def fetchone(self) -> list[Any] | None:
         return self._rows.pop(0) if self._rows else None
@@ -206,7 +332,7 @@ class LanceDBConnector(BaseConnector):
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "LanceDB",
+            "engine_version": _lancedb_version(),
             "latency_ms": round(latency_ms, 2),
         }
 
@@ -253,15 +379,13 @@ class AsyncLanceDBConnector(AsyncBaseConnector):
                 "Install with: pip install 'query-builder-engine[lancedb]'"
             )
 
+        # The AsyncConnection of lancedb returns coroutines from every method, which the
+        # shared cursor adapter cannot await: use the synchronous client and run it in a
+        # worker thread so the event loop is never blocked.
         try:
-            if hasattr(driver, "connect_async"):
-                res = driver.connect_async(self.uri, **self.config)
-                if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
-                    self._connection = await res
-                else:
-                    self._connection = res
-            else:
-                self._connection = driver.connect(self.uri, **self.config)
+            self._connection = await asyncio.to_thread(
+                driver.connect, self.uri, **self.config
+            )
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -272,51 +396,39 @@ class AsyncLanceDBConnector(AsyncBaseConnector):
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
-        start = time.perf_counter()
-        if hasattr(conn, "cursor"):
-            cur = conn.cursor()
-        else:
-            cur = _LanceDBCursorAdapter(conn)
-
-        try:
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            desc = cur.description or []
-            col_names = [col[0] for col in desc]
-            rows = cur.fetchall() or []
-            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+        return await asyncio.to_thread(_run_sync, conn, sql, params)
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "table_names"):
-            res = conn.table_names()
-            if hasattr(res, "__await__"):
-                await res
+            await asyncio.to_thread(conn.table_names)
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "LanceDB",
+            "engine_version": _lancedb_version(),
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _LanceDBCursorAdapter(conn)
+
+        def _introspect() -> dict[str, Any]:
+            cur = (
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _LanceDBCursorAdapter(conn)
+            )
+            try:
+                return introspect_lancedb(cur, filter_sensitive=filter_sensitive)
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
         try:
-            return introspect_lancedb(cur, filter_sensitive=filter_sensitive)
+            return await asyncio.to_thread(_introspect)
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect LanceDB schema: {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()

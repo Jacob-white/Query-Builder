@@ -4741,6 +4741,59 @@ def introspect_milvus(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
                 cur.close()
 
 
+def _chroma_sample_columns(client: Any, name: str) -> list[dict[str, Any]] | None:
+    """Columns of a real Chroma collection: id, document and the metadata keys seen in a sample."""
+    if client is None or not hasattr(client, "get_collection"):
+        return None
+    try:
+        res = client.get_collection(name).get(limit=200, include=["metadatas"])
+        metas = res.get("metadatas") if isinstance(res, dict) else None
+    except Exception:  # noqa: BLE001 - fall back to the generic id/document shape
+        return None
+    if metas is None:
+        return None
+    kinds: dict[str, str] = {}
+    for meta in metas:
+        for key, val in (meta or {}).items():
+            kinds.setdefault(
+                key,
+                "boolean"
+                if isinstance(val, bool)
+                else "integer"
+                if isinstance(val, int)
+                else "float"
+                if isinstance(val, float)
+                else "string",
+            )
+    cols = [
+        {
+            "name": "id",
+            "data_type": "string",
+            "is_nullable": False,
+            "is_primary": True,
+            "comment": None,
+        },
+        {
+            "name": "document",
+            "data_type": "string",
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        },
+    ]
+    cols += [
+        {
+            "name": key,
+            "data_type": kind,
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        }
+        for key, kind in kinds.items()
+    ]
+    return cols
+
+
 def introspect_chroma(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """Introspects ChromaDB collections and schema metadata."""
     cur = None
@@ -4762,11 +4815,23 @@ def introspect_chroma(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
             rows = cur.fetchall() or []
             names = [str(r[0]) for r in rows if r and r[0]]
 
-        if not names:
-            names = ["notes"]
+        # the cursor adapter wraps the real client: sample real metadata keys from it
+        source = cur if hasattr(cur, "get_collection") else getattr(cur, "conn", None)
 
         tables: dict[str, dict[str, Any]] = {}
         for name in names:
+            sampled = _chroma_sample_columns(source, name)
+            if sampled is not None:
+                tables[name] = {
+                    "name": name,
+                    "columns": sampled,
+                    "has_user_id": any(c["name"] == "user_id" for c in sampled),
+                    "user_col": "user_id"
+                    if any(c["name"] == "user_id" for c in sampled)
+                    else None,
+                    "comment": None,
+                }
+                continue
             cols = [
                 {
                     "name": "id",
@@ -4838,15 +4903,15 @@ def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, 
             rows = cur.fetchall() or []
             names = [str(r[0]) for r in rows if r and r[0]]
 
-        if not names:
-            names = ["items"]
+        # the cursor adapter wraps the real connection: read the true Arrow schemas from it
+        source = cur if hasattr(cur, "open_table") else getattr(cur, "conn", None)
 
         tables: dict[str, dict[str, Any]] = {}
         for name in names:
             cols: list[dict[str, Any]] = []
-            if hasattr(cur, "open_table"):
+            if source is not None and hasattr(source, "open_table"):
                 with contextlib.suppress(Exception):
-                    tbl_obj = cur.open_table(name)
+                    tbl_obj = source.open_table(name)
                     if hasattr(tbl_obj, "schema"):
                         for f in tbl_obj.schema:
                             fname = getattr(f, "name", str(f))

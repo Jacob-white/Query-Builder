@@ -23,6 +23,39 @@ from query_builder.connectors.introspection import introspect_chdb
 from query_builder.connectors.registry import register_connector
 
 
+def _use_database(conn: Any, database: str) -> None:
+    """Point the session at ``database`` (the ``database`` argument was stored but never used,
+    so every unqualified table name resolved against ``default``)."""
+    if not hasattr(conn, "cursor"):
+        return
+    if database and database != "default" and not database.replace("_", "").isalnum():
+        raise ConnectionFailedError(f"Invalid chDB database name: {database!r}")
+    cur = conn.cursor()
+    try:
+        # join_use_nulls: without it ClickHouse fills the unmatched side of an OUTER JOIN with
+        # type defaults ('' / 0) instead of NULL, silently corrupting LEFT/RIGHT join results.
+        cur.execute("SET join_use_nulls = 1")
+        if database and database != "default":
+            cur.execute(f"USE `{database}`")
+    finally:
+        if hasattr(cur, "close"):
+            cur.close()
+
+
+def _chdb_version() -> str:
+    try:
+        import chdb
+    except ImportError:  # pragma: no cover - the connector needs the driver anyway
+        return "chDB"
+    ver = str(getattr(chdb, "__version__", "") or "")
+    engine = getattr(chdb, "engine_version", None)
+    return (
+        f"chDB {ver} (ClickHouse {engine})"
+        if isinstance(engine, str)
+        else f"chDB {ver}".strip()
+    )
+
+
 class _ChDBCursorAdapter:
     """Adapts chDB module or in-process query function into a DB-API cursor interface."""
 
@@ -146,6 +179,7 @@ class ChDBConnector(BaseConnector):
                 self._connection = driver.connect(**self.config)
             else:
                 self._connection = driver
+            _use_database(self._connection, self.database)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -170,12 +204,27 @@ class ChDBConnector(BaseConnector):
             adapter = _ChDBCursorAdapter(conn, database=self.database)
             yield adapter
 
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        # readonly=2: no writes/DDL, but settings (max_execution_time) stay changeable
+        cur = connection.cursor() if hasattr(connection, "cursor") else None
+        if cur is not None and hasattr(cur, "execute"):
+            try:
+                cur.execute("SET readonly = 2")
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
-        pass
+        if hasattr(cursor, "execute") and not isinstance(cursor, _ChDBCursorAdapter):
+            cursor.execute(
+                f"SET max_execution_time = {max(1, int(timeout_ms) // 1000)}"
+            )
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        info["engine_version"] = "chDB In-Process ClickHouse"
+        info["engine_version"] = _chdb_version()
         info["database"] = self.database
         return info
 
@@ -231,6 +280,7 @@ class AsyncChDBConnector(AsyncBaseConnector):
                 self._connection = driver.connect(**self.config)
             else:
                 self._connection = driver
+            _use_database(self._connection, self.database)
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -267,3 +317,19 @@ class AsyncChDBConnector(AsyncBaseConnector):
             dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
             latency_ms = (time.perf_counter() - start) * 1000.0
             return col_names, dict_rows, latency_ms
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = await self.connect()
+        cur = None
+        try:
+            cur = conn.cursor() if hasattr(conn, "cursor") else _ChDBCursorAdapter(conn)
+            return introspect_chdb(
+                cur, database=self.database, filter_sensitive=filter_sensitive
+            )
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect chDB database '{self.database}': {exc}"
+            ) from exc
+        finally:
+            if cur is not None and hasattr(cur, "close"):
+                cur.close()

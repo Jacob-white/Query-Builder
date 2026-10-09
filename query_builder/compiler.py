@@ -1979,7 +1979,7 @@ class QueryCompiler:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"%{self.dialect.escape_like(val)}%")
+                self.params.append(self.dialect.substring_param("contains", val))
 
             elif op in (
                 "starts_with",
@@ -1992,7 +1992,7 @@ class QueryCompiler:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"{self.dialect.escape_like(val)}%")
+                self.params.append(self.dialect.substring_param("starts", val))
 
             elif op in ("ends_with", "endswith", "not_ends_with", "not endswith"):
                 expr = self.dialect.format_substring_match(quoted_ref)
@@ -2000,7 +2000,7 @@ class QueryCompiler:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"%{self.dialect.escape_like(val)}")
+                self.params.append(self.dialect.substring_param("ends", val))
 
             elif op in ("like", "not_like", "not like"):
                 if "not" in op:
