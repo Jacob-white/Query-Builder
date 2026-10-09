@@ -74,6 +74,13 @@ class BaseDialect:
             text = text.replace(ch, esc + ch)
         return text
 
+    def substring_param(self, mode: str, value: Any) -> str:
+        """Bound value for contains ("contains") / starts_with ("starts") / ends_with ("ends")."""
+        escaped = self.escape_like(value)
+        if mode == "contains":
+            return f"%{escaped}%"
+        return f"{escaped}%" if mode == "starts" else f"%{escaped}"
+
     def format_substring_match(self, col_ref: str) -> str:
         """Case-insensitive LIKE used by contains/starts_with/ends_with."""
         expr = self.format_ilike(col_ref)
@@ -577,9 +584,22 @@ class PolarsDialect(BaseDialect):
 
     name: str = "polars"
     placeholder: str = "?"
+    _REGEX_SPECIAL = frozenset(r"\.+*?()|[]{}^$#&-~")
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    # Polars' LIKE/ILIKE has NO ESCAPE support (a literal % or _ cannot be expressed), so the
+    # contains/starts_with/ends_with operators use its regex match operator instead.
+    def substring_param(self, mode: str, value: Any) -> str:
+        text = "".join(
+            "\\" + ch if ch in self._REGEX_SPECIAL else ch for ch in str(value)
+        )
+        anchored = ("^" if mode == "starts" else "") + text + ("$" if mode == "ends" else "")
+        return "(?i)" + anchored
+
+    def format_substring_match(self, col_ref: str) -> str:
+        return f"{col_ref} ~ {self.placeholder}"
 
 
 class DataFusionDialect(BaseDialect):
@@ -587,6 +607,8 @@ class DataFusionDialect(BaseDialect):
 
     name: str = "datafusion"
     placeholder: str = "?"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
