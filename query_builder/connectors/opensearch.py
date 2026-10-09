@@ -8,6 +8,7 @@ dual sync and async execution protocols, cursor adapters, and index mapping sche
 from __future__ import annotations
 
 import contextlib
+import inspect
 import time
 from typing import Any
 
@@ -28,6 +29,11 @@ def _has_attr(target: Any, attr: str) -> bool:
             return hasattr(target, attr)
         return attr in target._mock_children
     return hasattr(target, attr)
+
+
+def _is_async_call(func: Any) -> bool:
+    """True for a real coroutine function (never for the auto-attributes of a Mock)."""
+    return inspect.iscoroutinefunction(func)
 
 
 def _typed_parameter(value: Any) -> dict[str, Any]:
@@ -271,6 +277,23 @@ class AsyncOpenSearchConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_async_call(
+            getattr(getattr(conn, "transport", None), "perform_request", None)
+        ):
+            # a real AsyncOpenSearch client: its transport returns coroutines
+            body: dict[str, Any] = {"query": sql.strip().rstrip(";").strip()}
+            if params:
+                body["parameters"] = [_typed_parameter(p) for p in params]
+            res = await conn.transport.perform_request(
+                "POST", "/_plugins/_sql", body=body
+            )
+            col_names = [
+                c.get("name", f"col_{i}") for i, c in enumerate(res.get("schema", []))
+            ]
+            dict_rows = [
+                dict(zip(col_names, r, strict=False)) for r in res.get("datarows", [])
+            ]
+            return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
         adapter = _OpenSearchCursorAdapter(conn)
         try:
             adapter.execute(sql, params)
@@ -285,9 +308,16 @@ class AsyncOpenSearchConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        mappings = None
+        get_mapping = getattr(getattr(conn, "indices", None), "get_mapping", None)
+        if callable(get_mapping):
+            pending = get_mapping()
+            if inspect.isawaitable(pending):  # a real AsyncOpenSearch client
+                mappings = await pending
         try:
             return introspect_opensearch(
                 conn,
+                _mappings=mappings,
                 catalog=self.index_pattern,
                 filter_sensitive=filter_sensitive,
             )

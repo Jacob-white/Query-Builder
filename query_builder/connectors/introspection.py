@@ -2328,19 +2328,31 @@ def introspect_yugabyte(
 
 
 def introspect_opensearch(
-    client_or_cursor: Any, catalog: str = "default", filter_sensitive: bool = True
+    client_or_cursor: Any,
+    catalog: str = "default",
+    filter_sensitive: bool = True,
+    _mappings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API."""
+    """
+    Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API.
+
+    ``_mappings`` lets an async caller pass an already-awaited ``get_mapping()`` result.
+    """
     cur = None
     own_cur = False
     try:
         table_names: list[str] = []
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
 
-        if _has_attr(client_or_cursor, "indices") and hasattr(
-            client_or_cursor.indices, "get_mapping"
+        if _mappings is not None or (
+            _has_attr(client_or_cursor, "indices")
+            and hasattr(client_or_cursor.indices, "get_mapping")
         ):
-            mappings = client_or_cursor.indices.get_mapping()
+            mappings = (
+                _mappings
+                if _mappings is not None
+                else client_or_cursor.indices.get_mapping()
+            )
             for idx, meta in mappings.items():
                 if idx.startswith("."):
                     continue
@@ -2483,7 +2495,7 @@ def introspect_neo4j(
         ):
             driver_or_session = driver_or_session.target
         if _has_attr(driver_or_session, "session"):
-            session = driver_or_session.session()
+            session = driver_or_session.session(default_access_mode="READ")
             session_created = True
         else:
             session = driver_or_session
@@ -4904,6 +4916,11 @@ def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
         info = client.execute_command("FT.INFO", index)
     except Exception:  # noqa: BLE001
         return []
+    return parse_ft_info(info)
+
+
+def parse_ft_info(info: Any) -> list[dict[str, Any]]:
+    """Columns from an ``FT.INFO`` reply (RESP2 flat list or RESP3 mapping)."""
     attributes: Any = None
     if isinstance(info, dict):  # RESP3
         attributes = next(
@@ -4940,9 +4957,16 @@ def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
 
 
 def introspect_redis_search(
-    cursor: Any, filter_sensitive: bool = True
+    cursor: Any,
+    filter_sensitive: bool = True,
+    _indexes: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Introspects Redis RediSearch index definitions."""
+    """
+    Introspects Redis RediSearch index definitions.
+
+    ``_indexes`` (index name -> columns) lets an async caller, whose client calls
+    must be awaited, hand over already-fetched ``FT.INFO`` results.
+    """
     cur = None
     own_cur = False
     try:
@@ -4950,7 +4974,9 @@ def introspect_redis_search(
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
         index_names: list[str] = []
-        if hasattr(cur, "execute"):
+        if _indexes is not None:
+            index_names = list(_indexes)
+        elif hasattr(cur, "execute"):
             cur.execute("FT._LIST")
             rows = cur.fetchall() or []
             index_names = [str(r[0]) for r in rows if r and r[0]]
@@ -4966,7 +4992,11 @@ def introspect_redis_search(
 
         tables: dict[str, dict[str, Any]] = {}
         for idx in index_names:
-            real_cols = _redis_index_columns(raw_client, idx)
+            real_cols = (
+                _indexes[idx]
+                if _indexes is not None
+                else _redis_index_columns(raw_client, idx)
+            )
             if real_cols:
                 tables[idx] = {
                     "name": idx,

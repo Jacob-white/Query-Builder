@@ -96,6 +96,11 @@ def _strict(name: str) -> bool:
     return raw == "all" or name in [p.strip() for p in raw.split(",") if p.strip()]
 
 
+def record_version(name: str, version: str) -> None:
+    """Remember an engine's reported version for the run report."""
+    _VERSIONS[name] = version.replace("\n", " ")[:120]
+
+
 class Live:
     """A seeded, reachable engine."""
 
@@ -193,8 +198,9 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
     callspec = getattr(item, "callspec", None)
     if callspec is not None:
         for p in _PARAM_NAMES:
-            if p in callspec.params:
-                name = callspec.params[p]
+            value = callspec.params.get(p)
+            if isinstance(value, str):  # NOTSET for an empty engine selection
+                name = value
     marker = item.get_closest_marker("qb_engine")
     if marker is not None:
         name = marker.args[0]
@@ -226,8 +232,13 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
     engines_out: dict[str, Any] = {}
     for name, rec in sorted(_RESULTS.items()):
         e = eng.ENGINES.get(name)
+        c = None
+        if e is None:
+            from tests.integration import cloud
+
+            c = cloud.CLOUD.get(name)
         engines_out[name] = {
-            "connectors": e.connector_class_keys() if e else [],
+            "connectors": (e or c).connector_class_keys() if (e or c) else [],
             "tier": e.tier if e else "cloud",
             "version": _VERSIONS.get(name),
             "passed": rec["passed"],

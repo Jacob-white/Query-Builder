@@ -7,6 +7,7 @@ DB-API cursor adaptation, statement timeouts, and system_schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -265,7 +266,8 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
         start = time.perf_counter()
         adapter = _CassandraCursorAdapter(conn)
         try:
-            adapter.execute(sql, params)
+            # the driver session is synchronous: keep it off the event loop
+            await asyncio.to_thread(adapter.execute, sql, params)
             desc = adapter.description or []
             col_names = [col[0] for col in desc]
             rows = adapter.fetchall() or []
@@ -274,6 +276,28 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
             return col_names, dict_rows, latency_ms
         finally:
             adapter.close()
+
+    async def test_connection(self) -> dict[str, Any]:
+        info = await super().test_connection()
+        info["engine_version"] = "Apache Cassandra"
+        info["keyspace"] = self.keyspace
+        return info
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        """system_schema introspection (the base fallback silently returned nothing)."""
+        conn = await self.connect()
+        adapter = _CassandraCursorAdapter(conn)
+        try:
+            return await asyncio.to_thread(
+                introspect_cassandra,
+                adapter,
+                keyspace=self.keyspace,
+                filter_sensitive=filter_sensitive,
+            )
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect Apache Cassandra keyspace '{self.keyspace}': {exc}"
+            ) from exc
 
 
 AsyncCassandraConnector = AsyncApacheCassandraConnector
