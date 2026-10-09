@@ -1053,6 +1053,12 @@ def test_arangodb_connector_sync_and_async():
     assert info["engine_version"] == "ArangoDB"
     assert info["database"] == "_system"
 
+    # server version comes from db.version() when a real connection exists
+    mock_db_v = MagicMock()
+    mock_db_v.version.return_value = "3.11.4"
+    info_v = ArangoDBConnector(connection=mock_db_v).test_connection()
+    assert info_v["engine_version"] == "ArangoDB 3.11.4"
+
     # Introspection via collections()
     mock_db_introspection = MagicMock(spec=["collections"])
     mock_db_introspection.collections.return_value = [
@@ -1460,7 +1466,15 @@ def test_db2_connector_sync_and_async():
     conn_cur = DB2Connector(cursor=mock_cur)
     info = conn_cur.test_connection()
     assert info["engine_version"] == "IBM DB2"
-    mock_cur.execute.assert_called_with("SELECT 1 FROM SYSIBM.SYSDUMMY1")
+    mock_cur.execute.assert_any_call("SELECT 1 FROM SYSIBM.SYSDUMMY1")
+    # the last statement is the version probe against the instance view
+    mock_cur.execute.assert_called_with(
+        "SELECT SERVICE_LEVEL FROM SYSIBMADM.ENV_INST_INFO"
+    )
+    mock_cur_v = MagicMock()
+    mock_cur_v.fetchone.return_value = ("DB2 v11.5.9.0",)
+    info_v = DB2Connector(cursor=mock_cur_v).test_connection()
+    assert info_v["engine_version"] == "DB2 v11.5.9.0"
 
     mock_cur.fetchall.side_effect = [
         [("CUSTOMERS",)],

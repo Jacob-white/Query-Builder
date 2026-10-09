@@ -261,9 +261,13 @@ def test_like_escape_edge_cases():
     assert pg.escape_like(12) == "12"
     assert get_dialect("mssql").escape_like("[x]") == "\\[x]"
     # dialects not verified live keep the previous pass-through behaviour
-    sqlserver_like = get_dialect("oracle")
-    assert sqlserver_like.escape_like("50%") == "50%"
-    assert "ESCAPE" not in sqlserver_like.format_substring_match('"c"')
+    passthrough = get_dialect("db2")
+    assert passthrough.escape_like("50%") == "50%"
+    assert "ESCAPE" not in passthrough.format_substring_match('"c"')
+    # Oracle was verified live and now escapes with an explicit ESCAPE clause
+    oracle = get_dialect("oracle")
+    assert oracle.escape_like("50%") == "50\\%"
+    assert oracle.format_substring_match('"c"').endswith("ESCAPE '\\'")
     # explicit like/ilike patterns are the caller's pattern: never escaped
     spec = {
         "table": "t",

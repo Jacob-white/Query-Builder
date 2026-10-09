@@ -159,7 +159,15 @@ class _LanceDBCursorAdapter:
         from sqlglot import exp
 
         parsed = sqlglot.parse_one(_inline_params(clean_sql, params), read="postgres")
-        unsupported = ("joins", "group", "having", "distinct", "with", "laterals")
+        unsupported = (
+            "joins",
+            "group",
+            "having",
+            "distinct",
+            "with",
+            "with_",
+            "laterals",
+        )
         if not isinstance(parsed, exp.Select) or any(
             parsed.args.get(k) for k in unsupported
         ):

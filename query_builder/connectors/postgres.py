@@ -6,6 +6,7 @@ Provides transactional execution, statement timeout configuration, and schema in
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from query_builder.connectors._txn import RollbackOnErrorMixin
@@ -29,7 +30,10 @@ def _pg_read_only(connection: Any) -> None:
     finally:
         close = getattr(cur, "close", None)
         if close is not None:
-            close()
+            # a failing close must not skip the commit below (it would leave the
+            # session-default SET inside an open read-write transaction)
+            with contextlib.suppress(Exception):
+                close()
     commit = getattr(connection, "commit", None)
     if commit is not None:
         commit()
