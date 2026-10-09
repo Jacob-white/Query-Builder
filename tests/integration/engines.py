@@ -100,14 +100,26 @@ class Engine:
 
     # ---- availability --------------------------------------------------
     def driver_module(self) -> str | None:
+        self.driver_error = ""
         for mod in self.drivers:
-            with contextlib.suppress(ImportError):
+            try:
                 importlib.import_module(mod)
                 return mod
+            except ImportError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - e.g. cassandra: no event-loop reactor
+                self.driver_error = f"{mod} is installed but cannot be imported: {exc}"
         return None
+
+    driver_error: str = ""
 
     def check_available(self) -> None:
         if self.driver_module() is None:
+            if self.driver_error:
+                raise EngineUnavailable(
+                    f"driver unusable here ({self.driver_error}); try "
+                    "scripts/it_docker_run.sh to run it inside Linux"
+                )
             raise EngineUnavailable(
                 f"driver not installed (need one of {', '.join(self.drivers)}; "
                 f"pip install {self.pip})"
@@ -809,7 +821,7 @@ for _e in (
         async_connector="async_apache_cassandra",
         tier="extended",
         family="",
-        drivers=("cassandra",),
+        drivers=("cassandra.cluster",),
         pip="cassandra-driver",
         port=39042,
         password="",

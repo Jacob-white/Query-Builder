@@ -297,3 +297,38 @@ def test_cli_verify_connectors_live(monkeypatch, capsys):
     monkeypatch.setattr(status, "run_live_suite", boom)
     assert cli.main(["verify-connectors", "--live"]) == 2
     assert "source checkout" in capsys.readouterr().err
+
+
+def test_docs_cite_the_real_connector_counts():
+    totals = status.build_report()["totals"]
+    for rel in (
+        "README.md",
+        "docs/README.md",
+        "PROJECT.md",
+        "MISSING_CONNECTORS_PLAN.md",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert str(totals["classes"]) in text, rel
+        assert str(totals["registered_names"]) in text, rel
+        assert "CONNECTORS.md" in text, rel
+        assert str(totals["sync"]) in text and str(totals["async"]) in text, rel
+
+
+def test_markdown_lists_engines_that_were_selected_but_not_exercised():
+    report = json.loads(json.dumps(status.build_report()))
+    report["live_run_at"] = "2026-01-01"
+    report["live_engines"] = [
+        {
+            "engine": "snowflake",
+            "version": None,
+            "passed": 0,
+            "failed": 0,
+            "xfailed": 0,
+            "skipped": 9,
+            "run_at": "2026-01-01",
+            "platform": None,
+        }
+    ]
+    md = status.render_markdown(report)
+    assert "not exercised" in md and "snowflake" in md
+    assert "Engines in the latest live run" not in md

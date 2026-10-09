@@ -21,7 +21,7 @@ Query-Builder is expanding with a comprehensive, modular, and developer-configur
    - `BaseConnector` and `AsyncBaseConnector` accepting optional `security: SecurityConfig | None = None`.
    - Automatic secret scrubbing in `repr(connector)`, `str(connector)`, and `ConnectionFailedError`.
    - Dynamic enforcement of execution boundaries, row limits, timeouts, and AST validation in `execute()`.
-   - 100% backwards-compatible with all 198 registered connectors and existing call signatures.
+   - 100% backwards-compatible with all registered connectors (138 classes: 89 sync + 49 async; 306 registered names; see `docs/CONNECTORS.md`) and existing call signatures.
 
 4. **Package Surface (`query_builder/__init__.py`)**:
    - Export all security configuration dataclasses, profile factories, and helper functions in `__all__`.
@@ -40,7 +40,7 @@ Query-Builder is expanding with a comprehensive, modular, and developer-configur
 | 9 | Lifecycle Security Middleware | `SecurityMiddleware(LifecycleInterceptor)` connecting config to query execution lifecycle | M2 | ORIGINAL_REQUEST §R3 |
 | 10 | Connector Security & Credential Scrubbing | Base and async connector integration, sanitized `__repr__`/`__str__`, sanitized `ConnectionFailedError` | M3 | ORIGINAL_REQUEST §R3 |
 | 11 | Dynamic Execution Boundary Enforcement | Enforcement of row limits, timeouts, complexity scores, and AST validation in connector `execute()` | M3 | ORIGINAL_REQUEST §R3 |
-| 12 | Public API Exports & Backwards Compatibility | Exports in `query_builder/__init__.py` and backwards compatibility for all 198 registered connectors | M3 | ORIGINAL_REQUEST §R3 |
+| 12 | Public API Exports & Backwards Compatibility | Exports in `query_builder/__init__.py` and backwards compatibility for all registered connectors (138 classes: 89 sync + 49 async / 306 names, see `docs/CONNECTORS.md`) | M3 | ORIGINAL_REQUEST §R3 |
 | 13 | Full-Stack Verification & 100% Coverage Assurance | 100% statement, branch, function test coverage across Python and React, zero linter/formatting errors | M4 | ORIGINAL_REQUEST §R4 |
 
 ## Milestones
