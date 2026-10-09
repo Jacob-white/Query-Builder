@@ -88,7 +88,9 @@ def run_probe(engine: Engine, limitation: Limitation) -> tuple[bool, str]:
     try:
         if isinstance(probe, str):
             if engine.native_factory is None:
-                raise ValueError(f"{engine.name}: a statement probe needs native_factory")
+                raise ValueError(
+                    f"{engine.name}: a statement probe needs native_factory"
+                )
             native = engine.native_factory(engine)
             try:
                 native.run(probe)

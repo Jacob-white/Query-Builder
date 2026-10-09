@@ -20,7 +20,9 @@ from tests.integration.engines import Engine, run_probe
 
 
 @pytest.mark.qb_category("limitation_probe")
-def test_declared_limitations_are_real(limitation_id: str, limitation_engine: Engine) -> None:
+def test_declared_limitations_are_real(
+    limitation_id: str, limitation_engine: Engine
+) -> None:
     name, feature = limitation_id.split("::", 1)
     lim = limits.lookup(name, feature)
     assert lim is not None and lim.probe is not None

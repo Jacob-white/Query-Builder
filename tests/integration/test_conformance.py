@@ -287,6 +287,7 @@ def test_wrong_password_error_never_leaks_the_password(engine: Engine) -> None:
 #: They run as strict xfails (flip to failures once fixed; never count towards `certified`).
 #: Engines not listed run the checks for real and fail if they leak.
 RAW_ERROR_LEAKS: dict[str, str] = {
+    "postgres": "psycopg.errors.* escape PostgresConnector.execute unwrapped",
     "sqlite": "sqlite3.OperationalError escapes SQLiteConnector.execute unwrapped",
     "duckdb": "duckdb.BinderException/ParserException escape DuckDBConnector.execute unwrapped",
 }

@@ -744,7 +744,17 @@ def run_live_suite(
 def render_live_summary(report: dict[str, Any]) -> str:
     """Per-engine pass/skip/fail table for a live-suite report."""
     rows = [
-        ("ENGINE", "VERSION", "PASS", "FAIL", "KNOWN", "SKIP", "CORE", "UNVERIF", "NOTE")
+        (
+            "ENGINE",
+            "VERSION",
+            "PASS",
+            "FAIL",
+            "KNOWN",
+            "SKIP",
+            "CORE",
+            "UNVERIF",
+            "NOTE",
+        )
     ]
     for name, rec in sorted(report.get("engines", {}).items()):
         d = depth(rec)

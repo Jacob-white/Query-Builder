@@ -70,10 +70,40 @@ def test_unit_test_references_counts_test_files():
     assert status.unit_test_references(ROOT / "docs") == {} or True
 
 
+def _deep(kind="sql", **over):
+    """Per-category evidence covering every core category of the family."""
+    core = status.CORE_BY_KIND[kind]
+    rec = {
+        "family_kind": kind,
+        "core": [c for c in core if c != "async_parity"],
+        "categories": {
+            c: {
+                "passed": 1,
+                "failed": 0,
+                "xfailed": 0,
+                "skipped": {
+                    "verified_limitation": 0,
+                    "declared_unverified": 0,
+                    "environment": 0,
+                },
+            }
+            for c in core
+            if c != "async_parity"
+        },
+        "limitations": {"verified": [], "declared_unverified": []},
+    }
+    rec.update(over)
+    return rec
+
+
 def test_compute_tier_is_evidence_based():
     key = "m.C"
-    live_ok = {key: {"engine": "x", "passed": 5, "failed": 0, "skipped": 1}}
+    live_ok = {key: {"engine": "x", "passed": 5, "failed": 0, "skipped": 1, **_deep()}}
     assert status.compute_tier(key, live_ok, {key: 3})[0] == status.CERTIFIED
+    # the same pass count WITHOUT per-category evidence (an old report) is only `basic`
+    old_format = {key: {"engine": "x", "passed": 5, "failed": 0, "skipped": 1}}
+    tier, why = status.compute_tier(key, old_format, {key: 3})
+    assert tier == status.BASIC and "no per-category evidence" in why
     # a failing live run never certifies
     bad = {key: {"engine": "x", "passed": 5, "failed": 2}}
     tier, why = status.compute_tier(key, bad, {key: 3})
@@ -134,11 +164,12 @@ def test_build_report_certifies_only_what_the_live_record_proves(tmp_path):
     (root / "pyproject.toml").write_text(
         '[project]\nname="x"\n[project.optional-dependencies]\npostgres=["psycopg"]\n'
     )
-    status.record_live([_live()], root)
+    status.record_live([_live(**_deep())], root)
     report = status.build_report(root)
     by_class = {r["class"]: r for r in report["connectors"]}
     pg = by_class["PostgresConnector"]
     assert pg["tier"] == status.CERTIFIED
+    assert pg["live"]["depth"]["meets_bar"] is True
     assert pg["live"]["engine"] == "postgres" and pg["live"]["xfailed"] == 0
     assert pg["extra_declared_in_pyproject"] is True
     assert (
@@ -149,8 +180,20 @@ def test_build_report_certifies_only_what_the_live_record_proves(tmp_path):
     assert report["totals"]["tiers"][status.CERTIFIED] == 1
     md = status.render_markdown(report)
     assert "| `PostgresConnector` | sync | certified |" in md
-    assert "postgres (80 pass)" in md
+    assert "postgres (80 pass, 2 skip)" in md
+    assert "17/17 core categories" in md and "basic" in md  # legend + core column
     assert "16.4" in md and "2026-10-09 12:00 UTC" in md
+
+    # an old-format record never certifies: it renders as `basic` with no core coverage
+    old = tmp_path / "old"
+    (old / "docs").mkdir(parents=True)
+    (old / "tests").mkdir()
+    status.record_live([_live()], old)
+    pg_old = {r["class"]: r for r in status.build_report(old)["connectors"]}[
+        "PostgresConnector"
+    ]
+    assert pg_old["tier"] == status.BASIC
+    assert "no category evidence" in status.render_markdown(status.build_report(old))
 
 
 def test_render_markdown_without_live_run_and_with_failures():
@@ -171,7 +214,7 @@ def test_render_markdown_without_live_run_and_with_failures():
                 "skipped": 0,
             }
     md = status.render_markdown(report)
-    assert "sqlite (5 pass, 1 fail, 2 known)" in md
+    assert "sqlite (5 pass, 1 fail, 2 known, 0 skip)" in md
 
 
 def test_committed_docs_are_up_to_date():
@@ -257,7 +300,8 @@ def test_live_summary_and_exit_codes():
     }
     text = status.render_live_summary(report)
     assert "FAILED" in text and "known issues" in text and "skipped: down" in text
-    assert "no tests ran" in text and "ok" in text
+    assert "no tests ran" in text and "ok (basic depth)" in text
+    assert "CORE" in text and "UNVERIF" in text
     assert status.live_exit_code(0, {"engines": {"a": {"failed": 0}}}) == 0
     assert status.live_exit_code(1, {"engines": {}}) == 1
     assert status.live_exit_code(5, {"engines": {}}) == 0
@@ -353,6 +397,7 @@ def test_live_index_keeps_the_strongest_evidence_when_engines_share_a_class():
 
 def test_emulator_evidence_is_its_own_tier_and_real_service_wins():
     from query_builder.connectors.status import (
+        BASIC,
         CERTIFIED,
         EMULATED,
         VERIFIED,
@@ -395,8 +440,32 @@ def test_emulator_evidence_is_its_own_tier_and_real_service_wins():
             }
         }
     )
+    # the real service has no per-category evidence: `basic`, but still above the emulator
     assert (
-        compute_tier("FirestoreConnector", both, {"FirestoreConnector": 3})[0]
+        compute_tier("FirestoreConnector", both, {"FirestoreConnector": 3})[0] == BASIC
+    )
+    deep_real = _live_index(
+        {
+            "engines": {
+                "firestore_emu": {
+                    "connectors": ["FirestoreConnector"],
+                    "passed": 90,
+                    "failed": 0,
+                    "emulated": True,
+                    **_deep("native"),
+                },
+                "firestore_real": {
+                    "connectors": ["FirestoreConnector"],
+                    "passed": 40,
+                    "failed": 0,
+                    "emulated": False,
+                    **_deep("native"),
+                },
+            }
+        }
+    )
+    assert (
+        compute_tier("FirestoreConnector", deep_real, {"FirestoreConnector": 3})[0]
         == CERTIFIED
     )
 
