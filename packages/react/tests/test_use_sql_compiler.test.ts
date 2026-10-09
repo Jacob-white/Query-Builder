@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSqlCompiler, type QuerySpec, type SqlDialect } from "../src";
+import type { LooseQuerySpec } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("useSqlCompiler Headless Reactive Compiler", () => {
   beforeEach(() => {
@@ -123,10 +125,10 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
 
   it("handles compiler errors and sets error property", () => {
     // Pass object that triggers compiler edge-case or throws
-    const throwingInput = {
+    const throwingInput = invalid<LooseQuerySpec>({
       primaryTable: { invalid: "object" },
       selectedColumns: null,
-    };
+    });
 
     const { result } = renderHook(() => useSqlCompiler(throwingInput));
 
@@ -184,10 +186,10 @@ describe("useSqlCompiler Headless Reactive Compiler", () => {
 
   it("handles runtime compilation exceptions gracefully in catch block", () => {
     // Malformed join item causes TypeError inside spec parser
-    const malformedSpec = {
+    const malformedSpec = invalid<LooseQuerySpec>({
       table: "users",
       joins: [null],
-    };
+    });
 
     const { result } = renderHook(() => useSqlCompiler(malformedSpec));
 

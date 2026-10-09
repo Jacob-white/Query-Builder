@@ -47,7 +47,7 @@ describe("Milestone 2 Remediations Verification", () => {
         ctes: [
           {
             name: "recent_users",
-            query: "SELECT id FROM users WHERE id > 10",
+            query: invalid<CteSpec["query"]>("SELECT id FROM users WHERE id > 10"), // legacy string form
           },
         ],
         window_functions: [

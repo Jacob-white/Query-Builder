@@ -550,11 +550,8 @@ describe("useQueryState Standalone Hook & State History", () => {
       isDistinct: false,
       limit: 10,
       offset: 0,
-      dialect: "postgres",
-      isDirty: false,
       ctes: [],
       windowFunctions: [],
-      activeTables: ["users"],
     });
     expect(specFromSortNoPrefix.order_by[0].column).toBe("id");
   });

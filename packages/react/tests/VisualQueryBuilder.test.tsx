@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
-import type { CteSpec, SchemaSnapshot, QueryResultData } from "../src/types";
+import type { CteSpec, QueryTemplate, SchemaSnapshot, QueryResultData } from "../src/types";
 import { invalid } from "./helpers";
 import { saveTemplates, resetTemplateStorage } from "../src/components/QueryTemplateManager";
 
@@ -423,7 +423,7 @@ describe("VisualQueryBuilder", () => {
 
   it("loads template with visual spec and hydrates canvas state", () => {
     resetTemplateStorage();
-    const customTemplateWithSpec = {
+    const customTemplateWithSpec: QueryTemplate = {
       id: "spec_tpl",
       title: "Spec Hydration Query",
       category: "Test",
@@ -479,7 +479,7 @@ describe("VisualQueryBuilder", () => {
     expect(screen.getAllByText("users.id").length).toBeGreaterThan(0);
 
     // Also load a template with standard QuerySpec (columns array, joins, filters, order_by, distinct)
-    const tplWithQuerySpec = {
+    const tplWithQuerySpec: QueryTemplate = {
       id: "spec_standard_tpl",
       title: "Standard QuerySpec Template",
       category: "Test",

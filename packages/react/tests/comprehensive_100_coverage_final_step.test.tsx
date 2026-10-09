@@ -47,6 +47,7 @@ import type {
   VisualQueryBuilderProps,
   WindowFunctionSpec,
 } from "../src/types";
+import type { HybridSearchSpec, LooseSpecColumn, MetricDefinition } from "../src/types";
 import { invalid } from "./helpers";
 import { asMock, loose, olapTableData } from "./helpers/loose";
 
@@ -611,7 +612,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             { column: "users.age", operator: "RAW", raw_expression: "users.age > 21" },
           ],
           vectorSearch: { column: "embedding", vector: [0.1, 0.2] },
-          hybridSearch: { fullTextColumn: "body", queryText: "test" },
+          hybridSearch: invalid<HybridSearchSpec>({ fullTextColumn: "body", queryText: "test" }),
         }),
       );
 
@@ -665,7 +666,7 @@ describe("Comprehensive 100% Coverage Final Step", () => {
             {
               name: "sales",
               tableName: "sales",
-              metrics: [{ name: "revenue", aggregation: "sum" }],
+              metrics: [invalid<MetricDefinition>({ name: "revenue", aggregation: "sum" })],
             },
           ],
         },
@@ -691,12 +692,12 @@ describe("Comprehensive 100% Coverage Final Step", () => {
         table: "sales",
         columns: ["id"],
         window_functions: [
-          {
+          invalid<WindowFunctionSpec>({
             name: "wf",
             function: "ROW_NUMBER",
             order_by: [{ column: "id" }],
             frame: { frame_type: "ROWS" },
-          },
+          }),
         ],
       });
       expect(wfSql).toContain("UNBOUNDED PRECEDING AND CURRENT ROW");
@@ -1326,11 +1327,11 @@ describe("Comprehensive 100% Coverage Final Step", () => {
       const smSql = compileSpecToSql({
         table: "orders",
         columns: [
-          {
+          invalid<LooseSpecColumn>({
             table: "orders",
             column: "rev",
             isMetric: true,
-          },
+          }),
         ],
         semantic_models: [
           {
