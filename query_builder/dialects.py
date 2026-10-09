@@ -1768,13 +1768,18 @@ class FirebirdDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
+    like_escape_char = "\\"
+    like_escape_clause = True
+    # AVG over an INTEGER column is integer division in Firebird
+    avg_template = "AVG(CAST({} AS DOUBLE PRECISION))"
+
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        if offset > 0:
-            return (
-                f"ROWS {self.placeholder} TO {self.placeholder}",
-                [offset + 1, offset + limit],
-            )
-        return f"ROWS {self.placeholder}", [limit]
+        # SQL:2008 OFFSET/FETCH (Firebird 3.0+): standard, so the structural validator can
+        # parse it (the legacy ``ROWS m TO n`` form is not parseable and was rejected).
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
 
     def inspect_tables_query(
         self, schema_name: str = "public"
