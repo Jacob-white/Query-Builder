@@ -13,6 +13,7 @@ import {
   QueryBuilderSqlEditor,
 } from "../src/components/compound";
 import type { SchemaSnapshot, QuerySpec, QueryResultData } from "../src/types";
+import { makeSpec } from "./helpers";
 
 describe("Milestone 3: Slotted Styling & ClassNames API", () => {
   const mockSchema: SchemaSnapshot = {
@@ -43,7 +44,7 @@ describe("Milestone 3: Slotted Styling & ClassNames API", () => {
     ],
   };
 
-  const sampleSpec: QuerySpec = {
+  const sampleSpec: QuerySpec = makeSpec({
     table: "users",
     columns: ["users.id", "users.name"],
     filters: [{ column: "users.name", op: "=", value: "Alice" }],
@@ -57,7 +58,7 @@ describe("Milestone 3: Slotted Styling & ClassNames API", () => {
         on: [{ left: "users.id", right: "orders.user_id" }],
       },
     ],
-  };
+  });
 
   it("applies classNames and className to VisualQueryBuilder root, header, tabs, and canvas slots", () => {
     const { container } = render(
@@ -178,7 +179,6 @@ describe("Milestone 3: Slotted Styling & ClassNames API", () => {
       columns: ["id", "name"],
       rows: [{ id: 1, name: "Alice" }],
       count: 1,
-      dialect: "postgres",
     };
 
     const { container } = render(

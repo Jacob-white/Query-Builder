@@ -6,6 +6,8 @@ import {
   detectCteCycles,
 } from "../src/components/PipelineDagCanvas";
 import { ThemeContext } from "../src/theme/ThemeProvider";
+import type { QueryBuilderTheme } from "../src/theme/tokens";
+import { invalid } from "./helpers";
 import type { CteSpec, QuerySpec } from "../src/types";
 
 describe("PipelineDagCanvas Component", () => {
@@ -60,15 +62,15 @@ describe("PipelineDagCanvas Component", () => {
       {
         name: "stage_raw",
         query: {
-          table: "users" as any,
+          table: "users",
           columns: ["id"],
-          joins: [{ table: "orders" as any, type: "INNER" }],
+          joins: [{ table: "orders", type: "INNER" }],
         } as unknown as QuerySpec,
       },
       {
         name: "stage_agg",
         query: {
-          table: "stage_raw" as any,
+          table: "stage_raw",
           columns: ["id"],
           joins: [],
         } as unknown as QuerySpec,
@@ -105,7 +107,7 @@ describe("PipelineDagCanvas Component", () => {
 
     // Has length 1, but name is stage_2, so stage_2 collides and while loop increments to stage_3
     const initialCtes: CteSpec[] = [
-      { name: "stage_2", query: { table: "t1" } as any },
+      { name: "stage_2", query: { table: "t1" } },
     ];
 
     render(
@@ -131,8 +133,8 @@ describe("PipelineDagCanvas Component", () => {
     const onSelectStage = vi.fn();
 
     const ctes: CteSpec[] = [
-      { name: "stage_1", query: { table: "t1" } as any },
-      { name: "stage_2", query: { table: "t2" } as any },
+      { name: "stage_1", query: { table: "t1" } },
+      { name: "stage_2", query: { table: "t2" } },
     ];
 
     const { rerender } = render(
@@ -166,8 +168,8 @@ describe("PipelineDagCanvas Component", () => {
   it("toggles recursive property on a stage", () => {
     const onCtesChange = vi.fn();
     const ctes: CteSpec[] = [
-      { name: "stage_rec", query: { table: "t1" } as any, recursive: false },
-      { name: "other_stage", query: { table: "t2" } as any, recursive: false },
+      { name: "stage_rec", query: { table: "t1" }, recursive: false },
+      { name: "other_stage", query: { table: "t2" }, recursive: false },
     ];
 
     render(
@@ -191,8 +193,8 @@ describe("PipelineDagCanvas Component", () => {
 
   it("renders cycle alert warning banner when circular dependency exists", () => {
     const cyclicCtes: CteSpec[] = [
-      { name: "stage_a", query: { table: "stage_b" } as any },
-      { name: "stage_b", query: { table: "stage_a" } as any },
+      { name: "stage_a", query: { table: "stage_b" } },
+      { name: "stage_b", query: { table: "stage_a" } },
     ];
 
     const { rerender } = render(
@@ -222,7 +224,7 @@ describe("PipelineDagCanvas Component", () => {
 
   it("renders properly with unstyled=true and no joins", () => {
     const ctes: CteSpec[] = [
-      { name: "stage_no_joins", query: { table: "" } as any },
+      { name: "stage_no_joins", query: { table: "" } },
     ];
 
     render(
@@ -240,12 +242,12 @@ describe("PipelineDagCanvas Component", () => {
 
   it("renders with fallback theme colors when theme colors are omitted", () => {
     const ctes: CteSpec[] = [
-      { name: "s1", query: { table: "users" } as any },
+      { name: "s1", query: { table: "users" } },
     ];
     render(
       <ThemeContext.Provider
         value={{
-          theme: { colors: {} },
+          theme: invalid<QueryBuilderTheme>({ colors: {} }),
           mode: "dark",
           cssVariables: {},
           setTheme: vi.fn(),

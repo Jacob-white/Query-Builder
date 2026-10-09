@@ -18,8 +18,11 @@ import type {
   MetricDefinition,
   SemanticModel,
   TableMeta,
+  TimeGrain,
+  SchemaSnapshot,
   VisualColumnSelect,
 } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("Semantic Metrics & Modeling Layer Adapter", () => {
   describe("formatMetricFilterSql", () => {
@@ -173,7 +176,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         const sql = expandTimeGrainSql("dt", grain, "sqlite");
         expect(sql).toContain("STRFTIME(");
       }
-      expect(expandTimeGrainSql("dt", "custom_grain" as any, "sqlite")).toBe("STRFTIME('%Y-%m-%d', dt)");
+      expect(expandTimeGrainSql("dt", invalid<TimeGrain>("custom_grain"), "sqlite")).toBe("STRFTIME('%Y-%m-%d', dt)");
     });
 
     it("formats time grains for MySQL and MariaDB", () => {
@@ -181,7 +184,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         const sql = expandTimeGrainSql("dt", grain, "mysql");
         expect(sql).toContain("DATE_FORMAT(");
       }
-      expect(expandTimeGrainSql("dt", "custom_grain" as any, "mariadb")).toBe("DATE_FORMAT(dt, '%Y-%m-%d')");
+      expect(expandTimeGrainSql("dt", invalid<TimeGrain>("custom_grain"), "mariadb")).toBe("DATE_FORMAT(dt, '%Y-%m-%d')");
     });
 
     it("formats time grains for MSSQL / SQL Server", () => {
@@ -198,7 +201,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
       expect(expandTimeGrainSql("tx_time", "hour", "oracle")).toBe("TRUNC(tx_time, 'HH')");
       expect(expandTimeGrainSql("tx_time", "minute", "oracle")).toBe("TRUNC(tx_time, 'MI')");
       expect(expandTimeGrainSql("tx_time", "second", "oracle")).toBe("TRUNC(tx_time, 'SS')");
-      expect(expandTimeGrainSql("tx_time", "unknown" as any, "oracle")).toBe("TRUNC(tx_time, 'DD')");
+      expect(expandTimeGrainSql("tx_time", invalid<TimeGrain>("unknown"), "oracle")).toBe("TRUNC(tx_time, 'DD')");
     });
 
     it("falls back to DATE_TRUNC for unknown dialects", () => {
@@ -308,7 +311,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
   });
 
   describe("compileVisualState with Semantic Metrics & Time Grains", () => {
-    const schemaSnapshot = {
+    const schemaSnapshot: SchemaSnapshot = {
       tables: {
         orders: {
           name: "orders",
@@ -354,7 +357,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         [],
         false,
         50,
-        schemaSnapshot as any,
+        schemaSnapshot,
         "postgres"
       );
 
@@ -390,7 +393,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         [],
         false,
         50,
-        schemaSnapshot as any,
+        schemaSnapshot,
         "postgres"
       );
 
@@ -430,7 +433,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         [],
         false,
         50,
-        schemaSnapshot as any,
+        schemaSnapshot,
         "postgres"
       );
 
@@ -569,9 +572,9 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
         name: "test",
         title: "Test",
         sqlExpression: "",
-        aggregation: undefined as any,
+        aggregation: invalid<MetricDefinition["aggregation"]>(undefined),
       };
-      expect(expandMetricSql(minimalMetric, undefined as any)).toBe("SUM()");
+      expect(expandMetricSql(minimalMetric, undefined)).toBe("SUM()");
 
       // JSON parsing with fallback snake_case fields and missing dimensions/metrics
       const json = JSON.stringify({
@@ -592,7 +595,7 @@ describe("Semantic Metrics & Modeling Layer Adapter", () => {
       });
       const parsed = parseSemanticModelsJson(json);
       expect(parsed[0].metrics?.[0].filters?.[0].field).toBe("col1");
-      expect(formatMetricFilterSql({ field: "x", operator: undefined as any, value: 5 })).toBe("x = 5");
+      expect(formatMetricFilterSql({ field: "x", operator: invalid<string>(undefined), value: 5 })).toBe("x = 5");
       expect(formatMetricFilterSql({ field: "x", operator: "not_in", value: "a, b" })).toBe("x NOT IN (a, b)");
       expect(formatMetricFilterSql({ field: "x", operator: "not in", value: "a, b" })).toBe("x NOT IN (a, b)");
       expect(formatMetricFilterSql({ field: "x", operator: "not in", value: ["a", "b"] })).toBe("x NOT IN ('a', 'b')");

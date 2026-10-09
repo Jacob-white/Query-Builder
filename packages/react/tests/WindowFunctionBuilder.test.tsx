@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { WindowFunctionBuilder } from "../src/components/WindowFunctionBuilder";
 import { ThemeContext } from "../src/theme/ThemeProvider";
+import type { QueryBuilderTheme } from "../src/theme/tokens";
+import { invalid } from "./helpers";
 import type { WindowFunctionSpec } from "../src/types";
 
 describe("WindowFunctionBuilder Component", () => {
@@ -282,7 +284,7 @@ describe("WindowFunctionBuilder Component", () => {
     render(
       <ThemeContext.Provider
         value={{
-          theme: { colors: {} },
+          theme: invalid<QueryBuilderTheme>({ colors: {} }),
           mode: "dark",
           cssVariables: {},
           setTheme: vi.fn(),

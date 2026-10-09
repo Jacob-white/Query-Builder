@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, fireEvent, act } from "@testing-library/react";
+import { invalid } from "./helpers";
 import {
   VisualQueryBuilder,
   QueryCanvas,
@@ -441,7 +442,7 @@ describe("Zero-CSS Unstyled Mode & Semantic Data Attributes", () => {
       <VisualQueryBuilder
         schema={sampleSchema}
         initialTable="users"
-        presets={[{ id: "p1", title: "Preset 1", sql: "SELECT 1;" }]}
+        presets={[{ id: "p1", title: "Preset 1", description: "First preset", sql: "SELECT 1;" }]}
         onExecuteQuery={onExecuteQuery}
         unstyled={true}
       />,
@@ -480,7 +481,7 @@ describe("Zero-CSS Unstyled Mode & Semantic Data Attributes", () => {
   it("renders TableFiltersEditor with undefined filter value", () => {
     const { container } = render(
       <TableFiltersEditor
-        filters={[{ id: "f1", tablePrefix: "users", column: "id", operator: ">", value: undefined as any }]}
+        filters={[{ id: "f1", tablePrefix: "users", column: "id", operator: ">", value: invalid<string>(undefined) }]}
         activeTables={[sampleSchema.tables.users]}
         onChange={() => {}}
         unstyled={true}
