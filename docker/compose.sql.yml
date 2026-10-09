@@ -1,0 +1,52 @@
+# "Other relational / analytical SQL" family for the opt-in live suite
+# (tests/integration/engines_sql.py).  Compose profile: `sql`.  Project: qb-integration.
+#
+#   python scripts/it_batch.py --label oracle --engines oracle \
+#       --compose docker/compose.sql.yml --profile sql --services oracle
+#
+# Host ports are 127.0.0.1-only in the family's reserved range 41000-41999 (override with
+# QB_IT_PORT_<ENGINE>).  Volumes are named and removed by `down -v`.  Heavy engines (Oracle,
+# DB2, Informix, Vertica, Exasol) must be started ONE per batch.
+name: qb-integration
+
+services:
+  monetdb:
+    image: monetdb/monetdb:Dec2025-SP3
+    profiles: ["sql"]
+    environment:
+      MDB_DB_ADMIN_PASS: qb_it_password
+      MDB_CREATE_DBS: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_MONETDB:-41050}:50000"]
+    volumes: ["qb_it_monetdb:/var/monetdb5/dbfarm"]
+
+  firebird:
+    image: firebirdsql/firebird:5.0.4
+    profiles: ["sql"]
+    environment:
+      FIREBIRD_ROOT_PASSWORD: qb_it_root_password
+      FIREBIRD_USER: qb
+      FIREBIRD_PASSWORD: qb_it_password
+      FIREBIRD_DATABASE: qb_it.fdb
+      FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8
+    ports: ["127.0.0.1:${QB_IT_PORT_FIREBIRD:-41051}:3050"]
+    volumes: ["qb_it_firebird:/var/lib/firebird/data"]
+
+  oracle:
+    image: gvenzl/oracle-free:23.26.3-slim-faststart
+    profiles: ["sql"]
+    # faststart: the database is pre-built inside the image (no volume, so nothing to purge)
+    environment:
+      ORACLE_PASSWORD: qb_it_sys_password
+      APP_USER: qb
+      APP_USER_PASSWORD: qb_it_password
+    ports: ["127.0.0.1:${QB_IT_PORT_ORACLE:-41052}:1521"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+
+volumes:
+  qb_it_monetdb:
+  qb_it_firebird:

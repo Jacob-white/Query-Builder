@@ -1828,7 +1828,10 @@ class MonetDBDialect(BaseDialect):
     """MonetDB columnar analytical database dialect using double-quote escaping and LIMIT/OFFSET."""
 
     name: str = "monetdb"
-    placeholder: str = "?"
+    placeholder: str = "%s"  # pymonetdb paramstyle is pyformat
+    # MonetDB rejects a backslash ESCAPE; "!" works
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
@@ -1844,11 +1847,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;",
+                f"SELECT t.name, c.name, c.type, c.\"null\" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;",
+            f"SELECT t.name, c.name, c.type, c.\"null\" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;",
             [schema_name],
         )
 
@@ -1857,11 +1860,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
+                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
+            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
             [schema_name],
         )
 
@@ -1870,11 +1873,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder} AND t.name = {self.placeholder};",
+                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE k.type = 2 AND s.name = {self.placeholder} AND t.name = {self.placeholder};",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
+            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
             [schema_name],
         )
 

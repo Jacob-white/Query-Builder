@@ -3015,7 +3015,7 @@ def introspect_monetdb(
                 SELECT t.name
                 FROM sys.tables t
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name;
                 """,
                 [schema_name],
@@ -3025,11 +3025,11 @@ def introspect_monetdb(
 
             cur.execute(
                 """
-                SELECT t.name, c.name, c.type, c.null
+                SELECT t.name, c.name, c.type, c."null"
                 FROM sys.columns c
                 JOIN sys.tables t ON c.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE s.name = ? AND t.system = FALSE
+                WHERE s.name = %s AND t.system = FALSE
                 ORDER BY t.name, c.number;
                 """,
                 [schema_name],
@@ -3040,7 +3040,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                WHERE table_schema = %s AND table_type = 'BASE TABLE'
                 ORDER BY table_name;
                 """,
                 [schema_name],
@@ -3052,7 +3052,7 @@ def introspect_monetdb(
                 """
                 SELECT table_name, column_name, data_type, is_nullable
                 FROM information_schema.columns
-                WHERE table_schema = ?
+                WHERE table_schema = %s
                 ORDER BY table_name, ordinal_position;
                 """,
                 [schema_name],
@@ -3065,17 +3065,17 @@ def introspect_monetdb(
                 """
                 SELECT t.name, kc.name
                 FROM sys.keys k
-                JOIN sys.keycolumns kc ON k.id = kc.id
+                JOIN sys.objects kc ON k.id = kc.id
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                WHERE k.type = 0 AND s.name = ?;
+                WHERE k.type = 0 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for pkr in cur.fetchall() or []:
                 if pkr and len(pkr) >= 2:
-                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
-                        str(pkr[1]).lower()
+                    pk_cols_map.setdefault(str(pkr[0]), set()).add(
+                        str(pkr[1])
                     )
 
         foreign_keys: list[dict[str, Any]] = []
@@ -3084,25 +3084,24 @@ def introspect_monetdb(
             cur.execute(
                 """
                 SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column
-                FROM sys.fkeys fk
-                JOIN sys.keys k ON fk.id = k.id
+                FROM sys.keys k
                 JOIN sys.tables t ON k.table_id = t.id
                 JOIN sys.schemas s ON t.schema_id = s.id
-                JOIN sys.keycolumns kc ON k.id = kc.id
-                JOIN sys.keys rk ON fk.rkey = rk.id
+                JOIN sys.objects kc ON k.id = kc.id
+                JOIN sys.keys rk ON k.rkey = rk.id
                 JOIN sys.tables rt ON rk.table_id = rt.id
-                JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
-                WHERE s.name = ?;
+                JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr
+                WHERE k.type = 2 AND s.name = %s;
                 """,
                 [schema_name],
             )
             for fkr in cur.fetchall() or []:
                 if fkr and len(fkr) >= 4:
                     src_tbl, src_col, tgt_tbl, tgt_col = (
-                        str(fkr[0]).lower(),
-                        str(fkr[1]).lower(),
-                        str(fkr[2]).lower(),
-                        str(fkr[3]).lower(),
+                        str(fkr[0]),
+                        str(fkr[1]),
+                        str(fkr[2]),
+                        str(fkr[3]),
                     )
                     foreign_keys.append(
                         {
@@ -3129,12 +3128,10 @@ def introspect_monetdb(
             c_name = str(r[1])
             d_type = str(r[2])
             is_null = str(r[3]).upper() in ("TRUE", "YES", "Y", "1")
-            is_pk = c_name.lower() in pk_cols_map.get(t_name.lower(), set()) or (
-                c_name.lower() == "id"
-            )
-            table_cols_map.setdefault(t_name.lower(), []).append(
+            is_pk = c_name in pk_cols_map.get(t_name, set())
+            table_cols_map.setdefault(t_name, []).append(
                 {
-                    "name": c_name.lower(),
+                    "name": c_name,
                     "data_type": d_type.lower(),
                     "is_nullable": is_null,
                     "is_primary": is_pk,
@@ -3144,8 +3141,8 @@ def introspect_monetdb(
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            clean_tbl = tbl.lower()
-            cols = table_cols_map.get(clean_tbl, [])
+            clean_tbl = tbl
+            cols = table_cols_map.get(tbl, [])
             has_user = any(c["name"] == "user_id" for c in cols)
             tables[clean_tbl] = {
                 "name": clean_tbl,
