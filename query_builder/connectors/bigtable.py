@@ -3,14 +3,35 @@ Google Cloud Bigtable Wide-Column NoSQL Database Connector.
 ===========================================================
 Provides Google Cloud Bigtable connectivity via google-cloud-bigtable,
 dual sync and async execution protocols, and table/column-family introspection.
+
+Bigtable's data API has no query language, so the connector runs a documented SQL SUBSET
+(:mod:`query_builder.connectors._sql_subset`) over ``read_rows``:
+
+* the table is the ``FROM`` name; the columns are ``row_key`` and one column per
+  ``"family.qualifier"`` (quote it as a single identifier), valued with the LATEST cell
+  decoded as UTF-8 text (non-text bytes come back as ``0x...`` hex);
+* ``row_key`` predicates (``=``, ranges, ``LIKE 'prefix%'``) are pushed down to the server as a
+  key range; every predicate (including those on cells) is then re-applied client side, and
+  ``ORDER BY``/``OFFSET`` are applied client side, so results are exact but a predicate on a
+  cell column scans the key range;
+* anything else raises ``UnsupportedQuery`` instead of being approximated.
+
+The async class runs the same synchronous client in a worker thread (the Bigtable admin
+API used for table listing exists only in the synchronous client).
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
 
+from query_builder.connectors._sql_subset import (
+    Predicate,
+    SubsetPlan,
+    parse_select_subset,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -20,6 +41,139 @@ from query_builder.connectors.base import (
 )
 from query_builder.connectors.introspection import introspect_bigtable
 from query_builder.connectors.registry import register_connector
+
+ROW_KEY = "row_key"
+
+
+def cell_text(value: Any) -> Any:
+    """Cell bytes as text; bytes that are not UTF-8 are returned as ``0x...`` hex."""
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return bytes(value).decode("utf-8")
+        except UnicodeDecodeError:
+            return "0x" + bytes(value).hex()
+    return value
+
+
+def _row_record(row: Any) -> dict[str, Any]:
+    key = row.row_key
+    record: dict[str, Any] = {ROW_KEY: cell_text(key)}
+    for family, qualifiers in (getattr(row, "cells", None) or {}).items():
+        for qualifier, cells in qualifiers.items():
+            if cells:
+                name = f"{family}.{cell_text(qualifier)}"
+                record[name] = cell_text(cells[0].value)  # latest version first
+    return record
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _compare(left: Any, op: str, right: Any) -> bool:
+    ln, rn = _number(left), _number(right)
+    a, b = (ln, rn) if ln is not None and rn is not None else (str(left), str(right))
+    return {
+        "=": a == b,
+        "!=": a != b,
+        "<": a < b,  # type: ignore[operator]
+        "<=": a <= b,  # type: ignore[operator]
+        ">": a > b,  # type: ignore[operator]
+        ">=": a >= b,  # type: ignore[operator]
+    }[op]
+
+
+def _matches(record: dict[str, Any], pred: Predicate) -> bool:
+    value = record.get(pred.column)
+    if pred.op == "is-null":
+        return value is None
+    if pred.op == "is-not-null":
+        return value is not None
+    if value is None:
+        return False
+    if pred.op == "prefix":
+        return str(value).startswith(str(pred.value))
+    if pred.op == "in":
+        return any(_compare(value, "=", v) for v in pred.value)
+    if pred.op == "not-in":
+        return not any(_compare(value, "=", v) for v in pred.value)
+    return _compare(value, pred.op, pred.value)
+
+
+def _sort_key(value: Any) -> tuple[int, Any]:
+    if value is None:
+        return (2, 0)
+    number = _number(value)
+    return (0, number) if number is not None else (1, str(value))
+
+
+def _key_range(plan: SubsetPlan) -> dict[str, Any]:
+    """Server-side ``read_rows`` key range from the ``row_key`` predicates."""
+    kwargs: dict[str, Any] = {}
+    for pred in plan.predicates:
+        if pred.column != ROW_KEY or pred.op in ("in", "not-in", "is-null", "!="):
+            continue
+        val = str(pred.value).encode()
+        if pred.op == "=":
+            kwargs.update(start_key=val, end_key=val, end_inclusive=True)
+        elif pred.op == ">=" and "start_key" not in kwargs:
+            kwargs["start_key"] = val
+        elif pred.op == ">" and "start_key" not in kwargs:
+            kwargs["start_key"] = val + b"\x00"
+        elif pred.op == "<" and "end_key" not in kwargs:
+            kwargs.update(end_key=val, end_inclusive=False)
+        elif pred.op == "<=" and "end_key" not in kwargs:
+            kwargs.update(end_key=val, end_inclusive=True)
+        elif pred.op == "prefix" and "start_key" not in kwargs:
+            kwargs["start_key"] = val
+            if val:
+                kwargs.update(
+                    end_key=val[:-1] + bytes([val[-1] + 1]) if val[-1] < 255 else None,
+                    end_inclusive=False,
+                )
+    return kwargs
+
+
+def read_records(instance: Any, plan: SubsetPlan) -> list[dict[str, Any]]:
+    """Rows of ``plan`` as ``{column: value}`` records (exact, see module docstring)."""
+    from google.cloud.bigtable import row_filters
+
+    kwargs = _key_range(plan)
+    pushdown_limit = (
+        plan.limit + plan.offset
+        if plan.limit is not None and not plan.order_by and len(plan.predicates) == 0
+        else None
+    )
+    if pushdown_limit is not None:
+        kwargs["limit"] = pushdown_limit
+    table = instance.table(plan.table)
+    rows = table.read_rows(filter_=row_filters.CellsColumnLimitFilter(1), **kwargs)
+    records = [_row_record(r) for r in rows]
+    records = [r for r in records if all(_matches(r, p) for p in plan.predicates)]
+    for col, desc in reversed(plan.order_by):
+        records.sort(key=lambda r, c=col: _sort_key(r.get(c)), reverse=desc)
+    end = None if plan.limit is None else plan.offset + plan.limit
+    return records[plan.offset : end]
+
+
+def shape_records(
+    plan: SubsetPlan, records: list[dict[str, Any]]
+) -> tuple[list[tuple[str]], list[list[Any]]]:
+    if plan.count_star:
+        return [(plan.count_alias,)], [[len(records)]]
+    if plan.columns is None:
+        names = list(dict.fromkeys(k for r in records for k in r)) or [ROW_KEY]
+        out_names = names
+    else:
+        names, out_names = plan.columns, plan.out_names
+    return [(n,) for n in out_names], [[r.get(n) for n in names] for r in records]
 
 
 class _BigtableCursorAdapter:
@@ -44,36 +198,17 @@ class _BigtableCursorAdapter:
             finally:
                 if hasattr(cur, "close"):
                     cur.close()
+        elif clean_sql.upper() == "SELECT 1":
+            self.description, self._rows = [("val",)], [[1]]
         elif clean_sql == "list_tables" and hasattr(self.conn, "list_tables"):
             tbls = self.conn.list_tables()
             self.description = [("table_id",)]
             self._rows = [[getattr(t, "table_id", str(t))] for t in tbls]
         elif hasattr(self.conn, "table"):
-            import re
-
-            m = re.search(
-                r"\b(?:FROM|INTO|UPDATE|TABLE)\s+[`\"\[]?([a-zA-Z0-9_.-]+)[`\"\]]?",
-                clean_sql,
-                re.IGNORECASE,
+            plan = parse_select_subset(clean_sql, params)
+            self.description, self._rows = shape_records(
+                plan, read_records(self.conn, plan)
             )
-            tbl_name = m.group(1) if m else "metrics"
-            try:
-                table_obj = self.conn.table(tbl_name)
-                rows = (
-                    list(table_obj.read_rows(limit=10))
-                    if hasattr(table_obj, "read_rows")
-                    else []
-                )
-                self.description = [("row_key",), ("user_id",), ("data",)]
-                parsed_rows = []
-                for r in rows:
-                    key = getattr(r, "row_key", str(r))
-                    key_str = key.decode() if isinstance(key, bytes) else str(key)
-                    parsed_rows.append([key_str, None, str(getattr(r, "cells", {}))])
-                self._rows = parsed_rows
-            except Exception:  # noqa: BLE001
-                self.description = [("row_key",), ("data",)]
-                self._rows = []
         elif hasattr(self.conn, "execute_query"):
             res = (
                 self.conn.execute_query(clean_sql, params)
@@ -123,6 +258,33 @@ class _BigtableCursorAdapter:
         self._rows = []
 
 
+def _import_driver() -> Any:
+    for mod_name in ("google.cloud.bigtable", "google.cloud.bigtable_v2"):
+        try:
+            return __import__(mod_name, fromlist=["Client"])
+        except ImportError:
+            continue
+    raise DriverNotInstalledError(
+        "'google-cloud-bigtable' is not installed. "
+        "Install with: pip install 'query-builder-engine[bigtable]'"
+    )
+
+
+def _open(
+    driver: Any,
+    project_id: str | None,
+    instance_id: str | None,
+    app_profile_id: str | None,
+    admin: bool,
+    config: dict[str, Any],
+) -> Any:
+    client_cls = getattr(driver, "Client", driver)
+    client = client_cls(project=project_id, admin=admin, **config)
+    if instance_id and hasattr(client, "instance"):
+        return client.instance(instance_id, app_profile_id=app_profile_id)
+    return client
+
+
 @register_connector("bigtable", aliases=["google_bigtable", "gcp_bigtable"])
 class BigtableConnector(BaseConnector):
     """Connector for Google Cloud Bigtable wide-column database."""
@@ -149,31 +311,16 @@ class BigtableConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
-        for mod_name in ("google.cloud.bigtable", "google.cloud.bigtable_v2"):
-            try:
-                driver = __import__(mod_name, fromlist=["Client"])
-                break
-            except ImportError:
-                continue
-
-        if driver is None:
-            raise DriverNotInstalledError(
-                "'google-cloud-bigtable' is not installed. "
-                "Install with: pip install 'query-builder-engine[bigtable]'"
-            )
-
+        driver = _import_driver()
         try:
-            client_cls = getattr(driver, "Client", driver)
-            client = client_cls(
-                project=self.project_id, admin=self.admin, **self.config
+            self._connection = _open(
+                driver,
+                self.project_id,
+                self.instance_id,
+                self.app_profile_id,
+                self.admin,
+                self.config,
             )
-            if self.instance_id and hasattr(client, "instance"):
-                self._connection = client.instance(
-                    self.instance_id, app_profile_id=self.app_profile_id
-                )
-            else:
-                self._connection = client
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -228,7 +375,7 @@ class BigtableConnector(BaseConnector):
     "async_bigtable", aliases=["async_google_bigtable", "async_gcp_bigtable"]
 )
 class AsyncBigtableConnector(AsyncBaseConnector):
-    """Asynchronous connector for Google Cloud Bigtable."""
+    """Asynchronous connector for Google Cloud Bigtable (sync client in a worker thread)."""
 
     dialect_name = "bigtable"
 
@@ -251,75 +398,60 @@ class AsyncBigtableConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
-        for mod_name in (
-            "google.cloud.bigtable.data",
-            "google.cloud.bigtable",
-            "google.cloud.bigtable_v2",
-        ):
-            try:
-                driver = __import__(
-                    mod_name, fromlist=["BigtableDataClientAsync", "Client"]
-                )
-                break
-            except ImportError:
-                continue
-
-        if driver is None:
-            raise DriverNotInstalledError(
-                "'google-cloud-bigtable' is not installed. "
-                "Install with: pip install 'query-builder-engine[bigtable]'"
-            )
-
+        driver = _import_driver()
         try:
-            client_cls = getattr(
-                driver, "BigtableDataClientAsync", getattr(driver, "Client", driver)
+            self._connection = await asyncio.to_thread(
+                _open,
+                driver,
+                self.project_id,
+                self.instance_id,
+                self.app_profile_id,
+                self.admin,
+                self.config,
             )
-            client = client_cls(project=self.project_id, **self.config)
-            if self.instance_id and hasattr(client, "instance"):
-                self._connection = client.instance(
-                    self.instance_id, app_profile_id=self.app_profile_id
-                )
-            else:
-                self._connection = client
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
                 f"Failed to connect asynchronously to Google Cloud Bigtable: {exc}"
             ) from exc
 
+    @staticmethod
+    def _run_blocking(
+        conn: Any, sql: str, params: list[Any] | None
+    ) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
+        if hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            try:
+                if params:
+                    cur.execute(sql, params)
+                else:
+                    cur.execute(sql)
+                return list(cur.description or []), list(cur.fetchall() or [])
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+        adapter = _BigtableCursorAdapter(conn)
+        try:
+            adapter.execute(sql, params)
+            return list(adapter.description or []), adapter.fetchall() or []
+        finally:
+            adapter.close()
+
     async def execute_raw(
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
-        if hasattr(conn, "cursor"):
-            cur = conn.cursor()
-        else:
-            cur = _BigtableCursorAdapter(conn)
-
-        try:
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            desc = cur.description or []
-            col_names = [col[0] for col in desc]
-            rows = cur.fetchall() or []
-            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+        desc, rows = await asyncio.to_thread(self._run_blocking, conn, sql, params)
+        col_names = [col[0] for col in desc]
+        dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
+        return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "list_tables"):
-            res = conn.list_tables()
-            if hasattr(res, "__await__"):
-                await res
+            await asyncio.to_thread(lambda: list(conn.list_tables()))
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
@@ -330,13 +462,23 @@ class AsyncBigtableConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _BigtableCursorAdapter(conn)
+
+        def _blocking() -> dict[str, Any]:
+            cur = (
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _BigtableCursorAdapter(conn)
+            )
+            try:
+                return introspect_bigtable(cur, filter_sensitive=filter_sensitive)
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+
         try:
-            return introspect_bigtable(cur, filter_sensitive=filter_sensitive)
+            return await asyncio.to_thread(_blocking)
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect Bigtable schema: {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+

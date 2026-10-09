@@ -45,7 +45,11 @@ def _statement_records(res: Any) -> list[Any]:
     """
     if isinstance(res, list) and res:
         first = res[0]
-        if isinstance(first, dict) and "result" in first and "status" in first:
+        if (
+            isinstance(first, dict)
+            and "result" in first
+            and set(first) <= {"result", "status", "time"}
+        ):
             items = first["result"]
             return (
                 items if isinstance(items, list) else ([] if items is None else [items])

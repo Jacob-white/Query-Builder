@@ -13,12 +13,14 @@ Native seeders use the vendor drivers, never the connector under test.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from tests.integration import smoke
 from tests.integration.engines import Engine, register
 
 PEOPLE = smoke.PEOPLE
+SPEC_PEOPLE = smoke.SPEC_PEOPLE
 BY_AGE = smoke.BY_AGE
 
 
@@ -407,4 +409,399 @@ smoke.SMOKE["dynamodb"] = smoke.Smoke(
     ],
     check=_count_check(_dynamo_count),
     cleanup=_dynamo_cleanup,
+)
+
+
+# =====================================================================  Firestore (emulator)
+def _firestore_client(e: Engine) -> Any:
+    from google.cloud import firestore
+
+    # the client library switches to the emulator (insecure channel, no credentials) on this
+    os.environ["FIRESTORE_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    return firestore.Client(project="qb-it")
+
+
+def _seed_firestore(e: Engine) -> None:
+    client = _firestore_client(e)
+    coll = client.collection("qbit_people")
+    for doc in coll.stream():
+        doc.reference.delete()
+    for pid, name, age in PEOPLE:
+        coll.document(str(pid)).set({"id": pid, "name": name, "age": age})
+
+
+def _firestore_count(e: Engine) -> int:
+    return len(list(_firestore_client(e).collection("qbit_people").stream()))
+
+
+def _firestore_cleanup(e: Engine) -> None:
+    for doc in _firestore_client(e).collection("qbit_people").stream():
+        doc.reference.delete()
+
+
+def _kw_firestore(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    os.environ["FIRESTORE_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    return {"project": "qb-it"}
+
+
+register(
+    Engine(
+        name="firestore",
+        connector="firestore",
+        async_connector="async_firestore",
+        tier="extended",
+        family="",
+        drivers=("google.cloud.firestore",),
+        pip="google-cloud-firestore",
+        port=43080,
+        password="",
+        connector_factory=_kw_firestore,
+        service="firestore",
+        container_port=8080,
+        emulated=True,  # Firebase/gcloud Firestore emulator, not the Google service
+    )
+)
+smoke.SMOKE["firestore"] = smoke.Smoke(
+    seed=_seed_firestore,
+    table="qbit_people",
+    columns={"id", "name", "age"},
+    read="SELECT name, age FROM qbit_people ORDER BY age",
+    expected=BY_AGE,
+    writes=[
+        "DELETE FROM qbit_people",
+        "UPDATE qbit_people SET age = 0",
+        "INSERT INTO qbit_people (id, name, age) VALUES (9, 'x', 1)",
+        "DROP TABLE qbit_people",
+    ],
+    spec=SPEC_PEOPLE,
+    check=_count_check(_firestore_count),
+    cleanup=_firestore_cleanup,
+)
+
+
+# =====================================================================  Bigtable (emulator)
+BT_PROJECT, BT_INSTANCE = "qb-it", "qb-it-instance"
+
+
+def _bigtable_instance(e: Engine) -> Any:
+    from google.cloud import bigtable
+
+    os.environ["BIGTABLE_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    return bigtable.Client(project=BT_PROJECT, admin=True).instance(BT_INSTANCE)
+
+
+def _seed_bigtable(e: Engine) -> None:
+    from google.cloud.bigtable import column_family
+
+    instance = _bigtable_instance(e)
+    table = instance.table("qbit_people")
+    if table.exists():
+        table.delete()
+    table.create(column_families={"cf": column_family.MaxVersionsGCRule(1)})
+    for pid, name, age in PEOPLE:
+        row = table.direct_row(str(pid).encode())
+        row.set_cell("cf", b"name", name.encode())
+        row.set_cell("cf", b"age", str(age).encode())  # Bigtable stores bytes
+        row.commit()
+
+
+def _bigtable_count(e: Engine) -> int:
+    return len(list(_bigtable_instance(e).table("qbit_people").read_rows()))
+
+
+def _bigtable_cleanup(e: Engine) -> None:
+    table = _bigtable_instance(e).table("qbit_people")
+    if table.exists():
+        table.delete()
+
+
+def _kw_bigtable(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    os.environ["BIGTABLE_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    return {"project_id": BT_PROJECT, "instance_id": BT_INSTANCE, "admin": True}
+
+
+register(
+    Engine(
+        name="bigtable",
+        connector="bigtable",
+        async_connector="async_bigtable",
+        tier="extended",
+        family="",
+        drivers=("google.cloud.bigtable",),
+        pip="google-cloud-bigtable",
+        port=43086,
+        password="",
+        connector_factory=_kw_bigtable,
+        service="bigtable",
+        container_port=8086,
+        emulated=True,  # `gcloud beta emulators bigtable`, not the Google service
+    )
+)
+smoke.SMOKE["bigtable"] = smoke.Smoke(
+    seed=_seed_bigtable,
+    table="qbit_people",
+    columns={"row_key", "cf.name", "cf.age"},
+    read='SELECT "cf.name" AS name, "cf.age" AS age FROM qbit_people ORDER BY "cf.age"',
+    expected=[{"name": r["name"], "age": str(r["age"])} for r in BY_AGE],  # bytes -> text
+    writes=[
+        "DELETE FROM qbit_people WHERE row_key = '1'",
+        "UPDATE qbit_people SET \"cf.age\" = 0",
+        "INSERT INTO qbit_people (row_key) VALUES ('9')",
+        "DROP TABLE qbit_people",
+    ],
+    spec={
+        "table": "qbit_people",
+        "columns": [
+            {"column": "cf.name", "alias": "name"},
+            {"column": "cf.age", "alias": "age"},
+        ],
+        "order_by": [{"column": "cf.age", "direction": "asc"}],
+        "limit": 10,
+    },
+    spec_expected=[{"name": r["name"], "age": str(r["age"])} for r in BY_AGE],
+    check=_count_check(_bigtable_count),
+    cleanup=_bigtable_cleanup,
+)
+
+
+# =====================================================================  Couchbase
+def _cb_http(
+    e: Engine, port: int, path: str, data: dict[str, Any] | None = None, auth: bool = True
+) -> Any:
+    """Minimal REST client (urllib) for the cluster-init / bucket / query endpoints."""
+    import base64
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    body = urllib.parse.urlencode(data).encode() if data is not None else None
+    req = urllib.request.Request(f"http://{e.host}:{port}{path}", data=body)
+    if auth:
+        token = base64.b64encode(f"{e.user_}:{e.password_}".encode()).decode()
+        req.add_header("Authorization", f"Basic {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - fixed http target
+            raw = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode()
+        raise RuntimeError(f"{path}: HTTP {exc.code}: {raw[:300]}") from exc
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+def _cb_n1ql(e: Engine, statement: str) -> Any:
+    out = _cb_http(e, 8093, "/query/service", {"statement": statement})
+    if isinstance(out, dict) and out.get("status") != "success":
+        raise RuntimeError(f"N1QL failed: {statement[:80]}: {out.get('errors')}")
+    return out
+
+
+def _cb_retry(fn: Any, what: str, tries: int = 60, delay: float = 2.0) -> Any:
+    import time
+
+    last: Exception | None = None
+    for _ in range(tries):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - service still starting
+            last = exc
+            time.sleep(delay)
+    raise RuntimeError(f"couchbase: {what} did not succeed: {last}")
+
+
+def _seed_couchbase(e: Engine) -> None:
+    import time
+
+    bucket = e.database_
+    _cb_retry(lambda: _cb_http(e, 8091, "/pools", auth=False), "REST API")
+    # cluster init (idempotent: errors once initialised are tolerated)
+    for path, data in (
+        ("/pools/default", {"memoryQuota": 256, "indexMemoryQuota": 256}),
+        ("/node/controller/setupServices", {"services": "kv,n1ql,index"}),
+        ("/settings/web", {"port": 8091, "username": e.user_, "password": e.password_}),
+    ):
+        try:
+            _cb_http(e, 8091, path, data, auth=False)  # fresh node: no credentials yet
+        except RuntimeError:
+            pass
+    with_index = {"storageMode": "plasma"}
+    try:
+        _cb_http(e, 8091, "/settings/indexes", with_index)
+    except RuntimeError:
+        _cb_http(e, 8091, "/settings/indexes", {"storageMode": "forestdb"})
+    buckets = _cb_http(e, 8091, "/pools/default/buckets")
+    if not any(b.get("name") == bucket for b in buckets):
+        _cb_http(
+            e,
+            8091,
+            "/pools/default/buckets",
+            {"name": bucket, "ramQuota": 128, "bucketType": "couchbase", "flushEnabled": 1},
+        )
+
+    def healthy() -> None:
+        info = _cb_http(e, 8091, f"/pools/default/buckets/{bucket}")
+        if not all(n.get("status") == "healthy" for n in info["nodes"]):
+            raise RuntimeError("bucket not healthy")
+
+    _cb_retry(healthy, "bucket health")
+    try:
+        _cb_http(
+            e, 8091, f"/pools/default/buckets/{bucket}/scopes/_default/collections",
+            {"name": "qbit_people"},
+        )  # fmt: skip
+    except RuntimeError as exc:
+        if "already exists" not in str(exc):
+            raise
+    ks = f"default:`{bucket}`.`_default`.`qbit_people`"
+    _cb_retry(lambda: _cb_n1ql(e, f"CREATE PRIMARY INDEX IF NOT EXISTS ON {ks}"), "primary index")
+    time.sleep(1)
+    _cb_retry(lambda: _cb_n1ql(e, f"DELETE FROM {ks}"), "cleanup")
+    for pid, name, age in PEOPLE:
+        _cb_retry(
+            lambda pid=pid, name=name, age=age: _cb_n1ql(
+                e,
+                f"UPSERT INTO {ks} (KEY, VALUE) VALUES ('p{pid}', "
+                f'{{"id": {pid}, "name": "{name}", "age": {age}}})',
+            ),
+            "insert",
+            tries=15,
+        )
+
+
+def _couchbase_count(e: Engine) -> int:
+    ks = f"default:`{e.database_}`.`_default`.`qbit_people`"
+    out = _cb_n1ql(e, f"SELECT COUNT(*) AS c FROM {ks}")
+    return int(out["results"][0]["c"])
+
+
+def _kw_couchbase(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "connstr": f"couchbase://{e.host}",
+        "username": e.user_,
+        "password": o.get("password") or e.password_,
+        "bucket_name": e.database_,
+        "scope_name": "_default",
+    }
+
+
+register(
+    Engine(
+        name="couchbase",
+        connector="couchbase",
+        tier="extended",
+        family="",
+        drivers=("couchbase",),
+        pip="couchbase",
+        port=43091,
+        user="Administrator",
+        database="qb_it",
+        connector_factory=_kw_couchbase,
+        service="couchbase",
+        container_port=8091,
+    )
+)
+smoke.SMOKE["couchbase"] = smoke.Smoke(
+    seed=_seed_couchbase,
+    table="qbit_people",
+    columns={"id", "name", "age"},
+    read="SELECT name, age FROM qbit_people ORDER BY age",
+    expected=BY_AGE,
+    writes=[
+        "DELETE FROM qbit_people",
+        "UPDATE qbit_people SET age = 0",
+        "INSERT INTO qbit_people (KEY, VALUE) VALUES ('p9', {'name': 'x'})",
+        "UPSERT INTO qbit_people (KEY, VALUE) VALUES ('p9', {'name': 'x'})",
+        "MERGE INTO qbit_people t USING [{'k': 'p1'}] s ON KEY s.k WHEN MATCHED THEN DELETE",
+        "DROP COLLECTION qbit_people",
+    ],
+    check=_count_check(_couchbase_count),
+)
+
+
+# =====================================================================  Spanner (emulator)
+# Spanner is real SQL (GoogleSQL) and the connector compiles QuerySpecs, so the smoke battery
+# exercises both the native read and the compiled spec. DDL goes through the admin API, DML
+# through a transaction (the emulator has no other entry point).
+SP_PROJECT, SP_INSTANCE, SP_DATABASE = "qb-it", "qb-it-instance", "qb_it"
+
+
+def _spanner_database(e: Engine) -> Any:
+    from google.cloud import spanner
+
+    os.environ["SPANNER_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    client = spanner.Client(project=SP_PROJECT)
+    instance = client.instance(
+        SP_INSTANCE,
+        configuration_name=f"projects/{SP_PROJECT}/instanceConfigs/emulator-config",
+        display_name="qbit",
+        node_count=1,
+    )
+    if not instance.exists():
+        instance.create().result(120)
+    database = instance.database(SP_DATABASE)
+    if not database.exists():
+        database.create().result(120)
+    return database
+
+
+def _seed_spanner(e: Engine) -> None:
+    database = _spanner_database(e)
+    database.update_ddl(["DROP TABLE IF EXISTS qbit_people"]).result(120)
+    database.update_ddl(
+        [
+            "CREATE TABLE qbit_people (id INT64 NOT NULL, name STRING(100), age INT64) "
+            "PRIMARY KEY (id)"
+        ]
+    ).result(120)
+    with database.batch() as batch:
+        batch.insert(
+            table="qbit_people",
+            columns=("id", "name", "age"),
+            values=[(i, n, a) for i, n, a in PEOPLE],
+        )
+
+
+def _spanner_count(e: Engine) -> int:
+    with _spanner_database(e).snapshot() as snap:
+        return int(list(snap.execute_sql("SELECT COUNT(*) FROM qbit_people"))[0][0])
+
+
+def _spanner_cleanup(e: Engine) -> None:
+    _spanner_database(e).update_ddl(["DROP TABLE IF EXISTS qbit_people"]).result(120)
+
+
+def _kw_spanner(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    os.environ["SPANNER_EMULATOR_HOST"] = f"{e.host}:{e.port_}"
+    return {"instance_id": SP_INSTANCE, "database_id": SP_DATABASE, "project": SP_PROJECT}
+
+
+register(
+    Engine(
+        name="spanner",
+        connector="spanner",
+        tier="extended",
+        family="",
+        drivers=("google.cloud.spanner_dbapi",),
+        pip="google-cloud-spanner",
+        port=43010,
+        password="",
+        connector_factory=_kw_spanner,
+        service="spanner",
+        container_port=9010,
+        emulated=True,  # Cloud Spanner emulator, not the Google service
+    )
+)
+smoke.SMOKE["spanner"] = smoke.Smoke(
+    seed=_seed_spanner,
+    table="qbit_people",
+    columns={"id", "name", "age"},
+    read="SELECT name, age FROM qbit_people ORDER BY age",
+    expected=BY_AGE,
+    writes=smoke.SQL_WRITES,
+    spec=SPEC_PEOPLE,
+    check=_count_check(_spanner_count),
+    cleanup=_spanner_cleanup,
 )

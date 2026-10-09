@@ -42,7 +42,8 @@ services:
     ports: ["127.0.0.1:${QB_IT_PORT_SCYLLADB:-43042}:9042"]
     volumes: ["qb_it_scylladb:/var/lib/scylla"]
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e 'select release_version from system.local' 127.0.0.1"]
+      # Scylla listens on the container address, not on 127.0.0.1
+      test: ["CMD-SHELL", "cqlsh \"$$(hostname -i)\" -e 'select release_version from system.local'"]
       interval: 8s
       timeout: 10s
       retries: 60

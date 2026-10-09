@@ -1313,6 +1313,10 @@ def introspect_surrealdb(
         cur = client_or_cursor
         if not hasattr(cur, "execute") and hasattr(cur, "cursor"):
             cur = cur.cursor()
+        elif not hasattr(cur, "execute") and hasattr(cur, "query"):
+            from query_builder.connectors.surrealdb import _SurrealCursorAdapter
+
+            cur = _SurrealCursorAdapter(cur)  # a raw SDK client
 
         def run(sql: str) -> list[dict[str, Any]]:
             cur.execute(sql)
@@ -5171,66 +5175,81 @@ def introspect_redis_search(
                 cur.close()
 
 
+def _sampled_columns(
+    samples: dict[str, str], primary: str, primary_type: str
+) -> list[dict[str, Any]]:
+    """Column list from ``{name: type}`` plus a leading primary-key column."""
+    cols = [
+        {
+            "name": primary,
+            "data_type": samples.get(primary, primary_type),
+            "is_nullable": False,
+            "is_primary": True,
+            "comment": None,
+        }
+    ]
+    cols += [
+        {
+            "name": n,
+            "data_type": t,
+            "is_nullable": True,
+            "is_primary": False,
+            "comment": None,
+        }
+        for n, t in samples.items()
+        if n != primary
+    ]
+    return cols
+
+
+def firestore_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """Firestore introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Collections come from ``collections``; fields from a sample of 100 documents each.
+    Firestore collections are schemaless and an empty collection does not exist, so there
+    is nothing to invent: no collections -> no tables.  ``id`` is the document id.
+    """
+    names_rows = yield "collections"
+    tables: dict[str, dict[str, Any]] = {}
+    for row in names_rows:
+        name = str(next(iter(row.values())))
+        safe = name.replace("`", "")
+        docs = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        samples: dict[str, str] = {}
+        for doc in docs:
+            for k, v in doc.items():
+                if k not in samples or samples[k] == "null":
+                    samples[k] = _arango_json_type(v)
+        cols = _sampled_columns(samples, "id", "string")
+        tables[name] = {
+            "name": name,
+            "columns": cols,
+            "has_user_id": "user_id" in samples,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Google Cloud Firestore document collections."""
+    """Introspects Firestore collections: real collection names and sampled document fields."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        coll_names: list[str] = []
-        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
-            cur.execute("collections")
-            rows = cur.fetchall() or []
-            coll_names = [str(r[0]) for r in rows if r and r[0]]
-        elif hasattr(cur, "collections"):
-            colls = cur.collections()
-            coll_names = [getattr(c, "id", str(c)) for c in colls]
-        elif hasattr(cur, "execute"):
-            cur.execute("collections")
-            rows = cur.fetchall() or []
-            coll_names = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (cur.description or [])]
+            return [dict(zip(names, r, strict=False)) for r in cur.fetchall() or []]
 
-        if not coll_names:
-            coll_names = ["users"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for coll in coll_names:
-            cols = [
-                {
-                    "name": "id",
-                    "data_type": "string",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "data",
-                    "data_type": "map",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[coll] = {
-                "name": coll,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        return drive_steps(firestore_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Firestore collections: {exc}"
@@ -5241,66 +5260,53 @@ def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str
                 cur.close()
 
 
+def bigtable_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """Bigtable introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Tables come from ``list_tables``; each table's columns are ``row_key`` (the primary key)
+    plus one ``family.qualifier`` column per cell column seen in a sample of 100 rows.
+    Bigtable stores raw bytes, so every column is ``bytes``.  No table -> no tables.
+    """
+    table_rows = yield "list_tables"
+    tables: dict[str, dict[str, Any]] = {}
+    for row in table_rows:
+        name = str(next(iter(row.values())))
+        safe = name.replace("`", "")
+        sample = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        seen: dict[str, str] = {}
+        for rec in sample:
+            for col in rec:
+                if col != "row_key":
+                    seen[col] = "bytes"
+        tables[name] = {
+            "name": name,
+            "columns": _sampled_columns(seen, "row_key", "bytes"),
+            "has_user_id": False,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_bigtable(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Google Cloud Bigtable tables and column families."""
+    """Introspects Bigtable: real table ids and the cell columns present in sampled rows."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        table_names: list[str] = []
-        if hasattr(cur, "fetchall") and hasattr(cur, "execute"):
-            cur.execute("list_tables")
-            rows = cur.fetchall() or []
-            table_names = [str(r[0]) for r in rows if r and r[0]]
-        elif hasattr(cur, "list_tables"):
-            tbls = cur.list_tables()
-            table_names = [getattr(t, "table_id", str(t)) for t in tbls]
-        elif hasattr(cur, "execute"):
-            cur.execute("list_tables")
-            rows = cur.fetchall() or []
-            table_names = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (cur.description or [])]
+            return [dict(zip(names, r, strict=False)) for r in cur.fetchall() or []]
 
-        if not table_names:
-            table_names = ["metrics"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols = [
-                {
-                    "name": "row_key",
-                    "data_type": "bytes",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "bytes",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "cf1",
-                    "data_type": "column_family",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        return drive_steps(bigtable_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Bigtable tables: {exc}"
