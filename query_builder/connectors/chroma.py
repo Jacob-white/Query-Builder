@@ -28,7 +28,14 @@ class UnsupportedChromaQuery(ValueError):
     """The statement is outside what ChromaDB's native API can run."""
 
 
-_CMP = {"EQ": "$eq", "NEQ": "$ne", "GT": "$gt", "GTE": "$gte", "LT": "$lt", "LTE": "$lte"}
+_CMP = {
+    "EQ": "$eq",
+    "NEQ": "$ne",
+    "GT": "$gt",
+    "GTE": "$gte",
+    "LT": "$lt",
+    "LTE": "$lte",
+}
 
 
 def _chroma_literal(node: Any) -> Any:
@@ -80,7 +87,10 @@ def _chroma_records(res: Any) -> list[dict[str, Any]]:
     metas = res.get("metadatas") or []
     out: list[dict[str, Any]] = []
     for i, id_ in enumerate(ids):
-        rec: dict[str, Any] = {"id": id_, "document": docs[i] if i < len(docs) else None}
+        rec: dict[str, Any] = {
+            "id": id_,
+            "document": docs[i] if i < len(docs) else None,
+        }
         meta = metas[i] if i < len(metas) else None
         rec.update(meta or {})
         out.append(rec)
@@ -226,7 +236,9 @@ class _ChromaCursorAdapter:
 
         from query_builder.connectors.lancedb import _inline_params
 
-        if params and re.search(r"distance|vector|search|score", clean_sql, re.IGNORECASE):
+        if params and re.search(
+            r"distance|vector|search|score", clean_sql, re.IGNORECASE
+        ):
             self._vector_query(clean_sql, params)
             return
         import sqlglot
@@ -242,19 +254,23 @@ class _ChromaCursorAdapter:
         from_ = parsed.args.get("from_") or parsed.args.get("from")
         table_expr = from_.this if from_ is not None else None
         if not isinstance(table_expr, exp.Table):
-            raise UnsupportedChromaQuery("ChromaDB SELECT needs a plain FROM <collection>.")
+            raise UnsupportedChromaQuery(
+                "ChromaDB SELECT needs a plain FROM <collection>."
+            )
         collection = self.conn.get_collection(table_expr.name)
         where_node = parsed.args.get("where")
-        ids, where = _chroma_where(where_node.this) if where_node is not None else (None, None)
-        res = collection.get(
-            ids=ids, where=where, include=["documents", "metadatas"]
+        ids, where = (
+            _chroma_where(where_node.this) if where_node is not None else (None, None)
         )
+        res = collection.get(ids=ids, where=where, include=["documents", "metadatas"])
         records = _chroma_records(res)
         order = parsed.args.get("order")
         if order is not None:
             for o in reversed(order.expressions):
                 if not isinstance(o.this, exp.Column):
-                    raise UnsupportedChromaQuery("ORDER BY supports plain columns only.")
+                    raise UnsupportedChromaQuery(
+                        "ORDER BY supports plain columns only."
+                    )
                 key = o.this.name
                 records.sort(
                     key=lambda r, k=key: (r.get(k) is None, r.get(k)),
@@ -298,7 +314,9 @@ class _ChromaCursorAdapter:
         if isinstance(vector, str):
             vector = json.loads(vector)
         if not isinstance(vector, (list, tuple)):
-            raise UnsupportedChromaQuery("vector search needs a vector as first parameter")
+            raise UnsupportedChromaQuery(
+                "vector search needs a vector as first parameter"
+            )
         lm = re.search(r"\bLIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
         res = self.conn.get_collection(m.group(1)).query(
             query_embeddings=[list(vector)],
@@ -465,7 +483,9 @@ class AsyncChromaConnector(AsyncBaseConnector):
         # cursor adapter cannot await. Use the synchronous clients in a worker thread.
         def _open() -> Any:
             if self.host:
-                return chromadb.HttpClient(host=self.host, port=self.port, **self.config)
+                return chromadb.HttpClient(
+                    host=self.host, port=self.port, **self.config
+                )
             if self.path:
                 return chromadb.PersistentClient(path=self.path, **self.config)
             return chromadb.Client(**self.config)
@@ -485,7 +505,9 @@ class AsyncChromaConnector(AsyncBaseConnector):
 
         def _run() -> tuple[list[str], list[dict[str, Any]], float]:
             start = time.perf_counter()
-            cur = conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            cur = (
+                conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            )
             try:
                 if params:
                     cur.execute(sql, params)
@@ -520,7 +542,9 @@ class AsyncChromaConnector(AsyncBaseConnector):
         conn = await self.connect()
 
         def _introspect() -> dict[str, Any]:
-            cur = conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            cur = (
+                conn.cursor() if hasattr(conn, "cursor") else _ChromaCursorAdapter(conn)
+            )
             try:
                 return introspect_chroma(cur, filter_sensitive=filter_sensitive)
             finally:

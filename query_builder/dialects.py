@@ -599,7 +599,9 @@ class PolarsDialect(BaseDialect):
         text = "".join(
             "\\" + ch if ch in self._REGEX_SPECIAL else ch for ch in str(value)
         )
-        anchored = ("^" if mode == "starts" else "") + text + ("$" if mode == "ends" else "")
+        anchored = (
+            ("^" if mode == "starts" else "") + text + ("$" if mode == "ends" else "")
+        )
         return "(?i)" + anchored
 
     def format_substring_match(self, col_ref: str) -> str:
@@ -1910,6 +1912,8 @@ class H2Dialect(BaseDialect):
 
     name: str = "h2"
     placeholder: str = "?"
+    like_escape_char = "\\"  # H2's default LIKE escape
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
@@ -1967,6 +1971,8 @@ class DerbyDialect(BaseDialect):
 
     name: str = "derby"
     placeholder: str = "?"
+    like_escape_char = "\\"  # Derby has no default LIKE escape: declare it
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
