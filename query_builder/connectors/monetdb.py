@@ -89,7 +89,7 @@ def _monetdb_version(cur: Any) -> str:
     try:
         cur.execute("SELECT value FROM sys.env() WHERE name = 'monet_version'")
         row = cur.fetchone()
-        if row and row[0]:
+        if row and isinstance(row[0], str) and row[0]:
             return f"MonetDB {row[0]}"
     except Exception:  # noqa: BLE001 - version is informational only
         pass
@@ -268,7 +268,8 @@ class AsyncMonetDBConnector(AsyncBaseConnector):
         _, rows, _ = await self.execute_raw(
             "SELECT value FROM sys.env() WHERE name = 'monet_version'"
         )
-        version = f"MonetDB {next(iter(rows[0].values()))}" if rows else "MonetDB"
+        value = next(iter(rows[0].values())) if rows else None
+        version = f"MonetDB {value}" if isinstance(value, str) and value else "MonetDB"
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
