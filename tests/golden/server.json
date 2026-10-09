@@ -1,0 +1,3404 @@
+{
+ "get_health": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "status": "ok",
+   "version": "1.0.0",
+   "dialects": [
+    "adx",
+    "alloydb",
+    "amazon_neptune",
+    "apache_cassandra",
+    "apache_derby",
+    "apache_doris",
+    "apache_drill",
+    "apache_druid",
+    "apache_flink",
+    "apache_hive",
+    "apache_impala",
+    "apache_kyuubi",
+    "apache_pinot",
+    "apache_pulsar",
+    "aql",
+    "arango",
+    "arangodb",
+    "ase",
+    "athena",
+    "atlas_sql",
+    "aws_neptune",
+    "aws_timestream",
+    "azure_cosmos",
+    "azure_data_explorer",
+    "bigquery",
+    "bigtable",
+    "cassandra",
+    "ch_native",
+    "chdb",
+    "chroma",
+    "chromadb",
+    "clickhouse",
+    "clickhouse_native",
+    "clickhouse_tcp",
+    "cloudflare_d1",
+    "cockroach",
+    "cockroachdb",
+    "cosmosdb",
+    "couchbase",
+    "cql",
+    "crate",
+    "cratedb",
+    "cypher",
+    "d1",
+    "databricks",
+    "datafusion",
+    "db2",
+    "derby",
+    "doris",
+    "dremio",
+    "drill",
+    "druid",
+    "duckdb",
+    "dynamodb",
+    "elasticsearch",
+    "exasol",
+    "firebird",
+    "firebirdsql",
+    "firebolt",
+    "firestore",
+    "flink",
+    "flink_sql",
+    "gcp_bigtable",
+    "gcp_firestore",
+    "google_bigtable",
+    "google_firestore",
+    "greptime",
+    "greptimedb",
+    "h2",
+    "h2db",
+    "hana",
+    "hive",
+    "ibm_db2",
+    "ibm_informix",
+    "impala",
+    "impyla",
+    "influx",
+    "influxdb",
+    "informix",
+    "iox",
+    "kdb",
+    "kdb+",
+    "kql",
+    "ksql",
+    "ksqldb",
+    "kusto",
+    "kyuubi",
+    "lance",
+    "lancedb",
+    "materialize",
+    "memgraph",
+    "memgraph_db",
+    "memsql",
+    "metricsql",
+    "milvus",
+    "milvus_vector",
+    "monet",
+    "monetdb",
+    "mongo",
+    "mongodb",
+    "mssql",
+    "mysql",
+    "mz",
+    "n1ql",
+    "neo4j",
+    "neo4j_sql",
+    "neon",
+    "neptune",
+    "oceanbase",
+    "opensearch",
+    "opensearch_sql",
+    "oracle",
+    "partiql",
+    "pinecone",
+    "pinecone_db",
+    "pinecone_vector",
+    "pinot",
+    "polars",
+    "postgres",
+    "postgresql",
+    "presto",
+    "prestodb",
+    "prom",
+    "prometheus",
+    "promql",
+    "pulsar",
+    "pulsar_sql",
+    "pydoris",
+    "pydrill",
+    "pyhive",
+    "pykx",
+    "pymilvus",
+    "pyspark",
+    "q",
+    "qdrant",
+    "qdrant_db",
+    "qdrant_vector",
+    "questdb",
+    "redis",
+    "redis_search",
+    "redisearch",
+    "redshift",
+    "risingwave",
+    "rw",
+    "sap_ase",
+    "sap_hana",
+    "saphana",
+    "scylla",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "spark_sql",
+    "sparksql",
+    "sqlite",
+    "sqlserver",
+    "starrocks",
+    "supabase",
+    "surreal",
+    "surrealdb",
+    "sybase",
+    "taos",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timescale",
+    "timescaledb",
+    "timestream",
+    "trino",
+    "vertica",
+    "victoriametrics",
+    "vm",
+    "weaviate",
+    "weaviate_db",
+    "weaviate_vector",
+    "yugabyte",
+    "yugabytedb",
+    "zilliz"
+   ]
+  }
+ },
+ "get_health_query": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "status": "ok",
+   "version": "1.0.0",
+   "dialects": [
+    "adx",
+    "alloydb",
+    "amazon_neptune",
+    "apache_cassandra",
+    "apache_derby",
+    "apache_doris",
+    "apache_drill",
+    "apache_druid",
+    "apache_flink",
+    "apache_hive",
+    "apache_impala",
+    "apache_kyuubi",
+    "apache_pinot",
+    "apache_pulsar",
+    "aql",
+    "arango",
+    "arangodb",
+    "ase",
+    "athena",
+    "atlas_sql",
+    "aws_neptune",
+    "aws_timestream",
+    "azure_cosmos",
+    "azure_data_explorer",
+    "bigquery",
+    "bigtable",
+    "cassandra",
+    "ch_native",
+    "chdb",
+    "chroma",
+    "chromadb",
+    "clickhouse",
+    "clickhouse_native",
+    "clickhouse_tcp",
+    "cloudflare_d1",
+    "cockroach",
+    "cockroachdb",
+    "cosmosdb",
+    "couchbase",
+    "cql",
+    "crate",
+    "cratedb",
+    "cypher",
+    "d1",
+    "databricks",
+    "datafusion",
+    "db2",
+    "derby",
+    "doris",
+    "dremio",
+    "drill",
+    "druid",
+    "duckdb",
+    "dynamodb",
+    "elasticsearch",
+    "exasol",
+    "firebird",
+    "firebirdsql",
+    "firebolt",
+    "firestore",
+    "flink",
+    "flink_sql",
+    "gcp_bigtable",
+    "gcp_firestore",
+    "google_bigtable",
+    "google_firestore",
+    "greptime",
+    "greptimedb",
+    "h2",
+    "h2db",
+    "hana",
+    "hive",
+    "ibm_db2",
+    "ibm_informix",
+    "impala",
+    "impyla",
+    "influx",
+    "influxdb",
+    "informix",
+    "iox",
+    "kdb",
+    "kdb+",
+    "kql",
+    "ksql",
+    "ksqldb",
+    "kusto",
+    "kyuubi",
+    "lance",
+    "lancedb",
+    "materialize",
+    "memgraph",
+    "memgraph_db",
+    "memsql",
+    "metricsql",
+    "milvus",
+    "milvus_vector",
+    "monet",
+    "monetdb",
+    "mongo",
+    "mongodb",
+    "mssql",
+    "mysql",
+    "mz",
+    "n1ql",
+    "neo4j",
+    "neo4j_sql",
+    "neon",
+    "neptune",
+    "oceanbase",
+    "opensearch",
+    "opensearch_sql",
+    "oracle",
+    "partiql",
+    "pinecone",
+    "pinecone_db",
+    "pinecone_vector",
+    "pinot",
+    "polars",
+    "postgres",
+    "postgresql",
+    "presto",
+    "prestodb",
+    "prom",
+    "prometheus",
+    "promql",
+    "pulsar",
+    "pulsar_sql",
+    "pydoris",
+    "pydrill",
+    "pyhive",
+    "pykx",
+    "pymilvus",
+    "pyspark",
+    "q",
+    "qdrant",
+    "qdrant_db",
+    "qdrant_vector",
+    "questdb",
+    "redis",
+    "redis_search",
+    "redisearch",
+    "redshift",
+    "risingwave",
+    "rw",
+    "sap_ase",
+    "sap_hana",
+    "saphana",
+    "scylla",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "spark_sql",
+    "sparksql",
+    "sqlite",
+    "sqlserver",
+    "starrocks",
+    "supabase",
+    "surreal",
+    "surrealdb",
+    "sybase",
+    "taos",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timescale",
+    "timescaledb",
+    "timestream",
+    "trino",
+    "vertica",
+    "victoriametrics",
+    "vm",
+    "weaviate",
+    "weaviate_db",
+    "weaviate_vector",
+    "yugabyte",
+    "yugabytedb",
+    "zilliz"
+   ]
+  }
+ },
+ "get_openapi": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"openapi\": \"3.1.0\",\n  \"info\": {\n    \"title\": \"Query Builder API\",\n    \"version\": \"1.0.0\",\n    \"description\": \"Universal SQL Query Builder, Declarative Compiler, and AST Safety Microservice.\"\n  },\n  \"paths\": {\n    \"/health\": {\n      \"get\": {\n        \"summary\": \"Health Check\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Server health status\"\n          }\n        }\n      }\n    },\n    \"/openapi.json\": {\n      \"get\": {\n        \"summary\": \"OpenAPI Specification\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"OpenAPI 3.1 document\"\n          }\n        }\n      }\n    },\n    \"/docs\": {\n      \"get\": {\n        \"summary\": \"Swagger UI Documentation\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Swagger UI HTML\"\n          }\n        }\n      }\n    },\n    \"/api/v1/introspect\": {\n      \"post\": {\n        \"summary\": \"Introspect Database Schema\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Schema snapshot\"\n          },\n          \"400\": {\n            \"description\": \"Introspection error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/compile\": {\n      \"post\": {\n        \"summary\": \"Compile Query Specification\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Compiled SQL and parameters\"\n          },\n          \"400\": {\n            \"description\": \"Compilation error\"\n          },\n          \"403\": {\n            \"description\": \"Forbidden by security policy\"\n          }\n        }\n      }\n    },\n    \"/api/v1/validate\": {\n      \"post\": {\n        \"summary\": \"Validate SQL AST\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Validation result\"\n          },\n          \"400\": {\n            \"description\": \"Validation error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/execute\": {\n      \"post\": {\n        \"summary\": \"Execute Query\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Query result\"\n          },\n          \"400\": {\n            \"description\": \"Execution error\"\n          },\n          \"403\": {\n            \"description\": \"Forbidden by security policy\"\n          }\n        }\n      }\n    },\n    \"/api/v1/query/execute\": {\n      \"post\": {\n        \"summary\": \"Execute Live Query with Connection Pool\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Live query execution result\"\n          },\n          \"400\": {\n            \"description\": \"Execution error or cancellation\"\n          }\n        }\n      }\n    },\n    \"/api/v1/connections\": {\n      \"get\": {\n        \"summary\": \"List Registered Connection Pools\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"List of connection pools\"\n          }\n        }\n      },\n      \"post\": {\n        \"summary\": \"Register New Connection Pool\",\n        \"responses\": {\n          \"201\": {\n            \"description\": \"Connection pool registered\"\n          }\n        }\n      },\n      \"delete\": {\n        \"summary\": \"Remove Connection Pool\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Connection pool removed\"\n          }\n        }\n      }\n    },\n    \"/api/v1/connections/test\": {\n      \"post\": {\n        \"summary\": \"Test Connection Health & Latency\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Connection test result\"\n          }\n        }\n      }\n    },\n    \"/api/v1/connections/cancel\": {\n      \"post\": {\n        \"summary\": \"Cancel In-Flight Query Execution\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Cancellation result\"\n          }\n        }\n      }\n    },\n    \"/api/v1/stream\": {\n      \"post\": {\n        \"summary\": \"Stream Query Execution via Server-Sent Events\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Server-Sent Events stream\"\n          },\n          \"400\": {\n            \"description\": \"Streaming error\"\n          },\n          \"403\": {\n            \"description\": \"Forbidden by security policy\"\n          }\n        }\n      }\n    },\n    \"/api/v1/explain\": {\n      \"post\": {\n        \"summary\": \"Explain and Analyze Query Plan\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Normalized QueryPlanNode tree\"\n          },\n          \"400\": {\n            \"description\": \"Explain error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/export\": {\n      \"post\": {\n        \"summary\": \"Export Tabular Data\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Exported tabular file\"\n          },\n          \"400\": {\n            \"description\": \"Export error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/export/stream\": {\n      \"post\": {\n        \"summary\": \"Stream Tabular Data Export with Chunked Transfer Encoding\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Chunked binary/text stream download\"\n          },\n          \"400\": {\n            \"description\": \"Streaming export error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/templates\": {\n      \"get\": {\n        \"summary\": \"List Templates\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"List of templates\"\n          }\n        }\n      },\n      \"post\": {\n        \"summary\": \"Create or Update Template\",\n        \"responses\": {\n          \"201\": {\n            \"description\": \"Created template\"\n          },\n          \"400\": {\n            \"description\": \"Validation error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/templates/{id}\": {\n      \"delete\": {\n        \"summary\": \"Delete Template\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Deletion confirmation\"\n          },\n          \"403\": {\n            \"description\": \"Forbidden\"\n          },\n          \"404\": {\n            \"description\": \"Not found\"\n          }\n        }\n      }\n    },\n    \"/api/v1/telemetry\": {\n      \"get\": {\n        \"summary\": \"Get Execution Telemetry Metrics\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Telemetry metrics summary\"\n          }\n        }\n      }\n    },\n    \"/api/v1/nlq/translate\": {\n      \"post\": {\n        \"summary\": \"Translate Natural Language into QuerySpec AST\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Validated QuerySpec and confidence\"\n          },\n          \"400\": {\n            \"description\": \"Translation error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/nlq/explain\": {\n      \"post\": {\n        \"summary\": \"Explain Visual Query AST in Natural Language\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"Natural language explanation\"\n          },\n          \"400\": {\n            \"description\": \"Explain error\"\n          }\n        }\n      }\n    },\n    \"/api/v1/nlq/providers\": {\n      \"get\": {\n        \"summary\": \"List Available NLQ Providers\",\n        \"responses\": {\n          \"200\": {\n            \"description\": \"List of available NLQ providers\"\n          }\n        }\n      }\n    }\n  },\n  \"components\": {\n    \"schemas\": {\n      \"VectorSearchSpec\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"vector\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"number\"\n            },\n            \"description\": \"Query embedding vector\"\n          },\n          \"column\": {\n            \"type\": \"string\",\n            \"default\": \"embedding\",\n            \"description\": \"Embedding column name\"\n          },\n          \"top_k\": {\n            \"type\": \"integer\",\n            \"default\": 10,\n            \"description\": \"Max nearest neighbors to retrieve\"\n          },\n          \"metric\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"cosine\",\n              \"euclidean\",\n              \"l2\",\n              \"dot_product\",\n              \"inner_product\"\n            ],\n            \"default\": \"cosine\",\n            \"description\": \"Similarity / distance metric\"\n          },\n          \"include_distances\": {\n            \"type\": \"boolean\",\n            \"default\": true,\n            \"description\": \"Whether to project _distance in output\"\n          },\n          \"min_score\": {\n            \"type\": \"number\",\n            \"description\": \"Optional similarity score threshold\"\n          }\n        },\n        \"required\": [\n          \"vector\"\n        ]\n      },\n      \"HybridSearchSpec\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"vector\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"number\"\n            },\n            \"description\": \"Query embedding vector\"\n          },\n          \"vector_column\": {\n            \"type\": \"string\",\n            \"default\": \"embedding\",\n            \"description\": \"Embedding column name\"\n          },\n          \"query_text\": {\n            \"type\": \"string\",\n            \"description\": \"Text query for full-text search\"\n          },\n          \"text_columns\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"description\": \"Text columns to search against\"\n          },\n          \"alpha\": {\n            \"type\": \"number\",\n            \"default\": 0.5,\n            \"description\": \"Hybrid weight (1.0 = pure vector, 0.0 = pure text)\"\n          },\n          \"fusion\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"rrf\",\n              \"linear\"\n            ],\n            \"default\": \"rrf\",\n            \"description\": \"Fusion strategy\"\n          },\n          \"rrf_k\": {\n            \"type\": \"integer\",\n            \"default\": 60,\n            \"description\": \"RRF smoothing factor\"\n          },\n          \"top_k\": {\n            \"type\": \"integer\",\n            \"default\": 10,\n            \"description\": \"Max nearest neighbors to retrieve\"\n          }\n        },\n        \"required\": [\n          \"vector\",\n          \"query_text\",\n          \"text_columns\"\n        ]\n      },\n      \"QuerySpec\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"table\": {\n            \"type\": \"string\"\n          },\n          \"columns\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"string\"\n            }\n          },\n          \"filters\": {\n            \"type\": \"array\"\n          },\n          \"limit\": {\n            \"type\": \"integer\",\n            \"default\": 50\n          },\n          \"offset\": {\n            \"type\": \"integer\",\n            \"default\": 0\n          },\n          \"vector_search\": {\n            \"$ref\": \"#/components/schemas/VectorSearchSpec\"\n          },\n          \"hybrid_search\": {\n            \"$ref\": \"#/components/schemas/HybridSearchSpec\"\n          }\n        },\n        \"required\": [\n          \"table\"\n        ]\n      },\n      \"QueryPlanNode\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"node_type\": {\n            \"type\": \"string\"\n          },\n          \"table\": {\n            \"type\": \"string\",\n            \"nullable\": true\n          },\n          \"cost_estimate\": {\n            \"type\": \"number\"\n          },\n          \"actual_time_ms\": {\n            \"type\": \"number\",\n            \"nullable\": true\n          },\n          \"rows_estimated\": {\n            \"type\": \"integer\"\n          },\n          \"rows_actual\": {\n            \"type\": \"integer\",\n            \"nullable\": true\n          },\n          \"filter_predicate\": {\n            \"type\": \"string\",\n            \"nullable\": true\n          },\n          \"index_name\": {\n            \"type\": \"string\",\n            \"nullable\": true\n          },\n          \"cost_percentage\": {\n            \"type\": \"number\"\n          },\n          \"warnings\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"string\"\n            }\n          },\n          \"children\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"$ref\": \"#/components/schemas/QueryPlanNode\"\n            }\n          }\n        },\n        \"required\": [\n          \"node_type\",\n          \"cost_estimate\",\n          \"rows_estimated\",\n          \"cost_percentage\"\n        ]\n      }\n    }\n  }\n}"
+ },
+ "get_docs": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/html; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <title>Query Builder - Swagger UI</title>\n  <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\" />\n</head>\n<body>\n  <div id=\"swagger-ui\"></div>\n  <script src=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>\n  <script>\n    window.onload = () => {\n      window.ui = SwaggerUIBundle({\n        url: '/openapi.json',\n        dom_id: '#swagger-ui',\n      });\n    };\n  </script>\n</body>\n</html>\n"
+ },
+ "get_telemetry_empty": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "total_queries": 0,
+   "success_count": 0,
+   "error_count": 0,
+   "error_rate": 0.0,
+   "avg_latency_ms": "<V>",
+   "p50_latency_ms": "<V>",
+   "p95_latency_ms": "<V>",
+   "p99_latency_ms": "<V>",
+   "active_tenants_count": 0
+  }
+ },
+ "get_templates_empty": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": []
+ },
+ "get_nlq_providers": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "providers": [
+    {
+     "name": "mock",
+     "configured": true,
+     "is_local": true
+    },
+    {
+     "name": "gemini",
+     "configured": false,
+     "is_local": false
+    },
+    {
+     "name": "openai",
+     "configured": false,
+     "is_local": false
+    },
+    {
+     "name": "anthropic",
+     "configured": false,
+     "is_local": false
+    },
+    {
+     "name": "ollama",
+     "configured": true,
+     "is_local": true
+    },
+    {
+     "name": "byo",
+     "configured": false,
+     "is_local": false
+    },
+    {
+     "name": "custom",
+     "configured": false,
+     "is_local": false
+    }
+   ]
+  }
+ },
+ "get_connections_empty": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "connections": []
+  }
+ },
+ "get_unknown": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /nope"
+   },
+   "status": 404
+  }
+ },
+ "get_post_only_route": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /api/v1/compile"
+   },
+   "status": 404
+  }
+ },
+ "get_trailing_slash": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /health/"
+   },
+   "status": 404
+  }
+ },
+ "options_any": {
+  "status": 204,
+  "headers": {
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": ""
+ },
+ "options_unknown": {
+  "status": 204,
+  "headers": {
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": ""
+ },
+ "post_bad_json": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid JSON request body: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+   },
+   "status": 400
+  }
+ },
+ "post_bad_json_unknown_path": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid JSON request body: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+   },
+   "status": 400
+  }
+ },
+ "post_bad_utf8": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid JSON request body: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"
+   },
+   "status": 400
+  }
+ },
+ "post_bad_content_length": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid JSON request body: Invalid Content-Length header."
+   },
+   "status": 400
+  }
+ },
+ "post_no_body_compile": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "post_unknown": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /nope"
+   },
+   "status": 404
+  }
+ },
+ "post_get_only_route": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /health"
+   },
+   "status": 404
+  }
+ },
+ "post_nonobject_json": {
+  "status": "disconnected",
+  "headers": {},
+  "body": null
+ },
+ "post_nonobject_json_unknown": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /nope"
+   },
+   "status": 404
+  }
+ },
+ "introspect_sqlite": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "tables": {
+    "users": {
+     "name": "users",
+     "columns": [
+      {
+       "name": "id",
+       "data_type": "INTEGER",
+       "is_nullable": true,
+       "is_primary": true,
+       "comment": null
+      },
+      {
+       "name": "name",
+       "data_type": "TEXT",
+       "is_nullable": true,
+       "is_primary": false,
+       "comment": null
+      }
+     ],
+     "has_user_id": false,
+     "user_col": "user_id",
+     "comment": null
+    }
+   },
+   "foreign_keys": [],
+   "relationships": [],
+   "categories": {}
+  }
+ },
+ "introspect_default_memory": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "tables": {},
+   "foreign_keys": [],
+   "relationships": [],
+   "categories": {}
+  }
+ },
+ "introspect_bad_connector": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "INTROSPECTION_ERROR",
+    "message": "Introspection failed: No connector registered for 'nonexistent_db'. Available connectors: [adx, alloydb, amazon_neptune, apache-cassandra, apache_cassandra, apache_derby, apache_doris, apache_drill, apache_druid, apache_flink, apache_hive, apache_impala, apache_kyuubi, apache_pinot, apache_pulsar, aql, arango, arangodb, ase, async_adx, async_amazon_neptune, async_apache-cassandra, async_apache_cassandra, async_apache_derby, async_apache_doris, async_apache_drill, async_apache_flink, async_apache_hive, async_apache_impala, async_apache_kyuubi, async_apache_pulsar, async_aql, async_arango, async_arangodb, async_ase, async_aws_neptune, async_aws_timestream, async_azure_cosmos, async_azure_data_explorer, async_bigtable, async_cassandra, async_ch_native, async_chdb, async_chroma, async_chromadb, async_clickhouse_native, async_cosmosdb, async_cql, async_crate, async_cratedb, async_cypher, async_db2, async_derby, async_doris, async_drill, async_exasol, async_firebird, async_firebirdsql, async_firestore, async_flink, async_flink_sql, async_gcp_bigtable, async_gcp_firestore, async_google_bigtable, async_google_firestore, async_greptime, async_greptimedb, async_h2, async_h2db, async_hive, async_ibm_db2, async_ibm_informix, async_impala, async_informix, async_kdb, async_kdb+, async_kql, async_ksql, async_ksqldb, async_kusto, async_kyuubi, async_lance, async_lancedb, async_materialize, async_memgraph, async_memgraph_cypher, async_memgraph_db, async_metricsql, async_milvus, async_monet, async_monetdb, async_mz, async_neo4j, async_neptune, async_opensearch, async_opensearch_sql, async_pinecone, async_pinecone_db, async_pinecone_vector, async_presto, async_prestodb, async_prom, async_prometheus, async_promql, async_pulsar, async_pulsar_sql, async_pykx, async_pymilvus, async_pyspark, async_qdrant, async_qdrant_db, async_qdrant_vector, async_redis, async_redis_ft, async_redis_search, async_redisearch, async_risingwave, async_rw, async_sap_ase, async_spark_sql, async_sparksql, async_starrocks, async_surreal, async_surrealdb, async_sybase, async_taos, async_tdengine, async_timestream, async_victoria_metrics, async_victoriametrics, async_vm, async_weaviate, async_weaviate_db, async_weaviate_vector, async_yugabyte, async_yugabytedb, async_zilliz, athena, atlas_sql, aws_neptune, aws_timestream, azure_cosmos, azure_data_explorer, bigquery, bigtable, cassandra, ch_native, chdb, chroma, chromadb, clickhouse, clickhouse_native, clickhouse_tcp, cloudflare_d1, cockroach, cockroachdb, cosmosdb, couchbase, cql, crate, cratedb, cypher, d1, databricks, datafusion, db2, dbapi, derby, doris, dremio, drill, druid, duckdb, dynamodb, elasticsearch, exasol, firebird, firebirdsql, firebolt, firestore, flink, flink_sql, gcp_bigtable, gcp_firestore, generic, google_bigtable, google_firestore, greptime, greptimedb, h2, h2db, hana, hive, ibm_db2, ibm_informix, impala, impyla, influx, influxdb, informix, iox, kdb, kdb+, kql, ksql, ksqldb, kusto, kyuubi, lance, lancedb, mariadb, materialize, memgraph, memgraph_cypher, memgraph_db, memsql, metricsql, milvus, monet, monetdb, mongo, mongodb, mssql, mysql, mz, n1ql, neo4j, neo4j_sql, neon, neptune, neptune_gremlin, neptune_sparql, oceanbase, opensearch, opensearch_connector, opensearch_sql, oracle, partiql, pinecone, pinecone_db, pinecone_vector, pinot, polars, postgres, postgresql, presto, prestodb, prom, prometheus, promql, pulsar, pulsar_sql, pydoris, pydrill, pyhive, pykx, pymilvus, pyspark, q, qdrant, qdrant_db, qdrant_vector, questdb, redis, redis_ft, redis_search, redisearch, redshift, risingwave, rw, sap_ase, sap_hana, saphana, scylla, scylladb, singlestore, snowflake, spanner, spark, spark_sql, sparksql, sqlite, sqlserver, starrocks, supabase, surreal, surrealdb, sybase, taos, tdengine, teradata, tidb, timescale, timescaledb, timestream, trino, vertica, victoria_metrics, victoriametrics, vm, weaviate, weaviate_db, weaviate_vector, yugabyte, yugabytedb, zilliz]"
+   },
+   "status": 400
+  }
+ },
+ "introspect_config_not_dict": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "tables": {},
+   "foreign_keys": [],
+   "relationships": [],
+   "categories": {}
+  }
+ },
+ "compile_ok": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "postgres"
+  }
+ },
+ "compile_mysql": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT `t1`.`id` AS `id`, `t1`.`name` AS `name`\nFROM `users` `t1`\nWHERE (`t1`.`id` > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM `users` `t1`\nWHERE (`t1`.`id` > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "mysql"
+  }
+ },
+ "compile_mssql": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT [t1].[id] AS [id], [t1].[name] AS [name]\nFROM [users] [t1]\nWHERE ([t1].[id] > %s)\nORDER BY (SELECT NULL)\nOFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+   "params": [
+    1,
+    0,
+    50
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM [users] [t1]\nWHERE ([t1].[id] > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "mssql"
+  }
+ },
+ "compile_oracle": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)\nOFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+   "params": [
+    1,
+    0,
+    50
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "oracle"
+  }
+ },
+ "compile_snowflake": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "snowflake"
+  }
+ },
+ "compile_tenant_policy": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE \"t1\".\"tenant_id\" = %s AND (\"t1\".\"id\" > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    "t1",
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE \"t1\".\"tenant_id\" = %s AND (\"t1\".\"id\" > %s)",
+   "count_params": [
+    "t1",
+    1
+   ],
+   "dialect": "postgres"
+  }
+ },
+ "compile_tenant_only": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE \"t1\".\"tenant_id\" = %s AND (\"t1\".\"id\" > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    "t1",
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE \"t1\".\"tenant_id\" = %s AND (\"t1\".\"id\" > %s)",
+   "count_params": [
+    "t1",
+    1
+   ],
+   "dialect": "postgres"
+  }
+ },
+ "compile_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "compile_policy_bad_kwargs": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "COMPILATION_ERROR",
+    "message": "Compilation failed: SecurityPolicy.__init__() got an unexpected keyword argument 'zzz'"
+   },
+   "status": 400
+  }
+ },
+ "compile_missing_spec": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "compile_empty_spec": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "compile_spec_not_dict": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "compile_invalid_spec": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "COMPILATION_ERROR",
+    "message": "Compilation failed: Invalid table identifier name: 'bad table;'"
+   },
+   "status": 400
+  }
+ },
+ "compile_bad_dialect_falls_back": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)\nLIMIT %s OFFSET %s",
+   "params": [
+    1,
+    50,
+    0
+   ],
+   "count_sql": "SELECT COUNT(*)\nFROM \"users\" \"t1\"\nWHERE (\"t1\".\"id\" > %s)",
+   "count_params": [
+    1
+   ],
+   "dialect": "zzz"
+  }
+ },
+ "validate_ok": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "valid": true,
+   "ast_validated": true,
+   "statement_type": "SELECT",
+   "is_read_only": true,
+   "violations": [],
+   "injection_risk": "NONE",
+   "message": "Query passed AST validation and read-only policy.",
+   "violation_layers": {
+    "legacy": [],
+    "sqlglot_ast": []
+   }
+  }
+ },
+ "validate_mutation": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "valid": false,
+   "ast_validated": true,
+   "statement_type": "DELETE",
+   "is_read_only": false,
+   "violations": [
+    "Restricted statement type: DELETE. Only SELECT queries are permitted.",
+    "Forbidden mutation keyword: 'DELETE'",
+    "[sqlglot-ast] Statement type DELETE is not a read-only query.",
+    "[sqlglot-ast] Non read-only construct DELETE is not permitted."
+   ],
+   "injection_risk": "CRITICAL",
+   "message": "Restricted statement type: DELETE. Only SELECT queries are permitted.",
+   "violation_layers": {
+    "legacy": [
+     "Restricted statement type: DELETE. Only SELECT queries are permitted.",
+     "Forbidden mutation keyword: 'DELETE'"
+    ],
+    "sqlglot_ast": [
+     "[sqlglot-ast] Statement type DELETE is not a read-only query.",
+     "[sqlglot-ast] Non read-only construct DELETE is not permitted."
+    ]
+   }
+  }
+ },
+ "validate_schemas": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "valid": true,
+   "ast_validated": true,
+   "statement_type": "SELECT",
+   "is_read_only": true,
+   "violations": [],
+   "injection_risk": "NONE",
+   "message": "Query passed AST validation and read-only policy.",
+   "violation_layers": {
+    "legacy": [],
+    "sqlglot_ast": []
+   }
+  }
+ },
+ "validate_bad_schemas": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed: 'int' object is not iterable"
+   },
+   "status": 400
+  }
+ },
+ "validate_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'sql' string."
+   },
+   "status": 400
+  }
+ },
+ "validate_not_string": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'sql' string."
+   },
+   "status": 400
+  }
+ },
+ "exec_api_v1_execute_raw": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 1 AS val",
+   "params": [],
+   "columns": [
+    "val"
+   ],
+   "rows": [
+    {
+     "val": 1
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "exec_api_v1_execute_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "id",
+    "name"
+   ],
+   "rows": [
+    {
+     "id": 1,
+     "name": "Alice"
+    },
+    {
+     "id": 2,
+     "name": "Bob"
+    },
+    {
+     "id": 3,
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_api_v1_execute_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec', 'query', or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "exec_api_v1_execute_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "exec_api_v1_execute_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: OperationalError: no such table: definitely_missing_xyz"
+   },
+   "status": 400
+  }
+ },
+ "exec_api_v1_query_execute_raw": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 1 AS val",
+   "params": [],
+   "columns": [
+    "val"
+   ],
+   "rows": [
+    {
+     "val": 1
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "exec_api_v1_query_execute_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "id",
+    "name"
+   ],
+   "rows": [
+    {
+     "id": 1,
+     "name": "Alice"
+    },
+    {
+     "id": 2,
+     "name": "Bob"
+    },
+    {
+     "id": 3,
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_api_v1_query_execute_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec', 'query', or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "exec_api_v1_query_execute_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "exec_api_v1_query_execute_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: OperationalError: no such table: definitely_missing_xyz"
+   },
+   "status": 400
+  }
+ },
+ "exec_api_query_raw": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 1 AS val",
+   "params": [],
+   "columns": [
+    "val"
+   ],
+   "rows": [
+    {
+     "val": 1
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "exec_api_query_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\", \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "id",
+    "name"
+   ],
+   "rows": [
+    {
+     "id": 1,
+     "name": "Alice"
+    },
+    {
+     "id": 2,
+     "name": "Bob"
+    },
+    {
+     "id": 3,
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_api_query_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec', 'query', or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "exec_api_query_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "exec_api_query_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: OperationalError: no such table: definitely_missing_xyz"
+   },
+   "status": 400
+  }
+ },
+ "exec_query_alias_key": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"id\" AS \"id\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "id"
+   ],
+   "rows": [
+    {
+     "id": 1
+    },
+    {
+     "id": 2
+    },
+    {
+     "id": 3
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_raw_params": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT ? AS v",
+   "params": [
+    7
+   ],
+   "columns": [
+    "v"
+   ],
+   "rows": [
+    {
+     "v": 7
+    }
+   ],
+   "count": 1,
+   "limit": 5,
+   "offset": 2,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "exec_spec_tenant": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: OperationalError: no such column: t1.tenant_id"
+   },
+   "status": 400
+  }
+ },
+ "exec_bad_connector": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: No connector registered for 'nonexistent_db'. Available connectors: [adx, alloydb, amazon_neptune, apache-cassandra, apache_cassandra, apache_derby, apache_doris, apache_drill, apache_druid, apache_flink, apache_hive, apache_impala, apache_kyuubi, apache_pinot, apache_pulsar, aql, arango, arangodb, ase, async_adx, async_amazon_neptune, async_apache-cassandra, async_apache_cassandra, async_apache_derby, async_apache_doris, async_apache_drill, async_apache_flink, async_apache_hive, async_apache_impala, async_apache_kyuubi, async_apache_pulsar, async_aql, async_arango, async_arangodb, async_ase, async_aws_neptune, async_aws_timestream, async_azure_cosmos, async_azure_data_explorer, async_bigtable, async_cassandra, async_ch_native, async_chdb, async_chroma, async_chromadb, async_clickhouse_native, async_cosmosdb, async_cql, async_crate, async_cratedb, async_cypher, async_db2, async_derby, async_doris, async_drill, async_exasol, async_firebird, async_firebirdsql, async_firestore, async_flink, async_flink_sql, async_gcp_bigtable, async_gcp_firestore, async_google_bigtable, async_google_firestore, async_greptime, async_greptimedb, async_h2, async_h2db, async_hive, async_ibm_db2, async_ibm_informix, async_impala, async_informix, async_kdb, async_kdb+, async_kql, async_ksql, async_ksqldb, async_kusto, async_kyuubi, async_lance, async_lancedb, async_materialize, async_memgraph, async_memgraph_cypher, async_memgraph_db, async_metricsql, async_milvus, async_monet, async_monetdb, async_mz, async_neo4j, async_neptune, async_opensearch, async_opensearch_sql, async_pinecone, async_pinecone_db, async_pinecone_vector, async_presto, async_prestodb, async_prom, async_prometheus, async_promql, async_pulsar, async_pulsar_sql, async_pykx, async_pymilvus, async_pyspark, async_qdrant, async_qdrant_db, async_qdrant_vector, async_redis, async_redis_ft, async_redis_search, async_redisearch, async_risingwave, async_rw, async_sap_ase, async_spark_sql, async_sparksql, async_starrocks, async_surreal, async_surrealdb, async_sybase, async_taos, async_tdengine, async_timestream, async_victoria_metrics, async_victoriametrics, async_vm, async_weaviate, async_weaviate_db, async_weaviate_vector, async_yugabyte, async_yugabytedb, async_zilliz, athena, atlas_sql, aws_neptune, aws_timestream, azure_cosmos, azure_data_explorer, bigquery, bigtable, cassandra, ch_native, chdb, chroma, chromadb, clickhouse, clickhouse_native, clickhouse_tcp, cloudflare_d1, cockroach, cockroachdb, cosmosdb, couchbase, cql, crate, cratedb, cypher, d1, databricks, datafusion, db2, dbapi, derby, doris, dremio, drill, druid, duckdb, dynamodb, elasticsearch, exasol, firebird, firebirdsql, firebolt, firestore, flink, flink_sql, gcp_bigtable, gcp_firestore, generic, google_bigtable, google_firestore, greptime, greptimedb, h2, h2db, hana, hive, ibm_db2, ibm_informix, impala, impyla, influx, influxdb, informix, iox, kdb, kdb+, kql, ksql, ksqldb, kusto, kyuubi, lance, lancedb, mariadb, materialize, memgraph, memgraph_cypher, memgraph_db, memsql, metricsql, milvus, monet, monetdb, mongo, mongodb, mssql, mysql, mz, n1ql, neo4j, neo4j_sql, neon, neptune, neptune_gremlin, neptune_sparql, oceanbase, opensearch, opensearch_connector, opensearch_sql, oracle, partiql, pinecone, pinecone_db, pinecone_vector, pinot, polars, postgres, postgresql, presto, prestodb, prom, prometheus, promql, pulsar, pulsar_sql, pydoris, pydrill, pyhive, pykx, pymilvus, pyspark, q, qdrant, qdrant_db, qdrant_vector, questdb, redis, redis_ft, redis_search, redisearch, redshift, risingwave, rw, sap_ase, sap_hana, saphana, scylla, scylladb, singlestore, snowflake, spanner, spark, spark_sql, sparksql, sqlite, sqlserver, starrocks, supabase, surreal, surrealdb, sybase, taos, tdengine, teradata, tidb, timescale, timescaledb, timestream, trino, vertica, victoria_metrics, victoriametrics, vm, weaviate, weaviate_db, weaviate_vector, yugabyte, yugabytedb, zilliz]"
+   },
+   "status": 400
+  }
+ },
+ "exec_cache_miss": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 424242 AS cached_val",
+   "params": [],
+   "columns": [
+    "cached_val"
+   ],
+   "rows": [
+    {
+     "cached_val": 424242
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "exec_cache_hit": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 424242 AS cached_val",
+   "params": [],
+   "columns": [
+    "cached_val"
+   ],
+   "rows": [
+    {
+     "cached_val": 424242
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": true
+  }
+ },
+ "exec_cache_spec_miss": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "name"
+   ],
+   "rows": [
+    {
+     "name": "Alice"
+    },
+    {
+     "name": "Bob"
+    },
+    {
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_cache_spec_hit": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT \"t1\".\"name\" AS \"name\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    "100",
+    "0"
+   ],
+   "columns": [
+    "name"
+   ],
+   "rows": [
+    {
+     "name": "Alice"
+    },
+    {
+     "name": "Bob"
+    },
+    {
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 1000,
+   "offset": 0,
+   "page": 1,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": true,
+   "execution_id": "<V>"
+  }
+ },
+ "exec_unknown_connection_id": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "sql": "SELECT 5 AS five",
+   "params": [],
+   "columns": [
+    "five"
+   ],
+   "rows": [
+    {
+     "five": 5
+    }
+   ],
+   "count": 1,
+   "limit": 1,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "execution_id": "<V>",
+   "cached": false
+  }
+ },
+ "conn_register_missing_id": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'connection_id'."
+   },
+   "status": 400
+  }
+ },
+ "conn_register_nonstring_id": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'connection_id'."
+   },
+   "status": 400
+  }
+ },
+ "conn_register_bad_size": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "POOL_ERROR",
+    "message": "Failed to register connection pool: invalid literal for int() with base 10: 'x'"
+   },
+   "status": 400
+  }
+ },
+ "conn_register": {
+  "status": 201,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "status": "registered",
+   "connection_id": "c1",
+   "metadata": {
+    "password": "***",
+    "team": "x",
+    "connector": "sqlite",
+    "dialect": "sqlite"
+   }
+  }
+ },
+ "conn_list": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "connections": [
+    {
+     "connection_id": "c1",
+     "size": 0,
+     "available": 0,
+     "in_use": 0,
+     "metadata": {
+      "password": "***",
+      "team": "x",
+      "connector": "sqlite",
+      "dialect": "sqlite"
+     }
+    }
+   ]
+  }
+ },
+ "conn_test_id": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "healthy": true,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "connection_id": "c1"
+  }
+ },
+ "conn_test_unknown": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "healthy": false,
+   "error": "Connection pool 'zzz' is not registered.",
+   "latency_ms": "<V>",
+   "dialect": "unknown",
+   "connection_id": "zzz"
+  }
+ },
+ "conn_test_inline": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "healthy": false,
+   "error": "Failed to connect to SQLite database ':memory:': Connection() got an unexpected keyword argument 'config'",
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "connection_id": null
+  }
+ },
+ "conn_test_empty": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "healthy": true,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "connection_id": null
+  }
+ },
+ "exec_via_pool_sql": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "execution_id": "<V>",
+   "sql": "SELECT name FROM users ORDER BY id",
+   "params": [],
+   "columns": [
+    "name"
+   ],
+   "rows": [
+    {
+     "name": "Alice"
+    },
+    {
+     "name": "Bob"
+    },
+    {
+     "name": "Cy"
+    }
+   ],
+   "count": 3,
+   "limit": 3,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false
+  }
+ },
+ "exec_via_pool_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "execution_id": "<V>",
+   "sql": "SELECT \"t1\".\"id\" AS \"id\"\nFROM \"users\" \"t1\"\nLIMIT ? OFFSET ?",
+   "params": [
+    50,
+    0
+   ],
+   "columns": [
+    "id"
+   ],
+   "rows": [
+    {
+     "id": 1
+    },
+    {
+     "id": 2
+    },
+    {
+     "id": 3
+    }
+   ],
+   "count": 3,
+   "limit": 2,
+   "offset": 0,
+   "latency_ms": "<V>",
+   "dialect": "sqlite",
+   "cached": false
+  }
+ },
+ "exec_via_pool_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXECUTION_ERROR",
+    "message": "Execution failed: no such table: missing_tbl"
+   },
+   "status": 400
+  }
+ },
+ "conn_cancel_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'execution_id'."
+   },
+   "status": 400
+  }
+ },
+ "conn_cancel_nonstring": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'execution_id'."
+   },
+   "status": 400
+  }
+ },
+ "conn_cancel_unknown": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "cancelled": false,
+   "execution_id": "<V>",
+   "message": "Execution not found or already completed"
+  }
+ },
+ "conn_delete_query": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "deleted": true,
+   "connection_id": "c1"
+  }
+ },
+ "conn_delete_again": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Connection pool 'c1' not found."
+   },
+   "status": 404
+  }
+ },
+ "conn_delete_missing_id": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'connection_id'."
+   },
+   "status": 400
+  }
+ },
+ "conn_register_default_connector": {
+  "status": 201,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "status": "registered",
+   "connection_id": "c2",
+   "metadata": {
+    "connector": "sqlite",
+    "dialect": "sqlite"
+   }
+  }
+ },
+ "conn_delete_path": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "deleted": true,
+   "connection_id": "c2"
+  }
+ },
+ "stream_api_v1_stream_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-headers": "Content-Type, Authorization"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"id\", \"name\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\", \\\"t1\\\".\\\"name\\\" AS \\\"name\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}], \"batch_index\": 0, \"batch_size\": 2}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 3, \"name\": \"Cy\"}], \"batch_index\": 1, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
+ },
+ "stream_api_v1_stream_sql": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-headers": "Content-Type, Authorization"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"a\"], \"total_estimated\": 1, \"dialect\": \"sqlite\", \"sql\": \"SELECT 1 AS a\"}\n\nevent: batch\ndata: {\"rows\": [{\"a\": 1}], \"batch_index\": 0, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 1, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
+ },
+ "stream_api_v1_stream_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec' or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "stream_api_v1_stream_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "stream_api_v1_stream_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "STREAM_ERROR",
+    "message": "Streaming failed: OperationalError: no such table: missing_tbl"
+   },
+   "status": 400
+  }
+ },
+ "stream_api_query_stream_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-headers": "Content-Type, Authorization"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"id\", \"name\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\", \\\"t1\\\".\\\"name\\\" AS \\\"name\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}], \"batch_index\": 0, \"batch_size\": 2}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 3, \"name\": \"Cy\"}], \"batch_index\": 1, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
+ },
+ "stream_api_query_stream_sql": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-headers": "Content-Type, Authorization"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"a\"], \"total_estimated\": 1, \"dialect\": \"sqlite\", \"sql\": \"SELECT 1 AS a\"}\n\nevent: batch\ndata: {\"rows\": [{\"a\": 1}], \"batch_index\": 0, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 1, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
+ },
+ "stream_api_query_stream_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec' or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "stream_api_query_stream_forbidden": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Tenant isolation enforced but no TenantContext provided."
+   },
+   "status": 403
+  }
+ },
+ "stream_api_query_stream_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "STREAM_ERROR",
+    "message": "Streaming failed: OperationalError: no such table: missing_tbl"
+   },
+   "status": 400
+  }
+ },
+ "stream_batch_zero": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-headers": "Content-Type, Authorization"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"id\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1}, {\"id\": 2}, {\"id\": 3}], \"batch_index\": 0, \"batch_size\": 3}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
+ },
+ "stream_batch_bad": {
+  "status": "disconnected",
+  "headers": {},
+  "body": null
+ },
+ "stream_tenant": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"error\": {\n    \"code\": \"STREAM_ERROR\",\n    \"message\": \"Streaming failed: OperationalError: no such column: t1.tenant_id\"\n  },\n  \"status\": 400\n}"
+ },
+ "explain_api_v1_explain_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Limit",
+   "table": null,
+   "cost_estimate": 175.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sort",
+     "table": null,
+     "cost_estimate": 170.0,
+     "actual_time_ms": null,
+     "rows_estimated": 10000,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 97.14,
+     "warnings": [
+      "High resource bottleneck: operation consumes 97.14% of total query execution cost."
+     ],
+     "children": [
+      {
+       "node_type": "Seq Scan",
+       "table": "users",
+       "cost_estimate": 150.0,
+       "actual_time_ms": null,
+       "rows_estimated": 10000,
+       "rows_actual": null,
+       "filter_predicate": null,
+       "index_name": null,
+       "cost_percentage": 85.71,
+       "warnings": [
+        "Sequential table scan on 'users' with 10,000 estimated rows. Consider adding an index on relevant filter columns."
+       ],
+       "children": []
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "explain_api_v1_explain_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec', 'raw_explain', or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "explain_api_v1_explain_raw": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Execution Plan",
+   "table": null,
+   "cost_estimate": 100.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sqlite Driver Scan",
+     "table": null,
+     "cost_estimate": 100.0,
+     "actual_time_ms": null,
+     "rows_estimated": 50,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 100.0,
+     "warnings": [],
+     "children": []
+    }
+   ]
+  }
+ },
+ "explain_api_query_explain_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Limit",
+   "table": null,
+   "cost_estimate": 175.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sort",
+     "table": null,
+     "cost_estimate": 170.0,
+     "actual_time_ms": null,
+     "rows_estimated": 10000,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 97.14,
+     "warnings": [
+      "High resource bottleneck: operation consumes 97.14% of total query execution cost."
+     ],
+     "children": [
+      {
+       "node_type": "Seq Scan",
+       "table": "users",
+       "cost_estimate": 150.0,
+       "actual_time_ms": null,
+       "rows_estimated": 10000,
+       "rows_actual": null,
+       "filter_predicate": null,
+       "index_name": null,
+       "cost_percentage": 85.71,
+       "warnings": [
+        "Sequential table scan on 'users' with 10,000 estimated rows. Consider adding an index on relevant filter columns."
+       ],
+       "children": []
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "explain_api_query_explain_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Either 'spec', 'raw_explain', or 'sql' must be provided."
+   },
+   "status": 400
+  }
+ },
+ "explain_api_query_explain_raw": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Execution Plan",
+   "table": null,
+   "cost_estimate": 100.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sqlite Driver Scan",
+     "table": null,
+     "cost_estimate": 100.0,
+     "actual_time_ms": null,
+     "rows_estimated": 50,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 100.0,
+     "warnings": [],
+     "children": []
+    }
+   ]
+  }
+ },
+ "explain_raw_bad": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Execution Plan",
+   "table": null,
+   "cost_estimate": 100.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Postgres Driver Scan",
+     "table": null,
+     "cost_estimate": 100.0,
+     "actual_time_ms": null,
+     "rows_estimated": 50,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 100.0,
+     "warnings": [],
+     "children": []
+    }
+   ]
+  }
+ },
+ "explain_sql_sqlite": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Execution Plan",
+   "table": null,
+   "cost_estimate": 100.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sqlite Driver Scan",
+     "table": null,
+     "cost_estimate": 100.0,
+     "actual_time_ms": null,
+     "rows_estimated": 50,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 100.0,
+     "warnings": [],
+     "children": []
+    }
+   ]
+  }
+ },
+ "explain_sql_fallback": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Limit",
+   "table": null,
+   "cost_estimate": 175.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sort",
+     "table": null,
+     "cost_estimate": 170.0,
+     "actual_time_ms": null,
+     "rows_estimated": 10000,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 97.14,
+     "warnings": [
+      "High resource bottleneck: operation consumes 97.14% of total query execution cost."
+     ],
+     "children": [
+      {
+       "node_type": "Seq Scan",
+       "table": "query",
+       "cost_estimate": 150.0,
+       "actual_time_ms": null,
+       "rows_estimated": 10000,
+       "rows_actual": null,
+       "filter_predicate": null,
+       "index_name": null,
+       "cost_percentage": 85.71,
+       "warnings": [
+        "Sequential table scan on 'query' with 10,000 estimated rows. Consider adding an index on relevant filter columns."
+       ],
+       "children": []
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "explain_spec_bad": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "node_type": "Limit",
+   "table": null,
+   "cost_estimate": 175.0,
+   "actual_time_ms": null,
+   "rows_estimated": 50,
+   "rows_actual": null,
+   "filter_predicate": null,
+   "index_name": null,
+   "cost_percentage": 100.0,
+   "warnings": [
+    "High resource bottleneck: operation consumes 100.0% of total query execution cost."
+   ],
+   "children": [
+    {
+     "node_type": "Sort",
+     "table": null,
+     "cost_estimate": 170.0,
+     "actual_time_ms": null,
+     "rows_estimated": 10000,
+     "rows_actual": null,
+     "filter_predicate": null,
+     "index_name": null,
+     "cost_percentage": 97.14,
+     "warnings": [
+      "High resource bottleneck: operation consumes 97.14% of total query execution cost."
+     ],
+     "children": [
+      {
+       "node_type": "Seq Scan",
+       "table": "unknown_table",
+       "cost_estimate": 150.0,
+       "actual_time_ms": null,
+       "rows_estimated": 10000,
+       "rows_actual": null,
+       "filter_predicate": null,
+       "index_name": null,
+       "cost_percentage": 85.71,
+       "warnings": [
+        "Sequential table scan on 'unknown_table' with 10,000 estimated rows. Consider adding an index on relevant filter columns."
+       ],
+       "children": []
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "export_csv": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "id,name\n1,\"a,b\"\n2,c\n"
+ },
+ "export_json": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json",
+   "content-disposition": "attachment; filename=\"export.json\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "[\n  {\n    \"id\": 1,\n    \"name\": \"a,b\"\n  },\n  {\n    \"id\": 2,\n    \"name\": \"c\"\n  }\n]"
+ },
+ "export_jsonl": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/x-ndjson",
+   "content-disposition": "attachment; filename=\"export.jsonl\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\"id\": 1, \"name\": \"a,b\"}\n{\"id\": 2, \"name\": \"c\"}\n"
+ },
+ "export_tsv": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"error\": {\n    \"code\": \"EXPORT_ERROR\",\n    \"message\": \"Export failed: Unsupported export format 'tsv'. Supported formats: ['arrow', 'csv', 'excel', 'json', 'jsonl', 'ndjson', 'parquet', 'xlsx']\"\n  },\n  \"status\": 400\n}"
+ },
+ "export_xlsx": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+   "content-disposition": "attachment; filename=\"export.xlsx\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "<zip>"
+ },
+ "export_html": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"error\": {\n    \"code\": \"EXPORT_ERROR\",\n    \"message\": \"Export failed: Unsupported export format 'html'. Supported formats: ['arrow', 'csv', 'excel', 'json', 'jsonl', 'ndjson', 'parquet', 'xlsx']\"\n  },\n  \"status\": 400\n}"
+ },
+ "export_bogus": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"error\": {\n    \"code\": \"EXPORT_ERROR\",\n    \"message\": \"Export failed: Unsupported export format 'bogus'. Supported formats: ['arrow', 'csv', 'excel', 'json', 'jsonl', 'ndjson', 'parquet', 'xlsx']\"\n  },\n  \"status\": 400\n}"
+ },
+ "export_default_format": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "id,name\n1,\"a,b\"\n2,c\n"
+ },
+ "export_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "id,name\n1,Alice\n2,Bob\n3,Cy\n"
+ },
+ "export_spec_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXPORT_ERROR",
+    "message": "Export failed: No connector registered for 'nonexistent_db'. Available connectors: [adx, alloydb, amazon_neptune, apache-cassandra, apache_cassandra, apache_derby, apache_doris, apache_drill, apache_druid, apache_flink, apache_hive, apache_impala, apache_kyuubi, apache_pinot, apache_pulsar, aql, arango, arangodb, ase, async_adx, async_amazon_neptune, async_apache-cassandra, async_apache_cassandra, async_apache_derby, async_apache_doris, async_apache_drill, async_apache_flink, async_apache_hive, async_apache_impala, async_apache_kyuubi, async_apache_pulsar, async_aql, async_arango, async_arangodb, async_ase, async_aws_neptune, async_aws_timestream, async_azure_cosmos, async_azure_data_explorer, async_bigtable, async_cassandra, async_ch_native, async_chdb, async_chroma, async_chromadb, async_clickhouse_native, async_cosmosdb, async_cql, async_crate, async_cratedb, async_cypher, async_db2, async_derby, async_doris, async_drill, async_exasol, async_firebird, async_firebirdsql, async_firestore, async_flink, async_flink_sql, async_gcp_bigtable, async_gcp_firestore, async_google_bigtable, async_google_firestore, async_greptime, async_greptimedb, async_h2, async_h2db, async_hive, async_ibm_db2, async_ibm_informix, async_impala, async_informix, async_kdb, async_kdb+, async_kql, async_ksql, async_ksqldb, async_kusto, async_kyuubi, async_lance, async_lancedb, async_materialize, async_memgraph, async_memgraph_cypher, async_memgraph_db, async_metricsql, async_milvus, async_monet, async_monetdb, async_mz, async_neo4j, async_neptune, async_opensearch, async_opensearch_sql, async_pinecone, async_pinecone_db, async_pinecone_vector, async_presto, async_prestodb, async_prom, async_prometheus, async_promql, async_pulsar, async_pulsar_sql, async_pykx, async_pymilvus, async_pyspark, async_qdrant, async_qdrant_db, async_qdrant_vector, async_redis, async_redis_ft, async_redis_search, async_redisearch, async_risingwave, async_rw, async_sap_ase, async_spark_sql, async_sparksql, async_starrocks, async_surreal, async_surrealdb, async_sybase, async_taos, async_tdengine, async_timestream, async_victoria_metrics, async_victoriametrics, async_vm, async_weaviate, async_weaviate_db, async_weaviate_vector, async_yugabyte, async_yugabytedb, async_zilliz, athena, atlas_sql, aws_neptune, aws_timestream, azure_cosmos, azure_data_explorer, bigquery, bigtable, cassandra, ch_native, chdb, chroma, chromadb, clickhouse, clickhouse_native, clickhouse_tcp, cloudflare_d1, cockroach, cockroachdb, cosmosdb, couchbase, cql, crate, cratedb, cypher, d1, databricks, datafusion, db2, dbapi, derby, doris, dremio, drill, druid, duckdb, dynamodb, elasticsearch, exasol, firebird, firebirdsql, firebolt, firestore, flink, flink_sql, gcp_bigtable, gcp_firestore, generic, google_bigtable, google_firestore, greptime, greptimedb, h2, h2db, hana, hive, ibm_db2, ibm_informix, impala, impyla, influx, influxdb, informix, iox, kdb, kdb+, kql, ksql, ksqldb, kusto, kyuubi, lance, lancedb, mariadb, materialize, memgraph, memgraph_cypher, memgraph_db, memsql, metricsql, milvus, monet, monetdb, mongo, mongodb, mssql, mysql, mz, n1ql, neo4j, neo4j_sql, neon, neptune, neptune_gremlin, neptune_sparql, oceanbase, opensearch, opensearch_connector, opensearch_sql, oracle, partiql, pinecone, pinecone_db, pinecone_vector, pinot, polars, postgres, postgresql, presto, prestodb, prom, prometheus, promql, pulsar, pulsar_sql, pydoris, pydrill, pyhive, pykx, pymilvus, pyspark, q, qdrant, qdrant_db, qdrant_vector, questdb, redis, redis_ft, redis_search, redisearch, redshift, risingwave, rw, sap_ase, sap_hana, saphana, scylla, scylladb, singlestore, snowflake, spanner, spark, spark_sql, sparksql, sqlite, sqlserver, starrocks, supabase, surreal, surrealdb, sybase, taos, tdengine, teradata, tidb, timescale, timescaledb, timestream, trino, vertica, victoria_metrics, victoriametrics, vm, weaviate, weaviate_db, weaviate_vector, yugabyte, yugabytedb, zilliz]"
+   },
+   "status": 400
+  }
+ },
+ "export_no_data": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXPORT_ERROR",
+    "message": "Export failed: Dictionary input must contain 'rows' key."
+   },
+   "status": 400
+  }
+ },
+ "export_stream_csv": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "id,name\n1,\"a,b\"\n2,c\n"
+ },
+ "export_stream_json": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json",
+   "content-disposition": "attachment; filename=\"export.json\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "[\n  {\"id\": 1, \"name\": \"a,b\"}\n  ,{\"id\": 2, \"name\": \"c\"}\n]\n"
+ },
+ "export_stream_jsonl": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/x-ndjson",
+   "content-disposition": "attachment; filename=\"export.jsonl\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "{\"id\": 1, \"name\": \"a,b\"}\n{\"id\": 2, \"name\": \"c\"}\n"
+ },
+ "export_stream_bogus": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "{\n  \"error\": {\n    \"code\": \"EXPORT_ERROR\",\n    \"message\": \"Streaming export failed: Unsupported export format 'bogus'. Supported formats: ['arrow', 'csv', 'excel', 'json', 'jsonl', 'ndjson', 'parquet', 'xlsx']\"\n  },\n  \"status\": 400\n}"
+ },
+ "export_stream_chunk_zero": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "id,name\n1,\"a,b\"\n2,c\n"
+ },
+ "export_stream_chunk_bad": {
+  "status": "disconnected",
+  "headers": {},
+  "body": null
+ },
+ "export_stream_spec": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "id\n1\n2\n3\n"
+ },
+ "export_stream_sql": {
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "id\n2\n3\n"
+ },
+ "export_stream_sql_error": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXPORT_ERROR",
+    "message": "Streaming export failed: OperationalError: no such table: missing_tbl"
+   },
+   "status": 400
+  }
+ },
+ "export_stream_nodata": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "EXPORT_ERROR",
+    "message": "Streaming export failed: Dictionary input must contain 'rows' key."
+   },
+   "status": 400
+  }
+ },
+ "tmpl_create": {
+  "status": 201,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "id": "tmpl-1",
+   "title": "Users",
+   "spec": {
+    "table": "users",
+    "columns": [
+     "id"
+    ]
+   },
+   "sql": "",
+   "description": "",
+   "category": "cat",
+   "tenant_id": "t1",
+   "created_at": "<V>",
+   "updated_at": "<V>",
+   "is_default": false
+  }
+ },
+ "tmpl_create_no_spec": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Template creation failed: Template specification must be a non-empty dictionary."
+   },
+   "status": 400
+  }
+ },
+ "tmpl_create_invalid": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Template creation failed: Template title is required."
+   },
+   "status": 400
+  }
+ },
+ "tmpl_list": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": [
+   {
+    "id": "tmpl-1",
+    "title": "Users",
+    "spec": {
+     "table": "users",
+     "columns": [
+      "id"
+     ]
+    },
+    "sql": "",
+    "description": "",
+    "category": "cat",
+    "tenant_id": "t1",
+    "created_at": "<V>",
+    "updated_at": "<V>",
+    "is_default": false
+   }
+  ]
+ },
+ "tmpl_list_filter": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": [
+   {
+    "id": "tmpl-1",
+    "title": "Users",
+    "spec": {
+     "table": "users",
+     "columns": [
+      "id"
+     ]
+    },
+    "sql": "",
+    "description": "",
+    "category": "cat",
+    "tenant_id": "t1",
+    "created_at": "<V>",
+    "updated_at": "<V>",
+    "is_default": false
+   }
+  ]
+ },
+ "tmpl_list_filter_none": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": []
+ },
+ "tmpl_delete_wrong_tenant": {
+  "status": 403,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "FORBIDDEN",
+    "message": "Unauthorized: cannot delete template of another tenant."
+   },
+   "status": 403
+  }
+ },
+ "tmpl_delete": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "deleted": true,
+   "id": "tmpl-1"
+  }
+ },
+ "tmpl_delete_again": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Template 'tmpl-1' not found."
+   },
+   "status": 404
+  }
+ },
+ "tmpl_delete_nested": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Template 'b' not found."
+   },
+   "status": 404
+  }
+ },
+ "nlq_translate_ok": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "spec": {
+    "table": "users",
+    "columns": [
+     "*"
+    ],
+    "joins": [],
+    "filters": [],
+    "filter_join": "AND",
+    "having": [],
+    "order_by": [],
+    "limit": 50,
+    "offset": 0,
+    "distinct": false,
+    "vector_search": null,
+    "hybrid_search": null
+   },
+   "confidence": 1.0,
+   "explanation": "This query targets the 'users' dataset in postgres SQL dialect. Select records from base table 'users'. Limit query output to 50 rows.",
+   "provider": "mock",
+   "model": "mock-rule-v1",
+   "tokens_used": 42,
+   "warnings": []
+  }
+ },
+ "nlq_translate_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required non-empty 'prompt' string."
+   },
+   "status": 400
+  }
+ },
+ "nlq_translate_blank": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required non-empty 'prompt' string."
+   },
+   "status": 400
+  }
+ },
+ "nlq_translate_nonstring": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required non-empty 'prompt' string."
+   },
+   "status": 400
+  }
+ },
+ "nlq_translate_bad_provider": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NLQ_ERROR",
+    "message": "NLQ translation failed: Unknown NLQ provider 'zzz'. Available: ['mock', 'gemini', 'openai', 'anthropic', 'ollama', 'byo', 'custom']"
+   },
+   "status": 400
+  }
+ },
+ "nlq_translate_internal": {
+  "status": 500,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "NLQ internal error: boom"
+   },
+   "status": 500
+  }
+ },
+ "nlq_explain_ok": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "summary": "Queries users projecting 1 columns with 0 filters.",
+   "explanation": "This query targets the 'users' dataset in postgres SQL dialect. Select records from base table 'users'. Limit query output to 50 rows.",
+   "steps": [
+    "Select records from base table 'users'.",
+    "Limit query output to 50 rows."
+   ],
+   "provider": "mock"
+  }
+ },
+ "nlq_explain_spec_key": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "summary": "Queries users projecting 1 columns with 0 filters.",
+   "explanation": "This query targets the 'users' dataset in mysql SQL dialect. Select records from base table 'users'. Limit query output to 50 rows.",
+   "steps": [
+    "Select records from base table 'users'.",
+    "Limit query output to 50 rows."
+   ],
+   "provider": "mock"
+  }
+ },
+ "nlq_explain_missing": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'query' or 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "nlq_explain_not_dict": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "BAD_REQUEST",
+    "message": "Missing required 'query' or 'spec' dictionary."
+   },
+   "status": 400
+  }
+ },
+ "nlq_explain_bad_provider": {
+  "status": 400,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NLQ_ERROR",
+    "message": "NLQ explain failed: Unknown NLQ provider 'zzz'. Available: ['mock', 'gemini', 'openai', 'anthropic', 'ollama', 'byo', 'custom']"
+   },
+   "status": 400
+  }
+ },
+ "delete_unknown": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /nope"
+   },
+   "status": 404
+  }
+ },
+ "delete_health": {
+  "status": 404,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "error": {
+    "code": "NOT_FOUND",
+    "message": "Endpoint not found: /health"
+   },
+   "status": 404
+  }
+ },
+ "telemetry_after": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=utf-8",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": {
+   "total_queries": 19,
+   "success_count": 13,
+   "error_count": 6,
+   "error_rate": 0.3158,
+   "avg_latency_ms": "<V>",
+   "p50_latency_ms": "<V>",
+   "p95_latency_ms": "<V>",
+   "p99_latency_ms": "<V>",
+   "active_tenants_count": 1
+  }
+ }
+}
