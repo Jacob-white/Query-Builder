@@ -300,7 +300,7 @@ describe("BiChartVisualizer Component", () => {
         { item: "Valid String Number", flag: true, amount: "123.45" },
         { item: "Empty String", flag: false, amount: "" },
         { item: "Invalid NaN", flag: null, amount: "not_a_number" },
-        { item: "True Boolean", flag: true, amount: true as any },
+        { item: "True Boolean", flag: true, amount: true },
         { item: "Raw NaN", flag: undefined, amount: NaN },
         { item: "Null Value", flag: false, amount: null },
       ],

@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { createRequire } from "module";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 
 import {
   VisualQueryBuilder,
@@ -63,7 +65,10 @@ describe("Milestone 5 Consumer Simulation: @jacob-white/query-builder-react", ()
   it("verifies dual dist bundle exports parity between ESM and CJS", async () => {
     const require = createRequire(import.meta.url);
     const cjsModule = require("../dist/index.cjs");
-    const esmModule = await import("../dist/index.mjs");
+    // dist is a build artifact with no type declarations for the .mjs entry; load it by file URL.
+    const esmModule: Record<string, unknown> = await import(
+      /* @vite-ignore */ pathToFileURL(resolve(__dirname, "../dist/index.mjs")).href
+    );
 
     const criticalSymbols = [
       "VisualQueryBuilder",
@@ -407,7 +412,7 @@ describe("Milestone 5 Consumer Simulation: @jacob-white/query-builder-react", ()
     const snapshot = toSchemaSnapshot(prismaTables);
     expect(snapshot.tables.users).toBeDefined();
     expect(snapshot.tables.posts).toBeDefined();
-    expect(snapshot.relationships.length).toBeGreaterThan(0);
+    expect(snapshot.relationships?.length).toBeGreaterThan(0);
 
     // Mount into VisualQueryBuilder
     const { container } = render(
