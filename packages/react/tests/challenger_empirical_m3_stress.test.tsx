@@ -5,7 +5,8 @@ import { parseSqlToSpec, cleanIdentifier } from "../src/utils/sqlParser";
 import { findBestJoinCondition, findJoinPath } from "../src/utils/joinUtils";
 import { SchemaErdModal } from "../src/components/SchemaErdModal";
 import { VisualQueryBuilder } from "../src/components/VisualQueryBuilder";
-import type { SchemaSnapshot, DatabaseSchemaDefinition, VisualJoin } from "../src/types";
+import type { SchemaSnapshot, VisualJoin } from "../src/types";
+import { invalid } from "./helpers";
 
 describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => {
   beforeEach(() => {
@@ -214,10 +215,10 @@ describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => 
       const malformedSqlList = [
         "",
         "   ",
-        null as any,
-        undefined as any,
-        12345 as any,
-        { sql: "SELECT * FROM users" } as any,
+        invalid<string>(null),
+        invalid<string>(undefined),
+        invalid<string>(12345),
+        invalid<string>({ sql: "SELECT * FROM users" }),
         "SELECT",
         "SELECT FROM",
         "FROM users",
@@ -249,22 +250,22 @@ describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => 
   // 2. Bidirectional State Synchronization in VisualQueryBuilder.tsx
   // =========================================================================
   describe("2. Bidirectional State Synchronization in VisualQueryBuilder.tsx", () => {
-    const testSchema: DatabaseSchemaDefinition = {
+    const testSchema: SchemaSnapshot = {
       tables: {
         users: {
           name: "users",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "email", data_type: "varchar" },
-            { name: "status", data_type: "varchar" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "email", data_type: "varchar", is_nullable: true, is_primary: false },
+            { name: "status", data_type: "varchar", is_nullable: true, is_primary: false },
           ],
         },
         orders: {
           name: "orders",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "user_id", data_type: "int" },
-            { name: "amount", data_type: "decimal" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "user_id", data_type: "int", is_nullable: true, is_primary: false },
+            { name: "amount", data_type: "decimal", is_nullable: true, is_primary: false },
           ],
         },
       },
@@ -428,75 +429,75 @@ describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => 
         users: {
           name: "users",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "email", data_type: "varchar" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "email", data_type: "varchar", is_nullable: true, is_primary: false },
           ],
         },
         orders: {
           name: "orders",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "user_id", data_type: "int" },
-            { name: "amount", data_type: "decimal" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "user_id", data_type: "int", is_nullable: true, is_primary: false },
+            { name: "amount", data_type: "decimal", is_nullable: true, is_primary: false },
           ],
         },
         order_items: {
           name: "order_items",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "order_id", data_type: "int" },
-            { name: "product_id", data_type: "int" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "order_id", data_type: "int", is_nullable: true, is_primary: false },
+            { name: "product_id", data_type: "int", is_nullable: true, is_primary: false },
           ],
         },
         products: {
           name: "products",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "category_id", data_type: "int" },
-            { name: "name", data_type: "varchar" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "category_id", data_type: "int", is_nullable: true, is_primary: false },
+            { name: "name", data_type: "varchar", is_nullable: true, is_primary: false },
           ],
         },
         categories: {
           name: "categories",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "title", data_type: "varchar" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "title", data_type: "varchar", is_nullable: true, is_primary: false },
           ],
         },
         audit_logs: {
           name: "audit_logs",
           columns: [
-            { name: "log_id", data_type: "int", is_primary: true },
-            { name: "message", data_type: "varchar" },
+            { name: "log_id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "message", data_type: "varchar", is_nullable: true, is_primary: false },
           ],
         },
         // 4-node cycle: A -> B -> C -> D -> A
         node_a: {
           name: "node_a",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "b_id", data_type: "int" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "b_id", data_type: "int", is_nullable: true, is_primary: false },
           ],
         },
         node_b: {
           name: "node_b",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "c_id", data_type: "int" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "c_id", data_type: "int", is_nullable: true, is_primary: false },
           ],
         },
         node_c: {
           name: "node_c",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "d_id", data_type: "int" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "d_id", data_type: "int", is_nullable: true, is_primary: false },
           ],
         },
         node_d: {
           name: "node_d",
           columns: [
-            { name: "id", data_type: "int", is_primary: true },
-            { name: "a_id", data_type: "int" },
+            { name: "id", data_type: "int", is_nullable: false, is_primary: true },
+            { name: "a_id", data_type: "int", is_nullable: true, is_primary: false },
           ],
         },
       },
@@ -678,7 +679,7 @@ describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => 
       tables: {
         users: {
           name: "users",
-          columns: [{ name: "id", data_type: "int", is_primary: true }],
+          columns: [{ name: "id", data_type: "int", is_nullable: false, is_primary: true }],
         },
       },
     };

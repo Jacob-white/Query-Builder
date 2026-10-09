@@ -464,7 +464,7 @@ describe("Milestone 2 Empirical Stress & Edge Case Test Suite", () => {
         count: 2,
       };
 
-      let createdBlob: Blob | null = null;
+      let createdBlob = null as Blob | null;
       let createdUrl = "";
       const mockCreateObjectURL = vi.fn().mockImplementation((blob: Blob) => {
         createdBlob = blob;
@@ -569,7 +569,7 @@ describe("Milestone 2 Empirical Stress & Edge Case Test Suite", () => {
         count: 2,
       };
 
-      let passedBlob: Blob | null = null;
+      let passedBlob = null as Blob | null;
       global.URL.createObjectURL = vi.fn().mockImplementation((blob: Blob) => {
         passedBlob = blob;
         return "blob:complex-test";
