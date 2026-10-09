@@ -192,3 +192,31 @@ query-builder verify-connectors [--json]                # print the status table
 `query_builder/connectors/**` or `docker/**`. It starts the compose services, installs the
 drivers, runs `pytest -m integration` with the required tier strict, and uploads the JSON and
 Markdown report as an artifact. It is not part of the default PR gate otherwise.
+
+## Adding engines (families)
+
+Engines live in per-family files so several people can add engines without editing the same
+module:
+
+- **Registry:** `tests/integration/engines_<family>.py`. It is imported automatically by
+  `tests/integration/engines.py`; do `from tests.integration.engines import Engine, register` and
+  call `register(Engine(...))`. Set `service` and `container_port` so the engine also works when
+  the suite runs inside the compose network (`QB_IT_IN_DOCKER=1`, `scripts/it_docker_run.sh`).
+- **Containers:** `docker/compose.<family>.yml`, project `qb-integration`, one compose *profile*
+  named after the family, pinned image tags, healthchecks, host ports bound to `127.0.0.1` in the
+  family's reserved range (below 49152; Windows reserves dynamic ranges above it), and named
+  volumes only (removed by `down -v`).
+- **Running:** always through `scripts/it_batch.py`. It takes a machine-wide lock and waits for
+  enough free RAM, starts only the named services, runs only the named engines, tears down, and
+  writes `tests/integration/.reports/<label>.json`:
+
+  ```text
+  python scripts/it_batch.py --label arango --engines arangodb \
+      --compose docker/compose.nosql.yml --profile nosql --services arangodb
+  ```
+
+  Use `--linux` for engines whose Python driver cannot be installed on Windows, and
+  `QB_IT_EXTRA_PIP="pkg1 pkg2"` to add drivers inside the Linux container.
+- **Evidence:** record reports with `python scripts/gen_connector_status.py --record-live <reports...>`.
+  Only classes that actually passed against a real engine become `certified`. An engine that
+  merely speaks another engine's wire protocol is NOT evidence for a different class.

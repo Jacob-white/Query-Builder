@@ -69,18 +69,27 @@ class Engine:
     ro_native: Callable[[Engine, Any], None] | None = None  # create read-only login
     slow_sql: str = ""  # a statement that runs far longer than the timeout
     ddl_family_overrides: dict[str, str] = field(default_factory=dict)
+    #: compose service name and container-internal port; used instead of 127.0.0.1:<host port>
+    #: when the suite runs INSIDE the compose network (QB_IT_IN_DOCKER=1, scripts/it_docker_run.sh)
+    service: str = ""
+    container_port: int = 0
 
     # ---- configuration -------------------------------------------------
+    def _in_docker(self) -> bool:
+        return bool(os.environ.get("QB_IT_IN_DOCKER")) and bool(self.service)
+
     def env(self, key: str, default: Any) -> str:
         return os.environ.get(f"QB_IT_{self.name.upper()}_{key}", str(default))
 
     @property
     def host(self) -> str:
-        return self.env("HOST", HOST_DEFAULT)
+        return self.env("HOST", self.service if self._in_docker() else HOST_DEFAULT)
 
     @property
     def port_(self) -> int:
-        return int(self.env("PORT", self.port))
+        return int(
+            self.env("PORT", self.container_port if self._in_docker() else self.port)
+        )
 
     @property
     def user_(self) -> str:
@@ -864,6 +873,22 @@ def _mssql_bootstrap(e: Engine) -> Native:
     return _mssql_native(e)
 
 
+# Public name for extension modules (tests/integration/engines_<family>.py).
+register = _register
+
+
+def _load_extension_modules() -> None:
+    """Import every ``tests/integration/engines_*.py`` so a family of engines can live in its
+    own file (and its own ``docker/compose.<family>.yml``) without editing this module.
+
+    An extension module does ``from tests.integration.engines import Engine, register`` and
+    calls ``register(Engine(...))``. This runs at the very bottom of this module, after every
+    name an extension may import has been defined.
+    """
+    for path in sorted(Path(__file__).parent.glob("engines_*.py")):
+        importlib.import_module(f"tests.integration.{path.stem}")
+
+
 def selected_engine_names() -> list[str]:
     """Engines to parametrize over, honouring QB_IT_ENGINES (comma separated)."""
     raw = os.environ.get("QB_IT_ENGINES", "").strip()
@@ -876,3 +901,6 @@ def selected_engine_names() -> list[str]:
             f"QB_IT_ENGINES names unknown engine(s) {unknown}; known: {sorted(ENGINES)}"
         )
     return [n for n in ENGINES if n in wanted]
+
+
+_load_extension_modules()

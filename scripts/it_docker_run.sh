@@ -18,7 +18,7 @@ mkdir -p "${QB_IT_REPORT_DIR:-tests/integration/.reports}"
 exec docker run --rm --network qb-integration_default \
   -v "$PWD:/src:ro" -v "$PWD/${QB_IT_REPORT_DIR:-tests/integration/.reports}:/reports" \
   -w /src -e PYTHONPATH=/src -e PYTHONDONTWRITEBYTECODE=1 \
-  -e QB_IT_REPORT=/reports/linux.json -e "QB_IT_ENGINES=$ENGINES" \
+  -e QB_IT_IN_DOCKER=1 -e QB_IT_REPORT=/reports/${QB_IT_REPORT_NAME:-linux}.json -e "QB_IT_ENGINES=$ENGINES" \
   -e QB_IT_POSTGRES_HOST=postgres -e QB_IT_POSTGRES_PORT=5432 \
   -e QB_IT_MYSQL_HOST=mysql -e QB_IT_MYSQL_PORT=3306 \
   -e QB_IT_MARIADB_HOST=mariadb -e QB_IT_MARIADB_PORT=3306 \
@@ -36,5 +36,5 @@ exec docker run --rm --network qb-integration_default \
   -e QB_IT_OPENSEARCH_HOST=opensearch -e QB_IT_OPENSEARCH_PORT=9200 \
   -e QB_IT_NEO4J_HOST=neo4j -e QB_IT_NEO4J_PORT=7687 \
   -e QB_IT_CASSANDRA_HOST=cassandra -e QB_IT_CASSANDRA_PORT=9042 \
-  "$PYTHON_IMAGE" sh -c "pip install -q -r requirements.txt pytest pytest-asyncio $DRIVERS \
+  "$PYTHON_IMAGE" sh -c "pip install -q -r requirements.txt pytest pytest-asyncio $DRIVERS ${QB_IT_EXTRA_PIP:-} \
     && python -m pytest tests/integration -m integration -o addopts= -q -p no:cacheprovider --tb=short -W ignore"

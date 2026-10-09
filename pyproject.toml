@@ -341,3 +341,5 @@ ignore = [
 # Tests legitimately use assert, fixed temp paths, subprocess, etc.
 "tests/**" = ["S"]
 "examples/**" = ["S"]
+# Developer tooling that deliberately drives docker and subprocesses.
+"scripts/**" = ["S603", "S607"]
