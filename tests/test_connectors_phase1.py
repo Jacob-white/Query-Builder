@@ -1511,7 +1511,12 @@ def test_introspect_monetdb_deep():
         [
             ("USERS", "ID", "INTEGER", False),  # not null
             ("USERS", "NAME", "VARCHAR", True),  # nullable
-            ("USERS", "USER_ID", "INTEGER", True),
+            (
+                "USERS",
+                "user_id",
+                "INTEGER",
+                True,
+            ),  # MonetDB folds unquoted names to lowercase
             ("PASSWORDS", "ID", "INTEGER", False),
             (None, None, None),  # invalid row
         ],
@@ -1553,8 +1558,8 @@ def test_introspect_monetdb_deep():
     snap_fb = introspect_monetdb(cur_fb, schema_name="sys", filter_sensitive=False)
     assert "ITEMS" in snap_fb["tables"]
     item_cols = snap_fb["tables"]["ITEMS"]["columns"]
-    assert any(c["name"] == "id" and c["is_nullable"] is False for c in item_cols)
-    assert any(c["name"] == "title" and c["is_nullable"] is True for c in item_cols)
+    assert any(c["name"] == "ID" and c["is_nullable"] is False for c in item_cols)
+    assert any(c["name"] == "TITLE" and c["is_nullable"] is True for c in item_cols)
 
     # Suppressed PK/FK exceptions
     cur_suppress = MagicMock()

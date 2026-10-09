@@ -116,10 +116,18 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
         raise VectorQueryError(f"cannot parse vector query: {exc}") from exc
     if not isinstance(tree, exp.Select):
         raise VectorQueryError("only SELECT is supported by vector stores")
-    for forbidden in ("joins", "group", "having", "with", "distinct", "laterals"):
+    for forbidden in (
+        "joins",
+        "group",
+        "having",
+        "with",
+        "with_",
+        "distinct",
+        "laterals",
+    ):
         if tree.args.get(forbidden):
             raise VectorQueryError(
-                f"{forbidden.upper()} is not supported by vector stores"
+                f"{forbidden.rstrip('_').upper()} is not supported by vector stores"
             )
 
     def value_of(node: Any) -> Any:
@@ -259,12 +267,7 @@ def _read_condition(
 ) -> None:
     from sqlglot import exp
 
-    while isinstance(node, exp.Paren):
-        node = node.this
-    if isinstance(node, exp.And):
-        for leaf in _and_leaves(node):
-            _read_condition(vq, leaf, value_of, col_name, dist_func)
-        return
+    # ``node`` is a leaf from ``_and_leaves``: never a Paren or And
     if isinstance(node, (exp.LT, exp.LTE)) and dist_func(node.left) is not None:
         _set_vector(
             vq,
@@ -390,8 +393,8 @@ def drive_sync(plan: Any, client: Any) -> Any:
                 result = _resolve(client, name)(**kwargs)
             except Exception as exc:  # noqa: BLE001 - let the plan decide
                 request = plan.throw(exc)
-                continue
-            request = plan.send(result)
+            else:
+                request = plan.send(result)
     except StopIteration as done:
         return done.value
 
@@ -411,8 +414,8 @@ async def drive_async(plan: Any, client: Any) -> Any:
                     result = [item async for item in result]
             except Exception as exc:  # noqa: BLE001 - let the plan decide
                 request = plan.throw(exc)
-                continue
-            request = plan.send(result)
+            else:
+                request = plan.send(result)
     except StopIteration as done:
         return done.value
 
