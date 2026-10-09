@@ -224,11 +224,37 @@ def introspect_duckdb(
                 cur.close()
 
 
+_PRIMARY_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name
+    FROM information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+        AND tc.table_name = kcu.table_name
+    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;
+"""
+
+# MySQL/MariaDB have no constraint_column_usage; the referenced side lives on
+# key_column_usage itself.
+_MYSQL_FOREIGN_KEY_SQL = """
+    SELECT table_name, column_name, referenced_table_name, referenced_column_name
+    FROM information_schema.key_column_usage
+    WHERE table_schema = %s AND referenced_table_name IS NOT NULL;
+"""
+
+
 def introspect_information_schema(
-    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+    cursor: Any,
+    schema_name: str = "public",
+    filter_sensitive: bool = True,
+    fk_style: str = "ansi",
 ) -> dict[str, Any]:
     """
     Introspects standard ANSI/PostgreSQL/MySQL/MSSQL schemas via information_schema catalogs.
+
+    Primary keys come from the catalog (``table_constraints``); only when the
+    engine lacks that catalog does it fall back to treating a column named
+    ``id`` as the key. ``fk_style="mysql"`` reads foreign keys the MySQL way.
     """
     try:
         cursor.execute(
@@ -254,6 +280,11 @@ def introspect_information_schema(
         )
         col_rows = cursor.fetchall()
 
+        pk_cols: set[tuple[str, str]] | None = None
+        with contextlib.suppress(Exception):
+            cursor.execute(_PRIMARY_KEY_SQL, [schema_name])
+            pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type, is_null = str(r[0]), str(r[1]), str(r[2]), str(r[3])
@@ -262,7 +293,9 @@ def introspect_information_schema(
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": is_null.upper() == "YES",
-                    "is_primary": c_name == "id",
+                    "is_primary": (t_name, c_name) in pk_cols
+                    if pk_cols is not None
+                    else c_name == "id",
                     "comment": None,
                 }
             )
@@ -270,9 +303,10 @@ def introspect_information_schema(
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        with contextlib.suppress(Exception):
-            cursor.execute(
-                """
+        fk_sql = (
+            _MYSQL_FOREIGN_KEY_SQL
+            if fk_style == "mysql"
+            else """
                 SELECT
                     kcu.table_name AS src_table,
                     kcu.column_name AS src_column,
@@ -282,13 +316,15 @@ def introspect_information_schema(
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
+                    AND tc.table_name = kcu.table_name
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
                     AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;
-                """,
-                [schema_name],
-            )
+                """
+        )
+        with contextlib.suppress(Exception):
+            cursor.execute(fk_sql, [schema_name])
             for fk_row in cursor.fetchall():
                 src_tbl, src_col, tgt_tbl, tgt_col = (
                     str(fk_row[0]),
@@ -352,7 +388,7 @@ def introspect_clickhouse(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            "SELECT table, name, type FROM system.columns WHERE database = %s ORDER BY table, position;",
+            "SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = %s ORDER BY table, position;",
             [database],
         )
         col_rows = cursor.fetchall()
@@ -360,12 +396,14 @@ def introspect_clickhouse(
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+            # The sorting/primary key comes from the catalog, not a name guess.
+            is_pk = bool(r[3]) if len(r) > 3 else c_name == "id"
             table_cols_map.setdefault(t_name, []).append(
                 {
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": "Nullable" in d_type,
-                    "is_primary": c_name == "id",
+                    "is_primary": is_pk,
                     "comment": None,
                 }
             )

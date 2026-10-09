@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from query_builder.connectors._txn import RollbackOnErrorMixin
 from query_builder.connectors.base import (
     BaseConnector,
     ConnectionFailedError,
@@ -16,7 +17,7 @@ from query_builder.connectors.base import (
 from query_builder.connectors.introspection import introspect_information_schema
 
 
-class PostgresConnector(BaseConnector):
+class PostgresConnector(RollbackOnErrorMixin, BaseConnector):
     """Connector for PostgreSQL databases."""
 
     dialect_name = "postgres"
