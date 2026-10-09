@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Packaging
+- `dist/` contains only the Vite bundles (`.mjs`/`.cjs`, chunks under `dist/chunks/`) and type
+  declarations; `tsc` runs with `emitDeclarationOnly` and the output directory is emptied on every build.
+- `"type": "module"`, `"sideEffects": false` (the package has no import-time side effects or CSS),
+  separate `types` per export condition (`.d.ts` for `import`, `.d.cts` for `require`), `typesVersions`
+  for legacy `node10` resolution. `publint --strict` and `attw --pack` are clean (`pnpm run check:package`).
+- `react` is now a required peer dependency (the main entry and `./hooks` need it); `react-dom` stays an
+  optional peer because nothing imports it. `./adapters`, `./client` and `./olap` do not import React.
+- The npm tarball ships `dist/`, `README.md`, `CHANGELOG.md` and `LICENSE` only (no `src/`).
+- New scripts: `clean`, `check:package`, `prepublishOnly` (clean, typecheck, build, test, check).
+
 ### Type tightenings (`any` removal) - breaking-change note for the next major release
 
 The `any` -> `unknown` cleanup narrowed several public types. Wherever it could be done without

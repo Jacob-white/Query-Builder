@@ -10,6 +10,24 @@
 - **React public types tightened** where `any` was removed; see `packages/react/CHANGELOG.md`.
 - `RedisQueryCache(socket_timeout=...)` (never released) is now `connect_timeout` / `command_timeout`.
 
+### Packaging (breaking for install commands)
+- Optional extras rebuilt (`pyproject.toml`): `mysql` now installs pure-Python `pymysql` (the C
+  driver is `mysql-native`); `h2`/`derby` install `JayDeBeApi` (what those connectors import);
+  `pinecone` installs `pinecone` (not the deprecated `pinecone-client`); `prestodb` installs
+  `presto-python-client`; `greptimedb` installs `psycopg`. Alias extras (`postgres`, `neon`,
+  `supabase`, `mongodb`, `kusto`, ...) now reference their canonical extra instead of copying it.
+- `all` now installs only drivers that are pure Python or ship wheels everywhere; the former
+  hand-copied list (including `mysqlclient`, `pymssql`, `pyodbc`, `ibm-db`, ...) is `all-native`.
+  New family extras: `sql`, `cloud-warehouses`, `nosql`, `vector`, `streaming`; new `server`
+  (FastAPI/Starlette/Uvicorn/httpx) and `django` extras.
+- The package version is single-sourced from `query_builder.__version__`; `py.typed` is shipped;
+  new console script `query-builder-mcp`; PyPI classifier is now `Development Status :: 4 - Beta`;
+  sdist includes tests, docs and changelog.
+- React package: `dist/` now contains only the Vite bundles plus declarations (`tsc` no longer
+  writes stray `.js` next to them; stale files cannot ship), `"type": "module"`,
+  `"sideEffects": false`, ESM `.d.ts` + CJS `.d.cts` declarations per export condition, `react`
+  is a required peer dependency, the tarball no longer includes `src/`.
+
 ### Security
 - Tenant and row-level-security predicates are now enforced **outside** the client's filter
   group (`WHERE tenant = ? AND (client filters)`), so a client `OR` can no longer widen them.
@@ -35,6 +53,10 @@
 - Starter app: per-request SQLite connections; thread-bound shared connection removed.
 
 ### Tooling
+- Release workflow (`.github/workflows/release.yml`): tag-triggered, dry-run by default, PyPI trusted
+  publishing, npm `--provenance`, SBOMs and checksums; see `docs/RELEASING.md`.
+- CI: `pip-audit`, `pnpm audit`, dependency review, CycloneDX SBOMs, package build/`twine check`,
+  `publint`/`attw`; Dependabot; actions pinned to commit SHAs. Added `CONTRIBUTING.md` and a PR template.
 - CI (`.github/workflows/ci.yml`): Python 3.11-3.13 on Linux and Windows, React on Node 22/24;
   coverage floors (Python 99%, React 99/96/99/99); ruff `B`, `I`, `UP`, `S` and format check;
   ESLint `no-explicit-any` as an error and a warning ratchet.

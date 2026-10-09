@@ -1,0 +1,10 @@
+# Accepted pip-audit findings for the runtime dependency set (core + `server` + `django`).
+#
+# One advisory ID (PYSEC-*, GHSA-*, CVE-*) per line, followed by a comment that states WHY the
+# finding is acceptable and WHEN it must be revisited. Anything not listed here fails CI.
+# Remove entries as soon as a fixed release is available. Do not add an entry without a reviewer.
+#
+# Format:
+#   GHSA-xxxx-xxxx-xxxx  # <package> <version>: <justification>; review by YYYY-MM-DD
+#
+# (currently empty: no accepted findings)
