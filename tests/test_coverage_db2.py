@@ -57,7 +57,9 @@ def test_async_test_connection_reports_version_and_schema() -> None:
     assert info["status"] == "healthy" and info["dialect"] == "db2"
     assert info["engine_version"] == "DB2 v11.5" and info["schema_name"] == "APP"
     statements = [c.args[0] for c in cur.execute.call_args_list]
-    assert statements[0] == "SELECT 1 FROM SYSIBM.SYSDUMMY1"  # no FROM-less SELECT on Db2
+    assert (
+        statements[0] == "SELECT 1 FROM SYSIBM.SYSDUMMY1"
+    )  # no FROM-less SELECT on Db2
     assert statements[-1] == db2._VERSION_SQL
     assert cur.close.call_count == 2
 

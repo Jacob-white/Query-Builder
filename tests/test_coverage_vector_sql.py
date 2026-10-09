@@ -45,7 +45,9 @@ def test_parse_search_query_with_filters_order_and_paging() -> None:
     ]
     assert q.order_by == [("_distance", False), ("n", True)]
     assert (q.limit, q.offset) == (5, 10)
-    assert q.wanted_payload_fields() == sorted({"id", "title", "tag", "n", "ok", "price"})
+    assert q.wanted_payload_fields() == sorted(
+        {"id", "title", "tag", "n", "ok", "price"}
+    )
 
 
 def test_parse_distance_threshold_and_order_by_function() -> None:
@@ -69,7 +71,10 @@ def test_parse_distance_threshold_and_order_by_function() -> None:
 def test_parse_count_scan_and_null_conditions() -> None:
     q = parse_vector_sql("SELECT COUNT(*) FROM c WHERE a IS NULL AND b IS NOT NULL")
     assert q.count_only
-    assert [(c.column, c.op) for c in q.conds] == [("a", "is_null"), ("b", "is_not_null")]
+    assert [(c.column, c.op) for c in q.conds] == [
+        ("a", "is_null"),
+        ("b", "is_not_null"),
+    ]
     q2 = parse_vector_sql(
         "SELECT id FROM c WHERE a IN (1, 'x', NULL) AND b NOT IN (2, 3) "
         "AND NOT (c IS NULL) AND d != 4 AND e < 5 AND f <= 6 AND g > 7"
@@ -84,7 +89,9 @@ def test_parse_count_scan_and_null_conditions() -> None:
     assert [c.column for c in nested.conds] == ["a", "b"]
     q3 = parse_vector_sql("SELECT `id` FROM `c` WHERE x = 1.5 AND y = 'it''s'")
     assert [c.value for c in q3.conds] == [1.5, "it's"]
-    assert parse_vector_sql("SELECT id FROM c ORDER BY id DESC").order_by == [("id", True)]
+    assert parse_vector_sql("SELECT id FROM c ORDER BY id DESC").order_by == [
+        ("id", True)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -109,14 +116,18 @@ def test_parse_count_scan_and_null_conditions() -> None:
         ("SELECT id FROM c WHERE NOT a = 1", "unsupported WHERE"),
     ],
 )
-def test_parse_rejects_what_a_vector_store_cannot_do_faithfully(sql: str, match: str) -> None:
+def test_parse_rejects_what_a_vector_store_cannot_do_faithfully(
+    sql: str, match: str
+) -> None:
     with pytest.raises(VectorQueryError, match=match):
         parse_vector_sql(sql)
 
 
 def test_shape_rows_projection_star_and_count() -> None:
     hits = [{"id": 1, "t": "a", "_distance": 0.1}, {"id": 2, "extra": 5}]
-    q = parse_vector_sql("SELECT id, t AS title, COSINE_DISTANCE(v, %s) AS d FROM c", ["[1]"])
+    q = parse_vector_sql(
+        "SELECT id, t AS title, COSINE_DISTANCE(v, %s) AS d FROM c", ["[1]"]
+    )
     desc, rows = vs.shape_rows(q, hits)
     assert desc == [("id",), ("title",), ("d",)]
     assert rows == [[1, "a", 0.1], [2, None, None]]
@@ -132,7 +143,12 @@ def test_shape_rows_projection_star_and_count() -> None:
 
 
 def test_sort_hits_puts_missing_values_last_both_directions() -> None:
-    hits = [{"id": 1, "n": 2}, {"id": 2}, {"id": 3, "n": 9}, {"id": 4, "n": 2, "s": "b"}]
+    hits = [
+        {"id": 1, "n": 2},
+        {"id": 2},
+        {"id": 3, "n": 9},
+        {"id": 4, "n": 2, "s": "b"},
+    ]
     asc = vs.sort_hits(parse_vector_sql("SELECT * FROM c ORDER BY n"), hits)
     assert [h["id"] for h in asc] == [1, 4, 3, 2]
     desc = vs.sort_hits(parse_vector_sql("SELECT * FROM c ORDER BY n DESC"), hits)

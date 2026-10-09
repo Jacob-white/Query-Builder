@@ -78,10 +78,8 @@ def _get(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
-def _index_plan(conn_is_index: bool, table: str, make_index: str) -> Any:
+def _index_plan(table: str, make_index: str) -> Any:
     """Yield the calls that produce (index handle, describe_index info) for ``table``."""
-    if conn_is_index:
-        return None, None
     info = yield ("describe_index", {"name": table})
     idx = yield (make_index, {"host": _get(info, "host")})
     return idx, info
@@ -113,7 +111,7 @@ def pinecone_plan(
     else:
         listing = yield ("list_indexes", {})
         table = _resolve_table(_index_names(listing), vq.table)
-        idx, info = yield from _index_plan(False, table, make_index)
+        idx, info = yield from _index_plan(table, make_index)
 
     def call(method: str) -> Any:
         return method if idx is None else getattr(idx, method)
@@ -184,7 +182,7 @@ def pinecone_introspect_plan(
     else:
         listing = yield ("list_indexes", {})
         for name in _index_names(listing):
-            idx, info = yield from _index_plan(False, name, make_index)
+            idx, info = yield from _index_plan(name, make_index)
             targets.append((name, idx, info))
     for name, idx, info in targets:
         sample: list[dict[str, Any]] = []

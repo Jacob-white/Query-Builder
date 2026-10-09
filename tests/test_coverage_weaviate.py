@@ -65,7 +65,9 @@ def test_weaviate_filter_translates_every_operator() -> None:
 
 def test_vector_config_and_metric_from_named_vectors() -> None:
     legacy = SimpleNamespace(
-        vector_index_config=SimpleNamespace(distance_metric=SimpleNamespace(value="dot"))
+        vector_index_config=SimpleNamespace(
+            distance_metric=SimpleNamespace(value="dot")
+        )
     )
     assert wv._metric_of(legacy) == "dot"
     named = SimpleNamespace(
@@ -77,7 +79,10 @@ def test_vector_config_and_metric_from_named_vectors() -> None:
         },
     )
     assert wv._metric_of(named) == "l2-squared"
-    assert wv._vector_config(SimpleNamespace(vector_index_config=None, vector_config={})) is None
+    assert (
+        wv._vector_config(SimpleNamespace(vector_index_config=None, vector_config={}))
+        is None
+    )
     assert wv._metric_of(SimpleNamespace()) == "cosine"
 
 
@@ -183,7 +188,11 @@ def test_async_connect_driver_variants() -> None:
     drv = AsyncDriver()
     with patch.dict(sys.modules, {"weaviate": drv}):
         got = asyncio.run(wv.AsyncWeaviateConnector(url="http://wv:8081").connect())
-    assert drv.connected and drv.kwargs["http_host"] == "wv" and drv.kwargs["http_port"] == 8081
+    assert (
+        drv.connected
+        and drv.kwargs["http_host"] == "wv"
+        and drv.kwargs["http_port"] == 8081
+    )
     assert got is not None
 
     sync_only = SimpleNamespace(connect_to_custom=MagicMock(return_value="sync-client"))
@@ -197,7 +206,10 @@ def test_async_connect_driver_variants() -> None:
     with patch.dict(sys.modules, {"weaviate": bare}):
         assert asyncio.run(wv.AsyncWeaviateConnector().connect()) is bare
     boom = SimpleNamespace(connect_to_custom=MagicMock(side_effect=RuntimeError("no")))
-    with patch.dict(sys.modules, {"weaviate": boom}), pytest.raises(ConnectionFailedError):
+    with (
+        patch.dict(sys.modules, {"weaviate": boom}),
+        pytest.raises(ConnectionFailedError),
+    ):
         asyncio.run(wv.AsyncWeaviateConnector().connect())
 
 
@@ -206,7 +218,9 @@ def test_async_execute_raw_real_client_and_cursor_fallback() -> None:
     connector = wv.AsyncWeaviateConnector(connection=shell)
     with patch.dict(sys.modules, _filter_modules()):
         names, rows, ms = asyncio.run(
-            connector.execute_raw("SELECT name, age FROM Qbit_people WHERE age > %s", [20])
+            connector.execute_raw(
+                "SELECT name, age FROM Qbit_people WHERE age > %s", [20]
+            )
         )
     assert names == ["name", "age"]
     assert rows == [{"name": "a", "age": 30}, {"name": "b", "age": 45}]
@@ -241,7 +255,9 @@ def test_async_test_connection_readiness_and_version() -> None:
     with pytest.raises(ConnectionFailedError, match="not ready"):
         asyncio.run(wv.AsyncWeaviateConnector(connection=not_ready).test_connection())
     sync_ready, _ = _real_shell(get_meta=MagicMock(side_effect=RuntimeError("x")))
-    info2 = asyncio.run(wv.AsyncWeaviateConnector(connection=sync_ready).test_connection())
+    info2 = asyncio.run(
+        wv.AsyncWeaviateConnector(connection=sync_ready).test_connection()
+    )
     assert info2["engine_version"] == "Weaviate"
     plain = MagicMock(spec=[])
     info3 = asyncio.run(wv.AsyncWeaviateConnector(connection=plain).test_connection())
@@ -253,7 +269,9 @@ def test_async_introspect_real_client_and_errors() -> None:
     snap = asyncio.run(wv.AsyncWeaviateConnector(connection=shell).introspect_schema())
     assert "Qbit_people" in snap["tables"]
     bad, _ = _real_shell(
-        collections=SimpleNamespace(list_all=MagicMock(side_effect=RuntimeError("down")))
+        collections=SimpleNamespace(
+            list_all=MagicMock(side_effect=RuntimeError("down"))
+        )
     )
     with pytest.raises(IntrospectionError, match="down"):
         asyncio.run(wv.AsyncWeaviateConnector(connection=bad).introspect_schema())

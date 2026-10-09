@@ -45,7 +45,9 @@ class _AsyncConn:
 
 
 def test_is_native_async_classifies_by_class() -> None:
-    assert ad.is_native_async(_native_class("psycopg.connection_async", "AsyncConnection")())
+    assert ad.is_native_async(
+        _native_class("psycopg.connection_async", "AsyncConnection")()
+    )
     assert not ad.is_native_async(_native_class("psycopg.connection", "Connection")())
     assert ad.is_native_async(_native_class("aiomysql.connection")())
     assert ad.is_native_async(_native_class("asyncmy.connection")())

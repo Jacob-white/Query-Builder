@@ -34,8 +34,15 @@ def test_es_cursor_follows_pages_and_binds_params() -> None:
     cur = es.ElasticsearchCursor(client)
     assert cur.execute("  SELECT a FROM t WHERE x = ?;  ", (9,)) is cur
     first = client.sql.query.call_args_list[0].kwargs
-    assert first == {"query": "SELECT a FROM t WHERE x = ?", "format": "json", "params": [9]}
-    assert client.sql.query.call_args_list[1].kwargs == {"cursor": "c1", "format": "json"}
+    assert first == {
+        "query": "SELECT a FROM t WHERE x = ?",
+        "format": "json",
+        "params": [9],
+    }
+    assert client.sql.query.call_args_list[1].kwargs == {
+        "cursor": "c1",
+        "format": "json",
+    }
     assert cur.description == [("a", None), ("", None)]
     assert cur.rowcount == 3
     assert cur.fetchone() == [1, 2]
@@ -67,13 +74,21 @@ def test_es_connector_connect_paths() -> None:
     fake_mod = MagicMock()
     with patch.dict(sys.modules, {"elasticsearch": fake_mod}):
         assert c.connect() is fake_mod.Elasticsearch.return_value
-        fake_mod.Elasticsearch.assert_called_once_with("http://es:9200", http_auth=("u", "p"))
+        fake_mod.Elasticsearch.assert_called_once_with(
+            "http://es:9200", http_auth=("u", "p")
+        )
         assert c.connect() is fake_mod.Elasticsearch.return_value  # cached
-    with patch.dict(sys.modules, {"elasticsearch": None}), pytest.raises(DriverNotInstalledError):
+    with (
+        patch.dict(sys.modules, {"elasticsearch": None}),
+        pytest.raises(DriverNotInstalledError),
+    ):
         es.ElasticsearchConnector().connect()
     boom = MagicMock()
     boom.Elasticsearch.side_effect = RuntimeError("down")
-    with patch.dict(sys.modules, {"elasticsearch": boom}), pytest.raises(ConnectionFailedError):
+    with (
+        patch.dict(sys.modules, {"elasticsearch": boom}),
+        pytest.raises(ConnectionFailedError),
+    ):
         es.ElasticsearchConnector().connect()
 
 
@@ -103,14 +118,20 @@ def test_es_test_connection_version() -> None:
     assert conn.test_connection()["engine_version"] == "Elasticsearch SQL"
     bare = MagicMock(spec=["sql"])
     bare.sql.query.return_value = {"columns": [], "rows": []}
-    assert es.ElasticsearchConnector(connection=bare).test_connection()["engine_version"] == (
-        "Elasticsearch SQL"
-    )
+    assert es.ElasticsearchConnector(connection=bare).test_connection()[
+        "engine_version"
+    ] == ("Elasticsearch SQL")
 
 
 def test_es_introspect_schema() -> None:
     client = _es_client(
-        {"rows": [["cluster", "logs", "TABLE", "INDEX"], ["cluster", ".kibana", "TABLE", "INDEX"], ["bare"]]},
+        {
+            "rows": [
+                ["cluster", "logs", "TABLE", "INDEX"],
+                ["cluster", ".kibana", "TABLE", "INDEX"],
+                ["bare"],
+            ]
+        },
         {"rows": [["id", "KEYWORD", "keyword"], ["user_id", "LONG", "long"]]},
         {"rows": [["title", "TEXT", "text"]]},
     )
@@ -137,7 +158,9 @@ def _native_db(collections: Any, docs: dict[str, list[dict[str, Any]]]) -> Magic
     db = MagicMock()
     db.name = "app"
     db.list_collection_names.return_value = collections
-    db.__getitem__.side_effect = lambda n: MagicMock(find=MagicMock(return_value=docs[n]))
+    db.__getitem__.side_effect = lambda n: MagicMock(
+        find=MagicMock(return_value=docs[n])
+    )
     return db
 
 
@@ -153,11 +176,17 @@ def test_mongo_connect_paths() -> None:
     with patch.dict(sys.modules, {"pymongosql": fake}):
         assert c.connect() is fake.connect.return_value
         fake.connect.assert_called_once_with(database="d", host="h")
-    with patch.dict(sys.modules, {"pymongosql": None}), pytest.raises(DriverNotInstalledError):
+    with (
+        patch.dict(sys.modules, {"pymongosql": None}),
+        pytest.raises(DriverNotInstalledError),
+    ):
         MongoDBAtlasSQLConnector().connect()
     boom = MagicMock()
     boom.connect.side_effect = RuntimeError("refused")
-    with patch.dict(sys.modules, {"pymongosql": boom}), pytest.raises(ConnectionFailedError):
+    with (
+        patch.dict(sys.modules, {"pymongosql": boom}),
+        pytest.raises(ConnectionFailedError),
+    ):
         MongoDBAtlasSQLConnector().connect()
 
 
@@ -218,10 +247,13 @@ def test_mongo_introspect_native_errors_and_fallbacks() -> None:
         assert conn.introspect_schema(filter_sensitive=False) == {"tables": {"t": {}}}
     assert intro.call_args.kwargs["schema_name"] == "app"
     assert intro.call_args.kwargs["filter_sensitive"] is False
-    with patch(
-        "query_builder.connectors.mongodb.introspect_information_schema",
-        side_effect=RuntimeError("bad"),
-    ), pytest.raises(IntrospectionError, match="bad"):
+    with (
+        patch(
+            "query_builder.connectors.mongodb.introspect_information_schema",
+            side_effect=RuntimeError("bad"),
+        ),
+        pytest.raises(IntrospectionError, match="bad"),
+    ):
         MongoDBAtlasSQLConnector(cursor=MagicMock()).introspect_schema()
 
 
