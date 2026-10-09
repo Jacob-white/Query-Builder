@@ -93,9 +93,13 @@ def _extract_snapshot(
     Normalizes a SchemaSnapshot or raw dictionary into a structured tables dict
     and deduplicated foreign keys list.
     """
+    raw_tables: Any
+    raw_fks: list[Any]
+    raw_rels: list[Any]
     if isinstance(snapshot, SchemaSnapshot):
         raw_tables = snapshot.tables
-        raw_fks = snapshot.foreign_keys
+        # Copy: the loop below appends per-table FKs and must not mutate the caller's snapshot.
+        raw_fks = list[Any](snapshot.foreign_keys)
         raw_rels = snapshot.relationships
     elif isinstance(snapshot, TableSchema):
         raw_tables = {snapshot.name: snapshot}
@@ -117,6 +121,7 @@ def _extract_snapshot(
 
     tables: dict[str, dict[str, Any]] = {}
     if isinstance(raw_tables, dict):
+        t_comment: str | None
         for tbl_name, tbl_info in raw_tables.items():
             if isinstance(tbl_info, (TableMeta, TableSchema)):
                 t_name = tbl_info.name
@@ -126,7 +131,7 @@ def _extract_snapshot(
                     for fk in tbl_info.foreign_keys:
                         raw_fks.append(fk)
             elif isinstance(tbl_info, dict):
-                t_name = tbl_info.get("name", tbl_name)
+                t_name = str(tbl_info.get("name", tbl_name))
                 t_comment = tbl_info.get("comment")
                 cols_source = tbl_info.get("columns", [])
             else:

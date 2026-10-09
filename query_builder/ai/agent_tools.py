@@ -268,18 +268,18 @@ def execute_agent_tool_call(
             }
         )
 
-        spec = dict(res.spec)
-        spec["limit"] = limit
+        built_spec = dict(res.spec)
+        built_spec["limit"] = limit
 
         # Compile to SQL
-        compiler = QueryCompiler(spec, schema=schema, dialect=target_dialect)
+        compiler = QueryCompiler(built_spec, schema=schema, dialect=target_dialect)
         sql = compiler.compile()[0]
 
         return {
             "success": True,
             "tool": "build_query",
             "sql": sql,
-            "spec": spec,
+            "spec": built_spec,
             "explanation": res.explanation,
             "confidence": res.confidence,
             "warnings": res.warnings,
@@ -346,7 +346,7 @@ def execute_agent_tool_call(
 
         # Validate against schema
         validator = NlqAstValidator(schema=schema)
-        validated_ast, warnings = validator.validate(spec)
+        validated_ast, warnings = validator.validate(spec or {})
 
         compiler = QueryCompiler(validated_ast, schema=schema, dialect=target_dialect)
         sql = compiler.compile()[0]
@@ -423,7 +423,7 @@ def execute_agent_tool_call(
 
         joins = spec.get("joins", [])
         filters = spec.get("filters", [])
-        limit = spec.get("limit")
+        spec_limit = spec.get("limit")
 
         explanation_parts = [
             f"Queries from table `{tbl}` selecting {len(cols)} column(s): {', '.join(col_names)}."
@@ -442,8 +442,8 @@ def execute_agent_tool_call(
             explanation_parts.append(
                 f"Filtered where {spec.get('filter_join', 'AND').join(' (' + d + ')' for d in filter_descs)}."
             )
-        if limit:
-            explanation_parts.append(f"Limits results to top {limit} rows.")
+        if spec_limit:
+            explanation_parts.append(f"Limits results to top {spec_limit} rows.")
 
         return {
             "success": True,
@@ -453,7 +453,7 @@ def execute_agent_tool_call(
             "projections": col_names,
             "joins_count": len(joins),
             "filters_count": len(filters),
-            "limit": limit,
+            "limit": spec_limit,
         }
 
     else:

@@ -237,7 +237,7 @@ class FilterSpec:
     def __post_init__(self) -> None:
         if self.combiner is not None:
             norm = str(self.combiner).strip().upper()
-            self.combiner = "OR" if norm == "OR" else "AND" if norm == "AND" else None  # type: ignore[assignment]
+            self.combiner = "OR" if norm == "OR" else "AND" if norm == "AND" else None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -770,7 +770,13 @@ class QuerySpec:
         if self.grouping_type is not None:
             res["grouping_type"] = self.grouping_type
         if self.grouping_sets:
-            res["grouping_sets"] = [list(gs) for gs in self.grouping_sets]
+            # __post_init__ unwraps GroupingSetsSpec, but the attribute is mutable.
+            gsets = (
+                self.grouping_sets.sets
+                if isinstance(self.grouping_sets, GroupingSetsSpec)
+                else self.grouping_sets
+            )
+            res["grouping_sets"] = [list(gs) for gs in gsets]
         if self.rollup is not None:
             res["rollup"] = self.rollup.to_dict()
         if self.cube is not None:

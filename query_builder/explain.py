@@ -119,7 +119,7 @@ def estimate_plan_from_spec(
 ) -> QueryPlanNode:
     """Generates an estimated QueryPlanNode hierarchy from a QuerySpec without DB execution."""
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore
+        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
     elif isinstance(spec, dict):
         spec_dict = dict(spec)
     else:
