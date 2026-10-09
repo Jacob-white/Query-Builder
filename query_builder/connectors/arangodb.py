@@ -183,7 +183,11 @@ class ArangoDBConnector(BaseConnector):
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        info["engine_version"] = _server_version(self.connect())
+        if self._connection is None and self._cursor is not None:
+            # preset cursor only: no driver/connection to ask for the server version
+            info["engine_version"] = "ArangoDB"
+        else:
+            info["engine_version"] = _server_version(self.connect())
         info["database"] = self.database
         return info
 

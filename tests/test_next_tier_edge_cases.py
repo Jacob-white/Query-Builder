@@ -722,11 +722,20 @@ def test_introspection_missing_branches():
     assert "container1" in snap_cosmos["tables"]
 
     mock_cosmos_client = MagicMock(spec=["get_database_client"])
-    mock_cosmos_db = MagicMock(spec=["list_containers"])
+    mock_cosmos_db = MagicMock(spec=["list_containers", "get_container_client"])
     mock_cosmos_db.list_containers.return_value = [{}, {"id": "c2"}]
+    mock_cosmos_db.get_container_client.return_value.query_items.return_value = [
+        {"id": "d1", "name": "n"}
+    ]
     mock_cosmos_client.get_database_client.return_value = mock_cosmos_db
     snap_cosmos_db = introspect_cosmosdb(mock_cosmos_client)
     assert "c2" in snap_cosmos_db["tables"]
+    # id-less container entries are skipped; only the real container was sampled
+    mock_cosmos_db.get_container_client.assert_called_once_with("c2")
+    assert {c["name"] for c in snap_cosmos_db["tables"]["c2"]["columns"]} >= {
+        "id",
+        "name",
+    }
 
 
 def test_cursor_close_and_introspection_final_branches():
@@ -764,12 +773,19 @@ def test_cursor_close_and_introspection_final_branches():
 
     mock_cur_empty = MagicMock(spec=["execute", "fetchall"])
     mock_cur_empty.fetchall.return_value = []
-    snap_empty = introspect_cosmosdb(mock_cur_empty)
-    assert "items" in snap_empty["tables"]
+    # no containers is an empty schema (no invented "items" table any more)
+    assert introspect_cosmosdb(mock_cur_empty)["tables"] == {}
 
+    # a database client that cannot list containers fails loudly, never "no tables"
     mock_client_no_list = MagicMock(spec=["get_database_client"])
     mock_client_no_list.get_database_client.return_value = object()
-    assert "items" in introspect_cosmosdb(mock_client_no_list)["tables"]
+    with pytest.raises(IntrospectionError):
+        introspect_cosmosdb(mock_client_no_list)
+
+    # a single container client is sampled under its own id, or "items" if it has none
+    single = MagicMock(spec=["query_items"])
+    single.query_items.return_value = [{"id": "a"}]
+    assert "items" in introspect_cosmosdb(single)["tables"]
 
 
 def test_arangodb_adapter_parameter_and_scalar_branches():
