@@ -15,9 +15,9 @@ import type {
   MetricDefinition,
   SemanticModel,
   QuerySpec,
-  LooseQuerySpec,
+  SerializedQuerySpec,
 } from "../types";
-import { specToState } from "../hooks/useQueryState";
+import { narrowSerializedSpec, specToState } from "./queryStateTransitions";
 import { normalizeCombiner, resolveFilterCombiners } from "./filterCombiners";
 
 export interface CompiledVisualQuery {
@@ -868,7 +868,7 @@ export function compileVisualState(
 /**
  * Estimates a client-side QueryPlanNode hierarchy from a compiled QuerySpec.
  */
-export function estimateClientPlan(spec: LooseQuerySpec | null | undefined): QueryPlanNode {
+export function estimateClientPlan(spec: SerializedQuerySpec | null | undefined): QueryPlanNode {
   const table = spec?.table || "unknown";
   const limit = spec?.limit || 50;
   const joins = spec?.joins || [];
@@ -978,11 +978,11 @@ export function estimateClientPlan(spec: LooseQuerySpec | null | undefined): Que
  * Compiles a QuerySpec or partial spec directly to SQL string.
  */
 export function compileSpecToSql(
-  spec: Partial<QuerySpec> | LooseQuerySpec | Record<string, unknown>,
+  spec: Partial<QuerySpec> | SerializedQuerySpec,
   dialect: SqlDialect = "postgres",
   schemaData?: SchemaSnapshot | null,
 ): string {
-  const looseSpec = spec as LooseQuerySpec;
+  const looseSpec = narrowSerializedSpec(spec);
   const state = specToState(spec);
   const primaryTable = state.primaryTable || looseSpec.table || "";
   if (!primaryTable) return "";

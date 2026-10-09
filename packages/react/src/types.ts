@@ -535,6 +535,14 @@ export interface LooseQuerySpec {
   semanticModels?: SemanticModel[] | null;
 }
 
+/**
+ * The serialized form of a query: a snake_case {@link QuerySpec}, the builder's own camelCase state
+ * shape, or a saved preset. It is the type accepted wherever a spec crosses a trust boundary
+ * (`loadSpec`, `initialSpec`, templates, presets). Runtime input of unknown provenance is narrowed
+ * with `narrowSerializedSpec` before use; a well-typed `QuerySpec<Schema>` is also accepted.
+ */
+export type SerializedQuerySpec = LooseQuerySpec;
+
 export interface WindowFrameSpec {
   frame_type?: "ROWS" | "RANGE" | "GROUPS";
   start?: string;
@@ -569,7 +577,7 @@ export interface SqlPreset {
   description: string;
   category?: string;
   sql?: string;
-  spec?: Record<string, unknown>;
+  spec?: SerializedQuerySpec;
 }
 
 export interface SqlSafetyValidation {
@@ -831,7 +839,7 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   client?: import("./client").QueryBuilderClient;
   onExecuteQuery?: ExecuteQueryHandler;
   onSaveQuery?: {
-    bivarianceHack(title: string, sql: string, spec: QuerySpec | Record<string, unknown>): void;
+    bivarianceHack(title: string, sql: string, spec: QuerySpec | SerializedQuerySpec): void;
   }["bivarianceHack"];
   theme?: "dark" | "light" | "auto";
   readOnly?: boolean;
@@ -911,7 +919,7 @@ export interface QueryTemplate {
   description?: string;
   category?: string;
   sql: string;
-  spec?: Record<string, unknown>;
+  spec?: SerializedQuerySpec;
   createdAt: string;
   updatedAt?: string;
   isDefault?: boolean;
@@ -921,7 +929,7 @@ export interface QueryTemplateManagerProps {
   isOpen: boolean;
   onClose: () => void;
   currentSql?: string;
-  currentSpec?: Record<string, unknown>;
+  currentSpec?: SerializedQuerySpec;
   onLoadTemplate: (template: QueryTemplate) => void;
   onSaveTemplate?: (template: QueryTemplate) => void;
   onDeleteTemplate?: (templateId: string) => void;
@@ -936,7 +944,7 @@ export interface QueryTemplateManagerProps {
 
 export interface QueryPlaygroundProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
-  initialSpec?: QuerySpec<Schema> | Record<string, unknown>;
+  initialSpec?: QuerySpec<Schema> | SerializedQuerySpec;
   initialTable?: string;
   dialect?: SqlDialect;
   unstyled?: boolean;
