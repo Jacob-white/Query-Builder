@@ -20,6 +20,17 @@ class MySQLConnector(BaseConnector):
     """Connector for MySQL and MariaDB databases."""
 
     dialect_name = "mysql"
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """``SET SESSION TRANSACTION READ ONLY`` (MySQL, MariaDB >= 10.0, TiDB)."""
+        cur = connection.cursor()
+        try:
+            cur.execute("SET SESSION TRANSACTION READ ONLY")
+        finally:
+            close = getattr(cur, "close", None)
+            if close is not None:
+                close()
 
     def __init__(
         self,
