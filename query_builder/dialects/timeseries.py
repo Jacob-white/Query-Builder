@@ -21,9 +21,6 @@ class QuestDBDialect(BaseDialect):
     )
     like_escape_char = "\\"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # QuestDB has no OFFSET keyword: pagination is `LIMIT lower, upper`
         # (row range [lower, upper)). Integers are inlined after int() coercion.
@@ -37,18 +34,13 @@ class InfluxDBDialect(BaseDialect):
     name: str = "influxdb"
     placeholder: str = "%s"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
 
 class GreptimeDBDialect(BaseDialect):
     """GreptimeDB cloud-native distributed time-series database dialect."""
 
     name: str = "greptimedb"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "public"
@@ -58,35 +50,13 @@ class GreptimeDBDialect(BaseDialect):
             [schema_name],
         )
 
-    def inspect_columns_query(
-        self, schema_name: str = "public", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        if table_name:
-            return (
-                f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} AND table_name = {self.placeholder} ORDER BY ordinal_position;",
-                [schema_name, table_name],
-            )
-        return (
-            f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
-            [schema_name],
-        )
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "public", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "public", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
 
 class TDengineDialect(BaseDialect):
     """TDengine big data IoT time-series database dialect."""
 
     name: str = "tdengine"
     placeholder: str = "?"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -97,12 +67,6 @@ class TDengineDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -134,12 +98,8 @@ class KustoDialect(BaseDialect):
 
     name: str = "kusto"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} =~ {self.placeholder}"
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+    ilike_template: str = "{col} =~ {ph}"
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -153,28 +113,14 @@ class KustoDialect(BaseDialect):
             return f".show table {table_name} schema as json", []
         return ".show database schema as json", []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class PrometheusDialect(BaseDialect):
     """Prometheus PromQL time-series metrics dialect."""
 
     name: str = "prometheus"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f'{col_ref}=~"(?i){self.placeholder}"'
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+    ilike_template: str = '{col}=~"(?i){ph}"'
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -185,16 +131,6 @@ class PrometheusDialect(BaseDialect):
         self, schema_name: str = "default", table_name: str | None = None
     ) -> tuple[str, list[Any]]:
         return "/api/v1/labels", []
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
 
 
 class VictoriaMetricsDialect(BaseDialect):
@@ -202,12 +138,8 @@ class VictoriaMetricsDialect(BaseDialect):
 
     name: str = "victoriametrics"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f'{col_ref}=~"(?i){self.placeholder}"'
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+    ilike_template: str = '{col}=~"(?i){ph}"'
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -219,25 +151,14 @@ class VictoriaMetricsDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         return "/api/v1/labels", []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class TimestreamDialect(BaseDialect):
     """Amazon Web Services (AWS) Timestream SQL time-series dialect."""
 
     name: str = "timestream"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]
@@ -254,30 +175,19 @@ class TimestreamDialect(BaseDialect):
             return f'DESCRIBE "{schema_name}"."{table_name}"', []
         return f'SHOW TABLES FROM "{schema_name}"', []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class KsqlDBDialect(BaseDialect):
     """ksqlDB event streaming database pull query SQL dialect."""
 
     name: str = "ksqldb"
     placeholder: str = "%s"
+    ilike_template: str = "LCASE({col}) LIKE LCASE({ph})"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
         parts = ident.split(".")
         return ".".join(f"`{part}`" for part in parts)
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LCASE({col_ref}) LIKE LCASE({self.placeholder})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]
@@ -294,33 +204,19 @@ class KsqlDBDialect(BaseDialect):
             return f"DESCRIBE {table_name};", []
         return "SHOW STREAMS;", []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "public", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "public", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class FlinkDialect(BaseDialect):
     """Apache Flink SQL streaming table dialect."""
 
     name: str = "flink"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
         parts = ident.split(".")
         return ".".join(f"`{part}`" for part in parts)
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
 
     def inspect_tables_query(
         self, schema_name: str = "default_database"
@@ -334,28 +230,14 @@ class FlinkDialect(BaseDialect):
             return f"DESCRIBE `{table_name}`;", []
         return "SHOW TABLES;", []
 
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default_database", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default_database", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
 
 class PulsarDialect(BaseDialect):
     """Apache Pulsar SQL interactive topic query dialect."""
 
     name: str = "pulsar"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def inspect_tables_query(
         self, schema_name: str = "pulsar.public/default"
@@ -368,13 +250,3 @@ class PulsarDialect(BaseDialect):
         if table_name:
             return f'DESCRIBE {schema_name}."{table_name}";', []
         return f"SHOW TABLES FROM {schema_name};", []
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "pulsar.public/default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "pulsar.public/default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return "", []

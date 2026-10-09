@@ -16,6 +16,7 @@ class BigQueryDialect(BaseDialect):
 
     name: str = "bigquery"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -26,9 +27,6 @@ class BigQueryDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats BigQuery vector distance expression."""
@@ -56,9 +54,6 @@ class ClickHouseDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats ClickHouse vector distance function expression."""
@@ -129,9 +124,7 @@ class TrinoDialect(BaseDialect):
     placeholder: str = "?"
     like_escape_char = "\\"
     like_escape_clause = True
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -151,6 +144,7 @@ class DatabricksDialect(BaseDialect):
 
     name: str = "databricks"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -162,18 +156,13 @@ class DatabricksDialect(BaseDialect):
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
-
 
 class AthenaDialect(BaseDialect):
     """AWS Athena dialect based on Presto/Trino standard SQL."""
 
     name: str = "athena"
     placeholder: str = "?"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
 
 class PolarsDialect(BaseDialect):
@@ -182,9 +171,6 @@ class PolarsDialect(BaseDialect):
     name: str = "polars"
     placeholder: str = "?"
     _REGEX_SPECIAL = frozenset(r"\.+*?()|[]{}^$#&-~")
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     # Polars' LIKE/ILIKE has NO ESCAPE support (a literal % or _ cannot be expressed), so the
     # contains/starts_with/ends_with operators use its regex match operator instead.
@@ -208,9 +194,7 @@ class DataFusionDialect(BaseDialect):
     placeholder: str = "?"
     like_escape_char = "\\"
     like_escape_clause = True
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
 
 class DremioDialect(BaseDialect):
@@ -232,9 +216,7 @@ class DruidDialect(BaseDialect):
 
     name: str = "druid"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def inspect_tables_query(self, schema_name: str = "druid") -> tuple[str, list[Any]]:
         return (
@@ -261,9 +243,7 @@ class PinotDialect(BaseDialect):
 
     name: str = "pinot"
     placeholder: str = "%s"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
 
 class StarRocksDialect(BaseDialect):
@@ -282,15 +262,13 @@ class StarRocksDialect(BaseDialect):
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
 
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
-
 
 class SparkSQLDialect(BaseDialect):
     """Apache Spark SQL dialect using backticks and Hive metastore / Delta Lake conventions."""
 
     name: str = "sparksql"
     placeholder: str = "%s"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -301,9 +279,6 @@ class SparkSQLDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -325,16 +300,6 @@ class SparkSQLDialect(BaseDialect):
             f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = {self.placeholder} ORDER BY table_name, ordinal_position;",
             [schema_name],
         )
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
 
 
 class ChDBDialect(ClickHouseDialect):
@@ -358,9 +323,6 @@ class DorisDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     def inspect_tables_query(
         self, schema_name: str = "information_schema"
@@ -407,6 +369,7 @@ class ImpalaDialect(BaseDialect):
 
     name: str = "impala"
     placeholder: str = "%s"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -417,9 +380,6 @@ class ImpalaDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -432,16 +392,6 @@ class ImpalaDialect(BaseDialect):
         if table_name:
             return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
         return (f"SHOW TABLES IN `{schema_name}`;", [])
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
 
 
 class HiveDialect(BaseDialect):
@@ -449,6 +399,8 @@ class HiveDialect(BaseDialect):
 
     name: str = "hive"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -459,9 +411,6 @@ class HiveDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -474,16 +423,6 @@ class HiveDialect(BaseDialect):
         if table_name:
             return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
         return (f"SHOW TABLES IN `{schema_name}`;", [])
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
 
 
 class KyuubiDialect(BaseDialect):
@@ -491,6 +430,7 @@ class KyuubiDialect(BaseDialect):
 
     name: str = "kyuubi"
     placeholder: str = "%s"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -501,9 +441,6 @@ class KyuubiDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
 
     def inspect_tables_query(
         self, schema_name: str = "default"
@@ -516,16 +453,6 @@ class KyuubiDialect(BaseDialect):
         if table_name:
             return (f"DESCRIBE `{schema_name}`.`{table_name}`;", [])
         return (f"SHOW TABLES IN `{schema_name}`;", [])
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
 
 
 class DrillDialect(BaseDialect):
@@ -538,6 +465,8 @@ class DrillDialect(BaseDialect):
     # so the AST validator would reject ESCAPE '\'
     like_escape_char = "!"
     like_escape_clause = True
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    introspects_keys: bool = False
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -548,10 +477,6 @@ class DrillDialect(BaseDialect):
         _validate_alias(alias_name)
         cleaned = alias_name.replace("`", "``")
         return f"`{cleaned}`"
-
-    def format_ilike(self, col_ref: str) -> str:
-        # Drill has no ILIKE operator (only an ILIKE(col, pattern) function without ESCAPE)
-        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "dfs.default"
@@ -573,16 +498,6 @@ class DrillDialect(BaseDialect):
             f"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = {self.placeholder} ORDER BY TABLE_NAME, ORDINAL_POSITION;",
             [schema_name],
         )
-
-    def inspect_primary_keys_query(
-        self, schema_name: str = "dfs.default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
-
-    def inspect_foreign_keys_query(
-        self, schema_name: str = "dfs.default", table_name: str | None = None
-    ) -> tuple[str, list[Any]]:
-        return ("", [])
 
 
 class ClickHouseNativeDialect(ClickHouseDialect):
