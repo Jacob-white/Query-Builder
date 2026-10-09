@@ -8,13 +8,13 @@
 
 ## 1. Executive Summary & Ecosystem Baseline
 
-Query-Builder currently provides a production-grade query compilation, AST security validation, execution middleware, and schema introspection framework supporting **65 database and query engines** registered in `query_builder/connectors/registry.py` and exported in `query_builder/connectors/__init__.py`. 
+Query-Builder currently provides a production-grade query compilation, AST security validation, execution middleware, and schema introspection framework supporting **138 connector classes (89 synchronous + 49 asynchronous), reachable through 306 registered names including aliases**, registered in `query_builder/connectors/registry.py` and exported in `query_builder/connectors/__init__.py`. The generated, authoritative inventory, with how each connector is verified, is `docs/CONNECTORS.md`; the 65-connector baseline and 24-engine gap analysis below describe the audit this plan was written from. 
 
 The entire Python test suite executes with **100% statement and 100% branch coverage** (581 passed tests across 10,200 statements and 3,004 branches), and the accompanying headless React library (`@jacob-white/query-builder-react`) maintains **100% statement, line, function, and branch coverage** (399 passed tests across 31 test suites).
 
-### 1.1 Existing Connector Inventory (65 Baseline Connectors)
+### 1.1 Existing Connector Inventory (65 Baseline Connectors at audit time; current totals in `docs/CONNECTORS.md`)
 
-The 65 active connectors are categorized below by their operational archetype:
+The 65 baseline connectors are categorized below by their operational archetype:
 
 | Category Archetype | Existing Supported Engines | Count |
 | :--- | :--- | :--- |
@@ -30,13 +30,13 @@ The 65 active connectors are categorized below by their operational archetype:
 | **Generic & Base Protocol** | Generic DB-API 2.0 (`generic`) | 1 |
 | **Total Baseline Engines** | **Active Unique Synchronous Connector Classes** | **65** |
 
-In addition, 25 high-demand connectors currently implement dedicated asynchronous counterparts (`AsyncBaseConnector`), including `AsyncSparkSQLConnector`, `AsyncClickHouseNativeConnector`, `AsyncNeo4jConnector`, `AsyncKdbConnector`, `AsyncOpenSearchConnector`, and others.
+In addition, 25 baseline connectors implemented dedicated asynchronous counterparts at audit time (`AsyncBaseConnector`; 49 async classes exist today, see `docs/CONNECTORS.md`), including `AsyncSparkSQLConnector`, `AsyncClickHouseNativeConnector`, `AsyncNeo4jConnector`, `AsyncKdbConnector`, `AsyncOpenSearchConnector`, and others.
 
 ---
 
 ## 2. Missing Connector Taxonomy Gap Audit
 
-Despite supporting 65 connectors, modern enterprise data stacks and AI applications frequently leverage specialized storage engines that fall outside the traditional relational and lakehouse paradigms. To establish universal coverage, Query-Builder has conducted an audit across **5 vital architectural domains** identifying **24 missing engines**:
+Despite the 65 baseline connectors, modern enterprise data stacks and AI applications frequently leverage specialized storage engines that fall outside the traditional relational and lakehouse paradigms. To establish universal coverage, Query-Builder has conducted an audit across **5 vital architectural domains** identifying **24 missing engines**:
 
 1. **Vector & AI Data Stores** (6 engines): Pinecone, Qdrant, Weaviate, Milvus, ChromaDB, LanceDB
 2. **Graph & Log/KQL Engines** (5 engines): Memgraph, Amazon Neptune, Azure Data Explorer (Kusto/KQL), VictoriaMetrics (MetricsQL), Prometheus (PromQL)
@@ -561,6 +561,6 @@ Zero tests may rely on external live network endpoints, cloud credentials, or ba
 
 ## 6. Conclusion & Recommendation
 
-Implementing the missing connectors in structured phases will expand Query-Builder's connectivity footprint from 65 to **89 engines**, transforming Query-Builder into the most universally compatible, secure, and extensible SQL and data querying platform in the Python and TypeScript open-source ecosystem.
+Implementing the missing connectors in structured phases will expand Query-Builder's connectivity footprint from 65 to **89 synchronous connector classes** (138 classes including the 49 async counterparts today; see `docs/CONNECTORS.md`), transforming Query-Builder into the most universally compatible, secure, and extensible SQL and data querying platform in the Python and TypeScript open-source ecosystem.
 
 Phase 1 (Enterprise Relational & Modern Embedded SQL) is recommended for immediate worker dispatch to establish instant commercial and legacy database coverage with zero risk of test flakiness, followed sequentially by Phases 2, 3, and 4.

@@ -8,6 +8,7 @@ dual sync and async execution protocols, and index schema introspection.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import time
 from typing import Any
 
@@ -18,8 +19,27 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_redis_search
+from query_builder.connectors.introspection import (
+    introspect_redis_search,
+    parse_ft_info,
+)
 from query_builder.connectors.registry import register_connector
+from query_builder.security import SecurityError
+
+#: Commands the raw-command path may send. Anything else (FLUSHALL, SET, DEL,
+#: FT.CREATE, FT.DROPINDEX, EVAL, CONFIG SET, ...) is refused client-side.
+READ_ONLY_COMMANDS: frozenset[str] = frozenset(
+    {
+        "PING", "INFO", "DBSIZE", "TIME", "ECHO", "EXISTS", "TYPE", "TTL", "PTTL",
+        "GET", "MGET", "STRLEN", "HGET", "HMGET", "HGETALL", "HLEN", "HEXISTS",
+        "HKEYS", "HVALS", "LRANGE", "LLEN", "LINDEX", "SMEMBERS", "SCARD",
+        "SISMEMBER", "ZRANGE", "ZCARD", "ZSCORE", "ZRANK", "SCAN", "HSCAN",
+        "SSCAN", "ZSCAN", "KEYS", "JSON.GET", "JSON.MGET",
+        "FT.SEARCH", "FT.AGGREGATE", "FT.INFO", "FT._LIST", "FT.EXPLAIN",
+        "FT.EXPLAINCLI", "FT.PROFILE", "FT.TAGVALS", "FT.SYNDUMP", "FT.SPELLCHECK",
+        "FT.DICTDUMP",
+    }
+)  # fmt: skip
 
 
 class _RedisSearchCursorAdapter:
@@ -48,6 +68,12 @@ class _RedisSearchCursorAdapter:
             parts = clean_sql.split()
             cmd = parts[0] if parts else "PING"
             args = parts[1:] if len(parts) > 1 else []
+            if cmd.upper() not in READ_ONLY_COMMANDS:
+                # Redis has no read-only session: only known read commands pass.
+                raise SecurityError(
+                    f"Read-only session violation: Redis command '{cmd}' is not a "
+                    "permitted read command."
+                )
             res = self.conn.execute_command(cmd, *args)
             if hasattr(res, "__await__"):
                 import asyncio
@@ -270,6 +296,11 @@ class AsyncRedisSearchConnector(AsyncBaseConnector):
             parts = sql.strip().rstrip(";").strip().split()
             cmd = parts[0] if parts else "PING"
             args = parts[1:] if len(parts) > 1 else []
+            if cmd.upper() not in READ_ONLY_COMMANDS:
+                raise SecurityError(
+                    f"Read-only session violation: Redis command '{cmd}' is not a "
+                    "permitted read command."
+                )
             res = conn.execute_command(cmd, *args)
             if hasattr(res, "__await__"):
                 res = await res
@@ -322,6 +353,26 @@ class AsyncRedisSearchConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        if inspect.iscoroutinefunction(getattr(conn, "execute_command", None)):
+            # real redis.asyncio client: every call must be awaited
+            try:
+                names = await conn.execute_command("FT._LIST")
+                indexes: dict[str, list[dict[str, Any]]] = {}
+                for raw in names or []:
+                    name = raw.decode() if isinstance(raw, bytes) else str(raw)
+                    try:
+                        indexes[name] = parse_ft_info(
+                            await conn.execute_command("FT.INFO", name)
+                        )
+                    except Exception:  # noqa: BLE001 - index dropped meanwhile
+                        indexes[name] = []
+                return introspect_redis_search(
+                    conn, filter_sensitive=filter_sensitive, _indexes=indexes
+                )
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect RediSearch schema: {exc}"
+                ) from exc
         cur = (
             conn.cursor()
             if hasattr(conn, "cursor")

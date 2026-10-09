@@ -71,3 +71,6 @@ dist-ssr/
 *.db
 *.sqlite
 *.sqlite3
+
+# Live integration reports
+tests/integration/.reports/

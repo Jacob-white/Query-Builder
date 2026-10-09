@@ -8,6 +8,8 @@ dual sync and async execution protocols, statement timeouts, and system catalog 
 from __future__ import annotations
 
 import contextlib
+import inspect
+import re
 import time
 from typing import Any
 
@@ -28,6 +30,24 @@ def _has_attr(target: Any, attr: str) -> bool:
             return hasattr(target, attr)
         return attr in target._mock_children
     return hasattr(target, attr)
+
+
+_POSITIONAL_RE = re.compile(r"(?<!%)%s")
+
+
+def _bind_positional(sql: str, params: Any) -> tuple[str, Any]:
+    """Turn ``%s`` markers + a value list into ``%(p0)s`` markers + a dict."""
+    if not params:
+        return sql, None
+    if isinstance(params, dict):
+        return sql, params
+    values = list(params)
+    counter = iter(range(len(values)))
+
+    def _name(_: re.Match[str]) -> str:
+        return f"%(p{next(counter)})s"
+
+    return _POSITIONAL_RE.sub(_name, sql), {f"p{i}": v for i, v in enumerate(values)}
 
 
 class _ClickHouseNativeCursorAdapter:
@@ -61,10 +81,11 @@ class _ClickHouseNativeCursorAdapter:
                 self.description = getattr(self.target, "description", None)
                 self._rows = list(self.target.fetchall())
             else:
+                # clickhouse-driver binds NAMED parameters (dict); a list is the
+                # row data of an INSERT, so positional %s markers are converted.
+                clean_sql, bound = _bind_positional(clean_sql, params)
                 try:
-                    out = self.target.execute(
-                        clean_sql, params or [], with_column_types=True
-                    )
+                    out = self.target.execute(clean_sql, bound, with_column_types=True)
                     if (
                         isinstance(out, tuple)
                         and len(out) == 2
@@ -99,6 +120,73 @@ class _ClickHouseNativeCursorAdapter:
 
     def close(self) -> None:
         pass
+
+
+class _DetachedCursor:
+    """DB-API view of an adapter that deliberately has no ``target`` attribute."""
+
+    def __init__(self, adapter: _ClickHouseNativeCursorAdapter) -> None:
+        self._adapter = adapter
+
+    @property
+    def description(self) -> Any:
+        return self._adapter.description
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self._adapter.execute(sql, params)
+
+    def fetchall(self) -> list[Any]:
+        return self._adapter.fetchall()
+
+    def fetchone(self) -> Any:
+        return self._adapter.fetchone()
+
+    def close(self) -> None:
+        self._adapter.close()
+
+
+def _is_asynch_connection(conn: Any) -> bool:
+    """A real ``asynch.Connection`` (coroutine ``connect``; a Mock's is not)."""
+    return inspect.iscoroutinefunction(getattr(conn, "connect", None)) and hasattr(
+        conn, "cursor"
+    )
+
+
+async def _asynch_query(
+    conn: Any, sql: str, params: Any
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    """Run one statement on an asynch connection; returns (columns, rows)."""
+    statement, bound = _bind_positional(sql.strip().rstrip(";").strip(), params)
+    async with conn.cursor() as cursor:
+        await cursor.execute(statement, bound)
+        columns = [d[0] for d in (cursor.description or [])]
+        rows = await cursor.fetchall()
+    return columns, list(rows or [])
+
+
+class _PrefetchedCatalog:
+    """DB-API cursor over catalog query results that were already fetched."""
+
+    def __init__(self, results: dict[str, list[tuple[Any, ...]]]) -> None:
+        self._results = results
+        self._rows: list[tuple[Any, ...]] = []
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        for marker, rows in self._results.items():
+            if marker in sql:
+                self._rows = list(rows)
+                return
+        raise ValueError(f"no prefetched result for: {sql}")
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        rows, self._rows = self._rows, []
+        return rows
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows.pop(0) if self._rows else None
+
+    def close(self) -> None:
+        self._rows = []
 
 
 @register_connector("clickhouse_native", aliases=["ch_native", "clickhouse_tcp"])
@@ -138,7 +226,11 @@ class ClickHouseNativeConnector(BaseConnector):
         try:
             client_cls = getattr(driver, "Client", None)
             if client_cls is not None:
-                self._connection = client_cls(database=self.database, **self.config)
+                cfg = dict(self.config)
+                # join_use_nulls: unmatched OUTER JOIN columns must be NULL, not
+                # the column type's default value.
+                cfg["settings"] = {"join_use_nulls": 1, **cfg.get("settings", {})}
+                self._connection = client_cls(database=self.database, **cfg)
             else:
                 self._connection = driver
             return self._connection
@@ -181,6 +273,13 @@ class ClickHouseNativeConnector(BaseConnector):
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
+            if isinstance(cur, _ClickHouseNativeCursorAdapter) and not hasattr(
+                cur.target, "_mock_children"
+            ):
+                # introspection unwraps an adapter to its raw client, whose
+                # execute() returns rows instead of exposing fetchall(): hand it a
+                # cursor that keeps the DB-API surface.
+                cur = _DetachedCursor(cur)
             try:
                 return introspect_clickhouse_native(
                     cur,
@@ -230,6 +329,12 @@ class AsyncClickHouseNativeConnector(AsyncBaseConnector):
             if hasattr(driver, "connect"):
                 res = driver.connect(database=self.database, **self.config)
                 self._connection = await res if hasattr(res, "__await__") else res
+                if _is_asynch_connection(self._connection):
+                    # asynch.connect() returns the Connection UNOPENED
+                    await self._connection.connect()
+                    # unmatched OUTER JOIN columns must be NULL, not type defaults
+                    async with self._connection.cursor() as cursor:
+                        await cursor.execute("SET join_use_nulls = 1")
             elif hasattr(driver, "Client"):
                 self._connection = driver.Client(database=self.database, **self.config)
             else:
@@ -245,6 +350,10 @@ class AsyncClickHouseNativeConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_asynch_connection(conn):
+            col_names, rows = await _asynch_query(conn, sql, params)
+            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
+            return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
         adapter = _ClickHouseNativeCursorAdapter(conn)
         try:
             adapter.execute(sql, params)
@@ -257,8 +366,45 @@ class AsyncClickHouseNativeConnector(AsyncBaseConnector):
         finally:
             adapter.close()
 
+    async def test_connection(self) -> dict[str, Any]:
+        info = await super().test_connection()
+        conn = self._connection
+        if conn is not None and _is_asynch_connection(conn):
+            try:
+                _, rows = await _asynch_query(conn, "SELECT version()", None)
+                info["engine_version"] = f"ClickHouse Native {rows[0][0]}".strip()
+            except Exception:  # noqa: BLE001, S110 - version is informational
+                pass
+        info["database"] = self.database
+        return info
+
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        if _is_asynch_connection(conn):
+            # introspection is synchronous: hand it the two catalog results fetched here
+            _, tables = await _asynch_query(
+                conn,
+                "SELECT name FROM system.tables WHERE database = %(db)s ORDER BY name",
+                {"db": self.database},
+            )
+            _, columns = await _asynch_query(
+                conn,
+                "SELECT table, name, type, is_in_primary_key FROM system.columns "
+                "WHERE database = %(db)s ORDER BY table, position",
+                {"db": self.database},
+            )
+            try:
+                return introspect_clickhouse_native(
+                    _PrefetchedCatalog(
+                        {"system.tables": tables, "system.columns": columns}
+                    ),
+                    database=self.database,
+                    filter_sensitive=filter_sensitive,
+                )
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect ClickHouse Native database '{self.database}': {exc}"
+                ) from exc
         adapter = _ClickHouseNativeCursorAdapter(conn)
         try:
             return introspect_clickhouse_native(

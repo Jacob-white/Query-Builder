@@ -70,7 +70,7 @@ class PrestoDBConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         with self.get_cursor() as cur:
-            cur.execute("SELECT version();")
+            cur.execute("SELECT version()")
             row = cur.fetchone()
             if row:
                 info["engine_version"] = row[0]
@@ -83,6 +83,8 @@ class PrestoDBConnector(BaseConnector):
                     cur,
                     schema_name=self.schema_name,
                     filter_sensitive=filter_sensitive,
+                    placeholder="?",
+                    pk_guess=False,
                 )
             except Exception as exc:
                 raise IntrospectionError(
