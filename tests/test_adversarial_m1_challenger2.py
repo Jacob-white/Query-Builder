@@ -37,7 +37,11 @@ import pytest
 
 from query_builder.compiler import CompilationError
 from query_builder.connectors.async_base import AsyncBaseConnector
-from query_builder.connectors.base import BaseConnector, ConnectorError
+from query_builder.connectors.base import (
+    BaseConnector,
+    ConnectorError,
+    QueryExecutionError,
+)
 from query_builder.connectors.registry import (
     ConnectorRegistry,
     get_connector,
@@ -554,7 +558,7 @@ def test_minimal_connector_with_missing_and_empty_tables():
     assert schema["relationships"] == []
 
     # Executing against non-existent table fails at DB execution level cleanly
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+    with pytest.raises(QueryExecutionError, match="no such table"):
         conn.execute({"table": "non_existent_table"})
 
     # Attempting to retrieve an unknown connector raises ConnectorError

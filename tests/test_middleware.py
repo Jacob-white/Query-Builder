@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from query_builder.compiler import CompilationError, QueryCompiler
-from query_builder.connectors.base import BaseConnector
+from query_builder.connectors.base import BaseConnector, QueryExecutionError
 from query_builder.middleware import (
     LifecycleInterceptor,
     MiddlewarePipeline,
@@ -222,7 +222,7 @@ def test_on_error_hook_called_on_execution_error():
             error_log.append(error)
 
     conn = InMemorySQLiteConnector(middleware=[ErrorLogger()])
-    with pytest.raises(sqlite3.OperationalError):
+    with pytest.raises(QueryExecutionError):
         conn.execute({"table": "nonexistent_table"})
 
     assert len(error_log) == 1

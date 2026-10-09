@@ -18,7 +18,7 @@ import pytest
 from query_builder.config import SecurityConfig
 from query_builder.connectors import base as base_mod
 from query_builder.connectors.async_base import AsyncBaseConnector
-from query_builder.connectors.base import BaseConnector
+from query_builder.connectors.base import BaseConnector, QueryExecutionError
 from query_builder.connectors.clickhouse import ClickHouseConnector
 from query_builder.connectors.mssql import MSSQLConnector
 from query_builder.connectors.mysql import MySQLConnector
@@ -52,7 +52,7 @@ def test_sqlite_in_memory_refuses_writes_even_without_the_validator() -> None:
         "DROP TABLE t",
         "ALTER TABLE t ADD COLUMN b",
     ):
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        with pytest.raises(QueryExecutionError, match="readonly"):
             c.execute_raw(stmt)
     assert c.execute_raw("SELECT COUNT(*) AS n FROM t")[1] == [{"n": 1}]
 
@@ -68,11 +68,11 @@ def test_sqlite_file_database_is_opened_read_only_at_the_vfs(tmp_path) -> None:
     c = SQLiteConnector(str(path), security=_sec())
     conn = c.connect()
     assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
-    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+    with pytest.raises(QueryExecutionError, match="readonly"):
         c.execute_raw("INSERT INTO t VALUES (2)")
     # Lifting query_only (as a bypassing attacker might) still hits the mode=ro VFS flag.
     conn.execute("PRAGMA query_only = OFF")
-    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+    with pytest.raises(QueryExecutionError, match="readonly"):
         c.execute_raw("INSERT INTO t VALUES (3)")
     c.close()
 
@@ -93,7 +93,7 @@ def test_sqlite_enforcement_off_allows_writes(tmp_path) -> None:
 def test_sqlite_missing_file_is_not_created_read_only_uri(tmp_path) -> None:
     c = SQLiteConnector(str(tmp_path / "new.db"), security=_sec())
     c.connect()  # nothing to open read-only yet: plain connect + query_only
-    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+    with pytest.raises(QueryExecutionError, match="readonly"):
         c.execute_raw("CREATE TABLE t (id INTEGER)")
     c.close()
 

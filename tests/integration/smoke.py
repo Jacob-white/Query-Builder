@@ -545,12 +545,6 @@ SMOKE: dict[str, Smoke] = {
                 probe=_redis_probe_sql,
             )
         },
-        known_issues={
-            "test_bad_native_queries_map_to_the_connector_error_family": (
-                "redis.exceptions.ResponseError escapes RedisSearchConnector.execute "
-                "unwrapped instead of a ConnectorError"
-            )
-        },
     ),
     "neo4j": Smoke(
         seed=_seed_neo4j,
