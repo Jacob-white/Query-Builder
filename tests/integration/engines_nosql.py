@@ -9,6 +9,17 @@ Containers: ``docker/compose.nosql.yml`` (profile ``nosql``). Run one engine per
 Engines flagged ``emulated=True`` run against a vendor emulator of a cloud product; a pass
 there is real evidence but the status tier is ``emulated``, never ``certified``.
 Native seeders use the vendor drivers, never the connector under test.
+
+Classes with NO live evidence possible here (documented, deliberately not faked):
+
+* ``MongoDBAtlasSQLConnector`` - the Atlas SQL Interface exists only on Atlas Data Federation
+  (a cloud service); a local MongoDB does not speak it, and passing against plain MongoDB would
+  be evidence for the MongoDB class, not for this one.
+* ``NeptuneConnector`` / ``AsyncNeptuneConnector`` - Amazon Neptune is cloud-only (no emulator;
+  a plain Neo4j/Gremlin server is not Neptune: IAM-signed endpoints, Neptune-specific openCypher
+  behaviour).
+* ``TimestreamConnector`` / ``AsyncTimestreamConnector`` - the only local emulation is
+  LocalStack Pro (commercial licence); the community image does not ship Timestream.
 """
 
 from __future__ import annotations

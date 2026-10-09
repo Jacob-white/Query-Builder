@@ -70,6 +70,20 @@ class SpannerConnector(BaseConnector):
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
-            return introspect_information_schema(
+            snapshot = introspect_information_schema(
                 cur, schema_name="", filter_sensitive=filter_sensitive
             )
+            # Spanner has no table_constraints rows for primary keys (the generic query then
+            # GUESSES "id"); its real primary key is the PRIMARY_KEY index.
+            try:
+                cur.execute(
+                    "SELECT table_name, column_name FROM information_schema.index_columns "
+                    "WHERE index_name = 'PRIMARY_KEY' AND table_schema = ''"
+                )
+                keys = {(str(r[0]), str(r[1])) for r in cur.fetchall()}
+            except Exception:  # noqa: BLE001 - keep the generic answer
+                return snapshot
+            for table in snapshot.get("tables", {}).values():
+                for col in table["columns"]:
+                    col["is_primary"] = (table["name"], col["name"]) in keys
+            return snapshot

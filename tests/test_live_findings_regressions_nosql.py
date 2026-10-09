@@ -1282,8 +1282,11 @@ def test_dynamodb_follows_next_token_and_decodes_collections() -> None:
     endless.execute_statement = MagicMock(  # type: ignore[method-assign]
         return_value={"Items": [{"x": {"N": "1"}}], "NextToken": "more"}
     )
-    capped = DynamoDBConnector(client=endless)
-    capped.security.execution.max_rows_limit = 1
+    from query_builder.config import SecurityConfig
+
+    capped_cfg = SecurityConfig()  # never mutate the shared global config
+    capped_cfg.execution.max_rows_limit = 1
+    capped = DynamoDBConnector(client=endless, security=capped_cfg)
     result = capped.execute(sql='SELECT x FROM "t"', validate_ast=False)
     assert len(result["rows"]) == 1 and result.get("truncated") is True
     assert endless.execute_statement.call_count == 2
@@ -1310,3 +1313,355 @@ def test_spanner_connect_uses_the_dbapi_positional_signature_and_read_only() -> 
     assert calls == [("i", "d", {"project": "p"})]
     assert connection.read_only is True  # snapshot (read-only) transactions
     assert SpannerConnector.read_only_support == "enforced"
+
+
+# ============================================================================
+# Couchbase: bind parameters were DROPPED (queries with `?` were sent unbound), relative
+# keyspaces (`FROM people`) had no bucket/scope context, introspection listed buckets
+# instead of the bucket's collections, SQL++ writes (UPSERT/MERGE) passed the read-only check.
+# ============================================================================
+class FakeCbCluster:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.answers: dict[str, list[Any]] = {}
+
+    def query(self, sql: str, *opts: Any) -> list[Any]:
+        self.calls.append((sql, opts))
+        for prefix, rows in self.answers.items():
+            if sql.startswith(prefix):
+                return rows
+        return []
+
+    def close(self) -> None:
+        self.calls.append(("close", ()))
+
+
+@pytest.fixture
+def fake_cb_options() -> Any:
+    mod = types.ModuleType("couchbase.options")
+
+    class QueryOptions:
+        def __init__(self, **kw: Any) -> None:
+            self.kw = kw
+
+    mod.QueryOptions = QueryOptions  # type: ignore[attr-defined]
+    with patch.dict(sys.modules, {"couchbase": types.ModuleType("couchbase"), "couchbase.options": mod}):
+        yield
+
+
+def test_couchbase_binds_parameters_and_sets_the_bucket_scope_context(
+    fake_cb_options: Any,
+) -> None:
+    from query_builder.connectors.couchbase import CouchbaseConnector
+
+    cluster = FakeCbCluster()
+    cluster.answers["SELECT"] = [{"name": "alice", "age": 30}]
+    conn = CouchbaseConnector(
+        connection=types.SimpleNamespace(cursor=None), bucket_name="b", scope_name="s"
+    )
+    from query_builder.connectors.couchbase import _CouchbaseClient
+
+    conn = CouchbaseConnector(
+        connection=_CouchbaseClient(cluster, conn._query_context(), True),
+        bucket_name="b",
+        scope_name="s",
+    )
+    result = conn.execute(sql="SELECT name, age FROM people WHERE age > ?", params=[21])
+    assert result["rows"] == [{"name": "alice", "age": 30}]
+    sql, opts = cluster.calls[-1]
+    assert sql == "SELECT name, age FROM people WHERE age > ?"
+    assert opts[0].kw == {
+        "query_context": "default:`b`.`s`",
+        "positional_parameters": [21],  # was dropped: the query went out unbound
+    }
+
+
+def test_couchbase_refuses_sqlpp_writes_even_without_the_ast_validator() -> None:
+    from query_builder.connectors.couchbase import CouchbaseConnector, _CouchbaseCursor
+
+    cluster = FakeCbCluster()
+    conn = CouchbaseConnector(connection=types.SimpleNamespace(cursor=lambda: _CouchbaseCursor(cluster)))
+    for statement in (
+        "UPSERT INTO people (KEY, VALUE) VALUES ('k', {})",
+        "MERGE INTO people t USING [{'k': 'p1'}] s ON KEY s.k WHEN MATCHED THEN DELETE",
+        "DELETE FROM people",
+        "DROP COLLECTION people",
+    ):
+        with pytest.raises(SecurityError):
+            conn.execute(sql=statement, validate_ast=False)
+    assert cluster.calls == []
+    _CouchbaseCursor(cluster, read_only=False).execute("DELETE FROM people")
+    assert len(cluster.calls) == 1
+    assert conn._read_only() is True
+
+
+def test_couchbase_introspection_lists_the_buckets_collections_and_reports_version() -> None:
+    from query_builder.connectors.couchbase import CouchbaseConnector, _CouchbaseClient
+
+    cluster = FakeCbCluster()
+    cluster.answers["SELECT name FROM system:keyspaces"] = [{"name": "people"}]
+    cluster.answers["INFER `b`.`s`.`people`"] = [
+        [
+            {
+                "properties": {
+                    "id": {"type": "number"},
+                    "name": {"type": ["string", "null"]},
+                }
+            }
+        ]
+    ]
+    cluster.answers["SELECT version()"] = [{"v": "7.6.2-3721-community"}]
+    conn = CouchbaseConnector(
+        connection=_CouchbaseClient(cluster), bucket_name="b'x", scope_name="s"
+    )
+    # quotes in the bucket name cannot break out of the keyspace filter
+    conn.introspect_schema()
+    assert "`bucket` = 'b''x'" in cluster.calls[0][0]
+    conn = CouchbaseConnector(
+        connection=_CouchbaseClient(cluster), bucket_name="b", scope_name="s"
+    )
+    snapshot = conn.introspect_schema(filter_sensitive=False)
+    cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
+    assert cols == {"id": "number", "name": "string|null"}
+    assert conn.test_connection()["engine_version"] == "Couchbase 7.6.2-3721-community"
+
+
+# ============================================================================
+# Cosmos DB: the connector only ever held a CLIENT, which cannot run queries, so every query
+# returned NO ROWS silently; introspection invented an "items" container and fixed
+# id/_rid/_ts columns; the async class used the blocking client.
+# ============================================================================
+class FakeCosmosContainer:
+    def __init__(self, docs: list[Any], log: list[Any]) -> None:
+        self.docs, self.log = docs, log
+        self.id = "people"
+
+    def query_items(self, query: str, parameters: Any = None, **kw: Any) -> Any:
+        self.log.append((query, parameters, kw))
+        return iter(self.docs)
+
+
+class FakeCosmosDatabase:
+    def __init__(self, containers: dict[str, list[Any]], log: list[Any]) -> None:
+        self.containers, self.log = containers, log
+
+    def get_container_client(self, name: str) -> FakeCosmosContainer:
+        self.log.append(("container", name))
+        return FakeCosmosContainer(self.containers[name], self.log)
+
+    def list_containers(self) -> list[dict[str, str]]:
+        return [{"id": n} for n in self.containers]
+
+    def read(self) -> dict[str, str]:
+        self.log.append(("read_db",))
+        return {"id": "db"}
+
+
+class FakeCosmosClient:
+    def __init__(self, containers: dict[str, list[Any]]) -> None:
+        self.containers, self.log = containers, []
+
+    def get_database_client(self, name: str) -> FakeCosmosDatabase:
+        self.log.append(("database", name))
+        return FakeCosmosDatabase(self.containers, self.log)
+
+
+def test_cosmos_runs_the_query_against_the_container_named_in_from() -> None:
+    from query_builder.connectors.cosmosdb import (
+        CosmosDBConnector,
+        _CosmosDBCursorAdapter,
+        container_of,
+    )
+
+    docs = [
+        {"id": "1", "name": "alice", "age": 30, "ref": object.__new__(FakeRecordId)},
+        {"id": "2", "name": "bob", "extra": [1]},
+    ]
+    client = FakeCosmosClient({"people": docs})
+    conn = CosmosDBConnector(connection=client, database="db")
+    result = conn.execute(
+        sql="SELECT * FROM people p WHERE p.age > @param", params=[21], validate_ast=False
+    )
+    assert [r["name"] for r in result["rows"]] == ["alice", "bob"]
+    assert result["rows"][0]["ref"] == "people:1"  # SDK objects -> plain values
+    assert result["columns"] == ["id", "name", "age", "ref", "extra"]
+    query, parameters, kw = client.log[-1]
+    assert query == "SELECT * FROM people p WHERE p.age > @p0"
+    assert parameters == [{"name": "@p0", "value": 21}]
+    assert kw == {"enable_cross_partition_query": True}
+    assert ("container", "people") in client.log and ("database", "db") in client.log
+    # a statement that names no container cannot run: error, not "no rows"
+    adapter = _CosmosDBCursorAdapter(client, database="db")
+    from query_builder.connectors.base import QueryExecutionError
+
+    with pytest.raises(QueryExecutionError, match="needs a container"):
+        adapter.execute("SELECT VALUE 1")
+    with pytest.raises(SecurityError):
+        adapter.execute("DELETE FROM people")
+    assert container_of('SELECT 1 FROM "my-coll" c') == "my-coll"
+    assert container_of("SELECT 1 FROM `bt` c") == "bt"
+    assert container_of("SELECT 1 FROM [x y] c") == "x y"
+    assert container_of("SELECT 1") is None
+    scalar = _CosmosDBCursorAdapter(FakeCosmosContainer([1, 2], []))
+    scalar.execute("SELECT VALUE c.n FROM c")
+    assert scalar.description == [("value",)] and scalar.fetchall() == [[1], [2]]
+    empty = _CosmosDBCursorAdapter(FakeCosmosContainer([], []))
+    empty.execute("SELECT * FROM c WHERE false")
+    assert empty.description == []
+
+
+def test_cosmos_health_check_needs_no_container() -> None:
+    from query_builder.connectors.cosmosdb import CosmosDBConnector
+
+    client = FakeCosmosClient({"people": []})
+    info = CosmosDBConnector(connection=client, database="db").test_connection()
+    assert info["status"] == "healthy" and ("read_db",) in client.log
+    cur = MagicMock(spec=["execute", "fetchone", "close"])
+    info = CosmosDBConnector(cursor=cur).test_connection()  # DB-API style delegate
+    assert info["status"] == "healthy"
+    cur.execute.assert_called_with("SELECT 1")
+    dbapi = MagicMock(spec=["cursor"])
+    dbapi.cursor.return_value = cur
+    assert CosmosDBConnector(connection=dbapi).test_connection()["status"] == "healthy"
+
+
+def test_cosmos_introspection_reports_containers_and_attributes_only() -> None:
+    from query_builder.connectors.cosmosdb import CosmosDBConnector
+
+    docs = [{"id": "1", "name": "a", "age": 3, "_rid": "x", "_ts": 1, "user_id": "u"}]
+    client = FakeCosmosClient({"people": docs, "empty": []})
+    snapshot = CosmosDBConnector(connection=client, database="db").introspect_schema(
+        filter_sensitive=False
+    )
+    cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
+    assert cols == {"id": "string", "name": "string", "age": "number", "user_id": "string"}
+    assert snapshot["tables"]["people"]["has_user_id"] is True
+    assert [c["name"] for c in snapshot["tables"]["empty"]["columns"]] == ["id"]
+    assert CosmosDBConnector(
+        connection=FakeCosmosClient({}), database="db"
+    ).introspect_schema()["tables"] == {}  # was {"items": ...}
+
+
+class AsyncCosmosItems:
+    def __init__(self, docs: list[Any]) -> None:
+        self.docs = docs
+
+    def __aiter__(self) -> Any:
+        async def gen() -> Any:
+            for d in self.docs:
+                yield d
+
+        return gen()
+
+
+class AsyncCosmosContainer(FakeCosmosContainer):
+    def query_items(self, query: str, parameters: Any = None, **kw: Any) -> Any:
+        self.log.append((query, parameters, kw))
+        return AsyncCosmosItems(self.docs)
+
+
+class AsyncCosmosDatabase(FakeCosmosDatabase):
+    def get_container_client(self, name: str) -> AsyncCosmosContainer:  # type: ignore[override]
+        return AsyncCosmosContainer(self.containers[name], self.log)
+
+    def list_containers(self) -> Any:  # type: ignore[override]
+        return AsyncCosmosItems([{"id": n} for n in self.containers])
+
+    async def read(self) -> dict[str, str]:  # type: ignore[override]
+        self.log.append(("read_db",))
+        return {"id": "db"}
+
+
+class AsyncCosmosClient(FakeCosmosClient):
+    def get_database_client(self, name: str) -> AsyncCosmosDatabase:  # type: ignore[override]
+        return AsyncCosmosDatabase(self.containers, self.log)
+
+
+def test_async_cosmos_awaits_the_aio_client() -> None:
+    from query_builder.connectors.cosmosdb import AsyncCosmosDBConnector
+
+    docs = [{"id": "1", "name": "alice"}]
+
+    async def body() -> None:
+        client = AsyncCosmosClient({"people": docs})
+        conn = AsyncCosmosDBConnector(connection=client, database="db")
+        cols, rows, _ = await conn.execute_raw(
+            "SELECT c.name FROM people c WHERE c.age > @param", [3]
+        )
+        assert cols == ["id", "name"] and rows == [{"id": "1", "name": "alice"}]
+        # the aio SDK has no enable_cross_partition_query argument
+        assert client.log[-1] == (
+            "SELECT c.name FROM people c WHERE c.age > @p0",
+            [{"name": "@p0", "value": 3}],
+            {},
+        )
+        assert (await conn.test_connection())["status"] == "healthy"
+        assert ("read_db",) in client.log
+        snapshot = await conn.introspect_schema(filter_sensitive=False)
+        assert {"id", "name"} <= {c["name"] for c in snapshot["tables"]["people"]["columns"]}
+        with pytest.raises(SecurityError):
+            await conn.execute_raw("DELETE FROM people")
+        # the blocking SDK object also works (plain iterators)
+        sync_client = FakeCosmosClient({"people": docs})
+        c2 = AsyncCosmosDBConnector(connection=sync_client, database="db")
+        assert (await c2.execute_raw("SELECT * FROM people"))[1][0]["name"] == "alice"
+        assert (await c2.test_connection())["status"] == "healthy"
+        assert "people" in (await c2.introspect_schema(filter_sensitive=False))["tables"]
+        # DB-API style delegate
+        cur = MagicMock(spec=["execute", "description", "fetchall"])
+        cur.description, cur.fetchall.return_value = [("v",)], [[1]]
+        c3 = AsyncCosmosDBConnector(connection=cur)
+        assert (await c3.execute_raw("SELECT 1"))[1] == [{"v": 1}]
+        assert (await c3.test_connection())["status"] == "healthy"
+        assert isinstance((await c3.introspect_schema())["tables"], dict)
+        broken = FakeCosmosClient({})
+        broken.get_database_client = MagicMock(side_effect=RuntimeError("down"))  # type: ignore[method-assign]
+        with pytest.raises(IntrospectionError):
+            await AsyncCosmosDBConnector(connection=broken).introspect_schema()
+        # connection: prefers azure.cosmos.aio, reports failures
+        aio = types.ModuleType("azure.cosmos.aio")
+        aio.CosmosClient = lambda endpoint, credential, **kw: ("aio", endpoint, credential)  # type: ignore[attr-defined]
+        with patch.dict(sys.modules, {"azure.cosmos.aio": aio}):
+            got = await AsyncCosmosDBConnector(endpoint="http://x", key="k").connect()
+        assert got == ("aio", "http://x", "k")
+        with patch.dict(
+            sys.modules,
+            {"azure.cosmos.aio": None, "azure.cosmos": None, "azure.cosmos.cosmos_client": None},
+        ):
+            from query_builder.connectors.base import DriverNotInstalledError
+
+            with pytest.raises(DriverNotInstalledError):
+                await AsyncCosmosDBConnector().connect()
+
+    run(body())
+
+
+def test_spanner_primary_key_is_read_from_the_primary_key_index() -> None:
+    from query_builder.connectors.spanner import SpannerConnector
+
+    def snapshot() -> dict[str, Any]:
+        return {
+            "tables": {
+                "t": {
+                    "name": "t",
+                    "columns": [
+                        {"name": "id", "is_primary": True},  # the generic GUESS
+                        {"name": "k", "is_primary": False},
+                    ],
+                }
+            }
+        }
+
+    cur = MagicMock()
+    cur.fetchall.return_value = [("t", "k")]
+    conn = SpannerConnector(cursor=cur)
+    with patch(
+        "query_builder.connectors.spanner.introspect_information_schema",
+        side_effect=lambda *a, **k: snapshot(),
+    ):
+        cols = conn.introspect_schema()["tables"]["t"]["columns"]
+        assert [(c["name"], c["is_primary"]) for c in cols] == [("id", False), ("k", True)]
+        cur.execute.side_effect = RuntimeError("no index_columns")
+        cols = conn.introspect_schema()["tables"]["t"]["columns"]  # keeps the generic answer
+        assert cols[0]["is_primary"] is True
+
