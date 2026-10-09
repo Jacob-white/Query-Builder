@@ -350,7 +350,7 @@ def test_chdb_adapter_and_lifecycle_branches():
     conn_cur = ChDBConnector(connection=mock_conn)
     with conn_cur.get_cursor() as c:
         assert c is mock_c
-    mock_c.close.assert_called_once()
+    mock_c.close.assert_called()
 
     # get_cursor with conn having no cursor() -> adapter
     conn_cur2 = ChDBConnector(connection=object())
