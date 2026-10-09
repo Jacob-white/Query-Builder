@@ -309,7 +309,11 @@ def test_chdb_connect_selects_the_configured_database(monkeypatch):
     monkeypatch.setitem(sys.modules, "chdb.dbapi", drv)
     c = ChDBConnector(database="qb_it", path="/tmp/x")
     c.connect()
-    assert seen == ["USE `qb_it`", "SET readonly = 2"]  # then the read-only session
+    assert seen == [
+        "SET join_use_nulls = 1",
+        "USE `qb_it`",
+        "SET readonly = 2",
+    ]  # then the read-only session
     with pytest.raises(Exception, match="Invalid chDB database"):
         ChDBConnector(database="a`b").connect()
 
@@ -450,3 +454,36 @@ def test_lancedb_vector_search_and_bad_vector():
         == "a = 'x''y' AND b = NULL AND c = TRUE AND d = ? AND e = '?'"
     )
     assert _inline_params("a = ? AND b = ?", [1, 2.5]) == "a = 1 AND b = 2.5"
+
+
+def test_chdb_async_introspection_reads_real_tables():
+    import asyncio
+
+    from query_builder.connectors.chdb import AsyncChDBConnector
+
+    class Cur:
+        def __init__(self):
+            self.rows = []
+
+        def execute(self, sql, params=None):
+            self.rows = [("t",)] if "system.tables" in sql else [("t", "id", "Int32")]
+
+        def fetchall(self):
+            return self.rows
+
+        def close(self):
+            pass
+
+    class Conn:
+        def cursor(self):
+            return Cur()
+
+    snap = asyncio.run(AsyncChDBConnector(connection=Conn()).introspect_schema())
+    assert "t" in snap["tables"]
+
+    class Broken:
+        def cursor(self):
+            raise RuntimeError("down")
+
+    with pytest.raises(Exception, match="introspect chDB"):
+        asyncio.run(AsyncChDBConnector(connection=Broken()).introspect_schema())

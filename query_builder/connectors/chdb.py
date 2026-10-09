@@ -26,13 +26,17 @@ from query_builder.connectors.registry import register_connector
 def _use_database(conn: Any, database: str) -> None:
     """Point the session at ``database`` (the ``database`` argument was stored but never used,
     so every unqualified table name resolved against ``default``)."""
-    if not database or database == "default" or not hasattr(conn, "cursor"):
+    if not hasattr(conn, "cursor"):
         return
-    if not database.replace("_", "").isalnum():
+    if database and database != "default" and not database.replace("_", "").isalnum():
         raise ConnectionFailedError(f"Invalid chDB database name: {database!r}")
     cur = conn.cursor()
     try:
-        cur.execute(f"USE `{database}`")
+        # join_use_nulls: without it ClickHouse fills the unmatched side of an OUTER JOIN with
+        # type defaults ('' / 0) instead of NULL, silently corrupting LEFT/RIGHT join results.
+        cur.execute("SET join_use_nulls = 1")
+        if database and database != "default":
+            cur.execute(f"USE `{database}`")
     finally:
         if hasattr(cur, "close"):
             cur.close()
@@ -313,3 +317,19 @@ class AsyncChDBConnector(AsyncBaseConnector):
             dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
             latency_ms = (time.perf_counter() - start) * 1000.0
             return col_names, dict_rows, latency_ms
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = await self.connect()
+        cur = None
+        try:
+            cur = conn.cursor() if hasattr(conn, "cursor") else _ChDBCursorAdapter(conn)
+            return introspect_chdb(
+                cur, database=self.database, filter_sensitive=filter_sensitive
+            )
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect chDB database '{self.database}': {exc}"
+            ) from exc
+        finally:
+            if cur is not None and hasattr(cur, "close"):
+                cur.close()
