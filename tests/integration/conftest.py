@@ -9,8 +9,11 @@ Pytest wiring for the live integration suite.
   standard dataset once per engine, and SKIPS with a precise reason when the
   engine cannot run here (set ``QB_IT_STRICT=postgres,mysql`` or ``all`` to turn
   those skips into failures, e.g. in CI);
-* a JSON report (per-engine passed/failed/skipped, engine version) is written
-  to ``$QB_IT_REPORT`` (default ``tests/integration/.reports/latest.json``).
+* a JSON report (per-engine passed/failed/skipped, engine version, and per-CATEGORY
+  evidence: passed/failed/xfailed and skips classified as ``verified_limitation``,
+  ``declared_unverified`` or ``environment``) is written to ``$QB_IT_REPORT`` (default
+  ``tests/integration/.reports/latest.json``). ``query_builder/connectors/status.py`` turns
+  that evidence into tiers.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from typing import Any
 
 import pytest
 
+from tests.integration import categories as cat
 from tests.integration import engines as eng
 
 REPORT_DEFAULT = Path(__file__).parent / ".reports" / "latest.json"
@@ -38,15 +42,29 @@ _RESULTS: dict[str, dict[str, Any]] = collections.defaultdict(
         "known_issues": [],
         "skip_reasons": collections.Counter(),
         "failures": [],
+        "cats": collections.defaultdict(cat.empty_category),
+        "skips": [],  # (category, kind, feature) classified at session finish
     }
 )
 _VERSIONS: dict[str, str] = {}
-_PARAM_NAMES = ("engine_name", "smoke_engine_name", "async_engine_name")
+#: (engine, feature) -> True when the probe confirmed the engine REJECTS the feature
+_PROBES: dict[tuple[str, str], bool] = {}
+_PARAM_NAMES = (
+    "engine_name",
+    "smoke_engine_name",
+    "async_engine_name",
+    "limitation_id",
+)
 
 
 def pytest_configure(config: Any) -> None:
     config.addinivalue_line(
         "markers", "qb_engine(name): attribute a test to an engine in the live report"
+    )
+    config.addinivalue_line(
+        "markers",
+        "qb_category(name): attribute a test to a check category (tests/integration/"
+        "categories.py) in the live report",
     )
 
 
@@ -65,6 +83,10 @@ def _names(kind: str) -> list[str]:
         from tests.integration import smoke
 
         return [n for n in names if n in smoke.SMOKE]
+    if kind == "limitation_id":
+        from tests.integration import limits
+
+        return [i for i in limits.probe_ids() if i.split("::")[0] in names]
     from tests.integration import async_engines
 
     return [n for n in names if n in async_engines.ASYNC]
@@ -88,6 +110,11 @@ def smoke_engine_name(request: Any) -> str:
 
 @pytest.fixture
 def async_engine_name(request: Any) -> str:
+    return request.param
+
+
+@pytest.fixture
+def limitation_id(request: Any) -> str:
     return request.param
 
 
@@ -128,6 +155,8 @@ def _ensure_live(name: str) -> Live:
 
             if name in smoke.SMOKE:
                 smoke.SMOKE[name].seed(engine)
+                if smoke.SMOKE[name].extra_seed is not None:
+                    smoke.SMOKE[name].extra_seed(engine)
     except eng.EngineUnavailable as exc:
         outcome: BaseException = eng.EngineUnavailable(str(exc))
         _LIVE_CACHE[name] = outcome
@@ -162,7 +191,7 @@ def _live_or_skip(name: str) -> Live:
     except eng.EngineUnavailable as exc:
         if _strict(name):
             pytest.fail(f"[strict] {name} required but unavailable: {exc}")
-        pytest.skip(str(exc))
+        pytest.skip(cat.environment_reason(str(exc)))
 
 
 @pytest.fixture
@@ -178,6 +207,11 @@ def smoke_engine(smoke_engine_name: str) -> eng.Engine:
 @pytest.fixture
 def async_engine(async_engine_name: str) -> eng.Engine:
     return _live_or_skip(async_engine_name).engine
+
+
+@pytest.fixture
+def limitation_engine(limitation_id: str) -> eng.Engine:
+    return _live_or_skip(limitation_id.split("::")[0]).engine
 
 
 @pytest.fixture
@@ -200,11 +234,12 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         for p in _PARAM_NAMES:
             value = callspec.params.get(p)
             if isinstance(value, str):  # NOTSET for an empty engine selection
-                name = value
+                name = value.split("::")[0]
     marker = item.get_closest_marker("qb_engine")
     if marker is not None:
         name = marker.args[0]
     report.qb_engine = name
+    report.qb_category = cat.category_of(item)
 
 
 def pytest_runtest_logreport(report: Any) -> None:
@@ -212,18 +247,75 @@ def pytest_runtest_logreport(report: Any) -> None:
     if name is None:
         return
     rec = _RESULTS[name]
+    category = getattr(report, "qb_category", "uncategorized")
+    crec = rec["cats"][category]
     if report.when == "call" and report.passed:
         rec["passed"] += 1
+        crec["passed"] += 1
     elif report.failed:
         rec["failed"] += 1
+        crec["failed"] += 1
         rec["failures"].append(report.nodeid)
     elif report.skipped and hasattr(report, "wasxfail"):
         rec["xfailed"] += 1
+        crec["xfailed"] += 1
         rec["known_issues"].append(f"{report.nodeid}: {report.wasxfail}")
     elif report.skipped:
         rec["skipped"] += 1
         reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else "skipped"
-        rec["skip_reasons"][reason.removeprefix("Skipped: ")] += 1
+        reason = reason.removeprefix("Skipped: ")
+        rec["skip_reasons"][reason] += 1
+        kind, feature = cat.classify_skip(reason)
+        rec["skips"].append((category, kind, feature))
+
+
+def _category_counts(value: dict[str, Any]) -> dict[str, Any]:
+    out = cat.empty_category()
+    out.update({k: value[k] for k in ("passed", "failed", "xfailed")})
+    return out
+
+
+def classify_skips(name: str, rec: dict[str, Any]) -> dict[str, Any]:
+    """Per-category evidence for one engine, with every skip classified.
+
+    * ``verified_limitation``: a declared limitation whose probe ran in this session and
+      confirmed the engine rejects the feature;
+    * ``declared_unverified``: a declared limitation without a probe (or whose probe did
+      not run), and any skip with no declared reason (an UNTESTED check);
+    * ``environment``: driver/service/credentials missing.
+    """
+    from tests.integration import limits
+
+    categories: dict[str, Any] = {
+        k: _category_counts(v) for k, v in rec["cats"].items()
+    }
+    verified: set[str] = set()
+    unverified: set[str] = set()
+    for category, kind, feature in rec["skips"]:
+        skipped = categories.setdefault(category, cat.empty_category())["skipped"]
+        if kind == "environment":
+            skipped["environment"] += 1
+        elif kind == "limitation" and feature is not None:
+            lim = limits.lookup(name, feature)
+            if (
+                lim is not None
+                and lim.probe is not None
+                and _PROBES.get((name, feature))
+            ):
+                skipped["verified_limitation"] += 1
+                verified.add(feature)
+            else:
+                skipped["declared_unverified"] += 1
+                unverified.add(feature)
+        else:
+            skipped["declared_unverified"] += 1
+    return {
+        "categories": categories,
+        "limitations": {
+            "verified": sorted(verified),
+            "declared_unverified": sorted(unverified - verified),
+        },
+    }
 
 
 def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
@@ -237,7 +329,14 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
             from tests.integration import cloud
 
             c = cloud.CLOUD.get(name)
+        evidence = classify_skips(name, rec)
+        has_async = bool(e and e.async_connector)
+        kind = "sql" if (e is None or e.family) else "native"
         engines_out[name] = {
+            "family_kind": kind,
+            "core": cat.core_for(kind, has_async),
+            "categories": evidence["categories"],
+            "limitations": evidence["limitations"],
             "connectors": (e or c).connector_class_keys() if (e or c) else [],
             "tier": e.tier if e else "cloud",
             "emulated": bool(e and e.emulated),

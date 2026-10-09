@@ -14,7 +14,7 @@ import pytest
 
 from query_builder.connectors.postgres import PostgresConnector
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.qb_category("write_refused")]
 
 
 def _settings() -> dict:

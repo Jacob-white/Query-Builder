@@ -68,6 +68,7 @@ def _search(extra: dict[str, Any] | None = None, **vs: Any) -> dict[str, Any]:
 pytestmark = [pytest.mark.parametrize("vengine", _params(), indirect=True)]
 
 
+@pytest.mark.qb_category("ordering")
 def test_similarity_search_orders_by_distance(vengine: eng.Engine, vconn: Any) -> None:
     res = vconn.execute(spec=_search())
     assert [r["name"] for r in res["rows"]] == ["alice", "bob", "carol"], res["rows"]
@@ -78,6 +79,7 @@ def test_similarity_search_orders_by_distance(vengine: eng.Engine, vconn: Any) -
     assert res["rows"][0]["age"] == 30
 
 
+@pytest.mark.qb_category("pagination")
 def test_top_k_and_offset(vengine: eng.Engine, vconn: Any) -> None:
     res = vconn.execute(spec=_search(top_k=1))
     assert [r["name"] for r in res["rows"]] == ["alice"]
@@ -85,6 +87,7 @@ def test_top_k_and_offset(vengine: eng.Engine, vconn: Any) -> None:
     assert [r["name"] for r in paged["rows"]] == ["bob"], paged["rows"]
 
 
+@pytest.mark.qb_category("read_filtered")
 def test_where_clause_filters_the_search(vengine: eng.Engine, vconn: Any) -> None:
     """Filters used to be silently dropped by every vector adapter."""
     res = vconn.execute(
@@ -111,11 +114,13 @@ def test_where_clause_filters_the_search(vengine: eng.Engine, vconn: Any) -> Non
     assert [r["name"] for r in res["rows"]] == ["alice", "carol"]
 
 
+@pytest.mark.qb_category("read_basic")
 def test_min_score_threshold(vengine: eng.Engine, vconn: Any) -> None:
     res = vconn.execute(spec=_search(min_score=0.5))
     assert [r["name"] for r in res["rows"]] == ["alice"], res["rows"]
 
 
+@pytest.mark.qb_category("read_filtered")
 def test_count_reflects_the_filter(vengine: eng.Engine, vconn: Any) -> None:
     res = vconn.execute(
         spec=_search(
@@ -129,6 +134,7 @@ def test_count_reflects_the_filter(vengine: eng.Engine, vconn: Any) -> None:
     assert plain["count"] == 3
 
 
+@pytest.mark.qb_category("read_basic")
 def test_scan_with_filter_and_order(vengine: eng.Engine, vconn: Any) -> None:
     res = vconn.execute(
         spec={
@@ -142,6 +148,7 @@ def test_scan_with_filter_and_order(vengine: eng.Engine, vconn: Any) -> None:
     assert [(r["name"], r["age"]) for r in res["rows"]] == [("bob", 45), ("alice", 30)]
 
 
+@pytest.mark.qb_category("introspect")
 def test_introspection_describes_the_real_collection(
     vengine: eng.Engine, vconn: Any
 ) -> None:
@@ -159,6 +166,7 @@ def test_introspection_describes_the_real_collection(
     assert cols["name"]["data_type"] in ("string", "text", "varchar")
 
 
+@pytest.mark.qb_category("error_mapping")
 def test_metric_mismatch_is_an_error_not_wrong_data(
     vengine: eng.Engine, vconn: Any
 ) -> None:
@@ -166,11 +174,13 @@ def test_metric_mismatch_is_an_error_not_wrong_data(
         vconn.execute(spec=_search(metric="euclidean"))
 
 
+@pytest.mark.qb_category("error_mapping")
 def test_unknown_collection_is_an_error(vengine: eng.Engine, vconn: Any) -> None:
     with pytest.raises(Exception, match="(?i)not exist|not found|unknown|no such"):
         vconn.execute(spec={"table": "qbit_nope", "columns": ["name"], "limit": 1})
 
 
+@pytest.mark.qb_category("async_parity")
 def test_async_search_matches_sync(vengine: eng.Engine, vconn: Any) -> None:
     if not vengine.async_connector:
         pytest.skip(f"{vengine.name}: no async connector class")

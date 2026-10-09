@@ -19,6 +19,9 @@ from tests.integration.engines import Engine
 
 T = TypeVar("T")
 
+# every test in this module is evidence for the ``async_parity`` core category
+pytestmark = [pytest.mark.qb_category("async_parity")]
+
 
 def run(coro: Awaitable[T]) -> T:
     return asyncio.run(coro)  # type: ignore[arg-type]
