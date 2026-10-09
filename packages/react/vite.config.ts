@@ -1,10 +1,23 @@
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
+// Entries that need a React client boundary (they render or call React hooks).
+const USE_CLIENT_ENTRIES = new Set(['index', 'hooks']);
+
+function banner(chunk: { isEntry: boolean; name: string }): string {
+  return chunk.isEntry && USE_CLIENT_ENTRIES.has(chunk.name) ? '"use client";\n' : '';
+}
+
+// Every file gets an explicit module extension (.mjs / .cjs). The package declares
+// "type": "module", so an extension-less ".js" chunk would be ambiguous for CJS output.
+const common = { banner, globals: { react: 'React', 'react-dom': 'ReactDOM' } };
+
 export default defineConfig({
   build: {
     outDir: 'dist',
-    emptyOutDir: false,
+    // dist/ is wiped first so renamed/removed entries and old hashed chunks can never be
+    // published. Declarations are emitted afterwards by `tsc` (see the build script).
+    emptyOutDir: true,
     sourcemap: true,
     lib: {
       entry: {
@@ -15,22 +28,23 @@ export default defineConfig({
         olap: resolve(__dirname, 'src/olap/index.ts'),
       },
       formats: ['es', 'cjs'],
-      fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'mjs' : 'cjs'}`,
     },
     rollupOptions: {
       external: ['react', 'react-dom', 'react/jsx-runtime'],
-      output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
+      output: [
+        {
+          ...common,
+          format: 'es',
+          entryFileNames: '[name].mjs',
+          chunkFileNames: 'chunks/[name]-[hash].mjs',
         },
-        banner: (chunk) => {
-          if (chunk.isEntry && (chunk.name === 'index' || chunk.name === 'hooks')) {
-            return '"use client";\n';
-          }
-          return '';
+        {
+          ...common,
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+          chunkFileNames: 'chunks/[name]-[hash].cjs',
         },
-      },
+      ],
     },
   },
 });
