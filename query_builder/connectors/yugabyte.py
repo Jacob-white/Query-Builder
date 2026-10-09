@@ -11,6 +11,7 @@ import contextlib
 import time
 from typing import Any
 
+from query_builder.connectors._txn import RollbackOnErrorMixin
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -19,14 +20,20 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_yugabyte
+from query_builder.connectors.postgres import _pg_read_only
 from query_builder.connectors.registry import register_connector
 
 
 @register_connector("yugabyte", aliases=["yugabytedb"])
-class YugabyteDBConnector(BaseConnector):
+class YugabyteDBConnector(RollbackOnErrorMixin, BaseConnector):
     """Connector for YugabyteDB distributed cloud-native HTAP database."""
 
     dialect_name = "yugabyte"
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """YSQL is PostgreSQL-compatible: session default READ ONLY (see ``_pg_read_only``)."""
+        _pg_read_only(connection)
 
     def __init__(
         self,
