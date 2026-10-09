@@ -801,10 +801,11 @@ def test_surrealdb_cursor_adapter():
     assert adapter.description == [("id",), ("data",)]
     assert adapter.fetchall() == [["1", "abc"]]
 
-    # 5. query returning unknown
+    # 5. query returning a bare scalar (SDK >= 1.0 returns the statement result directly)
     mock_client.query.return_value = 123
     adapter.execute("SELECT 1;")
-    assert adapter.description == []
+    assert adapter.description == [("value",)]
+    assert adapter.fetchall() == [[123]]
 
     # 6. execute fallback
     mock_client2 = MagicMock(spec=["execute", "description", "fetchall"])
@@ -868,9 +869,9 @@ def test_surrealdb_connector_sync_and_async():
     assert info["database"] == "test"
 
     # Introspection
-    mock_cur.execute.return_value = None
-    mock_cur.fetchone.return_value = {"tables": {"users": "DEFINE TABLE users;"}}
-    snap = conn_cur.introspect_schema()
+    snap = _surreal_introspection(
+        conn_cur, mock_cur, {"tables": {"users": "DEFINE TABLE users;"}}
+    )
     assert "users" in snap["tables"]
     cols = snap["tables"]["users"]["columns"]
     assert cols[0]["name"] == "id" and cols[0]["is_primary"] is True
@@ -895,7 +896,7 @@ def test_async_surrealdb_connector():
 
         # Connection failure
         mock_driver = MagicMock()
-        mock_driver.Surreal.side_effect = RuntimeError("Async fail")
+        mock_driver.AsyncSurreal.side_effect = RuntimeError("Async fail")
         with (
             patch.dict(sys.modules, {"surrealdb": mock_driver}),
             pytest.raises(ConnectionFailedError),
@@ -913,30 +914,48 @@ def test_async_surrealdb_connector():
     asyncio.run(_test())
 
 
+def _surreal_introspection(conn, mock_cur, info):
+    """Drive introspection of ``conn`` through ``mock_cur`` answering the INFO/SELECT queries."""
+    answers = {"INFO FOR DB": info, "INFO FOR TABLE": {}, "SELECT": None}
+    state = {"rows": []}
+
+    def execute(sql, params=None):
+        for prefix, value in answers.items():
+            if sql.startswith(prefix):
+                state["rows"] = [] if value is None else [list(value.values())]
+                mock_cur.description = [(k,) for k in (value or {})]
+                return
+
+    mock_cur.execute.side_effect = execute
+    mock_cur.fetchall.side_effect = lambda: state["rows"]
+    return conn.introspect_schema()
+
+
 def test_introspect_surrealdb_variants():
-    # 1. fetchone returns list with dict
+    # 1. INFO FOR DB lists the tables; undeclared tables are sampled (here: empty)
     mock_cur1 = MagicMock()
-    mock_cur1.fetchone.return_value = [{"tables": {"orders": "DEFINE TABLE orders;"}}]
-    snap1 = introspect_surrealdb(mock_cur1)
-    assert "orders" in snap1["tables"]
+    snap1 = _surreal_introspection(
+        SurrealDBConnector(cursor=mock_cur1),
+        mock_cur1,
+        {"tables": {"orders": "DEFINE TABLE orders;"}},
+    )
+    assert list(snap1["tables"]) == ["orders"]
+    # nothing is invented: only the record id for an empty, schemaless table
+    assert [c["name"] for c in snap1["tables"]["orders"]["columns"]] == ["id"]
 
-    # 2. fetchone returns list of rows
-    mock_cur2 = MagicMock()
-    mock_cur2.fetchone.return_value = [("items",)]
-    snap2 = introspect_surrealdb(mock_cur2)
-    assert "items" in snap2["tables"]
-
-    # 3. fetchone returns string
-    mock_cur3 = MagicMock()
-    mock_cur3.fetchone.return_value = "logs"
-    snap3 = introspect_surrealdb(mock_cur3)
-    assert "logs" in snap3["tables"]
-
-    # 4. query method returning list
+    # 2. a raw SDK client (only .query) is wrapped; SDK >= 1.0 result shape
+    answers = {
+        "INFO FOR DB": {"tables": {"audit": ""}},
+        "INFO FOR TABLE": {"fields": {"actor": "DEFINE FIELD actor ON audit TYPE string"}},
+        "SELECT": [{"id": "audit:1", "actor": "x", "n": 3}],
+    }
     mock_client = MagicMock(spec=["query"])
-    mock_client.query.return_value = [{"result": {"tables": {"audit": ""}}}]
-    snap4 = introspect_surrealdb(mock_client)
-    assert "audit" in snap4["tables"]
+    mock_client.query.side_effect = lambda sql, vars=None: next(
+        v for k, v in answers.items() if sql.startswith(k)
+    )
+    snap2 = introspect_surrealdb(mock_client)
+    cols = {c["name"]: c["data_type"] for c in snap2["tables"]["audit"]["columns"]}
+    assert cols == {"id": "record", "actor": "string", "n": "number"}
 
 
 # ============================================================================
@@ -1592,13 +1611,18 @@ def test_cosmosdb_connector_sync_and_async():
 
     # Introspection via list_containers
     mock_client_intro = MagicMock(spec=["get_database_client"])
-    mock_db_client = MagicMock(spec=["list_containers"])
+    mock_db_client = MagicMock(spec=["list_containers", "get_container_client"])
     mock_db_client.list_containers.return_value = [{"id": "users"}, {"id": "orders"}]
+    proxy = MagicMock(spec=["query_items"])
+    proxy.query_items.return_value = [{"id": "1", "name": "a", "_ts": 5}]
+    mock_db_client.get_container_client.return_value = proxy
     mock_client_intro.get_database_client.return_value = mock_db_client
 
     snap = introspect_cosmosdb(mock_client_intro)
     assert "users" in snap["tables"]
     assert "orders" in snap["tables"]
+    # real attributes only: system properties (_ts) are not columns, nothing invented
+    assert [c["name"] for c in snap["tables"]["users"]["columns"]] == ["id", "name"]
 
     # Introspection via execute fallback
     mock_cur_cosmos = MagicMock(spec=["execute", "fetchall"])
@@ -1607,14 +1631,15 @@ def test_cosmosdb_connector_sync_and_async():
     assert "items" in snap2["tables"]
 
     # Introspection via query_items
-    mock_container = MagicMock(spec=["query_items"])
-    mock_container.query_items.return_value = ["metrics"]
+    mock_container = MagicMock(spec=["query_items", "id"])
+    mock_container.id = "metrics"
+    mock_container.query_items.return_value = [{"id": "m1", "v": 1.5}, "not-a-doc"]
     snap3 = introspect_cosmosdb(mock_container)
-    assert "metrics" in snap3["tables"]
+    assert [c["name"] for c in snap3["tables"]["metrics"]["columns"]] == ["id", "v"]
 
-    # Introspection empty fallback
+    # nothing to introspect: no tables (a table is never invented)
     snap_empty = introspect_cosmosdb(object())
-    assert "items" in snap_empty["tables"]
+    assert snap_empty["tables"] == {}
 
     # Introspection error
     mock_client_intro.get_database_client.side_effect = RuntimeError("Cosmos DB error")
