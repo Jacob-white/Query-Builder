@@ -7,6 +7,7 @@ cursor adapters, and schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -71,6 +72,30 @@ class _TDengineCursorAdapter:
         pass
 
 
+def _load_driver() -> Any:
+    """First importable TDengine driver.
+
+    ``taos`` (native) imports fine as a package but raises ``InterfaceError`` -- not
+    ``ImportError`` -- when the ``libtaos`` client library is missing (every pip-only install
+    and every Windows host without the TDengine client), so every failure has to fall through
+    to the REST driver ``taosrest`` instead of aborting.
+    """
+    failures: list[str] = []
+    for mod_name in ("taos", "taosrest"):
+        try:
+            return __import__(mod_name, fromlist=["connect"])
+        except ImportError:
+            continue
+        except Exception as exc:  # noqa: BLE001 - native client library missing
+            failures.append(f"{mod_name}: {exc}")
+    detail = f" ({'; '.join(failures)})" if failures else ""
+    raise DriverNotInstalledError(
+        "No usable TDengine driver: install 'taospy' with the TDengine client library "
+        "(native 'taos') or use its REST driver ('taosrest', pass url=...). "
+        f"Install with: pip install 'query-builder-engine[tdengine]'{detail}"
+    )
+
+
 @register_connector("tdengine", aliases=["taos"])
 class TDengineConnector(BaseConnector):
     """Connector for TDengine IoT time-series database engine."""
@@ -92,19 +117,7 @@ class TDengineConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
-        for mod_name in ("taos", "taosrest", "taospy"):
-            try:
-                driver = __import__(mod_name, fromlist=["connect"])
-                break
-            except ImportError:
-                continue
-
-        if driver is None:
-            raise DriverNotInstalledError(
-                "'taos' (or 'taosrest') is not installed. "
-                "Install with: pip install 'query-builder-engine[tdengine]'"
-            )
+        driver = _load_driver()
 
         try:
             self._connection = driver.connect(database=self.database, **self.config)
@@ -133,10 +146,19 @@ class TDengineConnector(BaseConnector):
             yield adapter
 
     def test_connection(self) -> dict[str, Any]:
-        info = super().test_connection()
-        info["engine_version"] = "TDengine"
-        info["database"] = self.database
-        return info
+        start = time.perf_counter()
+        with self.get_cursor() as cur:
+            cur.execute("SELECT SERVER_VERSION()")
+            row = cur.fetchone()
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        version = row[0] if row else None
+        return {
+            "status": "healthy",
+            "dialect": self.dialect_name,
+            "engine_version": f"TDengine {version}" if version else "TDengine",
+            "database": self.database,
+            "latency_ms": round(latency_ms, 2),
+        }
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
@@ -172,19 +194,7 @@ class AsyncTDengineConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
-        for mod_name in ("taos", "taosrest", "taospy"):
-            try:
-                driver = __import__(mod_name, fromlist=["connect"])
-                break
-            except ImportError:
-                continue
-
-        if driver is None:
-            raise DriverNotInstalledError(
-                "'taos' (or 'taosrest') is not installed. "
-                "Install with: pip install 'query-builder-engine[tdengine]'"
-            )
+        driver = _load_driver()
 
         try:
             self._connection = driver.connect(database=self.database, **self.config)
@@ -201,7 +211,7 @@ class AsyncTDengineConnector(AsyncBaseConnector):
         start = time.perf_counter()
         adapter = _TDengineCursorAdapter(conn)
         try:
-            adapter.execute(sql, params)
+            await asyncio.to_thread(adapter.execute, sql, params)
             desc = adapter.description or []
             col_names = [col[0] for col in desc]
             rows = adapter.fetchall() or []
@@ -210,3 +220,36 @@ class AsyncTDengineConnector(AsyncBaseConnector):
             return col_names, dict_rows, latency_ms
         finally:
             adapter.close()
+
+    async def test_connection(self) -> dict[str, Any]:
+        start = time.perf_counter()
+        _, rows, _ = await self.execute_raw("SELECT SERVER_VERSION()")
+        version = next(iter(rows[0].values()), None) if rows else None
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        return {
+            "status": "healthy",
+            "dialect": self.dialect_name,
+            "engine_version": f"TDengine {version}" if version else "TDengine",
+            "database": self.database,
+            "latency_ms": round(latency_ms, 2),
+        }
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        """Same catalogue as the sync class (it used to inherit an always-empty snapshot)."""
+        conn = await self.connect()
+
+        def _run() -> dict[str, Any]:
+            adapter = _TDengineCursorAdapter(conn)
+            try:
+                return introspect_tdengine(
+                    adapter, database=self.database, filter_sensitive=filter_sensitive
+                )
+            finally:
+                adapter.close()
+
+        try:
+            return await asyncio.to_thread(_run)
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect TDengine database '{self.database}': {exc}"
+            ) from exc
