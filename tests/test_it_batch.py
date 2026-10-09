@@ -97,3 +97,32 @@ def test_compose_command_is_scoped_to_the_qb_project(it_batch):
     cmd = it_batch.compose_cmd(["docker/a.yml", "docker/b.yml"], ["nosql"])
     assert cmd[:4] == ["docker", "compose", "-p", "qb-integration"]
     assert cmd.count("-f") == 2 and cmd[-2:] == ["--profile", "nosql"]
+
+
+def test_teardown_never_removes_orphans_of_other_compose_files():
+    """Agents share one compose project but use different compose files; --remove-orphans would
+    delete the other files' running containers, so the batch teardown must not use it."""
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "--remove-orphans" not in source.replace("# No --remove-orphans", "")
+
+
+def test_purge_is_a_standalone_project_scoped_mode(it_batch, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="abc\n", stderr="")
+
+    monkeypatch.setattr(it_batch.subprocess, "run", fake_run)
+    assert it_batch.main(["--purge"]) == 0
+    listing = [
+        c
+        for c in calls
+        if c[:2] in (["docker", "ps"], ["docker", "volume"], ["docker", "network"])
+        and "ls" in c
+        or c[:3] == ["docker", "ps", "-aq"]
+    ]
+    assert listing and all(
+        "label=com.docker.compose.project=qb-integration" in " ".join(c)
+        for c in listing
+    )
