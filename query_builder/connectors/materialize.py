@@ -26,6 +26,11 @@ class MaterializeConnector(PostgresConnector):
     """Connector for Materialize streaming SQL engine."""
 
     dialect_name = "materialize"
+    # No documented session-level read-only mode for this engine: rely on a read-only role.
+    read_only_support = "none"
+
+    def apply_read_only(self, connection: Any) -> None:
+        return None
 
     def __init__(
         self,

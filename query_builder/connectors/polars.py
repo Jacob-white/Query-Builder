@@ -271,12 +271,12 @@ class PolarsConnector(BaseConnector):
                 dialect=self.dialect,
             )
             main_sql, _, count_sql, _ = compiler.compile()
-            v_main = validate_sql_ast(main_sql)
+            v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
             if not v_main["valid"]:
                 raise CompilationError(
                     f"Generated query failed AST safety validation: {v_main['message']}"
                 )
-            v_count = validate_sql_ast(count_sql)
+            v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
             if not v_count["valid"]:
                 raise CompilationError(
                     f"Generated count query failed AST safety validation: {v_count['message']}"

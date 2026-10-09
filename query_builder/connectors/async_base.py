@@ -50,6 +50,9 @@ class AsyncBaseConnector(ABC):
     dialect_name: str = "postgres"
     default_timeout_ms: int = 5000
 
+    #: See ``BaseConnector.read_only_support``.
+    read_only_support: str = "none"
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if "connect" in cls.__dict__:
@@ -62,7 +65,9 @@ class AsyncBaseConnector(ABC):
                 ) -> Any:
                     self._validate_network_target()
                     try:
-                        return await orig_connect(self, *args, **kw)
+                        conn = await orig_connect(self, *args, **kw)
+                        await self._ensure_read_only(conn)
+                        return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
                         if scrubbed is exc:
@@ -234,6 +239,21 @@ class AsyncBaseConnector(ABC):
     async def connect(self) -> Any:
         """Establishes or returns an active database connection asynchronously."""
 
+    async def apply_read_only(self, connection: Any) -> None:
+        """Hook: make ``connection`` refuse writes at the database (see the sync base)."""
+        return None
+
+    async def _ensure_read_only(self, connection: Any) -> None:
+        if connection is None:
+            return
+        sec = getattr(self, "security", None)
+        if sec is None or not sec.execution.enforce_read_only_session:
+            return
+        if getattr(self, "_read_only_applied_to", None) is connection:
+            return
+        await self.apply_read_only(connection)
+        self._read_only_applied_to = connection
+
     async def close(self) -> None:
         """Closes the active connection if managed by this connector."""
         if self._connection is not None:
@@ -383,7 +403,7 @@ class AsyncBaseConnector(ABC):
                     )
 
                 if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql)
+                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_res["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
@@ -481,12 +501,12 @@ class AsyncBaseConnector(ABC):
                 count_params = compilation["count_params"]
 
                 if validate_ast:
-                    v_main = validate_sql_ast(main_sql)
+                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_main["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
-                    v_count = validate_sql_ast(count_sql)
+                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
                     if not v_count["valid"]:
                         raise SecurityError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"

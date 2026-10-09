@@ -816,8 +816,10 @@ def test_full_coverage_gap_closure():
     from query_builder.cli import main
 
     # 1. AST validator CTE punctuation, unclosed CTE, and parenthesis branches
-    res_punct = validate_sql_ast("WITH t AS (SELECT 1) , SELECT 1")
-    assert res_punct["valid"]
+    res_punct = validate_sql_ast(
+        "WITH t AS (SELECT 1) , SELECT 1"
+    )  # malformed: the AST layer fails closed
+    assert not res_punct["valid"]
 
     res_no_root = validate_sql_ast("WITH t AS (SELECT 1)")
     assert not res_no_root["valid"]

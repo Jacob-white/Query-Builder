@@ -16,10 +16,33 @@ from query_builder.connectors.base import (
 from query_builder.connectors.introspection import introspect_information_schema
 
 
+def _pg_read_only(connection: Any) -> None:
+    """``SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`` + commit.
+
+    The SET itself opens a (read-write) transaction under non-autocommit drivers, and a
+    session default only applies to the NEXT transaction, so it is committed immediately.
+    """
+    cur = connection.cursor()
+    try:
+        cur.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+    finally:
+        close = getattr(cur, "close", None)
+        if close is not None:
+            close()
+    commit = getattr(connection, "commit", None)
+    if commit is not None:
+        commit()
+
+
 class PostgresConnector(BaseConnector):
     """Connector for PostgreSQL databases."""
 
     dialect_name = "postgres"
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """Session default READ ONLY: every later transaction refuses writes/DDL."""
+        _pg_read_only(connection)
 
     def __init__(
         self,
@@ -50,7 +73,9 @@ class PostgresConnector(BaseConnector):
             )
 
         try:
-            self._connection = driver.connect(**self.config)
+            # `hostaddr` pins the already-validated address (no DNS at connect time);
+            # `host` stays the name for TLS verification.
+            self._connection = driver.connect(**self.pinned_connect_config())
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
