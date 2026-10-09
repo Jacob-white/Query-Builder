@@ -14,6 +14,7 @@ import {
   type QueryState,
   type SchemaSnapshot,
 } from "../src";
+import type { LooseQuerySpec } from "../src/types";
 
 /**
  * Characterization suite: pins the observable behavior of useQueryBuilder and useQueryState across
@@ -77,7 +78,7 @@ function norm<T>(value: T): T {
 type BuilderStep = (a: QueryBuilderActions) => void;
 type StateStep = (a: QueryStateActions) => void;
 
-const savedSpec = {
+const savedSpec: LooseQuerySpec = {
   table: "orders",
   columns: ["orders.id", { column: "orders.total", agg: "sum", alias: "t" }],
   joins: [{ table: "users", type: "inner", on: [{ left: "orders.user_id", right: "users.id" }] }],
@@ -275,7 +276,7 @@ function stateSnap(r: ReturnType<typeof useQueryState>) {
 
 const stateInputs: Record<string, Record<string, unknown>> = {
   empty: {},
-  savedSpec,
+  savedSpec: { ...savedSpec },
   stateShaped: {
     primaryTable: "users",
     activeTables: ["users", "orders"],

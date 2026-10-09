@@ -772,7 +772,9 @@ describe("Comprehensive 100% Coverage Gap Filler", () => {
         result.current.actions.loadSpec({
           table: "users",
           activeTables: ["users", "posts"],
-          windowFunctions: [{ func: "ROW_NUMBER", alias: "rn", partitionBy: [], orderBy: [] }],
+          windowFunctions: [
+            invalid<WindowFunctionSpec>({ func: "ROW_NUMBER", alias: "rn", partitionBy: [], orderBy: [] }),
+          ],
         });
       });
       expect(result.current.state.activeTables).toEqual(["users", "posts"]);

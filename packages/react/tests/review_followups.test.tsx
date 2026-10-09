@@ -9,7 +9,8 @@ import { compileSpecToSql, compileVisualState } from "../src/utils/compiler";
 import { normalizeCombiner, resolveFilterCombiners } from "../src/utils/filterCombiners";
 import { executeAgentToolCall } from "../src/ai/tools";
 import { ingestLocalFile } from "../src/utils/localDataIngest";
-import type { VisualFilter, VisualQueryBuilderRef } from "../src/types";
+import type { LooseQuerySpec, VisualFilter, VisualQueryBuilderRef } from "../src/types";
+import { invalid } from "./helpers";
 
 /** Fetch mock that streams one batch after `latencyMs` and honours AbortSignal. */
 function installDelayedFetch(latencyMs: number, rowId: (call: number) => number = (c) => c) {
@@ -225,13 +226,16 @@ describe("D) combiners are resolved once and agree between SQL and spec", () => 
   });
 
   it("stateToSpec uses the same resolution", () => {
-    const state = specToState({
-      table: "users",
-      filters: [
-        { column: "a", op: "=", value: 1 },
-        { column: "b", op: "=", value: 2, combiner: "or" },
-      ],
-    });
+    // Lowercase combiner is deliberately off-type: runtime normalization is under test.
+    const state = specToState(
+      invalid<LooseQuerySpec>({
+        table: "users",
+        filters: [
+          { column: "a", op: "=", value: 1 },
+          { column: "b", op: "=", value: 2, combiner: "or" },
+        ],
+      }),
+    );
     const spec = stateToSpec({
       primaryTable: "users",
       selectedColumns: {},
@@ -266,14 +270,17 @@ describe("D) combiners are resolved once and agree between SQL and spec", () => 
   it("loadSpec normalizes a lowercase filter_join", () => {
     const { result } = renderHook(() => useQueryBuilder());
     act(() => {
-      result.current.actions.loadSpec({
-        table: "users",
-        filters: [
-          { column: "a", op: "=", value: 1 },
-          { column: "b", op: "=", value: 2 },
-        ],
-        filter_join: "or",
-      });
+      // Lowercase filter_join is deliberately off-type: runtime normalization is under test.
+      result.current.actions.loadSpec(
+        invalid<LooseQuerySpec>({
+          table: "users",
+          filters: [
+            { column: "a", op: "=", value: 1 },
+            { column: "b", op: "=", value: 2 },
+          ],
+          filter_join: "or",
+        }),
+      );
     });
     expect(result.current.state.filterJoin).toBe("OR");
     expect(result.current.currentSql).toContain(" OR ");
@@ -357,7 +364,7 @@ describe("E) combiners and other spec strings can not inject SQL", () => {
 });
 
 describe("F) initialSpec accepts a QuerySpec", () => {
-  const spec = {
+  const spec: LooseQuerySpec = {
     table: "users",
     columns: ["id", "a"],
     filters: [
