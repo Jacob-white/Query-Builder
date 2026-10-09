@@ -1,0 +1,41 @@
+# Lakehouse / distributed query engines for the opt-in live suite (family "lakehouse").
+#
+# Run ONE engine at a time through scripts/it_batch.py (these are JVM heavy):
+#   python scripts/it_batch.py --label drill --engines drill \
+#       --compose docker/compose.lakehouse.yml --profile lakehouse --services drill
+#
+# Project name qb-integration, profile "lakehouse", pinned tags, host ports bound to
+# 127.0.0.1 in 42000-42999, named volumes only (removed by `down -v`).
+name: qb-integration
+
+services:
+  drill:
+    profiles: [lakehouse]
+    image: apache/drill:1.22.0
+    # the image runs Drill embedded (no ZooKeeper) behind an interactive sqlline shell,
+    # which exits at once without an open stdin/tty
+    stdin_open: true
+    tty: true
+    environment:
+      DRILL_HEAP: 1G
+      DRILL_MAX_DIRECT_MEMORY: 2G
+    ports: ["127.0.0.1:${QB_IT_PORT_DRILL:-42047}:8047"]
+    volumes: ["qb_it_lh_drill:/tmp/qbdrill"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8047/status | grep -q Running"]
+      interval: 5s
+      timeout: 5s
+      retries: 80
+
+  presto:
+    profiles: [lakehouse]
+    image: prestodb/presto:0.293
+    ports: ["127.0.0.1:${QB_IT_PORT_PRESTO:-42080}:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  qb_it_lh_drill:

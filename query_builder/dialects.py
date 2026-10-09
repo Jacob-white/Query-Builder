@@ -62,6 +62,7 @@ class BaseDialect:
     count_distinct_template: str = "COUNT(DISTINCT {})"
     #: keyword between a derived table's ")" and its alias; Oracle rejects ``AS`` there
     subquery_alias_keyword: str = "AS "
+    neq_operator: str = "!="  # Drill rejects "!=" ("Bang equal is not allowed")
     like_escape_char: str | None = None
     like_escape_clause: bool = False
     like_special_chars: str = "%_"
@@ -1604,6 +1605,11 @@ class DrillDialect(BaseDialect):
 
     name: str = "drill"
     placeholder: str = "%s"
+    neq_operator = "<>"
+    # '!' not '\': sqlglot's Drill tokenizer reads a backslash in a string as an escape,
+    # so the AST validator would reject ESCAPE '\'
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -1616,7 +1622,8 @@ class DrillDialect(BaseDialect):
         return f"`{cleaned}`"
 
     def format_ilike(self, col_ref: str) -> str:
-        return f"{col_ref} ILIKE {self.placeholder}"
+        # Drill has no ILIKE operator (only an ILIKE(col, pattern) function without ESCAPE)
+        return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
     def inspect_tables_query(
         self, schema_name: str = "dfs.default"
