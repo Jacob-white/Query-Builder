@@ -664,7 +664,9 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert get_dialect("pydrill").name == "drill"
     assert drill.quote_identifier("dfs.default.tbl") == "`dfs`.`default`.`tbl`"
     assert drill.quote_alias("col`alias") == "`col``alias`"
-    assert drill.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"  # Drill has no ILIKE operator
+    assert (
+        drill.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    )  # Drill has no ILIKE operator
     t_sql, t_params = drill.inspect_tables_query("dfs.default")
     assert "INFORMATION_SCHEMA.TABLES" in t_sql and t_params == ["dfs.default"]
     c_sql, c_params = drill.inspect_columns_query("dfs.default", "test_tbl")

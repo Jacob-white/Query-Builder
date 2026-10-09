@@ -1511,7 +1511,12 @@ def test_introspect_monetdb_deep():
         [
             ("USERS", "ID", "INTEGER", False),  # not null
             ("USERS", "NAME", "VARCHAR", True),  # nullable
-            ("USERS", "user_id", "INTEGER", True),  # MonetDB folds unquoted names to lowercase
+            (
+                "USERS",
+                "user_id",
+                "INTEGER",
+                True,
+            ),  # MonetDB folds unquoted names to lowercase
             ("PASSWORDS", "ID", "INTEGER", False),
             (None, None, None),  # invalid row
         ],

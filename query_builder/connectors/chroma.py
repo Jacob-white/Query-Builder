@@ -245,7 +245,7 @@ class _ChromaCursorAdapter:
         from sqlglot import exp
 
         parsed = sqlglot.parse_one(_inline_params(clean_sql, params), read="postgres")
-        bad = ("joins", "group", "having", "distinct", "with", "laterals")
+        bad = ("joins", "group", "having", "distinct", "with", "with_", "laterals")
         if not isinstance(parsed, exp.Select) or any(parsed.args.get(k) for k in bad):
             raise UnsupportedChromaQuery(
                 "ChromaDB supports only single-collection SELECT ... [WHERE] [ORDER BY] "
