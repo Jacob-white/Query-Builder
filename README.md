@@ -18,6 +18,7 @@ A turnkey, developer-first **declarative SQL compiler, AST safety validator, ent
 - **[Full-Stack Starter Template](examples/fullstack_starter/README.md)** — Standalone runnable project (FastAPI + React 18 + Vite + SQLite).
 - **[Security Policy & Sandboxing Guide](SECURITY.md)** — Vulnerability reporting, zero-trust query isolation, AST validation, and defense-in-depth architecture.
 - **[Documentation Index & Specifications](docs/README.md)** — Master index for all guides, API specs, connector roadmaps, and testing invariants.
+- **[Connector Status](docs/CONNECTORS.md)** — The generated inventory of every connector class (138: 89 sync + 49 async, 306 registered names) with how each is verified (`certified` = passed the live conformance suite against the real engine, `verified` = unit tests only, `experimental`). See [Live Engine Testing](docs/TESTING_LIVE.md).
 
 ---
 

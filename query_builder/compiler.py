@@ -845,7 +845,12 @@ class QueryCompiler:
         middleware: Any = None,
         semantic_models: Any = None,
         capabilities: Any = None,
+        inner: bool = False,
     ) -> None:
+        # Nested queries (CTE bodies, subqueries in FROM / IN / EXISTS) must not
+        # get the implicit page LIMIT: it would silently truncate the inner
+        # result set (and MySQL rejects LIMIT inside IN subqueries).
+        self.inner = inner
         if capabilities is not None:
             from query_builder.capabilities import EngineCapabilities
 
@@ -1004,6 +1009,20 @@ class QueryCompiler:
             elif hasattr(c, "expression") or hasattr(c, "case_when"):
                 if getattr(c, "expression", None) or getattr(c, "case_when", None):
                     self.capabilities.require_feature("calculated_fields")
+
+    def _aggregate_template(self, agg: str) -> str:
+        if agg in ("avg", "count_distinct"):
+            return getattr(self.dialect, f"{agg}_template", AGGREGATE_MAP[agg])
+        return AGGREGATE_MAP[agg]
+
+    def _unpaginated_nested(self) -> bool:
+        """True for a CTE/subquery body that asked for no LIMIT/OFFSET."""
+        return bool(
+            self.inner
+            and "limit" not in self.spec
+            and not self.spec.get("offset")
+            and not (self.has_vector_search or self.has_hybrid_search)
+        )
 
     def _generate_unique_alias(self) -> str:
         self._alias_counter += 1
@@ -1220,6 +1239,7 @@ class QueryCompiler:
                 dialect=self.dialect,
                 middleware=None,
                 allow_unknown_keys=True,
+                inner=True,
             )
             sub_sql, from_params, _, _ = sub_compiler.compile()
             clean_base_table = "subquery"
@@ -1567,7 +1587,7 @@ class QueryCompiler:
 
                 if agg in AGGREGATE_MAP:
                     self.has_aggregation = True
-                    agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
+                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
                     alias_label = alias or f"{agg}_{raw_col_ref.replace('.', '_')}"
                     self.select_clause_items.append(
                         f"{agg_expr} AS {self.dialect.quote_alias(alias_label)}"
@@ -1894,6 +1914,7 @@ class QueryCompiler:
                     dialect=self.dialect,
                     middleware=None,
                     allow_unknown_keys=True,
+                    inner=True,
                 )
                 sub_sql, sub_params, _, _ = sub_compiler.compile()
                 not_pfx = "NOT " if "not" in op else ""
@@ -1924,6 +1945,7 @@ class QueryCompiler:
                     dialect=self.dialect,
                     middleware=None,
                     allow_unknown_keys=True,
+                    inner=True,
                 )
                 sub_sql, sub_params, _, _ = sub_compiler.compile()
                 not_pfx = "NOT " if "not" in op else ""
@@ -1939,6 +1961,7 @@ class QueryCompiler:
                     dialect=self.dialect,
                     middleware=None,
                     allow_unknown_keys=True,
+                    inner=True,
                 )
                 sub_sql, sub_params, _, _ = sub_compiler.compile()
                 sql_op = OPERATOR_MAP[op]
@@ -1951,12 +1974,12 @@ class QueryCompiler:
                 self.params.append(val)
 
             elif op in ("contains", "not_contains", "not contains"):
-                expr = self.dialect.format_ilike(quoted_ref)
+                expr = self.dialect.format_substring_match(quoted_ref)
                 if "not" in op:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"%{val}%")
+                self.params.append(f"%{self.dialect.escape_like(val)}%")
 
             elif op in (
                 "starts_with",
@@ -1964,20 +1987,20 @@ class QueryCompiler:
                 "not_starts_with",
                 "not startswith",
             ):
-                expr = self.dialect.format_ilike(quoted_ref)
+                expr = self.dialect.format_substring_match(quoted_ref)
                 if "not" in op:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"{val}%")
+                self.params.append(f"{self.dialect.escape_like(val)}%")
 
             elif op in ("ends_with", "endswith", "not_ends_with", "not endswith"):
-                expr = self.dialect.format_ilike(quoted_ref)
+                expr = self.dialect.format_substring_match(quoted_ref)
                 if "not" in op:
                     clause_str = f"NOT ({expr})"
                 else:
                     clause_str = expr
-                self.params.append(f"%{val}")
+                self.params.append(f"%{self.dialect.escape_like(val)}")
 
             elif op in ("like", "not_like", "not like"):
                 if "not" in op:
@@ -2151,7 +2174,7 @@ class QueryCompiler:
             else:
                 _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
                 if agg in AGGREGATE_MAP:
-                    agg_expr = AGGREGATE_MAP[agg].format(quoted_ref)
+                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
                 else:
                     continue
 
@@ -2276,6 +2299,13 @@ class QueryCompiler:
                     self.params.append(self._hybrid_text_param)
         elif (
             getattr(self.dialect, "requires_order_by_for_pagination", False)
+            and self._unpaginated_nested()
+        ):
+            # SQL Server rejects ORDER BY in a subquery/CTE unless TOP/OFFSET is
+            # present, and an unpaginated nested query needs none.
+            order_by_str = ""
+        elif (
+            getattr(self.dialect, "requires_order_by_for_pagination", False)
             and not self.order_by_items
         ):
             order_by_str = "ORDER BY (SELECT NULL)"
@@ -2308,7 +2338,12 @@ class QueryCompiler:
             max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET
         )
 
-        limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
+        if self._unpaginated_nested():
+            limit_offset_str, limit_params = "", []
+        else:
+            limit_offset_str, limit_params = self.dialect.format_limit_offset(
+                limit, offset
+            )
 
         if getattr(self.dialect, "pagination_placement", "suffix") == "prefix":
             select_pfx = (
@@ -2352,7 +2387,8 @@ class QueryCompiler:
             count_query_parts.append(where_str)
 
         if group_by_str:
-            subquery_parts = ["SELECT 1", from_str]
+            # derived-table columns need a name (SQL Server error 8155)
+            subquery_parts = ["SELECT 1 AS qb_one", from_str]
             if joins_str:
                 subquery_parts.append(joins_str)
             if where_str:
@@ -2416,6 +2452,7 @@ class QueryCompiler:
                     schema=self.schema,
                     dialect=self.dialect,
                     allow_unknown_keys=True,
+                    inner=True,
                 )
                 inner_sql, inner_params, _, _ = inner_compiler.compile()
                 cte_params.extend(inner_params)

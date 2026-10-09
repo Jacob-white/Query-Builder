@@ -54,6 +54,32 @@ class BaseDialect:
     supports_materialized_cte: bool = False
     supports_window_functions: bool = True
     supports_window_groups_frame: bool = False
+    # LIKE wildcard handling for the contains/starts_with/ends_with operators.
+    # ``None`` (default): the bound value is passed through unchanged, so a user
+    # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live
+    # set the escape character (and whether it must be declared with ESCAPE).
+    avg_template: str = "AVG({})"
+    count_distinct_template: str = "COUNT(DISTINCT {})"
+    like_escape_char: str | None = None
+    like_escape_clause: bool = False
+    like_special_chars: str = "%_"
+
+    def escape_like(self, value: Any) -> str:
+        """Escape LIKE wildcards in a literal substring (no-op if unsupported)."""
+        text = str(value)
+        esc = self.like_escape_char
+        if not esc:
+            return text
+        for ch in (esc, *self.like_special_chars):
+            text = text.replace(ch, esc + ch)
+        return text
+
+    def format_substring_match(self, col_ref: str) -> str:
+        """Case-insensitive LIKE used by contains/starts_with/ends_with."""
+        expr = self.format_ilike(col_ref)
+        if self.like_escape_clause and self.like_escape_char:
+            expr = f"{expr} ESCAPE '{self.like_escape_char}'"
+        return expr
 
     def format_cte_materialized(self, materialized: bool | None) -> str:
         """Returns MATERIALIZED or NOT MATERIALIZED hint if supported, else empty string."""
@@ -192,6 +218,7 @@ class PostgresDialect(BaseDialect):
     name: str = "postgres"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"  # PostgreSQL's default LIKE escape
 
     def format_vector_distance(self, col_ref: str, metric: str = "cosine") -> str:
         """Formats pgvector distance operator expression."""
@@ -249,6 +276,11 @@ class MSSQLDialect(BaseDialect):
     name: str = "mssql"
     placeholder: str = "%s"
     requires_order_by_for_pagination: bool = True
+    # AVG over an integer column does integer division in T-SQL (AVG(1,2) = 1).
+    avg_template = "AVG(CAST({} AS FLOAT))"
+    like_escape_char = "\\"
+    like_escape_clause = True
+    like_special_chars = "%_["
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -277,6 +309,8 @@ class SQLiteDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = False
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         # SQLite LIKE is case-insensitive by default for ASCII
@@ -312,6 +346,7 @@ class MySQLDialect(BaseDialect):
 
     name: str = "mysql"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # MySQL's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -334,6 +369,8 @@ class DuckDBDialect(BaseDialect):
     placeholder: str = "?"
     supports_materialized_cte: bool = True
     supports_window_groups_frame: bool = True
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
@@ -373,6 +410,7 @@ class ClickHouseDialect(BaseDialect):
 
     name: str = "clickhouse"
     placeholder: str = "%s"
+    like_escape_char = "\\"  # ClickHouse's default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
@@ -485,6 +523,8 @@ class TrinoDialect(BaseDialect):
 
     name: str = "trino"
     placeholder: str = "?"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -589,19 +629,38 @@ class QuestDBDialect(BaseDialect):
 
     name: str = "questdb"
     placeholder: str = "%s"
+    count_distinct_template = (
+        "count_distinct({})"  # COUNT(DISTINCT x) is a syntax error
+    )
+    like_escape_char = "\\"
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # QuestDB has no OFFSET keyword: pagination is `LIMIT lower, upper`
+        # (row range [lower, upper)). Integers are inlined after int() coercion.
+        lo = max(int(offset), 0)
+        return f"LIMIT {lo}, {lo + max(int(limit), 0)}", []
 
 
 class ElasticsearchDialect(BaseDialect):
     """Elasticsearch / OpenSearch SQL dialect."""
 
     name: str = "elasticsearch"
-    placeholder: str = "%s"
+    placeholder: str = "?"  # the /_sql endpoint binds positional `?` parameters
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # Elasticsearch SQL has no OFFSET and cannot bind LIMIT: inline the
+        # (int-coerced) row count and refuse a skip it cannot honour.
+        if int(offset) > 0:
+            raise DialectError(
+                "Elasticsearch SQL does not support OFFSET; page with a cursor instead."
+            )
+        return f"LIMIT {int(limit)}", []
 
 
 class DynamoDBPartiQLDialect(BaseDialect):
@@ -693,6 +752,14 @@ class MongoDBSQLDialect(BaseDialect):
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # pymongosql cannot bind LIMIT/OFFSET (`Invalid LIMIT value '?'`) and then
+        # silently returns no rows: inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
 
 class NeonDialect(PostgresDialect):
@@ -1560,6 +1627,13 @@ class OpenSearchDialect(ElasticsearchDialect):
     """OpenSearch distributed search & analytics SQL plugin dialect."""
 
     name: str = "opensearch"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # The SQL plugin cannot bind LIMIT/OFFSET; inline the int-coerced values.
+        clause = f"LIMIT {int(limit)}"
+        if int(offset) > 0:
+            clause += f" OFFSET {int(offset)}"
+        return clause, []
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)

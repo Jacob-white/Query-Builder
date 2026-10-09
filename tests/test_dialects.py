@@ -171,7 +171,7 @@ def test_new_dialects_behavior():
     # Elasticsearch
     es = get_dialect("elasticsearch")
     assert es.name == "elasticsearch"
-    assert es.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(%s)'
+    assert es.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'  # /_sql binds `?`
     assert get_dialect("opensearch").name == "opensearch"
 
     # DynamoDB
@@ -274,8 +274,10 @@ def test_new_dialects_behavior():
     assert mongo.format_like('"c"') == '"c" LIKE ?'
     assert mongo.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
     mongo_clause, mongo_params = mongo.format_limit_offset(100, 200)
-    assert mongo_clause == "LIMIT ? OFFSET ?"
-    assert mongo_params == [100, 200]
+    # pymongosql cannot bind LIMIT/OFFSET (it silently returns no rows)
+    assert mongo_clause == "LIMIT 100 OFFSET 200"
+    assert mongo_params == []
+    assert mongo.format_limit_offset(5, 0) == ("LIMIT 5", [])
     assert get_dialect("mongo").name == "mongodb"
     assert get_dialect("atlas_sql").name == "mongodb"
 
@@ -699,7 +701,7 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert get_dialect("opensearch_sql").name == "opensearch"
     assert opensearch.quote_identifier("idx.field") == "`idx`.`field`"
     assert opensearch.quote_alias("col`alias") == "`col``alias`"
-    assert opensearch.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    assert opensearch.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
     t_sql, t_params = opensearch.inspect_tables_query("default")
     assert "SHOW TABLES LIKE '%';" in t_sql and t_params == []
     c_sql, c_params = opensearch.inspect_columns_query("default", "my_index")

@@ -224,35 +224,97 @@ def introspect_duckdb(
                 cur.close()
 
 
+_PRIMARY_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name
+    FROM information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+        AND tc.table_name = kcu.table_name
+    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;
+"""
+
+# MySQL/MariaDB have no constraint_column_usage; the referenced side lives on
+# key_column_usage itself.
+_MYSQL_FOREIGN_KEY_SQL = """
+    SELECT table_name, column_name, referenced_table_name, referenced_column_name
+    FROM information_schema.key_column_usage
+    WHERE table_schema = %s AND referenced_table_name IS NOT NULL;
+"""
+
+
+# SQL Server's constraint_column_usage lists the REFERENCING column for a foreign
+# key, so the referenced side must come from referential_constraints instead.
+_MSSQL_FOREIGN_KEY_SQL = """
+    SELECT kcu.table_name, kcu.column_name, pk.table_name, pk.column_name
+    FROM information_schema.referential_constraints AS rc
+    JOIN information_schema.key_column_usage AS kcu
+        ON kcu.constraint_name = rc.constraint_name
+        AND kcu.constraint_schema = rc.constraint_schema
+    JOIN information_schema.key_column_usage AS pk
+        ON pk.constraint_name = rc.unique_constraint_name
+        AND pk.constraint_schema = rc.unique_constraint_schema
+        AND pk.ordinal_position = kcu.ordinal_position
+    WHERE kcu.table_schema = %s;
+"""
+
+
 def introspect_information_schema(
-    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+    cursor: Any,
+    schema_name: str = "public",
+    filter_sensitive: bool = True,
+    fk_style: str = "ansi",
+    placeholder: str = "%s",
+    pk_guess: bool = True,
 ) -> dict[str, Any]:
     """
     Introspects standard ANSI/PostgreSQL/MySQL/MSSQL schemas via information_schema catalogs.
+
+    Primary keys come from the catalog (``table_constraints``); only when the
+    engine lacks that catalog does it fall back (``pk_guess``) to treating a
+    column named ``id`` as the key. ``fk_style="mysql"`` / ``"mssql"`` read
+    foreign keys the way those engines expose them. ``placeholder`` is the
+    driver's bind marker (``?`` for Trino/Presto); statements are sent without a
+    trailing semicolon, which Trino and Presto reject.
     """
+
+    def _sql(text: str) -> str:
+        return text.strip().rstrip(";").replace("%s", placeholder)
+
     try:
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = %s AND table_type = 'BASE TABLE'
             ORDER BY table_name;
-            """,
+            """
+            ),
             [schema_name],
         )
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            """
+            _sql(
+                """
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
             WHERE table_schema = %s
             ORDER BY table_name, ordinal_position;
-            """,
+            """
+            ),
             [schema_name],
         )
         col_rows = cursor.fetchall()
+
+        pk_cols: set[tuple[str, str]] | None = None
+        with contextlib.suppress(Exception):
+            cursor.execute(_sql(_PRIMARY_KEY_SQL), [schema_name])
+            pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+        if pk_cols is None and not pk_guess:
+            pk_cols = set()
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
@@ -262,7 +324,9 @@ def introspect_information_schema(
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": is_null.upper() == "YES",
-                    "is_primary": c_name == "id",
+                    "is_primary": (t_name, c_name) in pk_cols
+                    if pk_cols is not None
+                    else c_name == "id",
                     "comment": None,
                 }
             )
@@ -270,9 +334,12 @@ def introspect_information_schema(
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        with contextlib.suppress(Exception):
-            cursor.execute(
-                """
+        fk_sql = (
+            _MYSQL_FOREIGN_KEY_SQL
+            if fk_style == "mysql"
+            else _MSSQL_FOREIGN_KEY_SQL
+            if fk_style == "mssql"
+            else """
                 SELECT
                     kcu.table_name AS src_table,
                     kcu.column_name AS src_column,
@@ -282,13 +349,15 @@ def introspect_information_schema(
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
+                    AND tc.table_name = kcu.table_name
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
                     AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;
-                """,
-                [schema_name],
-            )
+                """
+        )
+        with contextlib.suppress(Exception):
+            cursor.execute(_sql(fk_sql), [schema_name])
             for fk_row in cursor.fetchall():
                 src_tbl, src_col, tgt_tbl, tgt_col = (
                     str(fk_row[0]),
@@ -352,7 +421,7 @@ def introspect_clickhouse(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            "SELECT table, name, type FROM system.columns WHERE database = %s ORDER BY table, position;",
+            "SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = %s ORDER BY table, position;",
             [database],
         )
         col_rows = cursor.fetchall()
@@ -360,12 +429,14 @@ def introspect_clickhouse(
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
             t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+            # The sorting/primary key comes from the catalog, not a name guess.
+            is_pk = bool(r[3]) if len(r) > 3 else c_name == "id"
             table_cols_map.setdefault(t_name, []).append(
                 {
                     "name": c_name,
                     "data_type": d_type,
                     "is_nullable": "Nullable" in d_type,
-                    "is_primary": c_name == "id",
+                    "is_primary": is_pk,
                     "comment": None,
                 }
             )
@@ -2257,19 +2328,31 @@ def introspect_yugabyte(
 
 
 def introspect_opensearch(
-    client_or_cursor: Any, catalog: str = "default", filter_sensitive: bool = True
+    client_or_cursor: Any,
+    catalog: str = "default",
+    filter_sensitive: bool = True,
+    _mappings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API."""
+    """
+    Introspects OpenSearch indices and mappings via OpenSearch SQL plugin or indices API.
+
+    ``_mappings`` lets an async caller pass an already-awaited ``get_mapping()`` result.
+    """
     cur = None
     own_cur = False
     try:
         table_names: list[str] = []
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
 
-        if _has_attr(client_or_cursor, "indices") and hasattr(
-            client_or_cursor.indices, "get_mapping"
+        if _mappings is not None or (
+            _has_attr(client_or_cursor, "indices")
+            and hasattr(client_or_cursor.indices, "get_mapping")
         ):
-            mappings = client_or_cursor.indices.get_mapping()
+            mappings = (
+                _mappings
+                if _mappings is not None
+                else client_or_cursor.indices.get_mapping()
+            )
             for idx, meta in mappings.items():
                 if idx.startswith("."):
                     continue
@@ -2412,7 +2495,7 @@ def introspect_neo4j(
         ):
             driver_or_session = driver_or_session.target
         if _has_attr(driver_or_session, "session"):
-            session = driver_or_session.session()
+            session = driver_or_session.session(default_access_mode="READ")
             session_created = True
         else:
             session = driver_or_session
@@ -4821,10 +4904,69 @@ def introspect_lancedb(cursor: Any, filter_sensitive: bool = True) -> dict[str, 
                 cur.close()
 
 
+def _redis_text(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
+    """Real columns of a RediSearch index from ``FT.INFO`` (``[]`` if unavailable)."""
+    if client is None or not hasattr(client, "execute_command"):
+        return []
+    try:
+        info = client.execute_command("FT.INFO", index)
+    except Exception:  # noqa: BLE001
+        return []
+    return parse_ft_info(info)
+
+
+def parse_ft_info(info: Any) -> list[dict[str, Any]]:
+    """Columns from an ``FT.INFO`` reply (RESP2 flat list or RESP3 mapping)."""
+    attributes: Any = None
+    if isinstance(info, dict):  # RESP3
+        attributes = next(
+            (v for k, v in info.items() if _redis_text(k) == "attributes"), None
+        )
+    elif isinstance(info, (list, tuple)):  # RESP2: flat key, value, key, value ...
+        for pos in range(0, len(info) - 1, 2):
+            if _redis_text(info[pos]) == "attributes":
+                attributes = info[pos + 1]
+                break
+    cols: list[dict[str, Any]] = []
+    for attr in attributes if isinstance(attributes, (list, tuple)) else []:
+        if isinstance(attr, dict):
+            fields = {_redis_text(k): _redis_text(v) for k, v in attr.items()}
+        elif isinstance(attr, (list, tuple)):
+            fields = {
+                _redis_text(attr[i]).lower(): _redis_text(attr[i + 1])
+                for i in range(0, len(attr) - 1, 2)
+            }
+        else:
+            continue
+        name = fields.get("attribute") or fields.get("identifier")
+        if name:
+            cols.append(
+                {
+                    "name": name,
+                    "data_type": fields.get("type", "text").lower(),
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                }
+            )
+    return cols
+
+
 def introspect_redis_search(
-    cursor: Any, filter_sensitive: bool = True
+    cursor: Any,
+    filter_sensitive: bool = True,
+    _indexes: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Introspects Redis RediSearch index definitions."""
+    """
+    Introspects Redis RediSearch index definitions.
+
+    ``_indexes`` (index name -> columns) lets an async caller, whose client calls
+    must be awaited, hand over already-fetched ``FT.INFO`` results.
+    """
     cur = None
     own_cur = False
     try:
@@ -4832,7 +4974,9 @@ def introspect_redis_search(
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
         index_names: list[str] = []
-        if hasattr(cur, "execute"):
+        if _indexes is not None:
+            index_names = list(_indexes)
+        elif hasattr(cur, "execute"):
             cur.execute("FT._LIST")
             rows = cur.fetchall() or []
             index_names = [str(r[0]) for r in rows if r and r[0]]
@@ -4842,11 +4986,26 @@ def introspect_redis_search(
                 r.decode() if isinstance(r, bytes) else str(r) for r in (res or [])
             ]
 
-        if not index_names:
-            index_names = ["idx:users"]
+        raw_client = (
+            cur if hasattr(cur, "execute_command") else getattr(cur, "conn", None)
+        )
 
         tables: dict[str, dict[str, Any]] = {}
         for idx in index_names:
+            real_cols = (
+                _indexes[idx]
+                if _indexes is not None
+                else _redis_index_columns(raw_client, idx)
+            )
+            if real_cols:
+                tables[idx] = {
+                    "name": idx,
+                    "columns": real_cols,
+                    "has_user_id": any(c["name"] == "user_id" for c in real_cols),
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+                continue
             cols = [
                 {
                     "name": "id",

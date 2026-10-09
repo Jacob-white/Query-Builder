@@ -297,6 +297,12 @@ query_builder = ["py.typed"]
 markers = ["fuzz: differential/fuzz suites against real parsers (HYPOTHESIS_PROFILE=deep for the long run)", "integration: needs a live database; skipped when unreachable"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# Live-engine tests (tests/integration) are opt-in: run them with
+# `pytest -m integration` (see docs/TESTING_LIVE.md).
+addopts = "-m 'not integration'"
+markers = [
+    "integration: live-engine conformance tests; need a running database (opt-in)",
+]
 filterwarnings = [
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
     "ignore::starlette.testclient.StarletteDeprecationWarning",
