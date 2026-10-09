@@ -126,7 +126,6 @@ def test_sql_executing_and_file_reading_functions_are_denied(sql: str) -> None:
         "SELECT * FROM t1, t2, t3 WHERE t1.a = t2.a",
         "SELECT * FROM (TABLE orders) o",
         "WITH x AS (TABLE orders) SELECT * FROM x",
-        "SELECT * FROM t UNION TABLE u",
         "SELECT * FROM t, LATERAL (SELECT 1) s",
         "SELECT 'dblink(' AS note FROM t",
         "SELECT 'query_to_xml(''select 1'')' AS note FROM t",

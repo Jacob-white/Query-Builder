@@ -23,6 +23,10 @@ except ImportError:
     sqlparse = None  # type: ignore[assignment]
     DDL = DML = Keyword = None  # type: ignore[assignment]
 
+from query_builder.sql_ast import analyze_sql, evaluate_policy  # noqa: E402
+
+AST_LAYER_TAG = "[sqlglot-ast] "
+
 FORBIDDEN_SQL_PATTERNS = [
     r"\bDROP\b",
     r"\bDELETE\b",
@@ -936,6 +940,7 @@ def validate_sql_ast(
     allow_recursive_cte: bool = False,
     max_sql_length: int = MAX_SQL_LENGTH,
     max_ast_tokens: int = MAX_AST_TOKENS,
+    dialect: str | None = None,
 ) -> dict[str, Any]:
     """
     Performs Abstract Syntax Tree (AST) validation using sqlparse.
@@ -947,6 +952,12 @@ def validate_sql_ast(
     5. No AST tokens match restricted DDL/DML mutation keywords or injection functions.
     6. No restricted security, credential, or administration tables are accessed.
     7. No restricted system/catalog schemas are queried without explicit authorization.
+
+    Two independent layers must BOTH accept the query (defense in depth): the legacy
+    sqlparse/lexer layer and the sqlglot structural layer (``query_builder.sql_ast``).
+    Violations are unioned; structural-layer messages carry the ``[sqlglot-ast] `` prefix
+    and the result's ``violation_layers`` maps each layer to its messages.  ``dialect``
+    (optional) selects the sqlglot dialect; unknown/None unions several interpretations.
 
     Returns a dictionary detailing validation status, detected statement type, violations, and injection risk.
     """
@@ -1218,7 +1229,26 @@ def validate_sql_ast(
             allowed_upper=allowed_upper,
         )
 
-    return _finalize(violations, stmt_type, is_cte, cte_root, first_val)
+    legacy_violations = list(dict.fromkeys(violations))
+    ast_violations = evaluate_policy(
+        analyze_sql(clean, dialect),
+        restricted_tables=effective_tables,
+        schema_patterns=schema_patterns,
+        allowed_schemas_upper=allowed_upper,
+        denied_functions=_DENIED_FUNCTIONS,
+        denied_function_prefixes=_DENIED_FUNCTION_PREFIXES,
+        denied_keywords=effective_keywords,
+        allow_cte=allow_cte,
+        allow_recursive_cte=allow_recursive_cte,
+        clean_ident=_clean_ident_part,
+    )
+    violations.extend(AST_LAYER_TAG + v for v in ast_violations)
+    result = _finalize(violations, stmt_type, is_cte, cte_root, first_val)
+    result["violation_layers"] = {
+        "legacy": legacy_violations,
+        "sqlglot_ast": [AST_LAYER_TAG + v for v in ast_violations],
+    }
+    return result
 
 
 SUPPORTED_WINDOW_FUNCTIONS: set[str] = {
