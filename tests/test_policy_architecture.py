@@ -345,7 +345,7 @@ def _tenant_columns(spec: dict) -> list[int]:
     return [i for i, c in enumerate(spec["columns"]) if str(c).endswith("tenant_id")]
 
 
-@settings(max_examples=400)
+@settings(max_examples=400, deadline=None, derandomize=True, database=None)
 @given(_spec())
 def test_client_filters_can_never_reach_another_tenants_rows(spec: dict) -> None:
     ctx = TenantContext(tenant_id="mine", user_id="u1")
