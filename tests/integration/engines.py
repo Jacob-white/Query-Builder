@@ -561,23 +561,134 @@ def _pg_database_bootstrap(e: Engine) -> Native:
     return _pg_native(e)
 
 
-def probe_case_sensitive_identifiers(e: Engine) -> bool:
-    """True when two quoted identifiers differing only by case can coexist (the feature
-    WORKED); False when the engine folds them together and refuses the second."""
+def case_probe(quote: str = '"', suffix: str = "") -> Callable[[Engine], bool]:
+    """Probe factory: True when two identifiers differing only by case can coexist (the
+    feature WORKED); False when the engine folds them together and refuses the second.
+    ``quote`` is the engine's identifier quote, ``suffix`` any mandatory DDL tail
+    (e.g. ``ENGINE=Memory``)."""
+
+    def probe(e: Engine) -> bool:
+        assert e.native_factory is not None
+        native = e.native_factory(e)
+        created: list[str] = []
+        try:
+            for name in ("qbit_probe_Ci", "QBIT_PROBE_CI"):
+                native.run(f"CREATE TABLE {quote}{name}{quote} (x INTEGER){suffix}")
+                created.append(name)
+            return True
+        except Exception:  # noqa: BLE001 - second CREATE refused: identifiers are folded
+            return False
+        finally:
+            for name in created:
+                with contextlib.suppress(Exception):
+                    native.run(f"DROP TABLE {quote}{name}{quote}")
+            native.close()
+
+    return probe
+
+
+probe_case_sensitive_identifiers = case_probe()
+
+
+def feature_probe(
+    feature_sql: str,
+    control_sql: str,
+    cleanup: tuple[str, ...] = (),
+) -> Callable[[Engine], bool]:
+    """Probe factory for "the engine cannot do X".
+
+    ``control_sql`` must SUCCEED (it proves the probe itself is well-formed and the engine
+    reachable, so a rejection of ``feature_sql`` is attributable to the feature); then
+    ``feature_sql`` is attempted: True (feature WORKED, declaration wrong) when it succeeds,
+    an exception (rejected) otherwise. ``cleanup`` statements always run afterwards.
+    """
+
+    def probe(e: Engine) -> bool:
+        import pytest
+
+        assert e.native_factory is not None
+        native = e.native_factory(e)
+        try:
+            try:
+                native.run(control_sql)
+            except Exception as exc:  # noqa: BLE001
+                pytest.fail(
+                    f"{e.name}: probe control statement failed ({exc}); fix the probe"
+                )
+            native.run(feature_sql)
+            return True
+        finally:
+            for stmt in cleanup:
+                with contextlib.suppress(Exception):
+                    native.run(stmt)
+            native.close()
+
+    return probe
+
+
+def _probe_questdb_not_null(e: Engine) -> bool:
+    """True when a declared ``NOT NULL`` is ENFORCED (the feature WORKED).
+
+    QuestDB parses the clause; what matters is whether a NULL is still refused.
+    """
     assert e.native_factory is not None
     native = e.native_factory(e)
-    created: list[str] = []
     try:
-        for name in ("qbit_probe_Ci", "QBIT_PROBE_CI"):
-            native.run(f'CREATE TABLE "{name}" (x INTEGER)')
-            created.append(name)
+        native.run("CREATE TABLE qbit_pr_nn (id INT NOT NULL, v SYMBOL)")
+        native.run(
+            "INSERT INTO qbit_pr_nn (id, v) VALUES (NULL, 'x')"
+        )  # raises if enforced
+        return False  # NULL went in: the constraint is not enforced
+    except Exception:  # noqa: BLE001 - refusing the NULL means the engine enforces it
         return True
-    except Exception:  # noqa: BLE001 - second CREATE refused: identifiers are folded
-        return False
     finally:
-        for name in created:
+        with contextlib.suppress(Exception):
+            native.run("DROP TABLE qbit_pr_nn")
+        native.close()
+
+
+def _probe_standard_null_semantics(e: Engine) -> bool:
+    """True when ``NULL != 1`` is NOT true (standard SQL), i.e. the feature WORKED."""
+    assert e.native_factory is not None
+    native = e.native_factory(e)
+    try:
+        rows = native.run("SELECT 1 AS one FROM long_sequence(1) WHERE NULL != 1")
+        return not rows
+    finally:
+        native.close()
+
+
+def _probe_clickhouse_fk(e: Engine) -> bool:
+    """True when ClickHouse stores and reports a declared foreign key (the feature WORKED).
+
+    ClickHouse may or may not parse the ``FOREIGN KEY`` clause; what matters is whether the
+    catalog reports a constraint afterwards.
+    """
+    import pytest
+
+    assert e.native_factory is not None
+    native = e.native_factory(e)
+    try:
+        try:
+            native.run("CREATE TABLE qbit_pr_p (id Int32) ENGINE=Memory")
+        except Exception as exc:  # noqa: BLE001
+            pytest.fail(f"{e.name}: probe control statement failed ({exc})")
+        native.run(
+            "CREATE TABLE qbit_pr_c (id Int32, pid Int32, "
+            "FOREIGN KEY (pid) REFERENCES qbit_pr_p (id)) ENGINE=Memory"
+        )
+        rows = native.run(
+            "SELECT count() FROM information_schema.referential_constraints "
+            "WHERE table_name = 'qbit_pr_c'"
+        )
+        return bool(rows and rows[0][0])
+    finally:
+        for stmt in (
+            "DROP TABLE IF EXISTS qbit_pr_c",
+            "DROP TABLE IF EXISTS qbit_pr_p",
+        ):
             with contextlib.suppress(Exception):
-                native.run(f'DROP TABLE "{name}"')
+                native.run(stmt)
         native.close()
 
 
@@ -654,9 +765,6 @@ _register(
         native_factory=_mysql_native,
         ro_native=_mysql_ro,
         slow_sql=_MYSQL_SLOW,
-        unsupported={
-            "case_sensitive_identifiers": "MySQL table names follow the filesystem",
-        },
     )
 )
 _register(
@@ -672,9 +780,6 @@ _register(
         native_factory=_mysql_native,
         ro_native=_mysql_ro,
         slow_sql=_MYSQL_SLOW,
-        unsupported={
-            "case_sensitive_identifiers": "MariaDB table names follow the filesystem",
-        },
     )
 )
 _register(
@@ -691,7 +796,9 @@ _register(
         ro_native=_clickhouse_ro,
         slow_sql="SELECT sleepEachRow(3) FROM numbers(10)",
         unsupported={
-            "introspect_fk": "ClickHouse has no foreign keys",
+            "introspect_fk": Limitation(
+                "ClickHouse has no foreign keys", probe=_probe_clickhouse_fk
+            ),
         },
     )
 )
@@ -722,7 +829,11 @@ _register(
         native_factory=_clickhouse_native_http,
         ro_native=_clickhouse_ro,
         slow_sql="SELECT sleepEachRow(3) FROM numbers(10)",
-        unsupported={"introspect_fk": "ClickHouse has no foreign keys"},
+        unsupported={
+            "introspect_fk": Limitation(
+                "ClickHouse has no foreign keys", probe=_probe_clickhouse_fk
+            )
+        },
     )
 )
 
@@ -788,9 +899,32 @@ _register(
         connector_factory=_kw_trino,
         native_factory=_trino_native,
         unsupported={
-            "introspect_pk": "Trino memory catalog has no primary keys",
-            "introspect_fk": "Trino memory catalog has no foreign keys",
-            "case_sensitive_identifiers": "Trino folds identifiers to lower case",
+            "introspect_pk": Limitation(
+                "Trino memory catalog has no primary keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_pk (id integer, PRIMARY KEY (id))",
+                    "CREATE TABLE qbit_pr_ctl (id integer)",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_pk",
+                        "DROP TABLE IF EXISTS qbit_pr_ctl",
+                    ),
+                ),
+            ),
+            "introspect_fk": Limitation(
+                "Trino memory catalog has no foreign keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_c (id integer, pid integer, "
+                    "FOREIGN KEY (pid) REFERENCES qbit_pr_p (id))",
+                    "CREATE TABLE qbit_pr_p (id integer)",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_c",
+                        "DROP TABLE IF EXISTS qbit_pr_p",
+                    ),
+                ),
+            ),
+            "case_sensitive_identifiers": Limitation(
+                "Trino folds identifiers to lower case", probe=case_probe()
+            ),
             "statement_timeout": "Trino timeouts are session properties, not applied",
             "db_read_only": "no read-only login in the memory catalog",
         },
@@ -814,15 +948,56 @@ _register(
         native_factory=_pg_native,
         slow_sql="SELECT count() FROM long_sequence(100000000) a CROSS JOIN long_sequence(100000) b",
         unsupported={
-            "having": "QuestDB has no HAVING clause",
-            "in_subquery": "QuestDB cannot compare a column with a subquery result in IN",
-            "sql_null_semantics": "QuestDB compares NULL as a regular value (NULL != 1 is true)",
-            "introspect_not_null": "QuestDB has no NOT NULL constraints",
+            "having": Limitation(
+                "QuestDB has no HAVING clause",
+                probe=feature_probe(
+                    "SELECT x, count() FROM long_sequence(3) GROUP BY x HAVING count() > 0",
+                    "SELECT x, count() FROM long_sequence(3) GROUP BY x",
+                ),
+            ),
+            "in_subquery": Limitation(
+                "QuestDB cannot compare a column with a subquery result in IN",
+                probe=feature_probe(
+                    "SELECT x FROM long_sequence(3) WHERE x IN (SELECT x FROM long_sequence(2))",
+                    "SELECT x FROM long_sequence(3) WHERE x IN (1, 2)",
+                ),
+            ),
+            "sql_null_semantics": Limitation(
+                "QuestDB compares NULL as a regular value (NULL != 1 is true)",
+                probe=_probe_standard_null_semantics,
+            ),
+            "introspect_not_null": Limitation(
+                "QuestDB has no NOT NULL constraints",
+                probe=_probe_questdb_not_null,
+            ),
             "statement_timeout": "QuestDB has no per-session statement timeout",
-            "introspect_pk": "QuestDB has no primary keys",
-            "introspect_fk": "QuestDB has no foreign keys",
-            "right_join": "QuestDB has no RIGHT JOIN",
-            "case_sensitive_identifiers": "QuestDB table names are case-insensitive",
+            "introspect_pk": Limitation(
+                "QuestDB has no primary keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_pk (id INT, PRIMARY KEY (id))",
+                    "CREATE TABLE qbit_pr_ctl2 (id INT)",
+                    cleanup=("DROP TABLE qbit_pr_pk", "DROP TABLE qbit_pr_ctl2"),
+                ),
+            ),
+            "introspect_fk": Limitation(
+                "QuestDB has no foreign keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_c (id INT, pid INT, "
+                    "FOREIGN KEY (pid) REFERENCES qbit_pr_p (id))",
+                    "CREATE TABLE qbit_pr_p (id INT)",
+                    cleanup=("DROP TABLE qbit_pr_c", "DROP TABLE qbit_pr_p"),
+                ),
+            ),
+            "right_join": Limitation(
+                "QuestDB has no RIGHT JOIN",
+                probe=feature_probe(
+                    "SELECT a.x FROM long_sequence(2) a RIGHT JOIN long_sequence(2) b ON a.x = b.x",
+                    "SELECT a.x FROM long_sequence(2) a JOIN long_sequence(2) b ON a.x = b.x",
+                ),
+            ),
+            "case_sensitive_identifiers": Limitation(
+                "QuestDB table names are case-insensitive", probe=case_probe()
+            ),
             "db_read_only": "QuestDB (OSS) has no read-only users",
         },
     )

@@ -473,10 +473,14 @@ SMOKE: dict[str, Smoke] = {
         extra_seed=_seed_mongo_special,
         bad_queries=["SELEC name FROM qbit_people", "SELECT FROM WHERE"],
         known_issues={
+            "test_special_values_round_trip_as_data": (
+                "pymongosql does not understand the standard SQL doubled-quote escape "
+                "('O''Brien') and SILENTLY returns no rows instead of the matching document"
+            ),
             "test_query_spec_compiled_and_executed": (
                 "pymongosql rejects the compiler's table aliases and double-quoted "
                 "identifiers and SILENTLY returns no rows for the compiled SQL"
-            )
+            ),
         },
     ),
     "redis": Smoke(
