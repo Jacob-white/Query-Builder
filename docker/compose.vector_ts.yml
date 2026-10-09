@@ -1,0 +1,170 @@
+# Vector stores, time-series and analytics/observability engines for the live suite.
+#
+#   python scripts/it_batch.py --label qdrant --engines qdrant \
+#       --compose docker/compose.vector_ts.yml --profile vector_ts --services qdrant
+#
+# Project `qb-integration`, one profile (`vector_ts`), pinned tags, host ports bound to
+# 127.0.0.1 in 44000-44999, named volumes only (removed by `down -v`). Throw-away credentials.
+name: qb-integration
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.16.3
+    profiles: ["vector_ts"]
+    ports: ["127.0.0.1:${QB_IT_PORT_QDRANT:-44333}:6333"]
+    volumes: ["qb_it_qdrant:/qdrant/storage"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  weaviate:
+    image: semitechnologies/weaviate:1.28.2
+    profiles: ["vector_ts"]
+    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: ""
+      CLUSTER_HOSTNAME: node1
+      QUERY_DEFAULTS_LIMIT: "25"
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_WEAVIATE:-44080}:8080"
+      - "127.0.0.1:${QB_IT_PORT_WEAVIATE_GRPC:-44051}:50051"
+    volumes: ["qb_it_weaviate:/var/lib/weaviate"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/v1/.well-known/ready >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # Milvus standalone with the embedded etcd + local storage mode of the official
+  # standalone_embed.sh (no separate etcd / minio containers).
+  milvus:
+    image: milvusdb/milvus:v2.4.13
+    profiles: ["vector_ts"]
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    ports: ["127.0.0.1:${QB_IT_PORT_MILVUS:-44530}:19530"]
+    volumes: ["qb_it_milvus:/var/lib/milvus"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  # Emulator of the Pinecone cloud service (flagged emulated=True in the engine registry).
+  # The index data-plane ports are PORT+1...: map the whole block 1:1 (index hosts are
+  # advertised as localhost:<port>).
+  pinecone:
+    image: ghcr.io/pinecone-io/pinecone-local:v1.0.0.rc0
+    profiles: ["vector_ts"]
+    platform: linux/amd64
+    environment:
+      PORT: "44500"
+      PINECONE_HOST: localhost
+    ports: ["127.0.0.1:44500-44505:44500-44505"]
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.105.0
+    profiles: ["vector_ts"]
+    command: ["-retentionPeriod=1", "-search.latencyOffset=0s"]
+    ports: ["127.0.0.1:${QB_IT_PORT_VICTORIAMETRICS:-44428}:8428"]
+    volumes: ["qb_it_victoriametrics:/victoria-metrics-data"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8428/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Prometheus is seeded with deterministic recording rules (vector(30){name="alice"} ...)
+  # written by the entrypoint, so no ingestion path is needed.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["vector_ts"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/prometheus.yml <<'EOF'
+        global: {scrape_interval: 5s, evaluation_interval: 2s}
+        rule_files: [/tmp/rules.yml]
+        scrape_configs:
+          - job_name: prometheus
+            static_configs: [{targets: ['127.0.0.1:9090']}]
+        EOF
+        cat > /tmp/rules.yml <<'EOF'
+        groups:
+          - name: qbit
+            interval: 2s
+            rules:
+              - {record: qbit_people_age, expr: 'label_replace(vector(30), "name", "alice", "", "")'}
+              - {record: qbit_people_age, expr: 'label_replace(vector(45), "name", "bob", "", "")'}
+              - {record: qbit_people_age, expr: 'label_replace(vector(28), "name", "carol", "", "")'}
+        EOF
+        exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus
+    ports: ["127.0.0.1:${QB_IT_PORT_PROMETHEUS:-44090}:9090"]
+    volumes: ["qb_it_prometheus:/prometheus"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9090/-/ready >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  influxdb3:
+    image: influxdb:3.5.0-core
+    profiles: ["vector_ts"]
+    command: ["influxdb3", "serve", "--node-id", "qbit", "--object-store", "file", "--data-dir", "/var/lib/influxdb3", "--without-auth"]
+    ports: ["127.0.0.1:${QB_IT_PORT_INFLUXDB:-44181}:8181"]
+    volumes: ["qb_it_influxdb3:/var/lib/influxdb3"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8181/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  tdengine:
+    image: tdengine/tdengine:3.3.3.0
+    profiles: ["vector_ts"]
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_TDENGINE_REST:-44041}:6041"
+      - "127.0.0.1:${QB_IT_PORT_TDENGINE:-44030}:6030"
+    volumes: ["qb_it_tdengine:/var/lib/taos"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u root:taosdata -d 'select server_version()' http://127.0.0.1:6041/rest/sql"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+
+  bigquery:
+    image: ghcr.io/goccy/bigquery-emulator:0.6.5
+    profiles: ["vector_ts"]
+    command: ["--project=qb-it", "--dataset=qb_it", "--port=9050", "--grpc-port=9060"]
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_BIGQUERY:-44050}:9050"
+      - "127.0.0.1:${QB_IT_PORT_BIGQUERY_GRPC:-44060}:9060"
+
+  kusto:
+    image: mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest
+    profiles: ["vector_ts"]
+    environment:
+      ACCEPT_EULA: "Y"
+    ports: ["127.0.0.1:${QB_IT_PORT_KUSTO:-44801}:8080"]
+    volumes: ["qb_it_kusto:/kustodata"]
+
+volumes:
+  qb_it_qdrant:
+  qb_it_weaviate:
+  qb_it_milvus:
+  qb_it_victoriametrics:
+  qb_it_prometheus:
+  qb_it_influxdb3:
+  qb_it_tdengine:
+  qb_it_kusto:

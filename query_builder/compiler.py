@@ -964,6 +964,9 @@ class QueryCompiler:
         self.table_aliases: dict[str, str] = {}
         self._alias_counter = 0
         self.params: list[Any] = []
+        # params that belong to the SELECT list / ORDER BY only (vector distance); the COUNT
+        # query has neither, so they must not be passed with it
+        self._count_skip_lead = 0
         self.where_clauses: list[str] = []
         self.having_clauses: list[str] = []
         self.select_clause_items: list[str] = []
@@ -1675,6 +1678,7 @@ class QueryCompiler:
                 )
                 self.select_column_names.append(dist_alias)
                 self.params.append(self._vector_param_val)
+                self._count_skip_lead += 1
 
             if min_score is not None:
                 self.where_clauses.append(
@@ -1739,8 +1743,10 @@ class QueryCompiler:
                 )
                 self.select_column_names.append(score_alias)
                 self.params.append(self._hybrid_vector_param)
+                self._count_skip_lead += 1
                 if self._hybrid_text_quoted_refs:
                     self.params.append(self._hybrid_text_param)
+                    self._count_skip_lead += 1
 
         # 3b. Process Window Functions
         window_funcs_spec = self.spec.get("window_functions", [])
@@ -2283,6 +2289,7 @@ class QueryCompiler:
             f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
         )
 
+        self._count_params_end = len(self.params)
         if not self.order_by_items and self.has_vector_search:
             if self._vector_include_dist:
                 order_by_str = f"ORDER BY {self.dialect.quote_alias('_distance')} ASC"
@@ -2402,7 +2409,9 @@ class QueryCompiler:
         else:
             count_sql = "\n".join(count_query_parts)
 
-        count_params = from_params + list(self.params)
+        count_params = from_params + list(
+            self.params[self._count_skip_lead : self._count_params_end]
+        )
 
         # Process CTEs (Common Table Expressions)
         ctes_spec = self.spec.get("ctes") or []
