@@ -73,6 +73,10 @@ class Engine:
     #: when the suite runs INSIDE the compose network (QB_IT_IN_DOCKER=1, scripts/it_docker_run.sh)
     service: str = ""
     container_port: int = 0
+    #: True when the service is a vendor/community EMULATOR of a cloud product (Firestore,
+    #: Bigtable, Spanner, BigQuery, DynamoDB-local, ...). Passing there is real evidence but it
+    #: is not the real service, so the status tier is `emulated`, never `certified`.
+    emulated: bool = False
 
     # ---- configuration -------------------------------------------------
     def _in_docker(self) -> bool:

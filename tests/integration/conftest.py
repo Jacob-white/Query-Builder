@@ -240,6 +240,7 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
         engines_out[name] = {
             "connectors": (e or c).connector_class_keys() if (e or c) else [],
             "tier": e.tier if e else "cloud",
+            "emulated": bool(e and e.emulated),
             "version": _VERSIONS.get(name),
             "passed": rec["passed"],
             "failed": rec["failed"],

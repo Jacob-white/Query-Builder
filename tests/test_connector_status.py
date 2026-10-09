@@ -349,3 +349,87 @@ def test_live_index_keeps_the_strongest_evidence_when_engines_share_a_class():
     best = _live_index(live)["MSSQLConnector"]
     assert best["engine"] == "mssql"
     assert best["passed"] == 89
+
+
+def test_emulator_evidence_is_its_own_tier_and_real_service_wins():
+    from query_builder.connectors.status import (
+        CERTIFIED,
+        EMULATED,
+        VERIFIED,
+        _live_index,
+        compute_tier,
+    )
+
+    only_emulator = _live_index(
+        {
+            "engines": {
+                "firestore_emu": {
+                    "connectors": ["FirestoreConnector"],
+                    "passed": 40,
+                    "failed": 0,
+                    "emulated": True,
+                }
+            }
+        }
+    )
+    tier, evidence = compute_tier(
+        "FirestoreConnector", only_emulator, {"FirestoreConnector": 3}
+    )
+    assert tier == EMULATED and "emulator" in evidence
+
+    both = _live_index(
+        {
+            "engines": {
+                "firestore_emu": {
+                    "connectors": ["FirestoreConnector"],
+                    "passed": 90,
+                    "failed": 0,
+                    "emulated": True,
+                },
+                "firestore_real": {
+                    "connectors": ["FirestoreConnector"],
+                    "passed": 40,
+                    "failed": 0,
+                    "emulated": False,
+                },
+            }
+        }
+    )
+    assert (
+        compute_tier("FirestoreConnector", both, {"FirestoreConnector": 3})[0]
+        == CERTIFIED
+    )
+
+    failing = _live_index(
+        {"engines": {"x": {"connectors": ["XConnector"], "passed": 5, "failed": 1}}}
+    )
+    assert compute_tier("XConnector", failing, {"XConnector": 1})[0] == VERIFIED
+
+
+def test_recording_one_family_keeps_the_evidence_of_the_others(tmp_path):
+    from query_builder.connectors.status import load_live_results, record_live
+
+    (tmp_path / "docs").mkdir()
+    first = {
+        "run_at": "2026-01-01T00:00:00Z",
+        "platform": "A",
+        "engines": {
+            "postgres": {"connectors": ["PostgresConnector"], "passed": 9, "failed": 0}
+        },
+    }
+    second = {
+        "run_at": "2026-02-02T00:00:00Z",
+        "platform": "B",
+        "engines": {
+            "arangodb": {"connectors": ["ArangoDBConnector"], "passed": 4, "failed": 0}
+        },
+    }
+    record_live([first], root=tmp_path)
+    record_live([second], root=tmp_path)
+    saved = load_live_results(tmp_path)
+    assert set(saved["engines"]) == {"postgres", "arangodb"}
+    # each engine keeps the provenance of the run that produced it
+    assert saved["engines"]["postgres"]["run_at"] == "2026-01-01T00:00:00Z"
+    assert saved["engines"]["postgres"]["platform"] == "A"
+    assert saved["engines"]["arangodb"]["platform"] == "B"
+    assert saved["run_at"] == "2026-02-02T00:00:00Z"

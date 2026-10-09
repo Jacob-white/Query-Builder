@@ -35,6 +35,7 @@ from query_builder.connectors.base import BaseConnector
 from query_builder.connectors.registry import ConnectorRegistry
 
 CERTIFIED = "certified"
+EMULATED = "emulated"
 VERIFIED = "verified"
 EXPERIMENTAL = "experimental"
 UNRATED = "unrated"
@@ -231,9 +232,10 @@ def merge_live_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
         for name, rec in report.get("engines", {}).items():
             merged["engines"][name] = {
                 **rec,
-                "run_at": report.get("run_at"),
-                "platform": report.get("platform"),
-                "python": report.get("python"),
+                # keep per-engine provenance that is already recorded; else use the report's
+                "run_at": rec.get("run_at") or report.get("run_at"),
+                "platform": rec.get("platform") or report.get("platform"),
+                "python": rec.get("python") or report.get("python"),
             }
         stamp = report.get("run_at")
         if stamp and (merged["run_at"] is None or stamp > merged["run_at"]):
@@ -247,8 +249,11 @@ def record_live(reports: list[dict[str, Any]], root: Path | None = None) -> Path
     if base is None:
         raise RuntimeError("recording a live run needs a source checkout")
     path = base / "docs" / "live_results.json"
+    # Merge INTO the evidence already recorded: recording one family must not erase the others.
+    previous = load_live_results(base)
     path.write_text(
-        json.dumps(merge_live_reports(reports), indent=2, sort_keys=True) + "\n",
+        json.dumps(merge_live_reports([previous, *reports]), indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
     return path
@@ -262,9 +267,11 @@ def _live_index(live: dict[str, Any]) -> dict[str, dict[str, Any]]:
     and more passes beat fewer - instead of whichever engine happens to be listed last.
     """
 
-    def strength(rec: dict[str, Any]) -> tuple[bool, int]:
+    def strength(rec: dict[str, Any]) -> tuple[bool, bool, int]:
+        # clean pass first, then real service over an emulator, then more passes
         return (
             rec.get("failed", 0) == 0 and rec.get("passed", 0) > 0,
+            not rec.get("emulated", False),
             rec.get("passed", 0),
         )
 
@@ -288,10 +295,15 @@ def compute_tier(
     if live and live.get("passed", 0) > 0:
         failed, known = live.get("failed", 0), live.get("xfailed", 0)
         if failed == 0 and known == 0:
-            return CERTIFIED, (
-                f"live conformance passed ({live['passed']} passed, "
-                f"{live.get('skipped', 0)} skipped) on {live.get('version') or '?'}"
+            counts = (
+                f"({live['passed']} passed, {live.get('skipped', 0)} skipped) "
+                f"on {live.get('version') or '?'}"
             )
+            if live.get("emulated"):
+                return EMULATED, (
+                    f"conformance passed against an emulator, not the real service {counts}"
+                )
+            return CERTIFIED, f"live conformance passed {counts}"
         caveat = f"; live run had {failed} failed / {known} known issues"
     if unit_refs is None:
         return UNRATED, "no source checkout: unit-test evidence unavailable"
@@ -413,6 +425,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         "| `certified` | The live conformance suite (`tests/integration`) ran against a real "
         "engine through this class and passed in the latest recorded run. "
         f"| {tiers.get(CERTIFIED, 0)} |",
+        "| `emulated` | The live conformance suite passed against a vendor/community "
+        "EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, "
+        f"BigQuery, DynamoDB-local). | {tiers.get(EMULATED, 0)} |",
         "| `verified` | No live run; the class is exercised by unit tests and the registry "
         f"matrix tests, all against mocks. | {tiers.get(VERIFIED, 0)} |",
         "| `experimental` | Neither live nor unit-test evidence. "
