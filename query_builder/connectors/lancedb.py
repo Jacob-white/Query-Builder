@@ -45,8 +45,10 @@ def _inline_params(sql: str, params: list[Any] | None) -> str:
         if ch == "'":
             in_quote = not in_quote
             out.append(ch)
-        elif not in_quote and idx < len(params) and (
-            ch == "?" or sql.startswith("%s", i)
+        elif (
+            not in_quote
+            and idx < len(params)
+            and (ch == "?" or sql.startswith("%s", i))
         ):
             val = params[idx]
             idx += 1
@@ -148,7 +150,9 @@ class _LanceDBCursorAdapter:
         LanceDB has no SQL engine of its own, so anything this subset cannot express raises
         ``UnsupportedLanceQuery`` instead of silently returning unfiltered rows.
         """
-        if params and ("distance" in clean_sql.lower() or "vector" in clean_sql.lower()):
+        if params and (
+            "distance" in clean_sql.lower() or "vector" in clean_sql.lower()
+        ):
             self._vector_search(clean_sql, params)
             return
         import sqlglot
@@ -187,7 +191,9 @@ class _LanceDBCursorAdapter:
             for o in order.expressions:
                 if not isinstance(o.this, exp.Column):
                     raise UnsupportedLanceQuery("ORDER BY supports plain columns only.")
-                keys.append((o.this.name, "descending" if o.args.get("desc") else "ascending"))
+                keys.append(
+                    (o.this.name, "descending" if o.args.get("desc") else "ascending")
+                )
             table = table.sort_by(keys)
         if offset or (order is not None and limit is not None):
             table = table.slice(offset, limit)
@@ -228,7 +234,9 @@ class _LanceDBCursorAdapter:
                 if isinstance(parsed_vec, list):
                     vector = parsed_vec
         if vector is None:
-            raise UnsupportedLanceQuery("vector search needs a vector as first parameter")
+            raise UnsupportedLanceQuery(
+                "vector search needs a vector as first parameter"
+            )
         lm = re.search(r"LIMIT\s+(\d+)", clean_sql, re.IGNORECASE)
         arrow_tbl = tbl.search(vector).limit(int(lm.group(1)) if lm else 10).to_arrow()
         self.description = [(f.name,) for f in arrow_tbl.schema]
@@ -408,7 +416,9 @@ class AsyncLanceDBConnector(AsyncBaseConnector):
 
         def _introspect() -> dict[str, Any]:
             cur = (
-                conn.cursor() if hasattr(conn, "cursor") else _LanceDBCursorAdapter(conn)
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _LanceDBCursorAdapter(conn)
             )
             try:
                 return introspect_lancedb(cur, filter_sensitive=filter_sensitive)

@@ -10,6 +10,7 @@ Embedded / in-process engines and cloud-service emulators that need no server.
 
 from __future__ import annotations
 
+import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,7 +69,11 @@ def _arrow_tables() -> dict[str, Any]:
     for table, (names, cols, nullable) in _columns().items():
         fields, arrays = [], []
         for name, values in zip(names, cols, strict=True):
-            typ = pa.int32() if all(isinstance(v, int | None) for v in values) else pa.string()
+            typ = (
+                pa.int32()
+                if all(isinstance(v, int | None) for v in values)
+                else pa.string()
+            )
             fields.append(pa.field(name, typ, nullable=nullable.get(name, False)))
             arrays.append(pa.array(values, type=typ))
         out[table] = pyarrow_dataset.dataset(
@@ -150,7 +155,6 @@ register(
 )
 
 
-
 # ------------------------------------------------------------- GenericDBAPIConnector
 def _scratch_path(name: str, ext: str) -> str:
     _SCRATCH.mkdir(parents=True, exist_ok=True)
@@ -179,7 +183,9 @@ def _kw_generic_sqlite(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
 
     path = _scratch_path(e.name, "db")
     if o.get("readonly"):
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, check_same_thread=False)
+        conn = sqlite3.connect(
+            f"file:{path}?mode=ro", uri=True, check_same_thread=False
+        )
     else:
         conn = sqlite3.connect(path, check_same_thread=False)
     return {"connection": conn, "dialect": "sqlite"}
@@ -271,8 +277,9 @@ def _kw_generic_psycopg(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
             connect_timeout=5,
         )
 
-    if o.get("password"):  # the wrong-password test: the failure must surface in connect()
-
+    if o.get(
+        "password"
+    ):  # the wrong-password test: the failure must surface in connect()
         from types import SimpleNamespace
 
         lazy = SimpleNamespace(raw_connection=raw_connection)
@@ -474,7 +481,7 @@ def _snow_connect() -> Any:
     return snowflake.connector.connect(database="QB_IT", schema="PUBLIC")
 
 
-def _snow_statements() -> list[str]:
+def _snow_statements(if_exists: str = " IF EXISTS") -> list[str]:
     """The standard dataset with EVERY identifier quoted (Snowflake folds unquoted names to
     upper case, while the compiler emits quoted lower-case names)."""
     d, e, r, m = dataset.T_DEPT, dataset.T_EMP, dataset.T_RES, dataset.T_MIXED
@@ -484,7 +491,7 @@ def _snow_statements() -> list[str]:
             return "NULL"
         return str(v) if isinstance(v, int) else "'" + str(v).replace("'", "''") + "'"
 
-    stmts = [f'DROP TABLE IF EXISTS "{t}"' for t in (e, r, m, d)]
+    stmts = [f'DROP TABLE{if_exists} "{t}"' for t in (e, r, m, d)]
     stmts += [
         f'CREATE TABLE "{d}" ("id" INTEGER NOT NULL, "name" VARCHAR(100) NOT NULL, '
         'PRIMARY KEY ("id"))',
@@ -509,13 +516,14 @@ def _snow_statements() -> list[str]:
         for row in dataset.EMPLOYEES
     ]
     cols = ", ".join(
-        f'"{c}"' for c in ("id", "select", "group", "order", "MixedCase", dataset.UNICODE_COL)
+        f'"{c}"'
+        for c in ("id", "select", "group", "order", "MixedCase", dataset.UNICODE_COL)
     )
     stmts += [
         f'INSERT INTO "{r}" ({cols}) VALUES ({", ".join(lit(v) for v in row)})'
         for row in dataset.RESERVED
     ]
-    stmts.append(f"INSERT INTO \"{m}\" (\"id\", \"val\") VALUES (1, 'mixed')")
+    stmts.append(f'INSERT INTO "{m}" ("id", "val") VALUES (1, \'mixed\')')
     return stmts
 
 
@@ -555,6 +563,167 @@ register(
             ),
             "db_read_only": "fakesnow has no roles/grants",
             "case_sensitive_identifiers": "DuckDB (fakesnow) folds identifier case",
+        },
+    )
+)
+
+
+# ------------------------------------------------------------------------ chDB (Linux wheels)
+def _chdb_native(e: Engine) -> Native:
+    from chdb import dbapi
+
+    conn = dbapi.connect(path=_scratch_dir("chdb"))
+    cur = conn.cursor()
+    cur.execute("CREATE DATABASE IF NOT EXISTS qb_it")
+    cur.execute("USE qb_it")
+
+    def run(sql: str) -> Any:
+        cur.execute(sql)
+        return None
+
+    return Native(run, conn.close)
+
+
+def _scratch_dir(name: str) -> str:
+    import shutil
+
+    path = _SCRATCH / f"qb_it_{name}"
+    if name not in _DIRS:
+        shutil.rmtree(path, ignore_errors=True)
+        _DIRS[name] = str(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def _kw_chdb(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {"database": "qb_it", "path": _scratch_dir("chdb")}
+
+
+register(
+    Engine(
+        name="chdb",
+        connector="chdb",
+        async_connector="async_chdb",
+        tier="embedded",
+        family="clickhouse",
+        drivers=("chdb",),
+        pip="chdb  # Linux/macOS wheels only: run with --linux",
+        password="",
+        database="qb_it",
+        connector_factory=_kw_chdb,
+        native_factory=_chdb_native,
+        slow_sql="SELECT sleepEachRow(3) FROM numbers(10)",
+        unsupported={
+            "introspect_fk": "ClickHouse has no foreign keys",
+            "db_read_only": "chDB has no users/grants; the connector sets readonly=2 on the session",
+        },
+    )
+)
+
+
+# ----------------------------------------------- JVM engines over JayDeBeApi (H2, Apache Derby)
+def _jars() -> list[str]:
+    raw = os.environ.get("QB_IT_JDBC_JARS", "")
+    return [j for j in raw.split(os.pathsep) if j]
+
+
+def _jdbc_native(e: Engine, jclass: str, url: str, args: list[str]) -> Native:
+    import jaydebeapi
+
+    conn = jaydebeapi.connect(jclass, url, args, _jars())
+    cur = conn.cursor()
+
+    def run(sql: str) -> Any:
+        cur.execute(sql)
+        return None
+
+    return Native(run, conn.close)
+
+
+_H2_URL = "jdbc:h2:{path};DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE"
+
+
+def _h2_url() -> str:
+    return _H2_URL.format(path=_scratch_dir("h2") + "/qb_it")
+
+
+@dataclass
+class _JdbcEngine(Engine):
+    quoted_drop: str = " IF EXISTS"
+
+    def seed(self) -> None:
+        assert self.native_factory is not None
+        native = self.native_factory(self)
+        try:
+            for stmt in _snow_statements(self.quoted_drop):
+                try:
+                    native.run(stmt)
+                except Exception:
+                    if not stmt.startswith("DROP"):
+                        raise
+        finally:
+            native.close()
+
+    def cleanup(self) -> None:
+        return None
+
+
+register(
+    _JdbcEngine(
+        name="h2",
+        connector="h2",
+        async_connector="async_h2",
+        tier="embedded",
+        family="pg",
+        drivers=("jaydebeapi",),
+        pip="JayDeBeApi  # needs a JRE and the H2 jar (QB_IT_JDBC_JARS): run with --linux",
+        password="",
+        connector_factory=lambda e, o: {
+            "jclassname": "org.h2.Driver",
+            "url": _h2_url(),
+            "driver_args": ["sa", ""],
+            "jars": _jars(),
+        },
+        native_factory=lambda e: _jdbc_native(
+            e, "org.h2.Driver", _h2_url(), ["sa", ""]
+        ),
+        unsupported={
+            "statement_timeout": "H2 connector sets no statement timeout (QUERY_TIMEOUT is JDBC-level)",
+            "db_read_only": "no separate read-only login is provisioned for embedded H2",
+            "case_sensitive_identifiers": "tested with CASE_INSENSITIVE_IDENTIFIERS=TRUE",
+        },
+    )
+)
+
+
+def _derby_url() -> str:
+    return f"jdbc:derby:{_scratch_dir('derby')}/qb_it;create=true"
+
+
+register(
+    _JdbcEngine(
+        name="derby",
+        connector="derby",
+        async_connector="async_derby",
+        tier="embedded",
+        family="pg",
+        drivers=("jaydebeapi",),
+        pip="JayDeBeApi  # needs a JRE and the Derby jars (QB_IT_JDBC_JARS): run with --linux",
+        password="",
+        quoted_drop="",
+        connector_factory=lambda e, o: {
+            "jclassname": "org.apache.derby.jdbc.EmbeddedDriver",
+            "url": _derby_url(),
+            "jars": _jars(),
+        },
+        native_factory=lambda e: _jdbc_native(
+            e, "org.apache.derby.jdbc.EmbeddedDriver", _derby_url(), []
+        ),
+        unsupported={
+            "statement_timeout": "Derby connector sets no statement timeout",
+            "db_read_only": "no separate read-only login is provisioned for embedded Derby",
+            "case_sensitive_identifiers": "not exercised for Derby",
+            "window": "Derby supports only ROW_NUMBER(); no aggregate window functions",
         },
     )
 )

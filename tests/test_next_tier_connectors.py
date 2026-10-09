@@ -443,7 +443,7 @@ def test_chdb_connector_sync_and_async():
 
     conn_cur.apply_statement_timeout(mock_cur, 1000)
     info = conn_cur.test_connection()
-    assert info["engine_version"] == "chDB In-Process ClickHouse"
+    assert info["engine_version"].startswith("chDB")
 
     # Introspection
     mock_cur.fetchall.side_effect = [

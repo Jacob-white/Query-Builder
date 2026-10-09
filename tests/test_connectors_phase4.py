@@ -515,7 +515,9 @@ def test_lancedb_adapter_specialized():
     adapter2.execute("SELECT * FROM items")
     assert adapter2.description == [("vector",), ("n",)]
     assert adapter2.fetchall() == [[[0.1, 0.2], 1]]
-    adapter2.execute("SELECT n AS k FROM items WHERE n > ? ORDER BY n DESC LIMIT 5", [0])
+    adapter2.execute(
+        "SELECT n AS k FROM items WHERE n > ? ORDER BY n DESC LIMIT 5", [0]
+    )
     assert adapter2.description == [("k",)]
     assert adapter2.fetchall() == [[1]]
     tbl_mock.search.return_value.where.assert_called_with("n > 0", prefilter=True)

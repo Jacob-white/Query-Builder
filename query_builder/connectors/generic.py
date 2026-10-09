@@ -99,7 +99,9 @@ class GenericDBAPIConnector(BaseConnector):
                     with contextlib.suppress(Exception):
                         conn.rollback()
         # fall back to the DB-API driver module's own version
-        root = type(self._connection).__module__.split(".")[0] if self._connection else ""
+        root = (
+            type(self._connection).__module__.split(".")[0] if self._connection else ""
+        )
         ver = getattr(sys.modules.get(root), "__version__", None)
         return f"{root} {ver}" if root and isinstance(ver, str) else (root or None)
 

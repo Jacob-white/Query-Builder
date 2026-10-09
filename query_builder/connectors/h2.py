@@ -22,6 +22,22 @@ from query_builder.connectors.introspection import introspect_h2
 from query_builder.connectors.registry import register_connector
 
 
+def _driver_fits(module: str, config: dict[str, Any]) -> bool:
+    """Whether ``module`` is the right DB-API driver for this configuration.
+
+    A JDBC configuration (``jclassname`` / a ``jdbc:`` url) needs JayDeBeApi; anything else is
+    a network connection for the other driver(s). Picking whichever module happens to be
+    installed (the old behaviour) sent JDBC arguments to the wrong driver.
+    """
+    jdbc = "jclassname" in config or str(config.get("url", "")).startswith("jdbc:")
+    network = any(k in config for k in ("host", "port", "dbname", "database", "dsn"))
+    if jdbc:
+        return module == "jaydebeapi"
+    if network:
+        return module != "jaydebeapi"
+    return True  # nothing to go by: try every driver, as before
+
+
 class _H2CursorAdapter:
     """Adapts an H2 connection into a standard DB-API cursor interface."""
 
@@ -105,6 +121,8 @@ class H2Connector(BaseConnector):
 
         driver = None
         for mod_name in ("psycopg2", "psycopg", "jaydebeapi"):
+            if not _driver_fits(mod_name, self.config):
+                continue
             try:
                 driver = __import__(mod_name)
                 break
@@ -195,6 +213,8 @@ class AsyncH2Connector(AsyncBaseConnector):
 
         driver = None
         for mod_name in ("psycopg2", "psycopg", "jaydebeapi"):
+            if not _driver_fits(mod_name, self.config):
+                continue
             try:
                 driver = __import__(mod_name)
                 break
