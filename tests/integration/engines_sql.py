@@ -14,6 +14,7 @@ using ``dataset.schema_statements``, which leaves the column names bare.
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass
 from typing import Any
 
 from tests.integration import dataset as ds
@@ -29,7 +30,9 @@ from tests.integration.engines import (
 # --------------------------------------------------------------------------- DDL families
 _UTF = " CHARACTER SET UTF8"
 
-ds.FAMILIES["monetdb"] = ds.Ddl(int_t="INTEGER", str_t="VARCHAR(100)", nstr_t="VARCHAR(100)")
+ds.FAMILIES["monetdb"] = ds.Ddl(
+    int_t="INTEGER", str_t="VARCHAR(100)", nstr_t="VARCHAR(100)"
+)
 ds.FAMILIES["firebird"] = ds.Ddl(
     str_t=f"VARCHAR(100){_UTF}",
     nstr_t=f"VARCHAR(100){_UTF}",
@@ -75,7 +78,9 @@ def _statements(family: str) -> list[str]:
             f"INSERT INTO {q(ds.T_DEPT)} ({q('id')}, {q('name')}) VALUES "
             f"({ds._lit(row[0], d)}, {ds._lit(row[1], d)})"
         )
-    emp_cols = ", ".join(q(c) for c in ("id", "name", "dept_id", "salary", "age", "email"))
+    emp_cols = ", ".join(
+        q(c) for c in ("id", "name", "dept_id", "salary", "age", "email")
+    )
     for row in ds.EMPLOYEES:
         vals = ", ".join(ds._lit(v, d) for v in row)
         out.append(f"INSERT INTO {q(ds.T_EMP)} ({emp_cols}) VALUES ({vals})")
@@ -91,19 +96,47 @@ def _statements(family: str) -> list[str]:
     return out
 
 
+#: Tables that get an upper-case alias view on identifier-folding engines (see SqlEngine).
+ALIASED = {
+    ds.T_DEPT: ("id", "name"),
+    ds.T_EMP: ("id", "name", "dept_id", "salary", "age", "email"),
+}
+
+
+@dataclass
 class SqlEngine(Engine):
-    """Engine seeded with quoted-identifier DDL; DROPs are best-effort (no IF EXISTS everywhere)."""
+    """Engine seeded with quoted-identifier DDL; DROPs are best-effort (no IF EXISTS everywhere).
+
+    ``fold_alias``: engines that fold UNQUOTED identifiers to upper case (Oracle, Db2, Firebird,
+    Exasol) cannot resolve the harness's hand-written raw SQL (``SELECT id FROM qbit_employees``)
+    against tables that the compiler needs created QUOTED in lower case.  Each aliased table
+    therefore gets a same-named upper-case view, which is what an unquoted raw statement resolves
+    to; writes through it would still hit the table, so the write-rejection tests stay honest.
+    """
+
+    fold_alias: bool = False
+
+    def _alias_views(self) -> list[str]:
+        return [t.upper() for t in ALIASED]
 
     def seed(self) -> None:
         assert self.native_factory is not None
         native = self.native_factory(self)
         try:
+            if self.fold_alias:
+                for v in self._alias_views():
+                    with contextlib.suppress(Exception):
+                        native.run(f"DROP VIEW {v}")
             for stmt in _statements(self.family):
                 if stmt.startswith("DROP"):
                     with contextlib.suppress(Exception):
                         native.run(stmt)
                 else:
                     native.run(stmt)
+            if self.fold_alias:
+                for t, cols in ALIASED.items():
+                    sel = ", ".join(f'"{c}" AS {c.upper()}' for c in cols)
+                    native.run(f'CREATE VIEW {t.upper()} AS SELECT {sel} FROM "{t}"')
             if self.ro_native is not None:
                 self.ro_native(self, native)
         finally:
@@ -114,6 +147,10 @@ class SqlEngine(Engine):
             return
         native = self.native_factory(self)
         try:
+            if self.fold_alias:
+                for v in self._alias_views():
+                    with contextlib.suppress(Exception):
+                        native.run(f"DROP VIEW {v}")
             for stmt in ds.drop_statements(self.family):
                 with contextlib.suppress(Exception):
                     native.run(stmt)
@@ -200,9 +237,7 @@ def _firebird_dsn(e: Engine) -> str:
 def _firebird_native(e: Engine) -> Native:
     from firebird.driver import connect
 
-    conn = connect(
-        _firebird_dsn(e), user=e.user_, password=e.password_, charset="UTF8"
-    )
+    conn = connect(_firebird_dsn(e), user=e.user_, password=e.password_, charset="UTF8")
     return _dbapi_native(conn, commit=True)
 
 
@@ -221,9 +256,7 @@ def _firebird_ro(e: Engine, native: Native) -> None:
     from firebird.driver import connect
 
     # CREATE USER needs SYSDBA; the image sets SYSDBA's password from FIREBIRD_ROOT_PASSWORD
-    conn = connect(
-        _firebird_dsn(e), user="SYSDBA", password=root, charset="UTF8"
-    )
+    conn = connect(_firebird_dsn(e), user="SYSDBA", password=root, charset="UTF8")
     try:
         cur = conn.cursor()
         try:
@@ -235,6 +268,8 @@ def _firebird_ro(e: Engine, native: Native) -> None:
         conn.commit()
         for t in (ds.T_DEPT, ds.T_EMP, ds.T_RES, ds.T_MIXED):
             cur.execute(f'GRANT SELECT ON "{t}" TO {RO_USER}')
+        for v in (t.upper() for t in ALIASED):
+            cur.execute(f"GRANT SELECT ON {v} TO {RO_USER}")
         conn.commit()
     finally:
         conn.close()
@@ -259,5 +294,6 @@ register(
         ),
         service="firebird",
         container_port=3050,
+        fold_alias=True,
     )
 )

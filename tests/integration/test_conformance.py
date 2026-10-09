@@ -202,7 +202,7 @@ def test_database_enforces_read_only_behind_the_validator(
     try:
         ro.connect()
         res = ro.execute(sql=f"SELECT COUNT(*) AS n FROM {ds.T_EMP}")
-        assert cs.norm(res["rows"][0]["n"]) == 8
+        assert cs.norm_rows(res["rows"])[0]["n"] == 8  # folds alias case
         # bypass every client-side check: the database itself must refuse
         with pytest.raises(Exception) as err:  # noqa: PT011
             ro.execute_raw(f"DELETE FROM {ds.T_EMP}")
