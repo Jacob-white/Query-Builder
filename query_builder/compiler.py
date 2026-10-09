@@ -239,16 +239,575 @@ def _check_ident(ident: Any, label: str) -> None:
         )
 
 
-def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) -> None:
-    """
-    Validates an untrusted query specification dictionary against schema rules,
-    acceptable keys, data types, and defensive DoS limits.
-    """
-    if not isinstance(spec, dict):
+def _public_attrs(obj: Any) -> dict[str, Any]:
+    """Public (non-underscore) attributes of a dataclass / Pydantic-like object."""
+    return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+
+
+def _as_item_dict(item: Any, kind: str) -> dict[str, Any]:
+    """Normalise a spec list item (dict or attribute object) to a plain dict."""
+    if hasattr(item, "__dict__"):
+        return _public_attrs(item)
+    if isinstance(item, dict):
+        return item
+    raise ValidationError(f"Invalid {kind} item type: {type(item).__name__}")
+
+
+def _check_unknown_keys(
+    item: dict[str, Any], allowed: set[str], label: str, allow_unknown_keys: bool
+) -> None:
+    if allow_unknown_keys:
+        return
+    unknown = set(item.keys()) - allowed
+    if unknown:
         raise ValidationError(
-            f"Query spec must be a dictionary, got {type(spec).__name__}"
+            f"Unexpected field(s) in {label} specification: {', '.join(sorted(unknown))}"
         )
 
+
+# spec key -> (human label in the "too many" error, maximum item count)
+_LIST_SECTION_LIMITS: dict[str, tuple[str, int]] = {
+    "columns": ("column projections", MAX_PROJECTIONS),
+    "joins": ("joins", MAX_JOINS),
+    "filters": ("filters", MAX_FILTERS),
+    "having": ("having specifications", MAX_HAVING),
+    "order_by": ("order by specifications", MAX_ORDER_BY),
+}
+
+
+def _list_section(spec: dict[str, Any], key: str) -> list[Any] | tuple[Any, ...]:
+    """Return the (type- and size-checked) list at ``spec[key]``; empty when unset."""
+    items = spec.get(key, [])
+    if items is not None and not isinstance(items, (list, tuple)):
+        raise ValidationError(f"Field '{key}' must be a list.")
+    label, maximum = _LIST_SECTION_LIMITS[key]
+    if items and len(items) > maximum:
+        raise ValidationError(
+            f"Too many {label}: {len(items)} exceeds maximum of {maximum}."
+        )
+    return items or []
+
+
+def _check_column_name(name: str) -> None:
+    if name == "*":
+        return
+    if name.endswith(".*"):
+        _check_ident(name[:-2], "column table prefix")
+    else:
+        _check_ident(name, "column")
+
+
+def _validate_case_when(case_when: Any) -> None:
+    if hasattr(case_when, "__dict__"):
+        cw_dict = _public_attrs(case_when)
+    elif isinstance(case_when, dict):
+        cw_dict = case_when
+    else:
+        raise ValidationError("Field 'case_when' must be a dictionary or CaseWhenSpec.")
+    branches = cw_dict.get("branches", [])
+    if not isinstance(branches, (list, tuple)) or len(branches) == 0:
+        raise ValidationError(
+            "'case_when' must contain a non-empty list of 'branches'."
+        )
+    for b in branches:
+        if hasattr(b, "__dict__"):
+            b_dict = _public_attrs(b)
+        elif isinstance(b, dict):
+            b_dict = b
+        else:
+            raise ValidationError(
+                "Each branch in 'case_when' must be a dict or CaseWhenBranch."
+            )
+        if not b_dict.get("condition"):
+            raise ValidationError("Each branch in 'case_when' must have a 'condition'.")
+
+
+def _validate_column_dict(col: dict[str, Any]) -> None:
+    raw_col = col.get("column", col.get("name"))
+    case_when = col.get("case_when")
+    if case_when is not None:
+        _validate_case_when(case_when)
+
+    if raw_col is None:
+        if case_when is None and col.get("expression") is None:
+            return
+    elif isinstance(raw_col, str):
+        _check_column_name(raw_col)
+    else:
+        raise ValidationError("Column name must be a string.")
+
+    agg = col.get("agg") or col.get("aggregate")
+    if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
+        raise ValidationError(f"Unsupported aggregate function: '{agg}'")
+    alias = col.get("alias")
+    if alias is not None:
+        if not isinstance(alias, str):
+            raise ValidationError("Column 'alias' must be a string.")
+        if len(alias) > 256 or "\x00" in alias:
+            raise ValidationError(f"Invalid column alias: '{alias}'")
+    tbl = col.get("table")
+    if tbl is not None:
+        _check_ident(tbl, "column table")
+
+    time_grain = col.get("time_grain") or col.get("grain")
+    if time_grain is not None:
+        from query_builder.semantic import SUPPORTED_TIME_GRAINS
+
+        if str(time_grain).lower() not in SUPPORTED_TIME_GRAINS:
+            raise ValidationError(f"Unsupported time grain: '{time_grain}'")
+
+
+def _validate_columns(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for col in _list_section(spec, "columns"):
+        if isinstance(col, str):
+            _check_column_name(col)
+        elif isinstance(col, dict):
+            _check_unknown_keys(col, ALLOWED_COLUMN_KEYS, "column", allow_unknown_keys)
+            _validate_column_dict(col)
+        else:
+            raise ValidationError(
+                f"Invalid column specification item type: {type(col).__name__}"
+            )
+
+    metrics = spec.get("metrics")
+    if metrics is not None and not isinstance(metrics, (list, tuple)):
+        raise ValidationError("Field 'metrics' must be a list.")
+
+
+# optional join identifier fields -> label used in the error message
+_JOIN_IDENT_FIELDS = (
+    ("alias", "join alias"),
+    ("left_table", "join left_table"),
+    ("left_col", "join left_col"),
+    ("right_col", "join right_col"),
+)
+
+
+def _validate_join(raw: Any, allow_unknown_keys: bool) -> None:
+    j_dict = _as_item_dict(raw, "join")
+    _check_unknown_keys(j_dict, ALLOWED_JOIN_KEYS, "join", allow_unknown_keys)
+    j_tbl = j_dict.get("table")
+    if j_tbl is None:
+        raise ValidationError("Missing join target 'table'.")
+    _check_ident(j_tbl, "join table")
+    for field, label in _JOIN_IDENT_FIELDS:
+        if j_dict.get(field):
+            _check_ident(j_dict[field], label)
+    if "on" in j_dict and j_dict["on"] is not None:
+        on_val = j_dict["on"]
+        if not isinstance(on_val, (list, tuple)):
+            raise ValidationError("Join 'on' condition must be a list.")
+        if len(on_val) > 10:
+            raise ValidationError("Too many join ON conditions (maximum 10).")
+        for cond in on_val:
+            c_dict = cond.__dict__ if hasattr(cond, "__dict__") else cond
+            if (
+                not isinstance(c_dict, dict)
+                or "left" not in c_dict
+                or "right" not in c_dict
+            ):
+                raise ValidationError(
+                    "Join ON condition must contain 'left' and 'right'."
+                )
+            _check_ident(c_dict["left"], "join on left")
+            _check_ident(c_dict["right"], "join on right")
+
+
+def _validate_joins(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for j in _list_section(spec, "joins"):
+        _validate_join(j, allow_unknown_keys)
+
+
+def _validate_filter(raw: Any, allow_unknown_keys: bool) -> None:
+    flt_dict = _as_item_dict(raw, "filter")
+    _check_unknown_keys(flt_dict, ALLOWED_FILTER_KEYS, "filter", allow_unknown_keys)
+
+    op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
+    if op not in ALLOWED_FILTER_OPS:
+        raise ValidationError(f"Unsupported filter operator: '{op}'")
+
+    val = flt_dict.get("value")
+    subquery = flt_dict.get("subquery")
+    if (
+        subquery is not None
+        or (isinstance(val, dict) and "table" in val)
+        or (hasattr(val, "__dict__") and hasattr(val, "table"))
+    ):
+        sub_spec = subquery if subquery is not None else val
+        sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
+        validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
+        flt_col = flt_dict.get("column")
+        if flt_col is not None:
+            _check_ident(flt_col, "filter column")
+    elif op in ("exists", "not_exists", "not exists"):
+        raise ValidationError("EXISTS filter requires a nested subquery.")
+    else:
+        flt_col = flt_dict.get("column")
+        if flt_col is None:
+            return
+        _check_ident(flt_col, "filter column")
+
+    prefix = (
+        flt_dict.get("tablePrefix")
+        or flt_dict.get("table_prefix")
+        or flt_dict.get("table")
+    )
+    if prefix is not None:
+        _check_ident(prefix, "filter table prefix")
+
+    if op in ("in", "not in", "not_in"):
+        if isinstance(val, (list, tuple, set)) and len(val) > MAX_IN_VALUES:
+            raise ValidationError(
+                f"IN filter value count ({len(val)}) exceeds maximum limit of {MAX_IN_VALUES}."
+            )
+        elif isinstance(val, str):
+            items = [v for v in val.split(",") if v.strip()]
+            if len(items) > MAX_IN_VALUES:
+                raise ValidationError(
+                    f"IN filter value count ({len(items)}) exceeds maximum limit of {MAX_IN_VALUES}."
+                )
+    elif op in ("between", "not_between", "not between") and (
+        (isinstance(val, (list, tuple)) and len(val) != 2)
+        or (isinstance(val, str) and (" AND " not in val and "," not in val))
+    ):
+        raise ValidationError("BETWEEN filter requires exactly 2 bounds.")
+
+
+def _validate_filters(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for flt in _list_section(spec, "filters"):
+        _validate_filter(flt, allow_unknown_keys)
+
+    if (
+        "filter_join" in spec
+        and spec["filter_join"] is not None
+        and not isinstance(spec["filter_join"], str)
+    ):
+        raise ValidationError("Field 'filter_join' must be a string.")
+
+
+def _validate_having_item(raw: Any, allow_unknown_keys: bool) -> None:
+    h_dict = _as_item_dict(raw, "having")
+    _check_unknown_keys(h_dict, ALLOWED_HAVING_KEYS, "having", allow_unknown_keys)
+    h_col = h_dict.get("column")
+    if h_col is None:
+        return
+    if h_col != "*":
+        _check_ident(h_col, "having column")
+    h_agg = str(h_dict.get("agg", h_dict.get("aggregate", "count"))).lower()
+    if h_agg not in AGGREGATE_MAP:
+        raise ValidationError(f"Unsupported having aggregate: '{h_agg}'")
+    h_op = str(h_dict.get("op", h_dict.get("operator", "gt"))).lower()
+    if h_op not in OPERATOR_MAP:
+        raise ValidationError(f"Unsupported having operator: '{h_op}'")
+
+
+def _validate_having(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for h in _list_section(spec, "having"):
+        _validate_having_item(h, allow_unknown_keys)
+
+
+def _validate_order_by_item(raw: Any, allow_unknown_keys: bool) -> None:
+    o_dict = _as_item_dict(raw, "order_by")
+    _check_unknown_keys(o_dict, ALLOWED_ORDER_BY_KEYS, "order by", allow_unknown_keys)
+    o_col = o_dict.get("column")
+    if o_col is None:
+        return
+    _check_ident(o_col, "order_by column")
+    o_pfx = (
+        o_dict.get("tablePrefix") or o_dict.get("table_prefix") or o_dict.get("table")
+    )
+    if o_pfx is not None:
+        _check_ident(o_pfx, "order_by table prefix")
+
+
+def _validate_order_by(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for o in _list_section(spec, "order_by"):
+        _validate_order_by_item(o, allow_unknown_keys)
+
+
+def _check_bounded_int(
+    spec: dict[str, Any], key: str, label: str, maximum: int
+) -> None:
+    """``spec[key]``, when set, must be an int in ``0..maximum``."""
+    if key not in spec or spec[key] is None:
+        return
+    try:
+        number = int(spec[key])
+    except (ValueError, TypeError) as e:
+        raise ValidationError(f"Invalid {key} value: {spec[key]}") from e
+    if number < 0:
+        raise ValidationError(f"{label} must be non-negative.")
+    if number > maximum:
+        raise ValidationError(
+            f"{label} ({number}) exceeds maximum allowed limit of {maximum}."
+        )
+
+
+def _validate_pagination(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    _check_bounded_int(spec, "limit", "Limit", MAX_LIMIT)
+    _check_bounded_int(spec, "offset", "Offset", MAX_OFFSET)
+    if (
+        "distinct" in spec
+        and spec["distinct"] is not None
+        and not isinstance(spec["distinct"], bool)
+    ):
+        raise ValidationError("Field 'distinct' must be a boolean.")
+
+
+_VALID_VECTOR_METRICS = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
+
+
+def _check_vector_values(vec: Any, label: str) -> None:
+    if not isinstance(vec, (list, tuple)) or len(vec) == 0:
+        raise ValidationError(
+            f"Field '{label}.vector' must be a non-empty list of numbers."
+        )
+    if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in vec):
+        raise ValidationError(f"All elements in '{label}.vector' must be numbers.")
+
+
+def _check_top_k(top_k: Any, label: str) -> None:
+    if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
+        raise ValidationError(
+            f"Field '{label}.top_k' must be an integer between 1 and {MAX_LIMIT}."
+        )
+
+
+def _check_vector_metric(metric: Any, label: str) -> None:
+    if str(metric).lower() not in _VALID_VECTOR_METRICS:
+        raise ValidationError(
+            f"Invalid {label} 'metric': '{metric}'. Must be one of {sorted(_VALID_VECTOR_METRICS)}."
+        )
+
+
+_VECTOR_SEARCH_KEYS = {
+    "vector",
+    "column",
+    "top_k",
+    "metric",
+    "include_distances",
+    "min_score",
+}
+
+
+def _validate_vector_search(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    vs = spec.get("vector_search")
+    if vs is None:
+        return
+    if isinstance(vs, dict):
+        _check_unknown_keys(
+            vs, _VECTOR_SEARCH_KEYS, "vector_search", allow_unknown_keys
+        )
+        vec = vs.get("vector")
+        col = vs.get("column", "embedding")
+        top_k = vs.get("top_k", 10)
+        metric = vs.get("metric", "cosine")
+        min_score = vs.get("min_score")
+    elif hasattr(vs, "vector"):
+        vec = vs.vector
+        col = getattr(vs, "column", "embedding")
+        top_k = getattr(vs, "top_k", 10)
+        metric = getattr(vs, "metric", "cosine")
+        min_score = getattr(vs, "min_score", None)
+    else:
+        raise ValidationError(
+            "Field 'vector_search' must be a dictionary or VectorSearchSpec."
+        )
+
+    _check_vector_values(vec, "vector_search")
+    _check_ident(col, "vector_search column")
+    _check_top_k(top_k, "vector_search")
+    _check_vector_metric(metric, "vector_search")
+    if min_score is not None and not isinstance(min_score, (int, float)):
+        raise ValidationError(
+            "Field 'vector_search.min_score' must be a number or None."
+        )
+
+
+_HYBRID_SEARCH_KEYS = {
+    "vector",
+    "vector_column",
+    "query_text",
+    "text_columns",
+    "alpha",
+    "fusion",
+    "rrf_k",
+    "top_k",
+    "metric",
+    "include_scores",
+}
+_HYBRID_DEFAULTS: dict[str, Any] = {
+    "vector": None,
+    "vector_column": "embedding",
+    "query_text": "",
+    "text_columns": [],
+    "alpha": 0.5,
+    "fusion": "rrf",
+    "rrf_k": 60,
+    "top_k": 10,
+    "metric": "cosine",
+}
+
+
+def _validate_hybrid_search(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    hs = spec.get("hybrid_search")
+    if hs is None:
+        return
+    if isinstance(hs, dict):
+        _check_unknown_keys(
+            hs, _HYBRID_SEARCH_KEYS, "hybrid_search", allow_unknown_keys
+        )
+        fields = {k: hs.get(k, d) for k, d in _HYBRID_DEFAULTS.items()}
+    elif hasattr(hs, "vector"):
+        fields = {k: getattr(hs, k, d) for k, d in _HYBRID_DEFAULTS.items()}
+        fields["vector"] = hs.vector
+    else:
+        raise ValidationError(
+            "Field 'hybrid_search' must be a dictionary or HybridSearchSpec."
+        )
+
+    _check_vector_values(fields["vector"], "hybrid_search")
+    _check_ident(fields["vector_column"], "hybrid_search vector_column")
+
+    if not isinstance(fields["query_text"], str):
+        raise ValidationError("Field 'hybrid_search.query_text' must be a string.")
+
+    t_cols = fields["text_columns"]
+    if not isinstance(t_cols, (list, tuple)):
+        raise ValidationError(
+            "Field 'hybrid_search.text_columns' must be a list of column names."
+        )
+    for tc in t_cols:
+        _check_ident(tc, "hybrid_search text_column")
+
+    alpha = fields["alpha"]
+    if not isinstance(alpha, (int, float)) or not (0.0 <= float(alpha) <= 1.0):
+        raise ValidationError(
+            "Field 'hybrid_search.alpha' must be a number between 0.0 and 1.0."
+        )
+
+    valid_fusions = {"rrf", "linear"}
+    if str(fields["fusion"]).lower() not in valid_fusions:
+        raise ValidationError(
+            f"Invalid hybrid_search 'fusion': '{fields['fusion']}'. Must be one of {sorted(valid_fusions)}."
+        )
+
+    rrf_k = fields["rrf_k"]
+    if not isinstance(rrf_k, int) or rrf_k <= 0:
+        raise ValidationError("Field 'hybrid_search.rrf_k' must be a positive integer.")
+
+    _check_top_k(fields["top_k"], "hybrid_search")
+    _check_vector_metric(fields["metric"], "hybrid_search")
+
+
+def _validate_ctes(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    ctes_val = spec.get("ctes")
+    if ctes_val is None:
+        return
+    if not isinstance(ctes_val, (list, tuple)):
+        raise ValidationError("Field 'ctes' must be a list.")
+    from query_builder.ast_validator import validate_cte_dag
+
+    cte_res = validate_cte_dag(ctes_val)
+    if not cte_res.get("valid", True):
+        raise ValidationError(cte_res["violations"][0])
+
+
+def _validate_window_functions(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    wf_val = spec.get("window_functions")
+    if wf_val is None:
+        return
+    if not isinstance(wf_val, (list, tuple)):
+        raise ValidationError("Field 'window_functions' must be a list.")
+    from query_builder.ast_validator import validate_window_function_spec
+
+    for wf in wf_val:
+        wf_res = validate_window_function_spec(wf)
+        if not wf_res.get("valid", True):
+            raise ValidationError(wf_res["violations"][0])
+
+
+_VALID_SET_OPS = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
+
+
+def _validate_set_operations(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    so_val = spec.get("set_operations")
+    if so_val is None:
+        return
+    if not isinstance(so_val, (list, tuple)):
+        raise ValidationError("Field 'set_operations' must be a list.")
+    for so in so_val:
+        if hasattr(so, "__dict__"):
+            so_dict = _public_attrs(so)
+        elif isinstance(so, dict):
+            so_dict = so
+        else:
+            raise ValidationError(
+                "Each set operation must be a dict or SetOperationSpec."
+            )
+        op = str(so_dict.get("operation", "UNION")).upper().strip()
+        if op not in _VALID_SET_OPS:
+            raise ValidationError(
+                f"Invalid set operation: '{op}'. Must be one of {sorted(_VALID_SET_OPS)}."
+            )
+        q = so_dict.get("query")
+        if not q:
+            raise ValidationError(
+                "Set operation must include a 'query' sub-specification."
+            )
+        if isinstance(q, dict):
+            validate_query_spec(q, allow_unknown_keys=allow_unknown_keys)
+        elif hasattr(q, "__dict__"):
+            validate_query_spec(q.__dict__, allow_unknown_keys=allow_unknown_keys)
+
+
+def _validate_grouping_type(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    if spec.get("grouping_type") is None:
+        return
+    gt = str(spec["grouping_type"]).lower().strip()
+    if gt not in {"standard", "rollup", "cube", "grouping_sets"}:
+        raise ValidationError(
+            f"Invalid 'grouping_type': '{gt}'. Must be one of 'standard', 'rollup', 'cube', 'grouping_sets'."
+        )
+
+
+def _is_listlike(value: Any) -> bool:
+    return isinstance(value, (list, tuple))
+
+
+# (spec key, predicate accepting the value, error message), checked in order
+_SHAPE_RULES: tuple[tuple[str, Callable[[Any], bool], str], ...] = (
+    (
+        "grouping_sets",
+        lambda v: _is_listlike(v) or hasattr(v, "sets"),
+        "Field 'grouping_sets' must be a list of column lists.",
+    ),
+    (
+        "rollup",
+        lambda v: isinstance(v, (dict, list, tuple)) or hasattr(v, "columns"),
+        "Field 'rollup' must be a RollupSpec or dict.",
+    ),
+    (
+        "cube",
+        lambda v: isinstance(v, (dict, list, tuple)) or hasattr(v, "columns"),
+        "Field 'cube' must be a CubeSpec or dict.",
+    ),
+    (
+        "pivot",
+        lambda v: isinstance(v, dict) or hasattr(v, "column"),
+        "Field 'pivot' must be a PivotSpec or dict.",
+    ),
+)
+
+
+def _validate_shapes(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+    for key, accepts, message in _SHAPE_RULES:
+        value = spec.get(key)
+        if value is not None and not accepts(value):
+            raise ValidationError(message)
+
+
+def _validate_unknown_spec_keys(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
     if not allow_unknown_keys:
         unknown = set(spec.keys()) - ALLOWED_SPEC_KEYS
         if unknown:
@@ -256,6 +815,8 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
                 f"Unexpected field(s) in query specification: {', '.join(sorted(unknown))}"
             )
 
+
+def _validate_table(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
     table = spec.get("table")
     if table is None:
         raise ValidationError(
@@ -267,560 +828,56 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
     else:
         _check_ident(table, "table")
 
-    columns = spec.get("columns", [])
-    if columns is not None and not isinstance(columns, (list, tuple)):
-        raise ValidationError("Field 'columns' must be a list.")
-    if columns and len(columns) > MAX_PROJECTIONS:
+
+# Validation steps, run in order; the first violation raised wins.
+_VALIDATION_STEPS: tuple[Callable[[dict[str, Any], bool], None], ...] = (
+    _validate_unknown_spec_keys,
+    _validate_table,
+    _validate_columns,
+    _validate_joins,
+    _validate_filters,
+    _validate_having,
+    _validate_order_by,
+    _validate_pagination,
+    _validate_vector_search,
+    _validate_hybrid_search,
+    _validate_ctes,
+    _validate_window_functions,
+    _validate_set_operations,
+    _validate_grouping_type,
+    _validate_shapes,
+)
+
+
+def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) -> None:
+    """
+    Validates an untrusted query specification dictionary against schema rules,
+    acceptable keys, data types, and defensive DoS limits.
+    """
+    if not isinstance(spec, dict):
         raise ValidationError(
-            f"Too many column projections: {len(columns)} exceeds maximum of {MAX_PROJECTIONS}."
+            f"Query spec must be a dictionary, got {type(spec).__name__}"
         )
-    for col in columns or []:
-        if isinstance(col, str):
-            if col == "*":
-                pass
-            elif col.endswith(".*"):
-                _check_ident(col[:-2], "column table prefix")
-            else:
-                _check_ident(col, "column")
-        elif isinstance(col, dict):
-            if not allow_unknown_keys:
-                unknown_col = set(col.keys()) - ALLOWED_COLUMN_KEYS
-                if unknown_col:
-                    raise ValidationError(
-                        f"Unexpected field(s) in column specification: {', '.join(sorted(unknown_col))}"
-                    )
-            raw_col = col.get("column", col.get("name"))
-            case_when = col.get("case_when")
-            if case_when is not None:
-                if hasattr(case_when, "__dict__"):
-                    cw_dict = {
-                        k: v
-                        for k, v in case_when.__dict__.items()
-                        if not k.startswith("_")
-                    }
-                elif isinstance(case_when, dict):
-                    cw_dict = case_when
-                else:
-                    raise ValidationError(
-                        "Field 'case_when' must be a dictionary or CaseWhenSpec."
-                    )
-                branches = cw_dict.get("branches", [])
-                if not isinstance(branches, (list, tuple)) or len(branches) == 0:
-                    raise ValidationError(
-                        "'case_when' must contain a non-empty list of 'branches'."
-                    )
-                for b in branches:
-                    if hasattr(b, "__dict__"):
-                        b_dict = {
-                            k: v for k, v in b.__dict__.items() if not k.startswith("_")
-                        }
-                    elif isinstance(b, dict):
-                        b_dict = b
-                    else:
-                        raise ValidationError(
-                            "Each branch in 'case_when' must be a dict or CaseWhenBranch."
-                        )
-                    if not b_dict.get("condition"):
-                        raise ValidationError(
-                            "Each branch in 'case_when' must have a 'condition'."
-                        )
+    for step in _VALIDATION_STEPS:
+        step(spec, allow_unknown_keys)
 
-            if raw_col is None:
-                if case_when is not None or col.get("expression") is not None:
-                    pass
-                else:
-                    continue
-            else:
-                if isinstance(raw_col, str):
-                    if raw_col == "*":
-                        pass
-                    elif raw_col.endswith(".*"):
-                        _check_ident(raw_col[:-2], "column table prefix")
-                    else:
-                        _check_ident(raw_col, "column")
-                else:
-                    raise ValidationError("Column name must be a string.")
-            agg = col.get("agg") or col.get("aggregate")
-            if agg is not None and str(agg).lower() not in AGGREGATE_MAP:
-                raise ValidationError(f"Unsupported aggregate function: '{agg}'")
-            alias = col.get("alias")
-            if alias is not None:
-                if not isinstance(alias, str):
-                    raise ValidationError("Column 'alias' must be a string.")
-                if len(alias) > 256 or "\x00" in alias:
-                    raise ValidationError(f"Invalid column alias: '{alias}'")
-            tbl = col.get("table")
-            if tbl is not None:
-                _check_ident(tbl, "column table")
 
-            time_grain = col.get("time_grain") or col.get("grain")
-            if time_grain is not None:
-                from query_builder.semantic import SUPPORTED_TIME_GRAINS
+_EXISTS_OPS = ("exists", "not_exists", "not exists")
 
-                if str(time_grain).lower() not in SUPPORTED_TIME_GRAINS:
-                    raise ValidationError(f"Unsupported time grain: '{time_grain}'")
-        else:
-            raise ValidationError(
-                f"Invalid column specification item type: {type(col).__name__}"
-            )
-
-    metrics = spec.get("metrics")
-    if metrics is not None and not isinstance(metrics, (list, tuple)):
-        raise ValidationError("Field 'metrics' must be a list.")
-
-    joins = spec.get("joins", [])
-    if joins is not None and not isinstance(joins, (list, tuple)):
-        raise ValidationError("Field 'joins' must be a list.")
-    if joins and len(joins) > MAX_JOINS:
-        raise ValidationError(
-            f"Too many joins: {len(joins)} exceeds maximum of {MAX_JOINS}."
-        )
-    for j in joins or []:
-        if hasattr(j, "__dict__"):
-            j_dict = {k: v for k, v in j.__dict__.items() if not k.startswith("_")}
-        elif isinstance(j, dict):
-            j_dict = j
-        else:
-            raise ValidationError(f"Invalid join item type: {type(j).__name__}")
-        if not allow_unknown_keys:
-            unknown_j = set(j_dict.keys()) - ALLOWED_JOIN_KEYS
-            if unknown_j:
-                raise ValidationError(
-                    f"Unexpected field(s) in join specification: {', '.join(sorted(unknown_j))}"
-                )
-        j_tbl = j_dict.get("table")
-        if j_tbl is not None:
-            _check_ident(j_tbl, "join table")
-        else:
-            raise ValidationError("Missing join target 'table'.")
-        if j_dict.get("alias"):
-            _check_ident(j_dict["alias"], "join alias")
-        if j_dict.get("left_table"):
-            _check_ident(j_dict["left_table"], "join left_table")
-        if j_dict.get("left_col"):
-            _check_ident(j_dict["left_col"], "join left_col")
-        if j_dict.get("right_col"):
-            _check_ident(j_dict["right_col"], "join right_col")
-        if "on" in j_dict and j_dict["on"] is not None:
-            on_val = j_dict["on"]
-            if not isinstance(on_val, (list, tuple)):
-                raise ValidationError("Join 'on' condition must be a list.")
-            if len(on_val) > 10:
-                raise ValidationError("Too many join ON conditions (maximum 10).")
-            for cond in on_val:
-                c_dict = cond.__dict__ if hasattr(cond, "__dict__") else cond
-                if (
-                    not isinstance(c_dict, dict)
-                    or "left" not in c_dict
-                    or "right" not in c_dict
-                ):
-                    raise ValidationError(
-                        "Join ON condition must contain 'left' and 'right'."
-                    )
-                _check_ident(c_dict["left"], "join on left")
-                _check_ident(c_dict["right"], "join on right")
-
-    filters = spec.get("filters", [])
-    if filters is not None and not isinstance(filters, (list, tuple)):
-        raise ValidationError("Field 'filters' must be a list.")
-    if filters and len(filters) > MAX_FILTERS:
-        raise ValidationError(
-            f"Too many filters: {len(filters)} exceeds maximum of {MAX_FILTERS}."
-        )
-    for flt in filters or []:
-        if hasattr(flt, "__dict__"):
-            flt_dict = {k: v for k, v in flt.__dict__.items() if not k.startswith("_")}
-        elif isinstance(flt, dict):
-            flt_dict = flt
-        else:
-            raise ValidationError(f"Invalid filter item type: {type(flt).__name__}")
-        if not allow_unknown_keys:
-            unknown_flt = set(flt_dict.keys()) - ALLOWED_FILTER_KEYS
-            if unknown_flt:
-                raise ValidationError(
-                    f"Unexpected field(s) in filter specification: {', '.join(sorted(unknown_flt))}"
-                )
-
-        op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
-        if op not in ALLOWED_FILTER_OPS:
-            raise ValidationError(f"Unsupported filter operator: '{op}'")
-
-        val = flt_dict.get("value")
-        subquery = flt_dict.get("subquery")
-        if (
-            subquery is not None
-            or (isinstance(val, dict) and "table" in val)
-            or (hasattr(val, "__dict__") and hasattr(val, "table"))
-        ):
-            sub_spec = subquery if subquery is not None else val
-            sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
-            validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
-            flt_col = flt_dict.get("column")
-            if flt_col is not None:
-                _check_ident(flt_col, "filter column")
-        elif op in ("exists", "not_exists", "not exists"):
-            raise ValidationError("EXISTS filter requires a nested subquery.")
-        else:
-            flt_col = flt_dict.get("column")
-            if flt_col is None:
-                continue
-            _check_ident(flt_col, "filter column")
-
-        prefix = (
-            flt_dict.get("tablePrefix")
-            or flt_dict.get("table_prefix")
-            or flt_dict.get("table")
-        )
-        if prefix is not None:
-            _check_ident(prefix, "filter table prefix")
-
-        if op in ("in", "not in", "not_in"):
-            if isinstance(val, (list, tuple, set)) and len(val) > MAX_IN_VALUES:
-                raise ValidationError(
-                    f"IN filter value count ({len(val)}) exceeds maximum limit of {MAX_IN_VALUES}."
-                )
-            elif isinstance(val, str):
-                items = [v for v in val.split(",") if v.strip()]
-                if len(items) > MAX_IN_VALUES:
-                    raise ValidationError(
-                        f"IN filter value count ({len(items)}) exceeds maximum limit of {MAX_IN_VALUES}."
-                    )
-        elif op in ("between", "not_between", "not between") and (
-            (isinstance(val, (list, tuple)) and len(val) != 2)
-            or (isinstance(val, str) and (" AND " not in val and "," not in val))
-        ):
-            raise ValidationError("BETWEEN filter requires exactly 2 bounds.")
-
-    if (
-        "filter_join" in spec
-        and spec["filter_join"] is not None
-        and not isinstance(spec["filter_join"], str)
-    ):
-        raise ValidationError("Field 'filter_join' must be a string.")
-
-    having = spec.get("having", [])
-    if having is not None and not isinstance(having, (list, tuple)):
-        raise ValidationError("Field 'having' must be a list.")
-    if having and len(having) > MAX_HAVING:
-        raise ValidationError(
-            f"Too many having specifications: {len(having)} exceeds maximum of {MAX_HAVING}."
-        )
-    for h in having or []:
-        if hasattr(h, "__dict__"):
-            h_dict = {k: v for k, v in h.__dict__.items() if not k.startswith("_")}
-        elif isinstance(h, dict):
-            h_dict = h
-        else:
-            raise ValidationError(f"Invalid having item type: {type(h).__name__}")
-        if not allow_unknown_keys:
-            unknown_h = set(h_dict.keys()) - ALLOWED_HAVING_KEYS
-            if unknown_h:
-                raise ValidationError(
-                    f"Unexpected field(s) in having specification: {', '.join(sorted(unknown_h))}"
-                )
-        h_col = h_dict.get("column")
-        if h_col is None:
-            continue
-        if h_col != "*":
-            _check_ident(h_col, "having column")
-        h_agg = str(h_dict.get("agg", h_dict.get("aggregate", "count"))).lower()
-        if h_agg not in AGGREGATE_MAP:
-            raise ValidationError(f"Unsupported having aggregate: '{h_agg}'")
-        h_op = str(h_dict.get("op", h_dict.get("operator", "gt"))).lower()
-        if h_op not in OPERATOR_MAP:
-            raise ValidationError(f"Unsupported having operator: '{h_op}'")
-
-    order_by = spec.get("order_by", [])
-    if order_by is not None and not isinstance(order_by, (list, tuple)):
-        raise ValidationError("Field 'order_by' must be a list.")
-    if order_by and len(order_by) > MAX_ORDER_BY:
-        raise ValidationError(
-            f"Too many order by specifications: {len(order_by)} exceeds maximum of {MAX_ORDER_BY}."
-        )
-    for o in order_by or []:
-        if hasattr(o, "__dict__"):
-            o_dict = {k: v for k, v in o.__dict__.items() if not k.startswith("_")}
-        elif isinstance(o, dict):
-            o_dict = o
-        else:
-            raise ValidationError(f"Invalid order_by item type: {type(o).__name__}")
-        if not allow_unknown_keys:
-            unknown_o = set(o_dict.keys()) - ALLOWED_ORDER_BY_KEYS
-            if unknown_o:
-                raise ValidationError(
-                    f"Unexpected field(s) in order by specification: {', '.join(sorted(unknown_o))}"
-                )
-        o_col = o_dict.get("column")
-        if o_col is None:
-            continue
-        _check_ident(o_col, "order_by column")
-        o_pfx = (
-            o_dict.get("tablePrefix")
-            or o_dict.get("table_prefix")
-            or o_dict.get("table")
-        )
-        if o_pfx is not None:
-            _check_ident(o_pfx, "order_by table prefix")
-
-    if "limit" in spec and spec["limit"] is not None:
-        try:
-            lim = int(spec["limit"])
-        except (ValueError, TypeError) as e:
-            raise ValidationError(f"Invalid limit value: {spec['limit']}") from e
-        if lim < 0:
-            raise ValidationError("Limit must be non-negative.")
-        if lim > MAX_LIMIT:
-            raise ValidationError(
-                f"Limit ({lim}) exceeds maximum allowed limit of {MAX_LIMIT}."
-            )
-
-    if "offset" in spec and spec["offset"] is not None:
-        try:
-            off = int(spec["offset"])
-        except (ValueError, TypeError) as e:
-            raise ValidationError(f"Invalid offset value: {spec['offset']}") from e
-        if off < 0:
-            raise ValidationError("Offset must be non-negative.")
-        if off > MAX_OFFSET:
-            raise ValidationError(
-                f"Offset ({off}) exceeds maximum allowed limit of {MAX_OFFSET}."
-            )
-
-    if (
-        "distinct" in spec
-        and spec["distinct"] is not None
-        and not isinstance(spec["distinct"], bool)
-    ):
-        raise ValidationError("Field 'distinct' must be a boolean.")
-
-    if "vector_search" in spec and spec["vector_search"] is not None:
-        vs = spec["vector_search"]
-        if isinstance(vs, dict):
-            if not allow_unknown_keys:
-                allowed_vs_keys = {
-                    "vector",
-                    "column",
-                    "top_k",
-                    "metric",
-                    "include_distances",
-                    "min_score",
-                }
-                unknown_vs = set(vs.keys()) - allowed_vs_keys
-                if unknown_vs:
-                    raise ValidationError(
-                        f"Unexpected field(s) in vector_search specification: {', '.join(sorted(unknown_vs))}"
-                    )
-            vec = vs.get("vector")
-            col = vs.get("column", "embedding")
-            top_k = vs.get("top_k", 10)
-            metric = vs.get("metric", "cosine")
-            min_score = vs.get("min_score")
-        elif hasattr(vs, "vector"):
-            vec = vs.vector
-            col = getattr(vs, "column", "embedding")
-            top_k = getattr(vs, "top_k", 10)
-            metric = getattr(vs, "metric", "cosine")
-            min_score = getattr(vs, "min_score", None)
-        else:
-            raise ValidationError(
-                "Field 'vector_search' must be a dictionary or VectorSearchSpec."
-            )
-
-        if not isinstance(vec, (list, tuple)) or len(vec) == 0:
-            raise ValidationError(
-                "Field 'vector_search.vector' must be a non-empty list of numbers."
-            )
-        if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in vec):
-            raise ValidationError(
-                "All elements in 'vector_search.vector' must be numbers."
-            )
-        _check_ident(col, "vector_search column")
-        if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
-            raise ValidationError(
-                f"Field 'vector_search.top_k' must be an integer between 1 and {MAX_LIMIT}."
-            )
-        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
-        if str(metric).lower() not in valid_metrics:
-            raise ValidationError(
-                f"Invalid vector_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
-            )
-        if min_score is not None and not isinstance(min_score, (int, float)):
-            raise ValidationError(
-                "Field 'vector_search.min_score' must be a number or None."
-            )
-
-    if "hybrid_search" in spec and spec["hybrid_search"] is not None:
-        hs = spec["hybrid_search"]
-        if isinstance(hs, dict):
-            if not allow_unknown_keys:
-                allowed_hs_keys = {
-                    "vector",
-                    "vector_column",
-                    "query_text",
-                    "text_columns",
-                    "alpha",
-                    "fusion",
-                    "rrf_k",
-                    "top_k",
-                    "metric",
-                    "include_scores",
-                }
-                unknown_hs = set(hs.keys()) - allowed_hs_keys
-                if unknown_hs:
-                    raise ValidationError(
-                        f"Unexpected field(s) in hybrid_search specification: {', '.join(sorted(unknown_hs))}"
-                    )
-            vec = hs.get("vector")
-            v_col = hs.get("vector_column", "embedding")
-            q_text = hs.get("query_text", "")
-            t_cols = hs.get("text_columns", [])
-            alpha = hs.get("alpha", 0.5)
-            fusion = hs.get("fusion", "rrf")
-            rrf_k = hs.get("rrf_k", 60)
-            top_k = hs.get("top_k", 10)
-            metric = hs.get("metric", "cosine")
-        elif hasattr(hs, "vector"):
-            vec = hs.vector
-            v_col = getattr(hs, "vector_column", "embedding")
-            q_text = getattr(hs, "query_text", "")
-            t_cols = getattr(hs, "text_columns", [])
-            alpha = getattr(hs, "alpha", 0.5)
-            fusion = getattr(hs, "fusion", "rrf")
-            rrf_k = getattr(hs, "rrf_k", 60)
-            top_k = getattr(hs, "top_k", 10)
-            metric = getattr(hs, "metric", "cosine")
-        else:
-            raise ValidationError(
-                "Field 'hybrid_search' must be a dictionary or HybridSearchSpec."
-            )
-
-        if not isinstance(vec, (list, tuple)) or len(vec) == 0:
-            raise ValidationError(
-                "Field 'hybrid_search.vector' must be a non-empty list of numbers."
-            )
-        if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in vec):
-            raise ValidationError(
-                "All elements in 'hybrid_search.vector' must be numbers."
-            )
-        _check_ident(v_col, "hybrid_search vector_column")
-
-        if not isinstance(q_text, str):
-            raise ValidationError("Field 'hybrid_search.query_text' must be a string.")
-
-        if not isinstance(t_cols, (list, tuple)):
-            raise ValidationError(
-                "Field 'hybrid_search.text_columns' must be a list of column names."
-            )
-        for tc in t_cols:
-            _check_ident(tc, "hybrid_search text_column")
-
-        if not isinstance(alpha, (int, float)) or not (0.0 <= float(alpha) <= 1.0):
-            raise ValidationError(
-                "Field 'hybrid_search.alpha' must be a number between 0.0 and 1.0."
-            )
-
-        valid_fusions = {"rrf", "linear"}
-        if str(fusion).lower() not in valid_fusions:
-            raise ValidationError(
-                f"Invalid hybrid_search 'fusion': '{fusion}'. Must be one of {sorted(valid_fusions)}."
-            )
-
-        if not isinstance(rrf_k, int) or rrf_k <= 0:
-            raise ValidationError(
-                "Field 'hybrid_search.rrf_k' must be a positive integer."
-            )
-
-        if not isinstance(top_k, int) or top_k <= 0 or top_k > MAX_LIMIT:
-            raise ValidationError(
-                f"Field 'hybrid_search.top_k' must be an integer between 1 and {MAX_LIMIT}."
-            )
-
-        valid_metrics = {"cosine", "euclidean", "l2", "dot_product", "inner_product"}
-        if str(metric).lower() not in valid_metrics:
-            raise ValidationError(
-                f"Invalid hybrid_search 'metric': '{metric}'. Must be one of {sorted(valid_metrics)}."
-            )
-
-    if "ctes" in spec and spec["ctes"] is not None:
-        ctes_val = spec["ctes"]
-        if not isinstance(ctes_val, (list, tuple)):
-            raise ValidationError("Field 'ctes' must be a list.")
-        from query_builder.ast_validator import validate_cte_dag
-
-        cte_res = validate_cte_dag(ctes_val)
-        if not cte_res.get("valid", True):
-            raise ValidationError(cte_res["violations"][0])
-
-    if "window_functions" in spec and spec["window_functions"] is not None:
-        wf_val = spec["window_functions"]
-        if not isinstance(wf_val, (list, tuple)):
-            raise ValidationError("Field 'window_functions' must be a list.")
-        from query_builder.ast_validator import validate_window_function_spec
-
-        for wf in wf_val:
-            wf_res = validate_window_function_spec(wf)
-            if not wf_res.get("valid", True):
-                raise ValidationError(wf_res["violations"][0])
-
-    if "set_operations" in spec and spec["set_operations"] is not None:
-        so_val = spec["set_operations"]
-        if not isinstance(so_val, (list, tuple)):
-            raise ValidationError("Field 'set_operations' must be a list.")
-        for so in so_val:
-            if hasattr(so, "__dict__"):
-                so_dict = {
-                    k: v for k, v in so.__dict__.items() if not k.startswith("_")
-                }
-            elif isinstance(so, dict):
-                so_dict = so
-            else:
-                raise ValidationError(
-                    "Each set operation must be a dict or SetOperationSpec."
-                )
-            op = str(so_dict.get("operation", "UNION")).upper().strip()
-            valid_ops = {"UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"}
-            if op not in valid_ops:
-                raise ValidationError(
-                    f"Invalid set operation: '{op}'. Must be one of {sorted(valid_ops)}."
-                )
-            q = so_dict.get("query")
-            if not q:
-                raise ValidationError(
-                    "Set operation must include a 'query' sub-specification."
-                )
-            if isinstance(q, dict):
-                validate_query_spec(q, allow_unknown_keys=allow_unknown_keys)
-            elif hasattr(q, "__dict__"):
-                validate_query_spec(q.__dict__, allow_unknown_keys=allow_unknown_keys)
-
-    if "grouping_type" in spec and spec["grouping_type"] is not None:
-        gt = str(spec["grouping_type"]).lower().strip()
-        if gt not in {"standard", "rollup", "cube", "grouping_sets"}:
-            raise ValidationError(
-                f"Invalid 'grouping_type': '{gt}'. Must be one of 'standard', 'rollup', 'cube', 'grouping_sets'."
-            )
-
-    if "grouping_sets" in spec and spec["grouping_sets"] is not None:
-        gs_val = spec["grouping_sets"]
-        if not isinstance(gs_val, (list, tuple)) and not hasattr(gs_val, "sets"):
-            raise ValidationError(
-                "Field 'grouping_sets' must be a list of column lists."
-            )
-
-    if "rollup" in spec and spec["rollup"] is not None:
-        r_val = spec["rollup"]
-        if not isinstance(r_val, (dict, list, tuple)) and not hasattr(r_val, "columns"):
-            raise ValidationError("Field 'rollup' must be a RollupSpec or dict.")
-
-    if "cube" in spec and spec["cube"] is not None:
-        c_val = spec["cube"]
-        if not isinstance(c_val, (dict, list, tuple)) and not hasattr(c_val, "columns"):
-            raise ValidationError("Field 'cube' must be a CubeSpec or dict.")
-
-    if "pivot" in spec and spec["pivot"] is not None:
-        p_val = spec["pivot"]
-        if not isinstance(p_val, dict) and not hasattr(p_val, "column"):
-            raise ValidationError("Field 'pivot' must be a PivotSpec or dict.")
+# filter operator -> (substring_param kind, negated)
+_SUBSTRING_OPS: dict[str, tuple[str, bool]] = {
+    "contains": ("contains", False),
+    "not_contains": ("contains", True),
+    "not contains": ("contains", True),
+    "starts_with": ("starts", False),
+    "startswith": ("starts", False),
+    "not_starts_with": ("starts", True),
+    "not startswith": ("starts", True),
+    "ends_with": ("ends", False),
+    "endswith": ("ends", False),
+    "not_ends_with": ("ends", True),
+    "not endswith": ("ends", True),
+}
 
 
 class QueryCompiler:
@@ -984,6 +1041,25 @@ class QueryCompiler:
 
         self.has_aggregation = False
         self._ownership_alias_counter = AliasCounter()
+
+        # Per-compile state shared between the clause steps of ``compile``.
+        self._base_table: Any = None
+        self._clean_base = ""
+        self._base_alias = ""
+        self._from_str = ""
+        self._from_params: list[Any] = []
+        self._is_subquery_from = False
+        self._count_params_end = 0
+        self.has_vector_search = False
+        self.vector_distance_expr: str | None = None
+        self._vector_include_dist = True
+        self._vector_param_val: Any = None
+        self.has_hybrid_search = False
+        self.hybrid_score_expr: str | None = None
+        self._hybrid_include_scores = True
+        self._hybrid_vector_param: Any = None
+        self._hybrid_text_param: Any = None
+        self._hybrid_text_quoted_refs: list[str] = []
 
     def _validate_capabilities(self) -> None:
         """Validates that all query features used in self.spec are enabled in self.capabilities."""
@@ -1217,6 +1293,12 @@ class QueryCompiler:
 
         return f"CASE {' '.join(when_tokens)} ELSE {else_expr} END"
 
+    # ------------------------------------------------------------------
+    # compile(): orchestration. Each private step below owns one clause and
+    # mutates the accumulators initialised in ``__init__`` (params, where /
+    # having / select / group / order / join lists) in the order the final
+    # parameter list requires.
+    # ------------------------------------------------------------------
     def compile(
         self, context: dict[str, Any] | None = None
     ) -> tuple[str, list[Any], str, list[Any]]:
@@ -1229,648 +1311,705 @@ class QueryCompiler:
         if self.middleware is not None:
             self.spec = self.middleware.run_pre_compile(self.spec, ctx)
 
+        self._compile_from()
+        self._compile_base_isolation()
+        self._compile_joins()
+        self._compile_projections()
+        self._compile_top_level_metrics()
+        self._compile_vector_search()
+        self._compile_hybrid_search()
+        self._compile_window_functions()
+        self._compile_filters()
+        self._compile_having()
+        self._compile_order_by()
+
+        # Assemble SQL parts
+        is_distinct = self.spec.get("distinct", False) and not self.has_aggregation
+        distinct_prefix = "DISTINCT " if is_distinct else ""
+        select_str = f"{distinct_prefix}{', '.join(self.select_clause_items)}"
+        joins_str = " ".join(self.join_clauses) if self.join_clauses else ""
+        where_str = (
+            f"WHERE {' AND '.join(self.where_clauses)}" if self.where_clauses else ""
+        )
+        group_by_str = self._build_group_by()
+        having_str = (
+            f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
+        )
+
+        self._count_params_end = len(self.params)
+        order_by_str = self._build_order_by_clause()
+        limit_offset_str, limit_params = self._build_pagination()
+
+        main_sql, main_params = self._assemble_main_query(
+            select_str,
+            joins_str,
+            where_str,
+            group_by_str,
+            having_str,
+            order_by_str,
+            limit_offset_str,
+            limit_params,
+        )
+        count_sql, count_params = self._build_count_query(
+            joins_str, where_str, group_by_str, having_str
+        )
+
+        cte_prefix, cte_params = self._compile_ctes()
+        if cte_prefix:
+            main_sql = f"{cte_prefix}{main_sql}"
+            main_params = cte_params + main_params
+            count_sql = f"{cte_prefix}{count_sql}"
+            count_params = cte_params + count_params
+
+        if self.spec.get("set_operations"):
+            main_sql, main_params, count_sql, count_params = self._apply_set_operations(
+                main_sql, main_params
+            )
+
+        if self.middleware is not None:
+            compilation = {
+                "main_sql": main_sql,
+                "main_params": main_params,
+                "count_sql": count_sql,
+                "count_params": count_params,
+            }
+            compilation = self.middleware.run_post_compile(compilation, ctx)
+            return (
+                compilation["main_sql"],
+                compilation["main_params"],
+                compilation["count_sql"],
+                compilation["count_params"],
+            )
+
+        return main_sql, main_params, count_sql, count_params
+
+    # ---- small shared helpers ---------------------------------------
+    def _sub_compile(
+        self, sub_spec: Any, *, inner: bool = True, as_dict: bool = True
+    ) -> tuple[str, list[Any]]:
+        """Compile a nested spec (subquery / CTE / set-operation body)."""
+        if as_dict and not isinstance(sub_spec, dict):
+            sub_spec = sub_spec.__dict__
+        sub_compiler = QueryCompiler(
+            sub_spec,
+            schema=self.schema,
+            dialect=self.dialect,
+            allow_unknown_keys=True,
+            inner=inner,
+        )
+        sub_sql, sub_params, _, _ = sub_compiler.compile()
+        return sub_sql, sub_params
+
+    def _qualified(self, alias: str, column: str) -> str:
+        q = self.dialect.quote_identifier
+        return f"{q(alias)}.{q(column)}"
+
+    def _append_ownership_predicate(self, alias: str, table: str) -> None:
+        try:
+            predicate = resolve_ownership_predicate(
+                self.dialect,
+                self.tables_meta,
+                alias,
+                table,
+                self.user_id,
+                self.params,
+                self._ownership_alias_counter,
+                self.ownership_paths,
+            )
+        except SecurityError as e:
+            raise CompilationError(str(e)) from e
+        self.where_clauses.append(predicate)
+
+    # ---- FROM / base table ------------------------------------------
+    def _compile_from(self) -> None:
         base_table = self.spec.get("table")
         if not base_table:
             raise CompilationError(
                 "Missing required 'table' parameter in query specification."
             )
-
-        from_params: list[Any] = []
-        is_subquery_from = isinstance(base_table, dict) or hasattr(
+        self._base_table = base_table
+        self._from_params = []
+        self._is_subquery_from = isinstance(base_table, dict) or hasattr(
             base_table, "__dict__"
         )
-        if is_subquery_from:
-            sub_spec = (
-                base_table if isinstance(base_table, dict) else base_table.__dict__
-            )
-            sub_compiler = QueryCompiler(
-                sub_spec,
-                schema=self.schema,
-                dialect=self.dialect,
-                middleware=None,
-                allow_unknown_keys=True,
-                inner=True,
-            )
-            sub_sql, from_params, _, _ = sub_compiler.compile()
-            clean_base_table = "subquery"
-            base_alias = self._generate_unique_alias()
-            self.table_aliases[base_alias] = base_alias
-            self.table_aliases[clean_base_table] = base_alias
-            from_str = (
+        if self._is_subquery_from:
+            sub_sql, self._from_params = self._sub_compile(base_table)
+            self._clean_base = "subquery"
+            self._base_alias = self._generate_unique_alias()
+            self.table_aliases[self._base_alias] = self._base_alias
+            self.table_aliases[self._clean_base] = self._base_alias
+            self._from_str = (
                 f"FROM ({sub_sql}) {getattr(self.dialect, 'subquery_alias_keyword', 'AS ')}"
-                f"{self.dialect.quote_identifier(base_alias)}"
+                f"{self.dialect.quote_identifier(self._base_alias)}"
+            )
+            return
+
+        self._clean_base = base_table.split(".")[-1]
+        if (
+            self.tables_meta
+            and self._clean_base not in self.tables_meta
+            and base_table not in self.tables_meta
+        ):
+            raise CompilationError(
+                f"Invalid or missing base table in schema: '{base_table}'"
+            )
+        self._base_alias = self._get_alias(self._clean_base, default_alias="t1")
+        self.table_aliases[base_table] = self._base_alias
+        self._from_str = f"FROM {self.dialect.quote_identifier(base_table)} {self.dialect.quote_identifier(self._base_alias)}"
+
+    def _compile_base_isolation(self) -> None:
+        """User / tenant isolation on the base table (skipped for a subquery FROM)."""
+        if self._is_subquery_from:
+            return
+        if self.force_user_filter and self.user_id:
+            self._append_ownership_predicate(self._base_alias, self._clean_base)
+
+        if not self.tenant_id:
+            return
+        tbl_info = self.tables_meta.get(self._base_table) or self.tables_meta.get(
+            self._clean_base, {}
+        )
+        cols = [
+            c["name"] if isinstance(c, dict) else str(c)
+            for c in tbl_info.get("columns", [])
+        ]
+        if "client_id" in cols or "tenant_id" in cols:
+            col_name = "client_id" if "client_id" in cols else "tenant_id"
+        elif self.tables_meta:
+            raise CompilationError(
+                f"Table '{self._clean_base}' does not have a client_id or tenant_id column for tenant isolation."
             )
         else:
-            clean_base_table = base_table.split(".")[-1]
-            if (
-                self.tables_meta
-                and clean_base_table not in self.tables_meta
-                and base_table not in self.tables_meta
-            ):
-                raise CompilationError(
-                    f"Invalid or missing base table in schema: '{base_table}'"
+            # Default fallback when no schema metadata dictionary is provided
+            col_name = "tenant_id"
+        self.where_clauses.append(
+            f"{self._qualified(self._base_alias, col_name)} = {self.dialect.placeholder}"
+        )
+        self.params.append(self.tenant_id)
+
+    # ---- JOINs -------------------------------------------------------
+    def _compile_joins(self) -> None:
+        for raw_join in self.spec.get("joins", []):
+            join = (
+                _public_attrs(raw_join) if hasattr(raw_join, "__dict__") else raw_join
+            )
+            self._compile_join(join)
+
+    def _compile_join(self, join: dict[str, Any]) -> None:
+        target_table = join.get("table")
+        if not target_table:
+            raise CompilationError("Missing join target 'table'.")
+
+        clean_target = target_table.split(".")[-1]
+        if (
+            self.tables_meta
+            and clean_target not in self.tables_meta
+            and target_table not in self.tables_meta
+        ):
+            raise CompilationError(f"Invalid join table in schema: '{target_table}'")
+
+        join_type = self._normalise_join_type(join.get("type", "left"))
+        target_alias = self._resolve_join_alias(join, target_table, clean_target)
+        on_conditions = self._join_on_conditions(join, clean_target, target_alias)
+        on_clause_str = " AND ".join(on_conditions)
+        self.join_clauses.append(
+            f"{join_type} {self.dialect.quote_identifier(target_table)} {self.dialect.quote_identifier(target_alias)} ON {on_clause_str}"
+        )
+
+        # Tenant isolation on joined table
+        if self.force_user_filter and self.user_id:
+            self._append_ownership_predicate(target_alias, clean_target)
+
+    @staticmethod
+    def _normalise_join_type(raw_type: str) -> str:
+        join_type = raw_type.upper()
+        if not join_type.endswith("JOIN"):
+            join_type = f"{join_type} JOIN"
+        if not any(join_type.startswith(p) for p in ("INNER", "LEFT", "RIGHT", "FULL")):
+            join_type = "LEFT JOIN"
+        return join_type
+
+    def _resolve_join_alias(
+        self, join: dict[str, Any], target_table: str, clean_target: str
+    ) -> str:
+        explicit_alias = join.get("alias")
+        if explicit_alias:
+            _check_ident(explicit_alias, "join alias")
+            self.table_aliases[explicit_alias] = explicit_alias
+            return str(explicit_alias)
+        if clean_target in self.table_aliases or target_table in self.table_aliases:
+            alias = self._generate_unique_alias()
+            self.table_aliases[alias] = alias
+            return alias
+        return self._get_alias(clean_target)
+
+    def _join_on_conditions(
+        self, join: dict[str, Any], clean_target: str, target_alias: str
+    ) -> list[str]:
+        clean_base = self._clean_base
+        on_spec = join.get("on", [])
+        if on_spec:
+            conditions = []
+            for raw_cond in on_spec:
+                cond = (
+                    dict(raw_cond.__dict__)
+                    if hasattr(raw_cond, "__dict__")
+                    else raw_cond
                 )
-            base_alias = self._get_alias(clean_base_table, default_alias="t1")
-            self.table_aliases[base_table] = base_alias
-            from_str = f"FROM {self.dialect.quote_identifier(base_table)} {self.dialect.quote_identifier(base_alias)}"
-
-        # 1. Base table user / tenant isolation (skip if base table is subquery)
-        if not is_subquery_from:
-            if self.force_user_filter and self.user_id:
-                try:
-                    predicate = resolve_ownership_predicate(
-                        self.dialect,
-                        self.tables_meta,
-                        base_alias,
-                        clean_base_table,
-                        self.user_id,
-                        self.params,
-                        self._ownership_alias_counter,
-                        self.ownership_paths,
-                    )
-                    self.where_clauses.append(predicate)
-                except SecurityError as e:
-                    raise CompilationError(str(e)) from e
-
-            if self.tenant_id:
-                tbl_info = self.tables_meta.get(base_table) or self.tables_meta.get(
-                    clean_base_table, {}
+                _, _, quoted_left = self._resolve_column_ref(
+                    cond.get("left"), clean_base
                 )
-                cols = [
-                    c["name"] if isinstance(c, dict) else str(c)
-                    for c in tbl_info.get("columns", [])
-                ]
-                if "client_id" in cols or "tenant_id" in cols:
-                    col_name = "client_id" if "client_id" in cols else "tenant_id"
-                    self.where_clauses.append(
-                        f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier(col_name)} = {self.dialect.placeholder}"
-                    )
-                    self.params.append(self.tenant_id)
-                elif self.tables_meta:
-                    raise CompilationError(
-                        f"Table '{clean_base_table}' does not have a client_id or tenant_id column for tenant isolation."
-                    )
-                else:
-                    # Default fallback when no schema metadata dictionary is provided
-                    self.where_clauses.append(
-                        f"{self.dialect.quote_identifier(base_alias)}.{self.dialect.quote_identifier('tenant_id')} = {self.dialect.placeholder}"
-                    )
-                    self.params.append(self.tenant_id)
-
-        # 2. Process Joins
-        joins_spec = self.spec.get("joins", [])
-        for raw_join in joins_spec:
-            if hasattr(raw_join, "__dict__"):
-                join = {
-                    k: v for k, v in raw_join.__dict__.items() if not k.startswith("_")
-                }
-            else:
-                join = raw_join
-
-            target_table = join.get("table")
-            if not target_table:
-                raise CompilationError("Missing join target 'table'.")
-
-            clean_target_table = target_table.split(".")[-1]
-            if (
-                self.tables_meta
-                and clean_target_table not in self.tables_meta
-                and target_table not in self.tables_meta
-            ):
-                raise CompilationError(
-                    f"Invalid join table in schema: '{target_table}'"
-                )
-
-            join_type = join.get("type", "left").upper()
-            if not join_type.endswith("JOIN"):
-                join_type = f"{join_type} JOIN"
-            if not any(
-                join_type.startswith(p) for p in ("INNER", "LEFT", "RIGHT", "FULL")
-            ):
-                join_type = "LEFT JOIN"
-
-            explicit_alias = join.get("alias")
-            if explicit_alias:
-                _check_ident(explicit_alias, "join alias")
-                target_alias = explicit_alias
-                self.table_aliases[explicit_alias] = explicit_alias
-            elif (
-                clean_target_table in self.table_aliases
-                or target_table in self.table_aliases
-            ):
-                target_alias = self._generate_unique_alias()
-                self.table_aliases[target_alias] = target_alias
-            else:
-                target_alias = self._get_alias(clean_target_table)
-
-            on_conditions = []
-            on_spec = join.get("on", [])
-
-            if on_spec:
-                for raw_cond in on_spec:
-                    if hasattr(raw_cond, "__dict__"):
-                        cond = {k: v for k, v in raw_cond.__dict__.items()}
-                    else:
-                        cond = raw_cond
-                    left_ref = cond.get("left")
-                    right_ref = cond.get("right")
-                    _, _, quoted_left = self._resolve_column_ref(
-                        left_ref, clean_base_table
-                    )
-                    _, _, quoted_right = self._resolve_column_ref(
-                        right_ref, clean_target_table, target_alias=target_alias
-                    )
-                    on_conditions.append(f"{quoted_left} = {quoted_right}")
-            elif join.get("left_col") and join.get("right_col"):
-                left_tbl = join.get("left_table", clean_base_table)
-                left_clean = left_tbl.split(".")[-1]
-                if (
-                    left_tbl not in self.table_aliases
-                    and left_clean not in self.table_aliases
-                    and left_tbl != clean_base_table
-                    and left_clean != clean_base_table
-                ):
-                    raise CompilationError(
-                        f"Join left_table '{left_tbl}' is not part of the query."
-                    )
-                _, _, quoted_left = self._resolve_column_ref(join["left_col"], left_tbl)
                 _, _, quoted_right = self._resolve_column_ref(
-                    join["right_col"], clean_target_table, target_alias=target_alias
+                    cond.get("right"), clean_target, target_alias=target_alias
                 )
-                on_conditions.append(f"{quoted_left} = {quoted_right}")
-            else:
-                # Automatic FK / Relationship resolution
-                found_rel = False
-                for rel in self.rel_meta:
-                    src = rel.get("source_table", "").split(".")[-1]
-                    tgt = rel.get("target_table", "").split(".")[-1]
-                    if (src == clean_base_table and tgt == clean_target_table) or (
-                        src == clean_target_table and tgt == clean_base_table
-                    ):
-                        src_alias = base_alias
-                        tgt_alias = target_alias
-                        q_src = f"{self.dialect.quote_identifier(src_alias)}.{self.dialect.quote_identifier(rel['source_column'])}"
-                        q_tgt = f"{self.dialect.quote_identifier(tgt_alias)}.{self.dialect.quote_identifier(rel['target_column'])}"
-                        on_conditions.append(f"{q_src} = {q_tgt}")
-                        found_rel = True
-                        break
+                conditions.append(f"{quoted_left} = {quoted_right}")
+            return conditions
 
-                if not found_rel and self.schema:
-                    cond = find_best_join_condition(
-                        clean_base_table, clean_target_table, self.schema
-                    )
-                    l_table = cond["left_table"].split(".")[-1]
-                    l_alias = (
-                        base_alias
-                        if l_table == clean_base_table
-                        else self._get_alias(cond["left_table"])
-                    )
-                    r_alias = target_alias
-                    q_l = f"{self.dialect.quote_identifier(l_alias)}.{self.dialect.quote_identifier(cond['left_col'])}"
-                    q_r = f"{self.dialect.quote_identifier(r_alias)}.{self.dialect.quote_identifier(cond['right_col'])}"
-                    on_conditions.append(f"{q_l} = {q_r}")
-                    found_rel = True
-
-                if not found_rel:
-                    raise CompilationError(
-                        f"No join condition specified and no FK relationship found between '{clean_base_table}' and '{clean_target_table}'"
-                    )
-
-            on_clause_str = " AND ".join(on_conditions)
-            self.join_clauses.append(
-                f"{join_type} {self.dialect.quote_identifier(target_table)} {self.dialect.quote_identifier(target_alias)} ON {on_clause_str}"
+        if join.get("left_col") and join.get("right_col"):
+            left_tbl = join.get("left_table", clean_base)
+            left_clean = left_tbl.split(".")[-1]
+            if (
+                left_tbl not in self.table_aliases
+                and left_clean not in self.table_aliases
+                and left_tbl != clean_base
+                and left_clean != clean_base
+            ):
+                raise CompilationError(
+                    f"Join left_table '{left_tbl}' is not part of the query."
+                )
+            _, _, quoted_left = self._resolve_column_ref(join["left_col"], left_tbl)
+            _, _, quoted_right = self._resolve_column_ref(
+                join["right_col"], clean_target, target_alias=target_alias
             )
+            return [f"{quoted_left} = {quoted_right}"]
 
-            # Tenant isolation on joined table
-            if self.force_user_filter and self.user_id:
-                try:
-                    predicate = resolve_ownership_predicate(
-                        self.dialect,
-                        self.tables_meta,
-                        target_alias,
-                        clean_target_table,
-                        self.user_id,
-                        self.params,
-                        self._ownership_alias_counter,
-                        self.ownership_paths,
-                    )
-                    self.where_clauses.append(predicate)
-                except SecurityError as e:
-                    raise CompilationError(str(e)) from e
+        return [self._auto_join_condition(clean_target, target_alias)]
 
-        # 3. Process Columns (Projections)
+    def _auto_join_condition(self, clean_target: str, target_alias: str) -> str:
+        """Automatic FK / relationship resolution for a join without ON."""
+        clean_base = self._clean_base
+        for rel in self.rel_meta:
+            src = rel.get("source_table", "").split(".")[-1]
+            tgt = rel.get("target_table", "").split(".")[-1]
+            if (src == clean_base and tgt == clean_target) or (
+                src == clean_target and tgt == clean_base
+            ):
+                q_src = self._qualified(self._base_alias, rel["source_column"])
+                q_tgt = self._qualified(target_alias, rel["target_column"])
+                return f"{q_src} = {q_tgt}"
+
+        if self.schema:
+            cond = find_best_join_condition(clean_base, clean_target, self.schema)
+            l_table = cond["left_table"].split(".")[-1]
+            l_alias = (
+                self._base_alias
+                if l_table == clean_base
+                else self._get_alias(cond["left_table"])
+            )
+            q_l = self._qualified(l_alias, cond["left_col"])
+            q_r = self._qualified(target_alias, cond["right_col"])
+            return f"{q_l} = {q_r}"
+
+        raise CompilationError(
+            f"No join condition specified and no FK relationship found between '{clean_base}' and '{clean_target}'"
+        )
+
+    # ---- projections ---------------------------------------------------
+    def _projection_specs(self) -> list[Any]:
         columns_spec = self.spec.get("columns", [])
-        if not columns_spec:
-            base_meta = self.tables_meta.get(base_table) or self.tables_meta.get(
-                clean_base_table
-            )
-            if base_meta:
-                columns_spec = [
-                    f"{clean_base_table}.{c['name'] if isinstance(c, dict) else str(c)}"
-                    for c in base_meta.get("columns", [])
-                ]
-            else:
-                columns_spec = ["*"]
+        if columns_spec:
+            return list(columns_spec)
+        base_meta = self.tables_meta.get(self._base_table) or self.tables_meta.get(
+            self._clean_base
+        )
+        if base_meta:
+            return [
+                f"{self._clean_base}.{c['name'] if isinstance(c, dict) else str(c)}"
+                for c in base_meta.get("columns", [])
+            ]
+        return ["*"]
 
-        for col_item in columns_spec:
+    def _add_select(
+        self,
+        expr: str,
+        label: str,
+        *,
+        group_by: str | None = None,
+        aliased: bool = True,
+    ) -> None:
+        """Append one SELECT item (``expr AS label``) and its output name."""
+        if aliased:
+            self.select_clause_items.append(
+                f"{expr} AS {self.dialect.quote_alias(label)}"
+            )
+        else:
+            self.select_clause_items.append(expr)
+        self.select_column_names.append(label)
+        if group_by is not None:
+            self.group_by_items.append(group_by)
+
+    def _compile_projections(self) -> None:
+        for col_item in self._projection_specs():
             if isinstance(col_item, str):
-                if col_item == "*":
-                    self.select_clause_items.append(
-                        f"{self.dialect.quote_identifier(base_alias)}.*"
-                    )
-                    self.select_column_names.append("*")
-                    continue
-                _, col_name, quoted_ref = self._resolve_column_ref(
-                    col_item, clean_base_table
-                )
-                if col_name == "*":
-                    self.select_clause_items.append(quoted_ref)
-                    self.select_column_names.append(col_item)
-                    continue
-                self.select_clause_items.append(
-                    f"{quoted_ref} AS {self.dialect.quote_alias(col_item)}"
-                )
-                self.select_column_names.append(col_item)
-                self.group_by_items.append(quoted_ref)
+                self._compile_string_column(col_item)
             else:
-                case_when = col_item.get("case_when")
-                if case_when is not None:
-                    case_body = self._compile_case_when(case_when, clean_base_table)
-                    alias_label = (
-                        col_item.get("alias")
-                        or f"case_{len(self.select_clause_items) + 1}"
-                    )
-                    self.select_clause_items.append(
-                        f"{case_body} AS {self.dialect.quote_alias(alias_label)}"
-                    )
-                    self.select_column_names.append(alias_label)
-                    self.group_by_items.append(case_body)
-                    continue
+                self._compile_dict_column(col_item)
 
-                raw_col_ref = col_item.get("column", col_item.get("name"))
-                if not raw_col_ref or not isinstance(raw_col_ref, str):
-                    continue
-                agg = (col_item.get("agg") or col_item.get("aggregate") or "").lower()
-                alias = col_item.get("alias")
-                tbl = col_item.get("table", clean_base_table)
-
-                if raw_col_ref == "*":
-                    if agg:
-                        if agg == "count":
-                            self.has_aggregation = True
-                            agg_expr = "COUNT(*)"
-                            alias_label = alias or "count_all"
-                            self.select_clause_items.append(
-                                f"{agg_expr} AS {self.dialect.quote_alias(alias_label)}"
-                            )
-                            self.select_column_names.append(alias_label)
-                        elif agg == "count_distinct":
-                            raise CompilationError(
-                                "COUNT(DISTINCT *) is not supported."
-                            )
-                        else:
-                            raise CompilationError(
-                                f"Aggregate '{agg}' cannot be applied to '*'."
-                            )
-                    else:
-                        self.select_clause_items.append(
-                            f"{self.dialect.quote_identifier(base_alias)}.*"
-                        )
-                        self.select_column_names.append("*")
-                    continue
-
-                _, col_name, quoted_ref = self._resolve_column_ref(raw_col_ref, tbl)
-
-                time_grain = col_item.get("time_grain") or col_item.get("grain")
-                if time_grain:
-                    from query_builder.semantic import expand_time_grain_sql
-
-                    time_expr = expand_time_grain_sql(
-                        quoted_ref, grain=str(time_grain), dialect=self.dialect.name
-                    )
-                    alias_label = alias or f"{raw_col_ref}_{time_grain}"
-                    self.select_clause_items.append(
-                        f"{time_expr} AS {self.dialect.quote_alias(alias_label)}"
-                    )
-                    self.select_column_names.append(alias_label)
-                    self.group_by_items.append(time_expr)
-                    continue
-
-                is_metric = bool(col_item.get("metric"))
-                metric_name = (
-                    col_item.get("metric")
-                    if isinstance(col_item.get("metric"), str)
-                    else raw_col_ref
-                )
-                if is_metric or (
-                    self.semantic_models
-                    and any(
-                        hasattr(sm, "get_metric") and sm.get_metric(raw_col_ref)
-                        for sm in self.semantic_models.values()
-                    )
-                ):
-                    from query_builder.semantic import (
-                        MetricDefinition,
-                        expand_metric_sql,
-                        get_global_semantic_registry,
-                    )
-
-                    m_def = None
-                    if isinstance(col_item.get("metric"), dict):
-                        m_def = MetricDefinition.from_dict(col_item["metric"])
-                    if not m_def and self.semantic_models:
-                        for sm in self.semantic_models.values():
-                            if hasattr(sm, "get_metric"):
-                                m_def = sm.get_metric(metric_name)
-                                if m_def:
-                                    break
-                    if not m_def:
-                        m_def = get_global_semantic_registry().get_metric(metric_name)
-                    if m_def:
-                        self.has_aggregation = True
-                        metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
-                        alias_label = alias or m_def.name
-                        self.select_clause_items.append(
-                            f"{metric_sql} AS {self.dialect.quote_alias(alias_label)}"
-                        )
-                        self.select_column_names.append(alias_label)
-                        continue
-
-                if agg in AGGREGATE_MAP:
-                    self.has_aggregation = True
-                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
-                    alias_label = alias or f"{agg}_{raw_col_ref.replace('.', '_')}"
-                    self.select_clause_items.append(
-                        f"{agg_expr} AS {self.dialect.quote_alias(alias_label)}"
-                    )
-                    self.select_column_names.append(alias_label)
-                else:
-                    alias_label = alias or raw_col_ref
-                    self.select_clause_items.append(
-                        f"{quoted_ref} AS {self.dialect.quote_alias(alias_label)}"
-                    )
-                    self.select_column_names.append(alias_label)
-                    self.group_by_items.append(quoted_ref)
-
-        # 3.01. Process Top-Level Semantic Metrics
-        top_metrics = self.spec.get("metrics", [])
-        if top_metrics:
-            from query_builder.semantic import (
-                MetricDefinition,
-                expand_metric_sql,
-                get_global_semantic_registry,
+    def _compile_string_column(self, col_item: str) -> None:
+        if col_item == "*":
+            self.select_clause_items.append(
+                f"{self.dialect.quote_identifier(self._base_alias)}.*"
             )
+            self.select_column_names.append("*")
+            return
+        _, col_name, quoted_ref = self._resolve_column_ref(col_item, self._clean_base)
+        if col_name == "*":
+            self.select_clause_items.append(quoted_ref)
+            self.select_column_names.append(col_item)
+            return
+        self._add_select(quoted_ref, col_item, group_by=quoted_ref)
 
-            for m_entry in top_metrics:
-                m_def = None
-                m_alias = None
-                if isinstance(m_entry, str):
-                    m_name = m_entry
-                elif isinstance(m_entry, dict):
-                    m_name = m_entry.get("name") or m_entry.get("metric")
-                    m_alias = m_entry.get("alias")
-                    if "sql_expression" in m_entry or "sql" in m_entry:
-                        m_def = MetricDefinition.from_dict(m_entry)
-                else:
-                    continue
+    def _compile_dict_column(self, col_item: dict[str, Any]) -> None:
+        case_when = col_item.get("case_when")
+        if case_when is not None:
+            case_body = self._compile_case_when(case_when, self._clean_base)
+            alias_label = (
+                col_item.get("alias") or f"case_{len(self.select_clause_items) + 1}"
+            )
+            self._add_select(case_body, alias_label, group_by=case_body)
+            return
 
-                if not m_def and m_name:
-                    for sm in self.semantic_models.values():
-                        if hasattr(sm, "get_metric"):
-                            m_def = sm.get_metric(m_name)
-                            if m_def:
-                                break
-                    if not m_def:
-                        m_def = get_global_semantic_registry().get_metric(m_name)
+        raw_col_ref = col_item.get("column", col_item.get("name"))
+        if not raw_col_ref or not isinstance(raw_col_ref, str):
+            return
+        agg = (col_item.get("agg") or col_item.get("aggregate") or "").lower()
+        alias = col_item.get("alias")
 
+        if raw_col_ref == "*":
+            self._compile_star_column(agg, alias)
+            return
+
+        _, _, quoted_ref = self._resolve_column_ref(
+            raw_col_ref, col_item.get("table", self._clean_base)
+        )
+
+        time_grain = col_item.get("time_grain") or col_item.get("grain")
+        if time_grain:
+            from query_builder.semantic import expand_time_grain_sql
+
+            time_expr = expand_time_grain_sql(
+                quoted_ref, grain=str(time_grain), dialect=self.dialect.name
+            )
+            self._add_select(
+                time_expr, alias or f"{raw_col_ref}_{time_grain}", group_by=time_expr
+            )
+            return
+
+        if self._compile_column_metric(col_item, raw_col_ref, alias):
+            return
+
+        if agg in AGGREGATE_MAP:
+            self.has_aggregation = True
+            agg_expr = self._aggregate_template(agg).format(quoted_ref)
+            self._add_select(
+                agg_expr, alias or f"{agg}_{raw_col_ref.replace('.', '_')}"
+            )
+        else:
+            self._add_select(quoted_ref, alias or raw_col_ref, group_by=quoted_ref)
+
+    def _compile_star_column(self, agg: str, alias: str | None) -> None:
+        if not agg:
+            self.select_clause_items.append(
+                f"{self.dialect.quote_identifier(self._base_alias)}.*"
+            )
+            self.select_column_names.append("*")
+        elif agg == "count":
+            self.has_aggregation = True
+            self._add_select("COUNT(*)", alias or "count_all")
+        elif agg == "count_distinct":
+            raise CompilationError("COUNT(DISTINCT *) is not supported.")
+        else:
+            raise CompilationError(f"Aggregate '{agg}' cannot be applied to '*'.")
+
+    def _find_metric(self, name: str) -> Any:
+        """Look a metric up in the supplied semantic models, then the global registry."""
+        from query_builder.semantic import get_global_semantic_registry
+
+        for sm in self.semantic_models.values():
+            if hasattr(sm, "get_metric"):
+                m_def = sm.get_metric(name)
                 if m_def:
-                    self.has_aggregation = True
-                    metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
-                    alias_label = m_alias or m_def.name
-                    self.select_clause_items.append(
-                        f"{metric_sql} AS {self.dialect.quote_alias(alias_label)}"
-                    )
-                    self.select_column_names.append(alias_label)
+                    return m_def
+        return get_global_semantic_registry().get_metric(name)
 
-        # 3.1. Process Vector Search
+    def _compile_column_metric(
+        self, col_item: dict[str, Any], raw_col_ref: str, alias: str | None
+    ) -> bool:
+        """Expand a semantic metric column; True when the column was consumed."""
+        is_metric = bool(col_item.get("metric"))
+        if not (
+            is_metric
+            or (
+                self.semantic_models
+                and any(
+                    hasattr(sm, "get_metric") and sm.get_metric(raw_col_ref)
+                    for sm in self.semantic_models.values()
+                )
+            )
+        ):
+            return False
+
+        from query_builder.semantic import MetricDefinition, expand_metric_sql
+
+        metric_name = (
+            col_item.get("metric")
+            if isinstance(col_item.get("metric"), str)
+            else raw_col_ref
+        )
+        m_def = None
+        if isinstance(col_item.get("metric"), dict):
+            m_def = MetricDefinition.from_dict(col_item["metric"])
+        if not m_def:
+            m_def = self._find_metric(metric_name)
+        if not m_def:
+            return False
+        self.has_aggregation = True
+        metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
+        self._add_select(metric_sql, alias or m_def.name)
+        return True
+
+    def _compile_top_level_metrics(self) -> None:
+        top_metrics = self.spec.get("metrics", [])
+        if not top_metrics:
+            return
+        from query_builder.semantic import MetricDefinition, expand_metric_sql
+
+        for m_entry in top_metrics:
+            m_def = None
+            m_alias = None
+            if isinstance(m_entry, str):
+                m_name = m_entry
+            elif isinstance(m_entry, dict):
+                m_name = m_entry.get("name") or m_entry.get("metric")
+                m_alias = m_entry.get("alias")
+                if "sql_expression" in m_entry or "sql" in m_entry:
+                    m_def = MetricDefinition.from_dict(m_entry)
+            else:
+                continue
+
+            if not m_def and m_name:
+                m_def = self._find_metric(m_name)
+
+            if m_def:
+                self.has_aggregation = True
+                metric_sql = expand_metric_sql(m_def, dialect=self.dialect.name)
+                self._add_select(metric_sql, m_alias or m_def.name)
+
+    # ---- vector / hybrid search ----------------------------------------
+    @staticmethod
+    def _search_spec_dict(search_spec: Any) -> dict[str, Any]:
+        if hasattr(search_spec, "to_dict"):
+            result: dict[str, Any] = search_spec.to_dict()
+            return result
+        return search_spec if isinstance(search_spec, dict) else search_spec.__dict__
+
+    def _compile_vector_search(self) -> None:
         vs_spec = self.spec.get("vector_search")
         self.has_vector_search = False
         self.vector_distance_expr = None
         self._vector_include_dist = True
         self._vector_param_val = None
-        if vs_spec:
-            self.has_vector_search = True
-            vs_dict = (
-                vs_spec.to_dict()
-                if hasattr(vs_spec, "to_dict")
-                else (vs_spec if isinstance(vs_spec, dict) else vs_spec.__dict__)
-            )
-            vec = vs_dict.get("vector", [])
-            vs_col = vs_dict.get("column", "embedding")
-            metric = str(vs_dict.get("metric", "cosine")).lower()
-            self._vector_include_dist = vs_dict.get("include_distances", True)
-            min_score = vs_dict.get("min_score")
+        if not vs_spec:
+            return
+        self.has_vector_search = True
+        vs_dict = self._search_spec_dict(vs_spec)
+        vec = vs_dict.get("vector", [])
+        vs_col = vs_dict.get("column", "embedding")
+        metric = str(vs_dict.get("metric", "cosine")).lower()
+        self._vector_include_dist = vs_dict.get("include_distances", True)
+        min_score = vs_dict.get("min_score")
 
-            _, _, vs_quoted_ref = self._resolve_column_ref(
-                vs_col, default_table=clean_base_table, target_alias=base_alias
-            )
-            self.vector_distance_expr = self.dialect.format_vector_distance(
-                vs_quoted_ref, metric=metric
-            )
-            self._vector_param_val = self.dialect.format_vector_param(vec)
+        _, _, vs_quoted_ref = self._resolve_column_ref(
+            vs_col, default_table=self._clean_base, target_alias=self._base_alias
+        )
+        dist_expr = self.dialect.format_vector_distance(vs_quoted_ref, metric=metric)
+        self.vector_distance_expr = dist_expr
+        self._vector_param_val = self.dialect.format_vector_param(vec)
 
-            if self._vector_include_dist:
-                dist_alias = "_distance"
-                self.select_clause_items.append(
-                    f"{self.vector_distance_expr} AS {self.dialect.quote_alias(dist_alias)}"
-                )
-                self.select_column_names.append(dist_alias)
-                self.params.append(self._vector_param_val)
-                self._count_skip_lead += 1
+        if self._vector_include_dist:
+            self._add_select(dist_expr, "_distance")
+            self.params.append(self._vector_param_val)
+            self._count_skip_lead += 1
 
-            if min_score is not None:
-                self.where_clauses.append(
-                    f"{self.vector_distance_expr} <= {self.dialect.placeholder}"
-                )
-                self.params.append(self._vector_param_val)
-                self.params.append(float(min_score))
+        if min_score is not None:
+            self.where_clauses.append(f"{dist_expr} <= {self.dialect.placeholder}")
+            self.params.append(self._vector_param_val)
+            self.params.append(float(min_score))
 
-        # 3.2. Process Hybrid Search
+    def _compile_hybrid_search(self) -> None:
         hs_spec = self.spec.get("hybrid_search")
         self.has_hybrid_search = False
         self.hybrid_score_expr = None
         self._hybrid_include_scores = True
         self._hybrid_vector_param = None
         self._hybrid_text_param = None
-        self._hybrid_text_quoted_refs: list[str] = []
-        if hs_spec:
-            self.has_hybrid_search = True
-            hs_dict = (
-                hs_spec.to_dict()
-                if hasattr(hs_spec, "to_dict")
-                else (hs_spec if isinstance(hs_spec, dict) else hs_spec.__dict__)
+        self._hybrid_text_quoted_refs = []
+        if not hs_spec:
+            return
+        self.has_hybrid_search = True
+        hs_dict = self._search_spec_dict(hs_spec)
+        vec = hs_dict.get("vector", [])
+        v_col = hs_dict.get("vector_column", "embedding")
+        q_text = hs_dict.get("query_text", "")
+        t_cols = hs_dict.get("text_columns", [])
+        alpha = float(hs_dict.get("alpha", 0.5))
+        fusion = str(hs_dict.get("fusion", "rrf")).lower()
+        rrf_k = int(hs_dict.get("rrf_k", 60))
+        self._hybrid_include_scores = hs_dict.get("include_scores", True)
+        metric = str(hs_dict.get("metric", "cosine")).lower()
+
+        _, _, vs_quoted_ref = self._resolve_column_ref(
+            v_col, default_table=self._clean_base, target_alias=self._base_alias
+        )
+        self._hybrid_text_quoted_refs = [
+            self._resolve_column_ref(
+                tc, default_table=self._clean_base, target_alias=self._base_alias
+            )[2]
+            for tc in t_cols
+        ]
+
+        v_dist = self.dialect.format_vector_distance(vs_quoted_ref, metric=metric)
+        t_score = self.dialect.format_text_search(self._hybrid_text_quoted_refs)
+
+        self._hybrid_vector_param = self.dialect.format_vector_param(vec)
+        self._hybrid_text_param = f"%{q_text}%" if q_text else "%"
+
+        if fusion == "linear":
+            score_expr = f"({alpha} * (1.0 / (1.0 + {v_dist})) + {round(1.0 - alpha, 4)} * ({t_score}))"
+        else:  # rrf
+            score_expr = (
+                f"((1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY {v_dist} ASC))) + "
+                f"(1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY ({t_score}) DESC))))"
             )
-            vec = hs_dict.get("vector", [])
-            v_col = hs_dict.get("vector_column", "embedding")
-            q_text = hs_dict.get("query_text", "")
-            t_cols = hs_dict.get("text_columns", [])
-            alpha = float(hs_dict.get("alpha", 0.5))
-            fusion = str(hs_dict.get("fusion", "rrf")).lower()
-            rrf_k = int(hs_dict.get("rrf_k", 60))
-            self._hybrid_include_scores = hs_dict.get("include_scores", True)
-            metric = str(hs_dict.get("metric", "cosine")).lower()
 
-            _, _, vs_quoted_ref = self._resolve_column_ref(
-                v_col, default_table=clean_base_table, target_alias=base_alias
-            )
-            self._hybrid_text_quoted_refs = [
-                self._resolve_column_ref(
-                    tc, default_table=clean_base_table, target_alias=base_alias
-                )[2]
-                for tc in t_cols
-            ]
-
-            v_dist = self.dialect.format_vector_distance(vs_quoted_ref, metric=metric)
-            t_score = self.dialect.format_text_search(self._hybrid_text_quoted_refs)
-
-            self._hybrid_vector_param = self.dialect.format_vector_param(vec)
-            self._hybrid_text_param = f"%{q_text}%" if q_text else "%"
-
-            if fusion == "linear":
-                self.hybrid_score_expr = f"({alpha} * (1.0 / (1.0 + {v_dist})) + {round(1.0 - alpha, 4)} * ({t_score}))"
-            else:  # rrf
-                self.hybrid_score_expr = (
-                    f"((1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY {v_dist} ASC))) + "
-                    f"(1.0 / ({rrf_k} + DENSE_RANK() OVER (ORDER BY ({t_score}) DESC))))"
-                )
-
-            if self._hybrid_include_scores:
-                score_alias = "_score"
-                self.select_clause_items.append(
-                    f"{self.hybrid_score_expr} AS {self.dialect.quote_alias(score_alias)}"
-                )
-                self.select_column_names.append(score_alias)
-                self.params.append(self._hybrid_vector_param)
+        self.hybrid_score_expr = score_expr
+        if self._hybrid_include_scores:
+            self._add_select(score_expr, "_score")
+            self.params.append(self._hybrid_vector_param)
+            self._count_skip_lead += 1
+            if self._hybrid_text_quoted_refs:
+                self.params.append(self._hybrid_text_param)
                 self._count_skip_lead += 1
-                if self._hybrid_text_quoted_refs:
-                    self.params.append(self._hybrid_text_param)
-                    self._count_skip_lead += 1
 
-        # 3b. Process Window Functions
-        window_funcs_spec = self.spec.get("window_functions", [])
-        for wf_item in window_funcs_spec:
+    # ---- window functions ----------------------------------------------
+    def _compile_window_functions(self) -> None:
+        for wf_item in self.spec.get("window_functions", []):
             if hasattr(wf_item, "__dict__"):
-                wf = {
-                    k: v for k, v in wf_item.__dict__.items() if not k.startswith("_")
-                }
+                wf = _public_attrs(wf_item)
             elif isinstance(wf_item, dict):
                 wf = wf_item
             else:
                 continue
+            self._compile_window_function(wf)
 
-            wf_func = str(wf.get("function", "")).strip().upper()
-            if not wf_func:
-                continue
-
-            # Arguments
-            wf_args = wf.get("arguments", [])
-            if wf_args == ["*"]:
-                args_str = "*"
-            elif wf_args:
-                formatted_args = []
-                for a in wf_args:
-                    if isinstance(a, str):
-                        _, _, qa = self._resolve_column_ref(a, clean_base_table)
-                        formatted_args.append(qa)
-                    else:
-                        formatted_args.append(str(a))
-                args_str = ", ".join(formatted_args)
-            elif wf_func == "COUNT":
-                args_str = "*"
-            else:
-                args_str = ""
-
-            # Partition By
-            wf_parts = wf.get("partition_by", [])
-            if wf_parts:
-                quoted_parts = []
-                for p in wf_parts:
-                    _, _, qp = self._resolve_column_ref(p, clean_base_table)
-                    quoted_parts.append(qp)
-                part_clause = f"PARTITION BY {', '.join(quoted_parts)}"
-            else:
-                part_clause = ""
-
-            # Order By
-            wf_orders = wf.get("order_by", [])
-            if wf_orders:
-                quoted_orders = []
-                for raw_ord in wf_orders:
-                    if hasattr(raw_ord, "__dict__"):
-                        ord_item = {k: v for k, v in raw_ord.__dict__.items()}
-                    else:
-                        ord_item = raw_ord
-                    col_ref = ord_item.get("column")
-                    if not col_ref:
-                        continue
-                    direction = ord_item.get("direction", "ASC").upper()
-                    if direction not in ("ASC", "DESC"):
-                        direction = "ASC"
-                    prefix = (
-                        ord_item.get("table_prefix")
-                        or ord_item.get("tablePrefix")
-                        or clean_base_table
-                    )
-                    _, _, qo = self._resolve_column_ref(col_ref, prefix)
-                    quoted_orders.append(f"{qo} {direction}")
-                order_clause = (
-                    f"ORDER BY {', '.join(quoted_orders)}" if quoted_orders else ""
-                )
-            else:
-                order_clause = ""
-
-            # Frame
-            wf_frame = wf.get("frame")
-            if wf_frame:
-                if hasattr(wf_frame, "__dict__"):
-                    wf_frame = {k: v for k, v in wf_frame.__dict__.items()}
-                ftype = (wf_frame.get("frame_type") or "ROWS").upper()
-                if ftype == "GROUPS" and not getattr(
-                    self.dialect, "supports_window_groups_frame", False
-                ):
-                    raise CompilationError(
-                        f"Dialect '{self.dialect.name}' does not support GROUPS window frame specification."
-                    )
-                start = (wf_frame.get("start") or "UNBOUNDED PRECEDING").upper()
-                end = wf_frame.get("end")
-                if end:
-                    frame_clause = f"{ftype} BETWEEN {start} AND {str(end).upper()}"
+    def _window_args(self, wf: dict[str, Any], wf_func: str) -> str:
+        wf_args = wf.get("arguments", [])
+        if wf_args == ["*"]:
+            return "*"
+        if wf_args:
+            formatted_args = []
+            for a in wf_args:
+                if isinstance(a, str):
+                    _, _, qa = self._resolve_column_ref(a, self._clean_base)
+                    formatted_args.append(qa)
                 else:
-                    frame_clause = f"{ftype} {start}"
-                exclusion = wf_frame.get("exclusion")
-                if exclusion:
-                    frame_clause = f"{frame_clause} EXCLUDE {str(exclusion).upper()}"
-            else:
-                frame_clause = ""
+                    formatted_args.append(str(a))
+            return ", ".join(formatted_args)
+        return "*" if wf_func == "COUNT" else ""
 
-            over_tokens = [
-                tok for tok in (part_clause, order_clause, frame_clause) if tok
-            ]
-            over_clause = f"OVER ({' '.join(over_tokens)})"
-            wf_expr = f"{wf_func}({args_str}) {over_clause}"
+    def _window_partition(self, wf: dict[str, Any]) -> str:
+        wf_parts = wf.get("partition_by", [])
+        if not wf_parts:
+            return ""
+        quoted_parts = [
+            self._resolve_column_ref(p, self._clean_base)[2] for p in wf_parts
+        ]
+        return f"PARTITION BY {', '.join(quoted_parts)}"
 
-            alias = wf.get("alias")
-            if alias:
-                self.select_clause_items.append(
-                    f"{wf_expr} AS {self.dialect.quote_alias(alias)}"
-                )
-                self.select_column_names.append(alias)
-            else:
-                self.select_clause_items.append(wf_expr)
-                self.select_column_names.append(wf_func)
+    def _window_order(self, wf: dict[str, Any]) -> str:
+        quoted_orders = []
+        for raw_ord in wf.get("order_by", []) or []:
+            ord_item = (
+                dict(raw_ord.__dict__) if hasattr(raw_ord, "__dict__") else raw_ord
+            )
+            col_ref = ord_item.get("column")
+            if not col_ref:
+                continue
+            direction = ord_item.get("direction", "ASC").upper()
+            if direction not in ("ASC", "DESC"):
+                direction = "ASC"
+            prefix = (
+                ord_item.get("table_prefix")
+                or ord_item.get("tablePrefix")
+                or self._clean_base
+            )
+            _, _, qo = self._resolve_column_ref(col_ref, prefix)
+            quoted_orders.append(f"{qo} {direction}")
+        return f"ORDER BY {', '.join(quoted_orders)}" if quoted_orders else ""
 
-        # 4. Process Filters
-        filters_spec = self.spec.get("filters", [])
+    def _window_frame(self, wf: dict[str, Any]) -> str:
+        wf_frame = wf.get("frame")
+        if not wf_frame:
+            return ""
+        if hasattr(wf_frame, "__dict__"):
+            wf_frame = dict(wf_frame.__dict__)
+        ftype = (wf_frame.get("frame_type") or "ROWS").upper()
+        if ftype == "GROUPS" and not getattr(
+            self.dialect, "supports_window_groups_frame", False
+        ):
+            raise CompilationError(
+                f"Dialect '{self.dialect.name}' does not support GROUPS window frame specification."
+            )
+        start = (wf_frame.get("start") or "UNBOUNDED PRECEDING").upper()
+        end = wf_frame.get("end")
+        if end:
+            frame_clause = f"{ftype} BETWEEN {start} AND {str(end).upper()}"
+        else:
+            frame_clause = f"{ftype} {start}"
+        exclusion = wf_frame.get("exclusion")
+        if exclusion:
+            frame_clause = f"{frame_clause} EXCLUDE {str(exclusion).upper()}"
+        return frame_clause
+
+    def _compile_window_function(self, wf: dict[str, Any]) -> None:
+        wf_func = str(wf.get("function", "")).strip().upper()
+        if not wf_func:
+            return
+        args_str = self._window_args(wf, wf_func)
+        part_clause = self._window_partition(wf)
+        order_clause = self._window_order(wf)
+        frame_clause = self._window_frame(wf)
+
+        over_tokens = [tok for tok in (part_clause, order_clause, frame_clause) if tok]
+        wf_expr = f"{wf_func}({args_str}) OVER ({' '.join(over_tokens)})"
+
+        alias = wf.get("alias")
+        if alias:
+            self._add_select(wf_expr, alias)
+        else:
+            self._add_select(wf_expr, wf_func, aliased=False)
+
+    # ---- WHERE filters ---------------------------------------------------
+    @staticmethod
+    def _paren_count(raw: Any, char: str) -> int:
+        """Number of grouping parentheses a ``parenOpen`` / ``parenClose`` value asks for."""
+        if isinstance(raw, bool):
+            return 1
+        if isinstance(raw, int):
+            return max(raw, 0)
+        return str(raw).count(char) or 1
+
+    def _compile_filters(self) -> None:
         filter_join = str(self.spec.get("filter_join") or "AND").strip().upper()
         if filter_join not in ("AND", "OR"):
             filter_join = "AND"
@@ -1882,235 +2021,16 @@ class QueryCompiler:
         enforced_params: list[Any] = []
         client_params: list[Any] = []
         paren_depth = 0
-        for raw_flt in filters_spec:
-            if hasattr(raw_flt, "__dict__"):
-                flt = {k: v for k, v in raw_flt.__dict__.items()}
-            else:
-                flt = raw_flt
-            is_enforced = flt.get("_enforced") is True
+        for raw_flt in self.spec.get("filters", []):
+            flt = dict(raw_flt.__dict__) if hasattr(raw_flt, "__dict__") else raw_flt
             params_start = len(self.params)
-
-            op = str(flt.get("op", flt.get("operator", "eq"))).strip().lower()
-            val = flt.get("value")
-            subquery = flt.get("subquery")
-            col_ref = flt.get("column")
-
-            is_subquery_filter = (
-                subquery is not None
-                or (isinstance(val, dict) and "table" in val)
-                or (hasattr(val, "__dict__") and hasattr(val, "table"))
-            )
-
-            if not col_ref and op not in ("exists", "not_exists", "not exists"):
+            clause_str = self._compile_filter_clause(flt)
+            if clause_str is None:
                 continue
-
-            if col_ref:
-                prefix = (
-                    flt.get("tablePrefix")
-                    or flt.get("table_prefix")
-                    or flt.get("table")
-                    or clean_base_table
-                )
-                _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
-            else:
-                quoted_ref = ""
-
-            clause_str = ""
-
-            if op in ("exists", "not_exists", "not exists"):
-                if not is_subquery_filter:
-                    raise CompilationError("EXISTS filter requires a nested subquery.")
-                sub_spec = subquery if subquery is not None else val
-                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
-                sub_compiler = QueryCompiler(
-                    sub_dict,
-                    schema=self.schema,
-                    dialect=self.dialect,
-                    middleware=None,
-                    allow_unknown_keys=True,
-                    inner=True,
-                )
-                sub_sql, sub_params, _, _ = sub_compiler.compile()
-                not_pfx = "NOT " if "not" in op else ""
-                clause_str = f"{not_pfx}EXISTS ({sub_sql})"
-                self.params.extend(sub_params)
-
-            elif (
-                val is None
-                and not is_subquery_filter
-                and op in ("eq", "=", "neq", "!=")
-            ):
-                if op in ("eq", "="):
-                    clause_str = f"{quoted_ref} IS NULL"
-                else:
-                    clause_str = f"{quoted_ref} IS NOT NULL"
-
-            elif op in ("is_null", "is null"):
-                clause_str = f"{quoted_ref} IS NULL"
-            elif op in ("is_not_null", "is not null"):
-                clause_str = f"{quoted_ref} IS NOT NULL"
-
-            elif is_subquery_filter and op in ("in", "not in", "not_in"):
-                sub_spec = subquery if subquery is not None else val
-                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
-                sub_compiler = QueryCompiler(
-                    sub_dict,
-                    schema=self.schema,
-                    dialect=self.dialect,
-                    middleware=None,
-                    allow_unknown_keys=True,
-                    inner=True,
-                )
-                sub_sql, sub_params, _, _ = sub_compiler.compile()
-                not_pfx = "NOT " if "not" in op else ""
-                clause_str = f"{quoted_ref} {not_pfx}IN ({sub_sql})"
-                self.params.extend(sub_params)
-
-            elif is_subquery_filter and op in OPERATOR_MAP:
-                sub_spec = subquery if subquery is not None else val
-                sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
-                sub_compiler = QueryCompiler(
-                    sub_dict,
-                    schema=self.schema,
-                    dialect=self.dialect,
-                    middleware=None,
-                    allow_unknown_keys=True,
-                    inner=True,
-                )
-                sub_sql, sub_params, _, _ = sub_compiler.compile()
-                sql_op = self._sql_op(op)
-                clause_str = f"{quoted_ref} {sql_op} ({sub_sql})"
-                self.params.extend(sub_params)
-
-            elif op in OPERATOR_MAP:
-                sql_op = self._sql_op(op)
-                clause_str = f"{quoted_ref} {sql_op} {self.dialect.placeholder}"
-                self.params.append(val)
-
-            elif op in ("contains", "not_contains", "not contains"):
-                expr = self.dialect.format_substring_match(quoted_ref)
-                if "not" in op:
-                    clause_str = f"NOT ({expr})"
-                else:
-                    clause_str = expr
-                self.params.append(self.dialect.substring_param("contains", val))
-
-            elif op in (
-                "starts_with",
-                "startswith",
-                "not_starts_with",
-                "not startswith",
-            ):
-                expr = self.dialect.format_substring_match(quoted_ref)
-                if "not" in op:
-                    clause_str = f"NOT ({expr})"
-                else:
-                    clause_str = expr
-                self.params.append(self.dialect.substring_param("starts", val))
-
-            elif op in ("ends_with", "endswith", "not_ends_with", "not endswith"):
-                expr = self.dialect.format_substring_match(quoted_ref)
-                if "not" in op:
-                    clause_str = f"NOT ({expr})"
-                else:
-                    clause_str = expr
-                self.params.append(self.dialect.substring_param("ends", val))
-
-            elif op in ("like", "not_like", "not like"):
-                if "not" in op:
-                    clause_str = f"{quoted_ref} NOT LIKE {self.dialect.placeholder}"
-                else:
-                    clause_str = self.dialect.format_like(quoted_ref)
-                self.params.append(f"{val}")
-
-            elif op in ("ilike", "not_ilike", "not ilike"):
-                if "not" in op:
-                    clause_str = f"NOT ({self.dialect.format_ilike(quoted_ref)})"
-                else:
-                    clause_str = self.dialect.format_ilike(quoted_ref)
-                self.params.append(f"{val}")
-
-            elif op in ("in", "not in", "not_in"):
-                if isinstance(val, (list, tuple, set)):
-                    val_list = list(val)
-                elif isinstance(val, str):
-                    val_list = [v.strip() for v in val.split(",") if v.strip()]
-                else:
-                    val_list = [val]
-
-                if len(val_list) == 0:
-                    if "not" in op:
-                        clause_str = "1 = 1"
-                    else:
-                        clause_str = "1 = 0"
-                elif len(val_list) > MAX_IN_VALUES:
-                    raise CompilationError(
-                        f"IN clause value count ({len(val_list)}) exceeds maximum limit of {MAX_IN_VALUES}."
-                    )
-                elif "not" in op:
-                    non_null_vals = [v for v in val_list if v is not None]
-                    if not non_null_vals:
-                        clause_str = "1 = 0"
-                    else:
-                        placeholders = ", ".join(
-                            [self.dialect.placeholder] * len(non_null_vals)
-                        )
-                        clause_str = f"({quoted_ref} NOT IN ({placeholders}) AND {quoted_ref} IS NOT NULL)"
-                        self.params.extend(non_null_vals)
-                else:
-                    has_none = any(v is None for v in val_list)
-                    non_null_vals = [v for v in val_list if v is not None]
-                    if has_none and non_null_vals:
-                        placeholders = ", ".join(
-                            [self.dialect.placeholder] * len(non_null_vals)
-                        )
-                        clause_str = f"({quoted_ref} IN ({placeholders}) OR {quoted_ref} IS NULL)"
-                        self.params.extend(non_null_vals)
-                    elif has_none and not non_null_vals:
-                        clause_str = f"{quoted_ref} IS NULL"
-                    else:
-                        placeholders = ", ".join(
-                            [self.dialect.placeholder] * len(val_list)
-                        )
-                        clause_str = f"{quoted_ref} IN ({placeholders})"
-                        self.params.extend(val_list)
-
-            elif op in ("between", "not_between", "not between"):
-                if isinstance(val, (list, tuple)) and len(val) == 2:
-                    p0, p1 = val[0], val[1]
-                elif isinstance(val, str) and " AND " in val:
-                    p0, p1 = val.split(" AND ", 1)
-                    p0, p1 = p0.strip(), p1.strip()
-                elif isinstance(val, str) and "," in val:
-                    p0, p1 = val.split(",", 1)
-                    p0, p1 = p0.strip(), p1.strip()
-                else:
-                    raise CompilationError("BETWEEN filter requires exactly 2 bounds.")
-                not_pfx = "NOT " if "not" in op else ""
-                clause_str = f"{quoted_ref} {not_pfx}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
-                self.params.extend([p0, p1])
-
-            elif op in _CUSTOM_FILTER_OPERATORS:
-                handler = _CUSTOM_FILTER_OPERATORS[op]
-                res = handler(quoted_ref, val, self.dialect)
-                if isinstance(res, tuple):
-                    clause_str, new_params = res
-                    if isinstance(new_params, (list, tuple)):
-                        self.params.extend(new_params)
-                    else:
-                        self.params.append(new_params)
-                elif isinstance(res, str):
-                    clause_str = res
-                else:
-                    raise CompilationError(
-                        f"Custom filter operator '{op}' returned invalid result: {type(res).__name__}"
-                    )
-            else:
-                raise CompilationError(f"Unsupported filter operator: '{op}'")
 
             seg = self.params[params_start:]
             del self.params[params_start:]
-            if is_enforced:
+            if flt.get("_enforced") is True:
                 enforced_clauses.append(clause_str)
                 enforced_params.extend(seg)
                 continue
@@ -2122,31 +2042,17 @@ class QueryCompiler:
                 comb = filter_join
 
             open_p = ""
-            p_open = flt.get("parenOpen")
-            if p_open:
-                if isinstance(p_open, bool):
-                    n_open = 1
-                elif isinstance(p_open, int):
-                    n_open = max(p_open, 0)
-                else:
-                    n_open = str(p_open).count("(") or 1
-                n_open = min(n_open, 16)
+            if flt.get("parenOpen"):
+                n_open = min(self._paren_count(flt["parenOpen"], "("), 16)
                 open_p = "(" * n_open
                 paren_depth += n_open
 
             close_p = ""
-            p_close = flt.get("parenClose")
-            if p_close:
-                if isinstance(p_close, bool):
-                    n_close = 1
-                elif isinstance(p_close, int):
-                    n_close = max(p_close, 0)
-                else:
-                    n_close = str(p_close).count(")") or 1
+            if flt.get("parenClose"):
                 # Never close more groups than are open: an unbalanced ')' would
                 # terminate the wrapping client group and let a trailing OR
                 # escape the enforced (tenant/RLS) predicates.
-                n_close = min(n_close, paren_depth)
+                n_close = min(self._paren_count(flt["parenClose"], ")"), paren_depth)
                 close_p = ")" * n_close
                 paren_depth -= n_close
 
@@ -2161,17 +2067,163 @@ class QueryCompiler:
         if client_filter_tokens:
             if paren_depth > 0:
                 client_filter_tokens[-1] += ")" * paren_depth
-            combined_filters = f"({' '.join(client_filter_tokens)})"
-            self.where_clauses.append(combined_filters)
+            self.where_clauses.append(f"({' '.join(client_filter_tokens)})")
             self.params.extend(client_params)
 
-        # 5. Process Having
-        having_spec = self.spec.get("having", [])
-        for raw_hvg in having_spec:
-            if hasattr(raw_hvg, "__dict__"):
-                hvg = {k: v for k, v in raw_hvg.__dict__.items()}
+    def _compile_filter_clause(self, flt: dict[str, Any]) -> str | None:
+        """SQL for one filter (params appended to ``self.params``); None to skip it."""
+        op = str(flt.get("op", flt.get("operator", "eq"))).strip().lower()
+        val = flt.get("value")
+        subquery = flt.get("subquery")
+        col_ref = flt.get("column")
+
+        is_subquery_filter = (
+            subquery is not None
+            or (isinstance(val, dict) and "table" in val)
+            or (hasattr(val, "__dict__") and hasattr(val, "table"))
+        )
+
+        if not col_ref and op not in _EXISTS_OPS:
+            return None
+
+        if col_ref:
+            prefix = (
+                flt.get("tablePrefix")
+                or flt.get("table_prefix")
+                or flt.get("table")
+                or self._clean_base
+            )
+            _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
+        else:
+            quoted_ref = ""
+
+        sub_spec = subquery if subquery is not None else val
+        not_pfx = "NOT " if "not" in op else ""
+
+        if op in _EXISTS_OPS:
+            if not is_subquery_filter:
+                raise CompilationError("EXISTS filter requires a nested subquery.")
+            sub_sql, sub_params = self._sub_compile(sub_spec)
+            self.params.extend(sub_params)
+            return f"{not_pfx}EXISTS ({sub_sql})"
+
+        if val is None and not is_subquery_filter and op in ("eq", "=", "neq", "!="):
+            return (
+                f"{quoted_ref} IS NULL"
+                if op in ("eq", "=")
+                else f"{quoted_ref} IS NOT NULL"
+            )
+        if op in ("is_null", "is null"):
+            return f"{quoted_ref} IS NULL"
+        if op in ("is_not_null", "is not null"):
+            return f"{quoted_ref} IS NOT NULL"
+
+        if is_subquery_filter and op in ("in", "not in", "not_in"):
+            sub_sql, sub_params = self._sub_compile(sub_spec)
+            self.params.extend(sub_params)
+            return f"{quoted_ref} {not_pfx}IN ({sub_sql})"
+        if is_subquery_filter and op in OPERATOR_MAP:
+            sub_sql, sub_params = self._sub_compile(sub_spec)
+            self.params.extend(sub_params)
+            return f"{quoted_ref} {self._sql_op(op)} ({sub_sql})"
+
+        if op in OPERATOR_MAP:
+            self.params.append(val)
+            return f"{quoted_ref} {self._sql_op(op)} {self.dialect.placeholder}"
+
+        if op in _SUBSTRING_OPS:
+            kind, negated = _SUBSTRING_OPS[op]
+            expr = self.dialect.format_substring_match(quoted_ref)
+            self.params.append(self.dialect.substring_param(kind, val))
+            return f"NOT ({expr})" if negated else expr
+
+        if op in ("like", "not_like", "not like"):
+            self.params.append(f"{val}")
+            if "not" in op:
+                return f"{quoted_ref} NOT LIKE {self.dialect.placeholder}"
+            return self.dialect.format_like(quoted_ref)
+        if op in ("ilike", "not_ilike", "not ilike"):
+            self.params.append(f"{val}")
+            if "not" in op:
+                return f"NOT ({self.dialect.format_ilike(quoted_ref)})"
+            return self.dialect.format_ilike(quoted_ref)
+
+        if op in ("in", "not in", "not_in"):
+            return self._compile_in_filter(quoted_ref, op, val)
+        if op in ("between", "not_between", "not between"):
+            return self._compile_between_filter(quoted_ref, op, val)
+        if op in _CUSTOM_FILTER_OPERATORS:
+            return self._compile_custom_filter(quoted_ref, op, val)
+        raise CompilationError(f"Unsupported filter operator: '{op}'")
+
+    def _compile_in_filter(self, quoted_ref: str, op: str, val: Any) -> str:
+        if isinstance(val, (list, tuple, set)):
+            val_list = list(val)
+        elif isinstance(val, str):
+            val_list = [v.strip() for v in val.split(",") if v.strip()]
+        else:
+            val_list = [val]
+
+        negated = "not" in op
+        if len(val_list) == 0:
+            return "1 = 1" if negated else "1 = 0"
+        if len(val_list) > MAX_IN_VALUES:
+            raise CompilationError(
+                f"IN clause value count ({len(val_list)}) exceeds maximum limit of {MAX_IN_VALUES}."
+            )
+        non_null_vals = [v for v in val_list if v is not None]
+        if negated:
+            if not non_null_vals:
+                return "1 = 0"
+            placeholders = ", ".join([self.dialect.placeholder] * len(non_null_vals))
+            self.params.extend(non_null_vals)
+            return (
+                f"({quoted_ref} NOT IN ({placeholders}) AND {quoted_ref} IS NOT NULL)"
+            )
+
+        has_none = len(non_null_vals) != len(val_list)
+        if has_none and non_null_vals:
+            placeholders = ", ".join([self.dialect.placeholder] * len(non_null_vals))
+            self.params.extend(non_null_vals)
+            return f"({quoted_ref} IN ({placeholders}) OR {quoted_ref} IS NULL)"
+        if has_none:
+            return f"{quoted_ref} IS NULL"
+        placeholders = ", ".join([self.dialect.placeholder] * len(val_list))
+        self.params.extend(val_list)
+        return f"{quoted_ref} IN ({placeholders})"
+
+    def _compile_between_filter(self, quoted_ref: str, op: str, val: Any) -> str:
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            p0, p1 = val[0], val[1]
+        elif isinstance(val, str) and " AND " in val:
+            p0, p1 = (s.strip() for s in val.split(" AND ", 1))
+        elif isinstance(val, str) and "," in val:
+            p0, p1 = (s.strip() for s in val.split(",", 1))
+        else:
+            raise CompilationError("BETWEEN filter requires exactly 2 bounds.")
+        not_pfx = "NOT " if "not" in op else ""
+        self.params.extend([p0, p1])
+        return f"{quoted_ref} {not_pfx}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
+
+    def _compile_custom_filter(self, quoted_ref: str, op: str, val: Any) -> str:
+        res = _CUSTOM_FILTER_OPERATORS[op](quoted_ref, val, self.dialect)
+        if isinstance(res, tuple):
+            clause_str, new_params = res
+            if isinstance(new_params, (list, tuple)):
+                self.params.extend(new_params)
             else:
-                hvg = raw_hvg
+                self.params.append(new_params)
+            return clause_str  # type: ignore[no-any-return]
+        if isinstance(res, str):
+            return res
+        raise CompilationError(
+            f"Custom filter operator '{op}' returned invalid result: {type(res).__name__}"
+        )
+
+    # ---- HAVING / ORDER BY -------------------------------------------------
+    def _compile_having(self) -> None:
+        for raw_hvg in self.spec.get("having", []):
+            hvg = dict(raw_hvg.__dict__) if hasattr(raw_hvg, "__dict__") else raw_hvg
 
             col_ref = hvg.get("column")
             agg = str(hvg.get("agg", hvg.get("aggregate", "count"))).lower()
@@ -2179,34 +2231,29 @@ class QueryCompiler:
             val = hvg.get("value")
 
             if col_ref == "*":
-                if agg == "count":
-                    agg_expr = "COUNT(*)"
-                else:
+                if agg != "count":
                     raise CompilationError(
                         f"Aggregate '{agg}' cannot be applied to '*' in HAVING."
                     )
+                agg_expr = "COUNT(*)"
             else:
-                _, _, quoted_ref = self._resolve_column_ref(col_ref, clean_base_table)
-                if agg in AGGREGATE_MAP:
-                    agg_expr = self._aggregate_template(agg).format(quoted_ref)
-                else:
+                _, _, quoted_ref = self._resolve_column_ref(col_ref, self._clean_base)
+                if agg not in AGGREGATE_MAP:
                     continue
+                agg_expr = self._aggregate_template(agg).format(quoted_ref)
 
             if op not in OPERATOR_MAP:
                 continue
-            sql_op = self._sql_op(op)
             self.having_clauses.append(
-                f"{agg_expr} {sql_op} {self.dialect.placeholder}"
+                f"{agg_expr} {self._sql_op(op)} {self.dialect.placeholder}"
             )
             self.params.append(val)
 
-        # 6. Process Order By
-        order_spec = self.spec.get("order_by", [])
-        for raw_ord in order_spec:
-            if hasattr(raw_ord, "__dict__"):
-                ord_item = {k: v for k, v in raw_ord.__dict__.items()}
-            else:
-                ord_item = raw_ord
+    def _compile_order_by(self) -> None:
+        for raw_ord in self.spec.get("order_by", []):
+            ord_item = (
+                dict(raw_ord.__dict__) if hasattr(raw_ord, "__dict__") else raw_ord
+            )
 
             col_ref = ord_item.get("column")
             if not col_ref:
@@ -2219,118 +2266,89 @@ class QueryCompiler:
                 ord_item.get("tablePrefix")
                 or ord_item.get("table_prefix")
                 or ord_item.get("table")
-                or clean_base_table
+                or self._clean_base
             )
             _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
             self.order_by_items.append(f"{quoted_ref} {direction}")
 
-        # 7. Assemble SQL Query Parts
-        is_distinct = self.spec.get("distinct", False) and not self.has_aggregation
-        distinct_prefix = "DISTINCT " if is_distinct else ""
+    # ---- GROUP BY ----------------------------------------------------------
+    def _grouping_columns(self, key: str) -> list[str] | None:
+        """Explicit ``columns`` of a rollup / cube spec (dict or attribute object)."""
+        group_spec = self.spec.get(key)
+        cols = getattr(group_spec, "columns", None) if group_spec else None
+        if cols is None and isinstance(group_spec, dict):
+            cols = group_spec.get("columns")
+        return cols
 
-        select_str = f"{distinct_prefix}{', '.join(self.select_clause_items)}"
-        joins_str = " ".join(self.join_clauses) if self.join_clauses else ""
-        where_str = (
-            f"WHERE {' AND '.join(self.where_clauses)}" if self.where_clauses else ""
+    def _quoted_columns(self, columns: Any) -> list[str]:
+        return [self._resolve_column_ref(c, self._clean_base)[2] for c in columns]
+
+    def _build_group_by(self) -> str:
+        spec = self.spec
+        explicit_grouping = bool(
+            spec.get("grouping_type")
+            or spec.get("grouping_sets")
+            or spec.get("rollup")
+            or spec.get("cube")
         )
+        if not (self.has_aggregation or explicit_grouping):
+            return ""
+        if not (self.group_by_items or explicit_grouping):
+            return ""
 
-        group_by_str = ""
-        has_grouping = bool(
-            self.has_aggregation
-            or self.spec.get("grouping_type")
-            or self.spec.get("grouping_sets")
-            or self.spec.get("rollup")
-            or self.spec.get("cube")
+        g_type = (spec.get("grouping_type") or "").lower()
+        implicit = self.group_by_items
+        if g_type == "rollup" or spec.get("rollup"):
+            return self._group_by_rollup_or_cube("ROLLUP", "rollup")
+        if g_type == "cube" or spec.get("cube"):
+            return self._group_by_rollup_or_cube("CUBE", "cube")
+        if g_type == "grouping_sets" or spec.get("grouping_sets"):
+            g_sets = spec.get("grouping_sets") or []
+            if hasattr(g_sets, "sets"):
+                g_sets = g_sets.sets
+            formatted_sets = [f"({', '.join(self._quoted_columns(s))})" for s in g_sets]
+            if formatted_sets:
+                return f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
+        if implicit:
+            return f"GROUP BY {', '.join(implicit)}"
+        return ""
+
+    def _group_by_rollup_or_cube(self, keyword: str, key: str) -> str:
+        cols = self._grouping_columns(key)
+        if cols:
+            return f"GROUP BY {keyword}({', '.join(self._quoted_columns(cols))})"
+        if self.group_by_items:
+            return f"GROUP BY {keyword}({', '.join(self.group_by_items)})"
+        return ""
+
+    # ---- ORDER BY clause / pagination ----------------------------------------
+    def _build_order_by_clause(self) -> str:
+        requires_order = getattr(
+            self.dialect, "requires_order_by_for_pagination", False
         )
-        if has_grouping and (
-            self.group_by_items
-            or self.spec.get("rollup")
-            or self.spec.get("cube")
-            or self.spec.get("grouping_sets")
-            or self.spec.get("grouping_type")
-        ):
-            g_type = (self.spec.get("grouping_type") or "").lower()
-            if g_type == "rollup" or self.spec.get("rollup"):
-                rollup_spec = self.spec.get("rollup")
-                r_cols = getattr(rollup_spec, "columns", None) if rollup_spec else None
-                if r_cols is None and isinstance(rollup_spec, dict):
-                    r_cols = rollup_spec.get("columns")
-                if r_cols:
-                    quoted_r = [
-                        self._resolve_column_ref(c, clean_base_table)[2] for c in r_cols
-                    ]
-                    group_by_str = f"GROUP BY ROLLUP({', '.join(quoted_r)})"
-                elif self.group_by_items:
-                    group_by_str = f"GROUP BY ROLLUP({', '.join(self.group_by_items)})"
-            elif g_type == "cube" or self.spec.get("cube"):
-                cube_spec = self.spec.get("cube")
-                c_cols = getattr(cube_spec, "columns", None) if cube_spec else None
-                if c_cols is None and isinstance(cube_spec, dict):
-                    c_cols = cube_spec.get("columns")
-                if c_cols:
-                    quoted_c = [
-                        self._resolve_column_ref(c, clean_base_table)[2] for c in c_cols
-                    ]
-                    group_by_str = f"GROUP BY CUBE({', '.join(quoted_c)})"
-                elif self.group_by_items:
-                    group_by_str = f"GROUP BY CUBE({', '.join(self.group_by_items)})"
-            elif g_type == "grouping_sets" or self.spec.get("grouping_sets"):
-                g_sets = self.spec.get("grouping_sets") or []
-                if hasattr(g_sets, "sets"):
-                    g_sets = g_sets.sets
-                formatted_sets = []
-                for s in g_sets:
-                    quoted_s = [
-                        self._resolve_column_ref(c, clean_base_table)[2] for c in s
-                    ]
-                    formatted_sets.append(f"({', '.join(quoted_s)})")
-                if formatted_sets:
-                    group_by_str = (
-                        f"GROUP BY GROUPING SETS({', '.join(formatted_sets)})"
-                    )
-                elif self.group_by_items:
-                    group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
-            elif self.group_by_items:
-                group_by_str = f"GROUP BY {', '.join(self.group_by_items)}"
-
-        having_str = (
-            f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
-        )
-
-        self._count_params_end = len(self.params)
         if not self.order_by_items and self.has_vector_search:
             if self._vector_include_dist:
-                order_by_str = f"ORDER BY {self.dialect.quote_alias('_distance')} ASC"
-            else:
-                order_by_str = f"ORDER BY {self.vector_distance_expr} ASC"
-                self.params.append(self._vector_param_val)
-        elif not self.order_by_items and self.has_hybrid_search:
+                return f"ORDER BY {self.dialect.quote_alias('_distance')} ASC"
+            self.params.append(self._vector_param_val)
+            return f"ORDER BY {self.vector_distance_expr} ASC"
+        if not self.order_by_items and self.has_hybrid_search:
             if self._hybrid_include_scores:
-                order_by_str = f"ORDER BY {self.dialect.quote_alias('_score')} DESC"
-            else:
-                order_by_str = f"ORDER BY {self.hybrid_score_expr} DESC"
-                self.params.append(self._hybrid_vector_param)
-                if self._hybrid_text_quoted_refs:
-                    self.params.append(self._hybrid_text_param)
-        elif (
-            getattr(self.dialect, "requires_order_by_for_pagination", False)
-            and self._unpaginated_nested()
-        ):
+                return f"ORDER BY {self.dialect.quote_alias('_score')} DESC"
+            self.params.append(self._hybrid_vector_param)
+            if self._hybrid_text_quoted_refs:
+                self.params.append(self._hybrid_text_param)
+            return f"ORDER BY {self.hybrid_score_expr} DESC"
+        if requires_order and self._unpaginated_nested():
             # SQL Server rejects ORDER BY in a subquery/CTE unless TOP/OFFSET is
             # present, and an unpaginated nested query needs none.
-            order_by_str = ""
-        elif (
-            getattr(self.dialect, "requires_order_by_for_pagination", False)
-            and not self.order_by_items
-        ):
-            order_by_str = "ORDER BY (SELECT NULL)"
-        else:
-            order_by_str = (
-                f"ORDER BY {', '.join(self.order_by_items)}"
-                if self.order_by_items
-                else ""
-            )
+            return ""
+        if requires_order and not self.order_by_items:
+            return "ORDER BY (SELECT NULL)"
+        if self.order_by_items:
+            return f"ORDER BY {', '.join(self.order_by_items)}"
+        return ""
 
+    def _resolve_limit_offset(self) -> tuple[int, int]:
         limit_val = int(self.spec.get("limit", 50))
         if self.has_vector_search or self.has_hybrid_search:
             search_spec_val = self.spec.get("vector_search") or self.spec.get(
@@ -2352,63 +2370,57 @@ class QueryCompiler:
         offset = min(
             max(int(raw_offset) if raw_offset is not None else 0, 0), MAX_OFFSET
         )
+        return limit, offset
 
+    def _build_pagination(self) -> tuple[str, list[Any]]:
+        limit, offset = self._resolve_limit_offset()
         if self._unpaginated_nested():
-            limit_offset_str, limit_params = "", []
-        else:
-            limit_offset_str, limit_params = self.dialect.format_limit_offset(
-                limit, offset
-            )
+            return "", []
+        limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
+        return limit_offset_str, limit_params
 
+    # ---- final assembly ---------------------------------------------------------
+    def _assemble_main_query(
+        self,
+        select_str: str,
+        joins_str: str,
+        where_str: str,
+        group_by_str: str,
+        having_str: str,
+        order_by_str: str,
+        limit_offset_str: str,
+        limit_params: list[Any],
+    ) -> tuple[str, list[Any]]:
+        tail = [
+            part
+            for part in (joins_str, where_str, group_by_str, having_str, order_by_str)
+            if part
+        ]
         if getattr(self.dialect, "pagination_placement", "suffix") == "prefix":
             select_pfx = (
                 f"SELECT {limit_offset_str} " if limit_offset_str else "SELECT "
             )
-            query_parts = [f"{select_pfx}{select_str}", from_str]
-            if joins_str:
-                query_parts.append(joins_str)
-            if where_str:
-                query_parts.append(where_str)
-            if group_by_str:
-                query_parts.append(group_by_str)
-            if having_str:
-                query_parts.append(having_str)
-            if order_by_str:
-                query_parts.append(order_by_str)
-            main_sql = "\n".join(query_parts)
-            main_params = limit_params + from_params + list(self.params)
-        else:
-            query_parts = [f"SELECT {select_str}", from_str]
-            if joins_str:
-                query_parts.append(joins_str)
-            if where_str:
-                query_parts.append(where_str)
-            if group_by_str:
-                query_parts.append(group_by_str)
-            if having_str:
-                query_parts.append(having_str)
-            if order_by_str:
-                query_parts.append(order_by_str)
-            if limit_offset_str:
-                query_parts.append(limit_offset_str)
-            main_sql = "\n".join(query_parts)
-            main_params = from_params + list(self.params) + limit_params
+            parts = [f"{select_pfx}{select_str}", self._from_str, *tail]
+            return "\n".join(parts), (
+                limit_params + self._from_params + list(self.params)
+            )
+        parts = [f"SELECT {select_str}", self._from_str, *tail]
+        if limit_offset_str:
+            parts.append(limit_offset_str)
+        return "\n".join(parts), self._from_params + list(self.params) + limit_params
 
-        # Count query construction
-        count_query_parts = ["SELECT COUNT(*)", from_str]
-        if joins_str:
-            count_query_parts.append(joins_str)
-        if where_str:
-            count_query_parts.append(where_str)
-
+    def _build_count_query(
+        self, joins_str: str, where_str: str, group_by_str: str, having_str: str
+    ) -> tuple[str, list[Any]]:
+        base_parts = [p for p in (joins_str, where_str) if p]
         if group_by_str:
             # derived-table columns need a name (SQL Server error 8155)
-            subquery_parts = ["SELECT 1 AS qb_one", from_str]
-            if joins_str:
-                subquery_parts.append(joins_str)
-            if where_str:
-                subquery_parts.append(where_str)
-            subquery_parts.append(group_by_str)
+            subquery_parts = [
+                "SELECT 1 AS qb_one",
+                self._from_str,
+                *base_parts,
+                group_by_str,
+            ]
             if having_str:
                 subquery_parts.append(having_str)
             count_sql = (
@@ -2416,128 +2428,90 @@ class QueryCompiler:
                 f"{getattr(self.dialect, 'subquery_alias_keyword', 'AS ')}count_subquery"
             )
         else:
-            count_sql = "\n".join(count_query_parts)
+            count_sql = "\n".join(["SELECT COUNT(*)", self._from_str, *base_parts])
 
-        count_params = from_params + list(
+        count_params = self._from_params + list(
             self.params[self._count_skip_lead : self._count_params_end]
         )
+        return count_sql, count_params
 
-        # Process CTEs (Common Table Expressions)
+    # ---- CTEs / set operations -----------------------------------------------------
+    def _compile_ctes(self) -> tuple[str, list[Any]]:
+        """Returns the ``WITH ...`` prefix (with trailing newline) and its params."""
         ctes_spec = self.spec.get("ctes") or []
+        if not ctes_spec:
+            return "", []
+        has_recursive = any(
+            (
+                c.get("recursive")
+                if isinstance(c, dict)
+                else getattr(c, "recursive", False)
+            )
+            for c in ctes_spec
+        )
+        with_kw = "WITH RECURSIVE " if has_recursive else "WITH "
         cte_params: list[Any] = []
-        cte_sql_prefix = ""
-        if ctes_spec:
-            has_recursive = any(
-                (
-                    c.get("recursive")
-                    if isinstance(c, dict)
-                    else getattr(c, "recursive", False)
+        compiled_ctes: list[str] = []
+        for cte in ctes_spec:
+            if hasattr(cte, "__dict__"):
+                cte_dict = _public_attrs(cte)
+            elif isinstance(cte, dict):
+                cte_dict = cte
+            else:
+                raise CompilationError(f"Invalid CTE item type: {type(cte).__name__}")
+            c_name = cte_dict.get("name")
+            c_cols = cte_dict.get("columns", [])
+            c_mat = cte_dict.get("materialized")
+            c_query = cte_dict.get("query")
+            if isinstance(c_query, dict):
+                inner_query_spec = c_query
+            elif hasattr(c_query, "__dict__"):
+                inner_query_spec = _public_attrs(c_query)
+            else:
+                raise CompilationError(
+                    f"CTE '{c_name}' query must be a QuerySpec or dict."
                 )
-                for c in ctes_spec
+
+            inner_sql, inner_params = self._sub_compile(inner_query_spec)
+            cte_params.extend(inner_params)
+
+            cols_clause = (
+                f" ({', '.join(self.dialect.quote_identifier(c) for c in c_cols)})"
+                if c_cols
+                else ""
             )
-            with_kw = "WITH RECURSIVE " if has_recursive else "WITH "
-            compiled_ctes: list[str] = []
-            for cte in ctes_spec:
-                if hasattr(cte, "__dict__"):
-                    cte_dict = {
-                        k: v for k, v in cte.__dict__.items() if not k.startswith("_")
-                    }
-                elif isinstance(cte, dict):
-                    cte_dict = cte
-                else:
-                    raise CompilationError(
-                        f"Invalid CTE item type: {type(cte).__name__}"
-                    )
-                c_name = cte_dict.get("name")
-                c_cols = cte_dict.get("columns", [])
-                c_mat = cte_dict.get("materialized")
-                c_query = cte_dict.get("query")
-                if isinstance(c_query, dict):
-                    inner_query_spec = c_query
-                elif hasattr(c_query, "__dict__"):
-                    inner_query_spec = {
-                        k: v
-                        for k, v in c_query.__dict__.items()
-                        if not k.startswith("_")
-                    }
-                else:
-                    raise CompilationError(
-                        f"CTE '{c_name}' query must be a QuerySpec or dict."
-                    )
-
-                inner_compiler = QueryCompiler(
-                    inner_query_spec,
-                    schema=self.schema,
-                    dialect=self.dialect,
-                    allow_unknown_keys=True,
-                    inner=True,
-                )
-                inner_sql, inner_params, _, _ = inner_compiler.compile()
-                cte_params.extend(inner_params)
-
-                cols_clause = (
-                    f" ({', '.join(self.dialect.quote_identifier(c) for c in c_cols)})"
-                    if c_cols
-                    else ""
-                )
-                mat_clause = self.dialect.format_cte_materialized(c_mat)
-                quoted_c_name = self.dialect.quote_identifier(c_name)
-                compiled_ctes.append(
-                    f"{quoted_c_name}{cols_clause} AS {mat_clause}(\n{inner_sql}\n)"
-                )
-            cte_sql_prefix = f"{with_kw}{', '.join(compiled_ctes)}\n"
-            main_sql = f"{cte_sql_prefix}{main_sql}"
-            main_params = cte_params + main_params
-            count_sql = f"{cte_sql_prefix}{count_sql}"
-            count_params = cte_params + count_params
-
-        # Process Set Operations (UNION, UNION ALL, INTERSECT, EXCEPT, MINUS)
-        set_ops_spec = self.spec.get("set_operations") or []
-        if set_ops_spec:
-            for so in set_ops_spec:
-                if hasattr(so, "__dict__"):
-                    so_dict = {
-                        k: v for k, v in so.__dict__.items() if not k.startswith("_")
-                    }
-                elif isinstance(so, dict):
-                    so_dict = so
-                else:
-                    raise CompilationError(
-                        f"Invalid set operation item type: {type(so).__name__}"
-                    )
-                op = str(so_dict.get("operation") or "UNION").upper().strip()
-                sub_query = so_dict.get("query")
-                if not sub_query:
-                    raise CompilationError(f"Set operation '{op}' is missing 'query'.")
-                sub_compiler = QueryCompiler(
-                    sub_query,
-                    schema=self.schema,
-                    dialect=self.dialect,
-                    allow_unknown_keys=True,
-                )
-                sub_sql, sub_params, _, _ = sub_compiler.compile()
-                main_sql = f"{main_sql}\n{op}\n{sub_sql}"
-                main_params = main_params + sub_params
-            kw = getattr(self.dialect, "subquery_alias_keyword", "AS ")
-            count_sql = f"SELECT COUNT(*) FROM (\n{main_sql}\n) {kw}set_op_count"
-            count_params = list(main_params)
-
-        if self.middleware is not None:
-            compilation = {
-                "main_sql": main_sql,
-                "main_params": main_params,
-                "count_sql": count_sql,
-                "count_params": count_params,
-            }
-            compilation = self.middleware.run_post_compile(compilation, ctx)
-            return (
-                compilation["main_sql"],
-                compilation["main_params"],
-                compilation["count_sql"],
-                compilation["count_params"],
+            mat_clause = self.dialect.format_cte_materialized(c_mat)
+            quoted_c_name = self.dialect.quote_identifier(c_name)
+            compiled_ctes.append(
+                f"{quoted_c_name}{cols_clause} AS {mat_clause}(\n{inner_sql}\n)"
             )
+        return f"{with_kw}{', '.join(compiled_ctes)}\n", cte_params
 
-        return main_sql, main_params, count_sql, count_params
+    def _apply_set_operations(
+        self, main_sql: str, main_params: list[Any]
+    ) -> tuple[str, list[Any], str, list[Any]]:
+        """UNION / INTERSECT / EXCEPT / MINUS: chain bodies and rebuild the count query."""
+        for so in self.spec.get("set_operations") or []:
+            if hasattr(so, "__dict__"):
+                so_dict = _public_attrs(so)
+            elif isinstance(so, dict):
+                so_dict = so
+            else:
+                raise CompilationError(
+                    f"Invalid set operation item type: {type(so).__name__}"
+                )
+            op = str(so_dict.get("operation") or "UNION").upper().strip()
+            sub_query = so_dict.get("query")
+            if not sub_query:
+                raise CompilationError(f"Set operation '{op}' is missing 'query'.")
+            sub_sql, sub_params = self._sub_compile(
+                sub_query, inner=False, as_dict=False
+            )
+            main_sql = f"{main_sql}\n{op}\n{sub_sql}"
+            main_params = main_params + sub_params
+        kw = getattr(self.dialect, "subquery_alias_keyword", "AS ")
+        count_sql = f"SELECT COUNT(*) FROM (\n{main_sql}\n) {kw}set_op_count"
+        return main_sql, main_params, count_sql, list(main_params)
 
 
 AnalyticalCompiler = QueryCompiler
