@@ -233,8 +233,10 @@ def run_batch(args: argparse.Namespace) -> int:
     finally:
         if not args.keep_up:
             print("[it_batch] tearing down (compose down -v)", flush=True)
+            # No --remove-orphans: several people/agents share the compose project, and
+            # containers started from OTHER compose files would count as orphans here.
             subprocess.run(
-                base + ["down", "-v", "--remove-orphans"],
+                base + ["down", "-v"],
                 cwd=ROOT,
                 check=False,
                 capture_output=True,
@@ -285,8 +287,46 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def purge_project() -> int:
+    """Remove EVERYTHING of the ``qb-integration`` compose project (all compose files).
+
+    Deliberate, project-wide cleanup for the end of a session. It selects only objects that
+    carry the compose project label ``com.docker.compose.project=qb-integration``, so
+    unrelated containers, volumes and networks are never touched.
+    """
+    label = f"label=com.docker.compose.project={PROJECT}"
+    removed = {"containers": 0, "volumes": 0, "networks": 0}
+
+    def ids(*cmd: str) -> list[str]:
+        out = subprocess.run(
+            ["docker", *cmd], capture_output=True, text=True, check=False
+        ).stdout
+        return [line.strip() for line in out.splitlines() if line.strip()]
+
+    for cid in ids("ps", "-aq", "--filter", label):
+        subprocess.run(
+            ["docker", "rm", "-f", "-v", cid], capture_output=True, check=False
+        )
+        removed["containers"] += 1
+    for vol in ids("volume", "ls", "-q", "--filter", label):
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", vol], capture_output=True, check=False
+        )
+        removed["volumes"] += 1
+    for net in ids("network", "ls", "-q", "--filter", label):
+        subprocess.run(
+            ["docker", "network", "rm", net], capture_output=True, check=False
+        )
+        removed["networks"] += 1
+    print(f"[it_batch] purged project {PROJECT}: {removed}", flush=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    return run_batch(build_parser().parse_args(argv))
+    args_in = list(sys.argv[1:] if argv is None else argv)
+    if args_in == ["--purge"]:
+        return purge_project()
+    return run_batch(build_parser().parse_args(args_in))
 
 
 if __name__ == "__main__":
