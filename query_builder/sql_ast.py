@@ -409,18 +409,29 @@ def _root_type(node: object) -> tuple[str, bool]:
     return name, isinstance(inner, _ROOT_QUERY_TYPES)
 
 
+# Quoted regions / comments that the rewrites below must step over.  Written with possessive
+# quantifiers and an explicit `\Z` fallback so every start position matches (or fails) in a
+# single linear pass: an unterminated literal swallows the rest of the text instead of being
+# rescanned from every later quote (that backtracking was polynomial on hostile input).
+_SQ = r"'(?:[^'\\]++|\\.?|'')*+(?:'|\Z)"
+_DQ = r'"(?:[^"\\]++|\\.?|"")*+(?:"|\Z)'
+_BQ = r"`[^`]*+(?:`|\Z)"
+_LINE_COMMENT = r"--[^\r\n]*+"
+_BLOCK_COMMENT = r"/\*(?:[^*]++|\*(?!/))*+(?:\*/|\Z)"
+_SKIP = f"{_SQ}|{_DQ}|{_BQ}"
+
 # Bind-parameter placeholders emitted by the compiler for DB-API drivers.  Rewritten to
 # the neutral `?` before parsing; quoted regions / comments are skipped.  Any mismatch
 # with the real lexer can only leave a placeholder untouched (parse failure -> reject)
 # or alter text inside a literal (harmless), never hide code.
 _PLACEHOLDER_RE = re.compile(
-    r"""(?P<skip>'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`|--[^\r\n]*|/\*.*?\*/)"""
+    rf"(?P<skip>{_SKIP}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
     r"""|(?P<ph>%\(\w+\)s|%s|(?<![\w$])\$\d+(?![\w$])|(?<![\w$])\$[A-Za-z_]\w*(?![\w$]))""",
     re.DOTALL,
 )
 # Cypher / Informix style pagination emitted by some dialects: `SKIP ? LIMIT ?`.
 _SKIP_PAGINATION_RE = re.compile(
-    r"""(?P<skip>'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`|--[^\r\n]*|/\*.*?\*/)"""
+    rf"(?P<skip>{_SKIP}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
     r"""|(?P<pg>\bSKIP\s+\?\s+(?:LIMIT|FIRST)\s+\?)""",
     re.IGNORECASE | re.DOTALL,
 )
@@ -442,8 +453,7 @@ def _normalize_placeholders(sql: str) -> str:
 # `/* */` one; text a nesting dialect would hide stays visible, which only makes the
 # analysis stricter (more code is inspected, or the parse fails and we fail closed).
 _COMMENT_RE = re.compile(
-    r"""(?P<skip>'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|`[^`]*`)"""
-    r"""|(?P<cm>--[^\r\n]*|/\*.*?(?:\*/|\Z))""",
+    rf"(?P<skip>{_SKIP})|(?P<cm>{_LINE_COMMENT}|{_BLOCK_COMMENT})",
     re.DOTALL,
 )
 
