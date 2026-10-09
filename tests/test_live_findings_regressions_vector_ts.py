@@ -1077,8 +1077,9 @@ def test_influxdb_uses_the_real_driver_module_binds_params_and_introspects_iox()
     seen: list[str] = []
     with patch(
         "query_builder.connectors.influxdb.introspect_information_schema",
-        side_effect=lambda cur, schema_name, filter_sensitive: seen.append(schema_name)
-        or {"tables": {}},
+        side_effect=lambda cur, schema_name, filter_sensitive: (
+            seen.append(schema_name) or {"tables": {}}
+        ),
     ):
         conn.introspect_schema()
     assert seen == ["iox"]
