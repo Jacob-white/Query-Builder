@@ -1,5 +1,5 @@
 /**
- * Shared, typed test helpers. Prefer these over `as any` in tests.
+ * Shared, typed test helpers. Prefer these over loose casts in tests.
  */
 import type {
   ColumnMeta,
