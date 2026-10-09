@@ -100,9 +100,23 @@ pip install "query-builder-engine[sqlite]"
 # Core + PostgreSQL
 pip install "query-builder-engine[postgres]"
 
-# All connectors (Snowflake, MySQL, ClickHouse, DuckDB, etc.)
+# Connector families: sql, cloud-warehouses, nosql, vector, streaming
+pip install "query-builder-engine[sql]"
+
+# FastAPI / Django integrations and the MCP server entry point (`query-builder-mcp`)
+pip install "query-builder-engine[server]"
+pip install "query-builder-engine[django]"
+
+# Every driver that installs from wheels on Linux, macOS and Windows
 pip install "query-builder-engine[all]"
+
+# Also the drivers that need a C toolchain / vendor client library / JVM
+# (mysqlclient, pymssql, pyodbc, ibm-db, ...). May fail on some platforms.
+pip install "query-builder-engine[all-native]"
 ```
+
+Each connector also has its own extra (`[snowflake]`, `[bigquery]`, `[mysql]`, ...); see
+`[project.optional-dependencies]` in `pyproject.toml`. The wheel ships type information (`py.typed`).
 
 ---
 

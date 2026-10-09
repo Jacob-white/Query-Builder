@@ -1,0 +1,6 @@
+# sdist contents beyond the package itself (setuptools already adds query_builder/**,
+# pyproject.toml, README.md and LICENSE).
+include CHANGELOG.md SECURITY.md CONTRIBUTING.md requirements*.txt
+recursive-include docs *.md
+recursive-include tests *.py *.json *.txt *.ini
+global-exclude __pycache__ *.py[cod] *.so *.db *.sqlite *.sqlite3 .DS_Store

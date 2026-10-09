@@ -17,8 +17,18 @@ pip install "query-builder-engine[sqlite]"
 # PostgreSQL
 pip install "query-builder-engine[postgres]"
 
-# Snowflake, MySQL, ClickHouse, DuckDB, or all connectors
+# A connector family (sql, cloud-warehouses, nosql, vector, streaming) ...
+pip install "query-builder-engine[sql]"
+
+# ... every driver that installs from wheels on all platforms ...
 pip install "query-builder-engine[all]"
+
+# ... or additionally the native-build drivers (mysqlclient, pymssql, pyodbc, ibm-db, ...)
+pip install "query-builder-engine[all-native]"
+
+# FastAPI / Django integrations
+pip install "query-builder-engine[server]"
+pip install "query-builder-engine[django]"
 ```
 
 For local repository development:
