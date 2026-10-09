@@ -424,8 +424,9 @@ def test_cosmosdb_adapter_and_lifecycle_branches():
 
     # introspect_schema through connector
     mock_client = MagicMock(spec=["get_database_client"])
-    mock_db = MagicMock(spec=["list_containers"])
+    mock_db = MagicMock(spec=["list_containers", "get_container_client"])
     mock_db.list_containers.return_value = [{"id": "coll1"}]
+    mock_db.get_container_client.return_value.query_items.return_value = []
     mock_client.get_database_client.return_value = mock_db
     conn_schema = CosmosDBConnector(connection=mock_client)
     snap = conn_schema.introspect_schema()

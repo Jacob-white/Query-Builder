@@ -87,7 +87,7 @@ services:
       retries: 30
 
   firestore:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators@sha256:be2f0e582a94c9e06e7a384fe2b3b39d590eeb8da65a110eda991598c100fe80
     profiles: ["nosql"]
     command: ["gcloud", "beta", "emulators", "firestore", "start", "--host-port=0.0.0.0:8080", "--project=qb-it"]
     ports: ["127.0.0.1:${QB_IT_PORT_FIRESTORE:-43080}:8080"]
@@ -98,7 +98,7 @@ services:
       retries: 40
 
   bigtable:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators@sha256:be2f0e582a94c9e06e7a384fe2b3b39d590eeb8da65a110eda991598c100fe80
     profiles: ["nosql"]
     command: ["gcloud", "beta", "emulators", "bigtable", "start", "--host-port=0.0.0.0:8086"]
     ports: ["127.0.0.1:${QB_IT_PORT_BIGTABLE:-43086}:8086"]
@@ -109,11 +109,27 @@ services:
       retries: 40
 
   spanner:
-    image: gcr.io/cloud-spanner-emulator/emulator:1.5.25
+    image: gcr.io/cloud-spanner-emulator/emulator:1.5.25@sha256:8fae494dce81f5167703b16f943dda76109195b8fc06bad1f3e952fe90a0b8d0
     profiles: ["nosql"]
     ports:
       - "127.0.0.1:${QB_IT_PORT_SPANNER:-43010}:9010"
       - "127.0.0.1:${QB_IT_PORT_SPANNER_REST:-43020}:9020"
+
+  cosmosdb:
+    # Linux "vnext" emulator (HTTP gateway, ~2.3 GB image); the classic emulator image needs
+    # far more memory. Pinned by digest: only the moving `vnext-preview` tag is published.
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator@sha256:4535ddbd27bba762f3e068f7585feb0022a2559ceccc9394b23aa38d91d77c38
+    profiles: ["nosql"]
+    environment:
+      PROTOCOL: http
+      ENABLE_EXPLORER: "false"
+      ENABLE_TELEMETRY: "false"
+    ports: ["127.0.0.1:${QB_IT_PORT_COSMOSDB:-43081}:8081"]
+    healthcheck:
+      test: ["CMD-SHELL", "(exec 3<>/dev/tcp/127.0.0.1/8081)"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
 
 volumes:
   qb_it_arangodb:

@@ -63,8 +63,20 @@ _RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         ),
     ),
     "cypher": (
+        # SELECT is not Cypher; it is allowed through so the ENGINE reports the syntax error
         frozenset(
-            {"MATCH", "OPTIONAL", "WITH", "UNWIND", "RETURN", "SHOW", "EXPLAIN", "PROFILE", "CALL"}
+            {
+                "MATCH",
+                "OPTIONAL",
+                "WITH",
+                "UNWIND",
+                "RETURN",
+                "SHOW",
+                "EXPLAIN",
+                "PROFILE",
+                "CALL",
+                "SELECT",
+            }
         ),
         frozenset(
             {
@@ -113,6 +125,8 @@ _RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             }
         ),
     ),
+    # Cosmos DB's SQL API only has SELECT: anything else is refused up front
+    "cosmos": (frozenset({"SELECT"}), frozenset()),
     "n1ql": (
         frozenset({"SELECT", "INFER", "WITH", "EXPLAIN", "ADVISE"}),
         frozenset(

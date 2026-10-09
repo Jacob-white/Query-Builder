@@ -55,10 +55,10 @@ def _plain(value: Any) -> Any:
 
 def build_query(client: Any, plan: SubsetPlan) -> Any:
     """Firestore ``Query`` for ``plan`` (works for the sync and the async client)."""
-    from google.cloud.firestore_v1.base_query import FieldFilter
-
     query = client.collection(plan.table)
     for pred in plan.predicates:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
         col, op, val = pred.column, pred.op, pred.value
         if op in _OPS:
             filters = [(_OPS[op], val)]
@@ -130,8 +130,6 @@ class _FirestoreCursorAdapter:
             finally:
                 if hasattr(cur, "close"):
                     cur.close()
-        elif clean_sql.upper() == "SELECT 1":
-            self.description, self._rows = [("val",)], [[1]]
         elif (
             clean_sql == "collections" or clean_sql.upper().startswith("SHOW")
         ) and hasattr(self.conn, "collections"):
@@ -139,6 +137,9 @@ class _FirestoreCursorAdapter:
             self.description = [("collection_name",)]
             self._rows = [[getattr(c, "id", str(c))] for c in colls]
         elif hasattr(self.conn, "collection"):
+            if clean_sql.upper() == "SELECT 1":
+                self.description, self._rows = [("val",)], [[1]]
+                return
             plan = parse_select_subset(clean_sql, params)
             query = build_query(self.conn, plan)
             if plan.count_star:

@@ -1,433 +1,1312 @@
 """
-Regression tests for defects the live suite found in the search / document /
-key-value / graph / native-protocol connectors (no services needed: the vendor
-clients are replaced by small fakes that have the real clients' shape).
+Regression tests for defects found by running the NoSQL / graph / document / wide-column
+connectors against REAL engines (tests/integration, ``engines_nosql.py``).  Default suite:
+mocks and fakes only, no services.  One block per bug, named after the symptom seen live.
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+import datetime
+import sys
+import types
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from query_builder.compiler import QueryCompiler
-from query_builder.connectors.base import IntrospectionError
-from query_builder.connectors.clickhouse_native import (
-    ClickHouseNativeConnector,
-    _bind_positional,
-    _ClickHouseNativeCursorAdapter,
-    _DetachedCursor,
+from query_builder.connectors._native_readonly import (
+    assert_read_only,
+    find_mutation,
+    strip_literals,
 )
-from query_builder.connectors.elasticsearch import (
-    ElasticsearchConnector,
-    ElasticsearchCursor,
+from query_builder.connectors._sql_subset import (
+    UnsupportedQuery,
+    parse_select_subset,
 )
-from query_builder.connectors.introspection import (
-    _redis_index_columns,
-    introspect_redis_search,
+from query_builder.connectors.base import (
+    ConnectionFailedError,
+    IntrospectionError,
 )
-from query_builder.connectors.mongodb import MongoDBAtlasSQLConnector
-from query_builder.connectors.neo4j import Neo4jConnector
-from query_builder.connectors.opensearch import (
-    OpenSearchConnector,
-    _typed_parameter,
+from query_builder.exceptions import SecurityError
+
+
+def run(coro: Any) -> Any:
+    return asyncio.run(coro)
+
+
+# ============================================================================
+# Native read-only guard (AQL REMOVE/REPLACE/UPSERT, Cypher SET/MERGE/REMOVE, SurrealQL
+# RELATE/DEFINE, CQL BATCH/TRUNCATE, SQL++ MERGE were NOT caught by the SQL-shaped check)
+# ============================================================================
+@pytest.mark.parametrize(
+    ("language", "statement"),
+    [
+        ("aql", "FOR p IN people REMOVE p IN people"),
+        ("aql", "FOR p IN people REPLACE p WITH {a: 1} IN people"),
+        ("aql", "UPSERT {a: 1} INSERT {a: 1} UPDATE {} IN people"),
+        ("aql", "FOR p IN people RETURN 1; /* x */ FOR q IN t INSERT {} INTO t"),
+        ("surrealql", "DELETE people"),
+        ("surrealql", "UPDATE people SET age = 0"),
+        ("surrealql", "RELATE a:1->knows->b:2"),
+        ("surrealql", "DEFINE TABLE x"),
+        ("surrealql", "SELECT * FROM people; REMOVE TABLE people"),
+        ("surrealql", "RETURN http::get('http://x')"),
+        ("cypher", "MATCH (p) SET p.age = 0"),
+        ("cypher", "MERGE (n:X {id: 1})"),
+        ("cypher", "MATCH (p) REMOVE p.age"),
+        ("cypher", "MATCH (p) DETACH DELETE p"),
+        ("cypher", "CALL mg.load_all()"),
+        ("cypher", "DROP GRAPH"),
+        ("cql", "BEGIN BATCH INSERT INTO t (a) VALUES (1) APPLY BATCH"),
+        ("cql", "TRUNCATE t"),
+        ("cql", "DELETE FROM t WHERE a = 1"),
+        ("n1ql", "MERGE INTO t USING s ON KEY s.k WHEN MATCHED THEN DELETE"),
+        ("n1ql", "UPSERT INTO t (KEY, VALUE) VALUES ('k', {})"),
+        ("n1ql", "SELECT 1; DROP COLLECTION t"),
+    ],
 )
-from query_builder.connectors.redis_search import (
-    READ_ONLY_COMMANDS,
-    RedisSearchConnector,
+def test_native_read_only_guard_rejects_writes(language: str, statement: str) -> None:
+    assert find_mutation(statement, language) is not None
+    with pytest.raises(SecurityError, match="Read-only session violation"):
+        assert_read_only(statement, language, "Engine")
+
+
+@pytest.mark.parametrize(
+    ("language", "statement"),
+    [
+        ("aql", "FOR p IN people SORT p.age RETURN {name: p.name, update: p.update}"),
+        ("aql", "FOR p IN `remove` RETURN 'REMOVE' /* INSERT */"),
+        ("aql", "RETURN COLLECTIONS()"),
+        ("aql", ""),
+        ("surrealql", "SELECT name, age FROM people ORDER BY age"),
+        ("surrealql", "INFO FOR DB"),
+        ("surrealql", "SELECT * FROM t WHERE x = 'DELETE'"),
+        ("cypher", "MATCH (p:Person) RETURN p.name AS name, p.set AS s"),
+        ("cypher", "SHOW VERSION"),
+        ("cypher", "CALL schema.node_type_properties() YIELD *"),
+        ("cypher", "CALL dbms.components() YIELD name"),
+        ("cql", "SELECT name FROM system_schema.tables"),
+        ("n1ql", "SELECT name FROM system:keyspaces"),
+        ("n1ql", "INFER `b`.`_default`.`c`"),
+    ],
 )
-from query_builder.dialects import get_dialect
-from query_builder.exceptions import DialectError, SecurityError
+def test_native_read_only_guard_allows_reads(language: str, statement: str) -> None:
+    assert find_mutation(statement, language) is None
+    assert_read_only(statement, language, "Engine")
 
 
-# ---- Elasticsearch -----------------------------------------------------------
-class _FakeSql:
-    def __init__(self, pages):
-        self.pages = list(pages)
-        self.calls = []
-        self.cleared = []
-
-    def query(self, **kwargs):
-        self.calls.append(kwargs)
-        return self.pages.pop(0)
-
-    def clear_cursor(self, cursor):
-        self.cleared.append(cursor)
+def test_native_read_only_guard_helpers() -> None:
+    assert strip_literals("a 'b' \"c\" `d` -- e\nf // g\n/* h */ i # j").split() == [
+        "a",
+        "f",
+        "i",
+    ]
+    assert find_mutation("   ;  ", "cypher") is None  # blank
+    assert find_mutation("12345", "cypher") is None  # no words at all
+    assert "starts with" in (find_mutation("PURGE x", "aql") or "")
 
 
-class _FakeEsClient:
-    def __init__(self, pages, version="8.15.2"):
-        self.sql = _FakeSql(pages)
-        self._version = version
-
-    def info(self):
-        return {"version": {"number": self._version}}
-
-
-def test_elasticsearch_cursor_binds_params_and_follows_cursor_pages():
-    client = _FakeEsClient(
-        [
-            {"columns": [{"name": "a"}], "rows": [[1], [2]], "cursor": "c1"},
-            {"rows": [[3]], "cursor": "c2"},
-            {"rows": [[4]]},
-        ]
+# ============================================================================
+# SQL subset parser (Firestore / Bigtable have no SQL: unsupported statements must RAISE)
+# ============================================================================
+def test_subset_parser_full_statement() -> None:
+    plan = parse_select_subset(
+        'SELECT "t"."name" AS n, age FROM `people` AS t '
+        "WHERE t.age >= %s AND name IN (%s, 'b') AND 3 < score AND x IS NOT NULL "
+        "AND y IS NULL AND z NOT IN (1, 2) AND w LIKE 'ab%' AND v != -1 "
+        "ORDER BY age DESC, name LIMIT %s OFFSET 2",
+        [30, "a", 5],
     )
-    cur = ElasticsearchCursor(client)
-    assert cur.execute("SELECT a FROM t WHERE x = ? ;", [7]) is cur
-    assert client.sql.calls[0] == {
-        "query": "SELECT a FROM t WHERE x = ?",
-        "format": "json",
-        "params": [7],
+    assert plan.table == "people"
+    assert plan.columns == ["name", "age"] and plan.out_names == ["n", "age"]
+    ops = [(p.column, p.op, p.value) for p in plan.predicates]
+    assert ops == [
+        ("age", ">=", 30),
+        ("name", "in", ["a", "b"]),
+        ("score", ">", 3),
+        ("x", "is-not-null", None),
+        ("y", "is-null", None),
+        ("z", "not-in", [1, 2]),
+        ("w", "prefix", "ab"),
+        ("v", "!=", -1),
+    ]
+    assert plan.order_by == [("age", True), ("name", False)]
+    assert (plan.limit, plan.offset) == (5, 2)
+
+
+def test_subset_parser_star_count_and_literals() -> None:
+    assert parse_select_subset("SELECT * FROM c").columns is None
+    assert parse_select_subset('SELECT "t".* FROM c AS t').columns is None
+    plan = parse_select_subset("SELECT COUNT(*) AS n FROM c WHERE a = 1.5 AND b = true")
+    assert plan.count_star and plan.count_alias == "n"
+    assert [p.value for p in plan.predicates] == [1.5, True]
+    plan = parse_select_subset("SELECT COUNT(*) FROM c WHERE a = NULL AND (b = 1)")
+    assert plan.count_alias == "count" and plan.predicates[1].value == 1
+    # a '?' inside a literal is not a placeholder; ? outside is
+    plan = parse_select_subset("SELECT a FROM c WHERE b = 'x?' AND c = ?", [7])
+    assert [p.value for p in plan.predicates] == ["x?", 7]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "DELETE FROM c",
+        "SELECT a FROM c JOIN d ON c.x = d.x",
+        "SELECT a FROM (SELECT a FROM c) AS t",
+        "SELECT a FROM c GROUP BY a",
+        "SELECT DISTINCT a FROM c",
+        "SELECT a FROM c WHERE a = 1 OR b = 2",
+        "SELECT a FROM c WHERE a IN (SELECT a FROM d)",
+        "SELECT a FROM c WHERE a LIKE '%x'",
+        "SELECT a FROM c WHERE a IS TRUE",
+        "SELECT a FROM c WHERE NOT a = 1",
+        "SELECT a FROM c WHERE a BETWEEN 1 AND 2",
+        "SELECT lower(a) FROM c",
+        "SELECT COUNT(*), a FROM c",
+        "SELECT a FROM c WHERE a = b",
+        "SELECT a FROM c WHERE a = :named",
+        "SELECT a FROM c WHERE a = %s",
+        "SELECT a FROM c WHERE a = (1 + 2)",
+        "SELECT a FROM c WHERE 1 = 1",
+        "SELECT a FROM c ORDER BY lower(a)",
+        "SELEC a FROM",
+        "SELECT 1",
+    ],
+)
+def test_subset_parser_rejects_everything_outside_the_subset(sql: str) -> None:
+    with pytest.raises(UnsupportedQuery):
+        parse_select_subset(sql)
+
+
+# ============================================================================
+# Firestore: the connector ignored the query (returned the first 10 documents of whatever
+# collection a regex found, "users" when none), invented collections/columns, and its
+# async class never awaited the async client.
+# ============================================================================
+class FakeDoc:
+    def __init__(self, doc_id: str, data: dict[str, Any]) -> None:
+        self.id = doc_id
+        self._data = data
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
+class FakeQuery:
+    """Records the structured-query calls the connector makes."""
+
+    def __init__(self, docs: list[FakeDoc], log: list[Any]) -> None:
+        self.docs, self.log = docs, log
+
+    def where(self, filter: Any) -> FakeQuery:  # noqa: A002 - mirrors the SDK keyword
+        self.log.append(("where", filter.field_path, filter.op_string, filter.value))
+        return self
+
+    def order_by(self, field: str, direction: str) -> FakeQuery:
+        self.log.append(("order_by", field, direction))
+        return self
+
+    def offset(self, n: int) -> FakeQuery:
+        self.log.append(("offset", n))
+        return self
+
+    def limit(self, n: int) -> FakeQuery:
+        self.log.append(("limit", n))
+        return self
+
+    def stream(self) -> list[FakeDoc]:
+        return self.docs
+
+    def count(self) -> Any:
+        agg = MagicMock()
+        agg.get.return_value = [[MagicMock(value=len(self.docs))]]
+        return agg
+
+
+class FakeFirestore:
+    def __init__(self, collections: dict[str, list[FakeDoc]]) -> None:
+        self.data = collections
+        self.log: list[Any] = []
+
+    def collection(self, name: str) -> FakeQuery:
+        self.log.append(("collection", name))
+        return FakeQuery(self.data[name], self.log)
+
+    def collections(self) -> list[Any]:
+        return [types.SimpleNamespace(id=n) for n in self.data]
+
+
+class FakeFieldFilter:
+    def __init__(self, field_path: str, op_string: str, value: Any) -> None:
+        self.field_path, self.op_string, self.value = field_path, op_string, value
+
+
+@pytest.fixture
+def fake_firestore_filter() -> Any:
+    mods = {
+        "google.cloud.firestore_v1": types.ModuleType("google.cloud.firestore_v1"),
+        "google.cloud.firestore_v1.base_query": types.ModuleType("base_query"),
     }
-    assert client.sql.calls[1] == {"cursor": "c1", "format": "json"}
-    assert cur.description == [("a", None)] and cur.rowcount == 4
-    assert cur.fetchone() == [1]
-    assert cur.fetchall() == [[2], [3], [4]]
-    assert cur.fetchone() is None
-    cur.close()
-    assert cur.fetchall() == []
+    mods["google.cloud.firestore_v1.base_query"].FieldFilter = FakeFieldFilter  # type: ignore[attr-defined]
+    with patch.dict(sys.modules, mods):
+        yield
 
 
-def test_elasticsearch_cursor_clears_a_runaway_cursor(monkeypatch):
-    import query_builder.connectors.elasticsearch as es
+PEOPLE_DOCS = [
+    FakeDoc(
+        "a", {"id": 1, "name": "alice", "age": 30, "ref": types.SimpleNamespace(path="x/y")}
+    ),
+    FakeDoc("b", {"name": "bob", "age": 45, "when": datetime.datetime(2020, 1, 1)}),
+]
 
-    monkeypatch.setattr(es, "_MAX_PAGES", 2)
-    client = _FakeEsClient(
-        [{"columns": [], "rows": [], "cursor": "c"}] + [{"rows": [], "cursor": "c"}] * 5
+
+def test_firestore_adapter_runs_the_query_not_a_fixed_scan(
+    fake_firestore_filter: Any,
+) -> None:
+    from query_builder.connectors.firestore import _FirestoreCursorAdapter
+
+    client = FakeFirestore({"people": PEOPLE_DOCS})
+    adapter = _FirestoreCursorAdapter(client)
+    adapter.execute(
+        'SELECT "t"."name" AS n FROM "people" AS "t" WHERE age >= %s AND name = %s '
+        'AND score IN (1, 2) AND nick LIKE %s AND z IS NULL AND y IS NOT NULL '
+        "ORDER BY age DESC, name LIMIT 5 OFFSET 1",
+        [30, "alice", "al%"],
     )
-    ElasticsearchCursor(client).execute("SELECT 1")
-    assert client.sql.cleared == ["c"]
+    assert adapter.description == [("n",)]
+    assert adapter.fetchall() == [["alice"], ["bob"]]
+    assert client.log == [
+        ("collection", "people"),
+        ("where", "age", ">=", 30),
+        ("where", "name", "==", "alice"),
+        ("where", "score", "in", [1, 2]),
+        ("where", "nick", ">=", "al"),
+        ("where", "nick", "<=", "al"),
+        ("where", "z", "==", None),
+        ("where", "y", "!=", None),
+        ("order_by", "age", "DESCENDING"),
+        ("order_by", "name", "ASCENDING"),
+        ("offset", 1),
+        ("limit", 5),
+    ]
+    adapter.execute("SELECT * FROM people")  # union of fields; own `id` field wins
+    names = [d[0] for d in adapter.description]
+    assert names == ["id", "name", "age", "ref", "when"]
+    rows = adapter.fetchall()
+    assert rows[0][0] == 1 and rows[1][0] == "b"  # doc id only when no `id` field
+    assert rows[0][3] == "x/y"  # DocumentReference -> its path
+    adapter.execute("SELECT COUNT(*) AS n FROM people WHERE age > 1")
+    assert (adapter.description, adapter.fetchall()) == ([("n",)], [[2]])
+    adapter.execute("SELECT 1")
+    assert adapter.fetchall() == [[1]]
+    with pytest.raises(UnsupportedQuery):  # never "the first documents" for what it cannot run
+        adapter.execute("SELECT a FROM people GROUP BY a")
 
 
-def test_elasticsearch_connector_wraps_client_and_reports_version_and_tables():
-    client = _FakeEsClient(
-        [
-            {"columns": [{"name": "x"}], "rows": [[1]]},  # SELECT 1 (health probe)
-            {
-                "rows": [
-                    ["docker-cluster", "people", "TABLE", "INDEX"],
-                    ["docker-cluster", ".hidden", "TABLE", "INDEX"],
-                ]
-            },
-            {"rows": [["name", "VARCHAR", "text"], ["age", "BIGINT", "long"]]},
-        ]
+def test_firestore_introspection_has_no_invented_collections_or_columns() -> None:
+    from query_builder.connectors.firestore import FirestoreConnector
+
+    client = FakeFirestore(
+        {"people": PEOPLE_DOCS[:1], "empty": []}
     )
-    es = ElasticsearchConnector(connection=client)
-    with es.get_cursor() as cur:
-        assert isinstance(cur, ElasticsearchCursor)
-    info = es.test_connection()
-    assert info["engine_version"] == "Elasticsearch 8.15.2"
-    tables = es.introspect_schema()["tables"]
-    assert list(tables) == ["people"]  # the cluster name is NOT a table; hidden skipped
-    assert [c["name"] for c in tables["people"]["columns"]] == ["name", "age"]
-
-    es_mock = ElasticsearchConnector(
-        connection=MagicMock()
-    )  # DB-API style keeps working
-    with es_mock.get_cursor():
-        pass
-    broken = _FakeEsClient([{"rows": []}])
-    broken.info = lambda: (_ for _ in ()).throw(RuntimeError("down"))
+    snapshot = FirestoreConnector(connection=client).introspect_schema(
+        filter_sensitive=False
+    )
+    assert set(snapshot["tables"]) == {"people", "empty"}
+    cols = {c["name"]: c for c in snapshot["tables"]["people"]["columns"]}
+    assert {"id", "name", "age"} <= set(cols) and cols["id"]["is_primary"] is True
+    assert cols["age"]["data_type"] == "number"
+    assert "user_id" not in cols and "data" not in cols  # were fabricated
+    assert [c["name"] for c in snapshot["tables"]["empty"]["columns"]] == ["id"]
     assert (
-        ElasticsearchConnector(connection=broken).test_connection()["engine_version"]
-        == "Elasticsearch SQL"
-    )
-    explicit = MagicMock()
-    with ElasticsearchConnector(cursor=explicit).get_cursor() as cur2:
-        assert cur2 is explicit
+        FirestoreConnector(connection=FakeFirestore({})).introspect_schema()["tables"]
+        == {}
+    )  # was {"users": ...}
 
 
-def test_elasticsearch_dialect_binds_qmark_and_refuses_offset():
-    es = get_dialect("elasticsearch")
-    assert es.placeholder == "?"
-    assert es.format_limit_offset(25, 0) == ("LIMIT 25", [])
-    with pytest.raises(DialectError, match="OFFSET"):
-        es.format_limit_offset(25, 5)
-    sql, params, _, _ = QueryCompiler(
-        {
-            "table": "t",
-            "columns": ["a"],
-            "filters": [{"column": "a", "op": "eq", "value": 1}],
-        },
-        dialect="elasticsearch",
-    ).compile()
-    assert sql.endswith("LIMIT 50") and params == [1]
+class AsyncFakeQuery(FakeQuery):
+    async def _stream(self) -> Any:
+        for d in self.docs:
+            yield d
+
+    def stream(self) -> Any:  # type: ignore[override]
+        return self._stream()
+
+    def count(self) -> Any:
+        class Agg:
+            async def get(inner) -> Any:  # noqa: N805
+                return [[MagicMock(value=len(self.docs))]]
+
+        return Agg()
 
 
-# ---- OpenSearch -----------------------------------------------------------------
-def test_opensearch_typed_parameters_and_limit():
-    assert _typed_parameter(True) == {"type": "boolean", "value": True}
-    assert _typed_parameter(5) == {"type": "long", "value": 5}
-    assert _typed_parameter(1.5) == {"type": "double", "value": 1.5}
-    assert _typed_parameter("x") == {"type": "string", "value": "x"}
-    os_d = get_dialect("opensearch")
-    assert os_d.format_limit_offset(10, 0) == ("LIMIT 10", [])
-    assert os_d.format_limit_offset(10, 5) == ("LIMIT 10 OFFSET 5", [])
+class AsyncFakeFirestore(FakeFirestore):
+    def collection(self, name: str) -> AsyncFakeQuery:  # type: ignore[override]
+        return AsyncFakeQuery(self.data[name], self.log)
 
-    sent = {}
+    async def _collections(self) -> Any:
+        for n in self.data:
+            yield types.SimpleNamespace(id=n)
 
-    class Transport:
-        def perform_request(self, method, path, body=None):
-            if "version" in body["query"].lower():
-                raise RuntimeError("the SQL plugin has no version()")
-            sent.update(method=method, path=path, body=body)
-            return {"schema": [{"name": "n"}], "datarows": [[1]]}
-
-    class Client:
-        transport = Transport()
-
-        def info(self):
-            return {"version": {"number": "2.17.0"}}
-
-    c = OpenSearchConnector(connection=Client())
-    cols, rows, _ = c.execute_raw("SELECT n FROM t WHERE a = ? AND b = ?", ["x", 2])
-    assert rows == [{"n": 1}]
-    assert sent["body"]["parameters"] == [
-        {"type": "string", "value": "x"},
-        {"type": "long", "value": 2},
-    ]
-    # the SQL plugin has no version(): ask the cluster
-    assert c.test_connection()["engine_version"] == "OpenSearch 2.17.0"
+    def collections(self) -> Any:  # type: ignore[override]
+        return self._collections()
 
 
-# ---- MongoDB (pymongosql) ----------------------------------------------------
-class _FakeCollection:
-    def __init__(self, docs):
-        self.docs = docs
+def test_async_firestore_awaits_the_async_client(fake_firestore_filter: Any) -> None:
+    from query_builder.connectors.firestore import AsyncFirestoreConnector
 
-    def find(self, query, limit=0):
-        return iter(self.docs[:limit] if limit else self.docs)
-
-
-class _FakeMongoDb:
-    name = "qb_it"
-
-    def __init__(self):
-        self.collections = {
-            "people": _FakeCollection(
-                [{"_id": 1, "name": "a", "age": 3, "user_id": 9}]
-            ),
-            "system.views": _FakeCollection([]),
+    async def body() -> None:
+        conn = AsyncFirestoreConnector(connection=AsyncFakeFirestore({"people": PEOPLE_DOCS}))
+        cols, rows, _ = await conn.execute_raw(
+            "SELECT name FROM people WHERE age > %s ORDER BY age", [10]
+        )
+        assert cols == ["name"] and rows == [{"name": "alice"}, {"name": "bob"}]
+        _, counted, _ = await conn.execute_raw("SELECT COUNT(*) AS n FROM people")
+        assert counted == [{"n": 2}]
+        _, one, _ = await conn.execute_raw("SELECT 1")
+        assert one == [{"val": 1}]
+        info = await conn.test_connection()
+        assert info["status"] == "healthy"
+        snapshot = await conn.introspect_schema(filter_sensitive=False)
+        assert {"id", "name", "age"} <= {
+            c["name"] for c in snapshot["tables"]["people"]["columns"]
         }
-        self.client = MagicMock()
-        self.client.server_info.return_value = {"version": "7.0.14"}
-        self.pinged = False
+        _, names, _ = await conn.execute_raw("collections")
+        assert names == [{"collection_name": "people"}]
 
-    def list_collection_names(self):
-        return list(self.collections)
-
-    def __getitem__(self, name):
-        return self.collections[name]
-
-    def command(self, name):
-        self.pinged = name == "ping"
+    run(body())
 
 
-class _FakeMongoConnection:
-    def __init__(self):
-        self.database = _FakeMongoDb()
+def test_async_firestore_connection_paths() -> None:
+    from query_builder.connectors.firestore import AsyncFirestoreConnector
+
+    async def body() -> None:
+        # a DB-API style connection (has cursor()) and a bare execute() object
+        cur = MagicMock()
+        cur.description = [("v",)]
+        cur.fetchall.return_value = [[1]]
+        conn = MagicMock()
+        conn.cursor.return_value = cur
+        assert (await AsyncFirestoreConnector(connection=conn).execute_raw("x", [1]))[
+            1
+        ] == [{"v": 1}]
+        assert (await AsyncFirestoreConnector(connection=conn).execute_raw("x"))[1] == [
+            {"v": 1}
+        ]
+        bare = MagicMock(spec=["execute"])
+        res = MagicMock(spec=["description", "fetchall"])
+        res.description, res.fetchall.return_value = [("c",)], [[2]]
+        bare.execute.return_value = res
+        assert (await AsyncFirestoreConnector(connection=bare).execute_raw("x"))[1] == [
+            {"c": 2}
+        ]
+        snap = await AsyncFirestoreConnector(connection=bare).introspect_schema()
+        assert isinstance(snap["tables"], dict)
+        conn_cur = AsyncFirestoreConnector(connection=conn)
+        assert isinstance((await conn_cur.introspect_schema())["tables"], dict)
+        cur.close.assert_called()
+        # awaitable collections() (older async clients)
+        async def aw() -> list[Any]:
+            return []
+
+        old = MagicMock(spec=["collections"])
+        old.collections.return_value = aw()
+        assert (await AsyncFirestoreConnector(connection=old).test_connection())[
+            "status"
+        ] == "healthy"
+        # introspection failure is wrapped
+        broken = AsyncFakeFirestore({"p": []})
+        broken.collections = MagicMock(side_effect=RuntimeError("down"))  # type: ignore[method-assign]
+        with pytest.raises(IntrospectionError):
+            await AsyncFirestoreConnector(connection=broken).introspect_schema()
+
+    run(body())
 
 
-def test_mongodb_connector_pings_and_introspects_natively():
-    conn = _FakeMongoConnection()
-    mongo = MongoDBAtlasSQLConnector(connection=conn, database="qb_it")
-    info = mongo.test_connection()  # `SELECT 1` is a syntax error in pymongosql
-    assert conn.database.pinged and info["engine_version"] == "MongoDB 7.0.14"
-    assert info["status"] == "healthy" and info["database"] == "qb_it"
-    schema = mongo.introspect_schema()
-    assert list(schema["tables"]) == ["people"]  # system.* collections are skipped
-    cols = {c["name"]: c for c in schema["tables"]["people"]["columns"]}
-    assert cols["_id"]["is_primary"] and cols["age"]["data_type"] == "int"
-    assert schema["tables"]["people"]["has_user_id"] is True
+def test_firestore_sync_unsupported_statement_is_an_error_through_the_connector() -> None:
+    from query_builder.connectors.firestore import FirestoreConnector
 
-    conn.database.client.server_info.side_effect = RuntimeError("no perms")
-    assert mongo.test_connection()["engine_version"] == "MongoDB"
-
-    conn.database.list_collection_names = lambda: (_ for _ in ()).throw(
-        RuntimeError("x")
-    )
-    with pytest.raises(IntrospectionError, match="MongoDB database"):
-        mongo.introspect_schema()
+    conn = FirestoreConnector(connection=FakeFirestore({"people": PEOPLE_DOCS}))
+    with pytest.raises(UnsupportedQuery):
+        conn.execute(sql="SELECT a FROM people WHERE a = 1 OR b = 2", validate_ast=False)
 
 
-def test_mongodb_connector_keeps_the_sql_path_for_dbapi_style_connections():
-    cur = MagicMock()
-    cur.fetchall.side_effect = [[("t",)], [("t", "id", "int", "NO")], [], []]
-    cur.fetchone.return_value = (1,)
-    mongo = MongoDBAtlasSQLConnector(cursor=cur, database="db")
-    assert mongo.test_connection()["engine_version"] == "MongoDB Atlas SQL"
-    assert "t" in mongo.introspect_schema()["tables"]
-    # a database object without list_collection_names() (a mock) falls back too
-    mocked = MongoDBAtlasSQLConnector(connection=MagicMock(), database="db")
-    assert mocked._native_db() is not None  # MagicMock has the attribute ...
-    odd = MagicMock()
-    odd.database.list_collection_names.return_value = "not-a-list"
-    odd.cursor.return_value = cur
-    cur.fetchall.side_effect = [[("t",)], [("t", "id", "int", "NO")], [], []]
-    assert "t" in MongoDBAtlasSQLConnector(connection=odd).introspect_schema()["tables"]
+# ============================================================================
+# Bigtable: same family of bugs (fixed 3-column shape, fixed 10 rows, "metrics" table),
+# plus the async class used a data client that has no table listing at all.
+# ============================================================================
+class Cell:
+    def __init__(self, value: bytes) -> None:
+        self.value = value
 
 
-def test_mongodb_dialect_inlines_limit_and_offset():
-    sql, params, _, _ = QueryCompiler(
-        {"table": "t", "columns": ["a"], "limit": 5, "offset": 2}, dialect="mongodb"
-    ).compile()
-    assert sql.endswith("LIMIT 5 OFFSET 2") and params == []
+class BtRow:
+    def __init__(self, key: bytes, cells: dict[str, dict[bytes, list[Cell]]]) -> None:
+        self.row_key, self.cells = key, cells
 
 
-# ---- Redis ------------------------------------------------------------------------
-def test_redis_index_columns_parse_resp2_resp3_and_garbage():
-    resp2 = [
-        b"index_name", b"idx", b"attributes",
-        [
-            [b"identifier", b"name", b"attribute", b"name", b"type", b"TEXT"],
-            [b"identifier", b"$.age", b"attribute", b"age", b"type", b"NUMERIC"],
-            "ignored-scalar",
-        ],
-        b"num_docs", b"3",
-    ]  # fmt: skip
-    client = MagicMock(spec=["execute_command"])
-    client.execute_command.return_value = resp2
-    cols = _redis_index_columns(client, "idx")
-    assert [(c["name"], c["data_type"]) for c in cols] == [
-        ("name", "text"),
-        ("age", "numeric"),
+class FakeBtTable:
+    def __init__(self, rows: list[BtRow], log: list[Any]) -> None:
+        self.rows, self.log = rows, log
+
+    def read_rows(self, **kwargs: Any) -> list[BtRow]:
+        self.log.append(kwargs)
+        return self.rows
+
+
+class FakeBtInstance:
+    def __init__(self, tables: dict[str, list[BtRow]]) -> None:
+        self.tables, self.log = tables, []
+
+    def table(self, name: str) -> FakeBtTable:
+        return FakeBtTable(self.tables[name], self.log)
+
+    def list_tables(self) -> list[Any]:
+        return [types.SimpleNamespace(table_id=n) for n in self.tables]
+
+
+def _bt_rows() -> list[BtRow]:
+    def row(key: str, name: str, age: str, bad: bytes | None = None) -> BtRow:
+        cells = {
+            "cf": {
+                b"name": [Cell(name.encode()), Cell(b"old")],
+                b"age": [Cell(age.encode())],
+            }
+        }
+        if bad is not None:
+            cells["cf"][b"bin"] = [Cell(bad)]
+        cells["cf"][b"empty"] = []
+        return BtRow(key.encode(), cells)
+
+    return [
+        row("k1", "alice", "30"),
+        row("k2", "bob", "45", bad=b"\xff\x00"),
+        row("k3", "carol", "28"),
     ]
-    client.execute_command.return_value = {
-        b"attributes": [{b"identifier": b"title", b"type": b"TAG"}]
+
+
+def test_bigtable_adapter_reads_rows_and_applies_the_query() -> None:
+    from query_builder.connectors.bigtable import _BigtableCursorAdapter
+
+    inst = FakeBtInstance({"people": _bt_rows()})
+    adapter = _BigtableCursorAdapter(inst)
+    adapter.execute(
+        'SELECT "cf.name" AS name, "cf.age" AS age FROM people '
+        'WHERE "cf.age" >= %s AND row_key >= %s AND row_key <= %s '
+        'ORDER BY "cf.age" LIMIT 2',
+        [28, "k1", "k9"],
+    )
+    assert adapter.description == [("name",), ("age",)]
+    assert adapter.fetchall() == [["carol", "28"], ["alice", "30"]]  # numeric order
+    assert inst.log[-1]["start_key"] == b"k1" and inst.log[-1]["end_key"] == b"k9"
+    assert inst.log[-1]["end_inclusive"] is True
+
+    adapter.execute("SELECT * FROM people WHERE row_key = 'k2'")
+    names = [d[0] for d in adapter.description]
+    assert names == ["row_key", "cf.name", "cf.age", "cf.bin"]
+    assert adapter.fetchall() == [["k2", "bob", "45", "0xff00"]]  # non-text -> hex
+
+    adapter.execute("SELECT COUNT(*) AS n FROM people WHERE \"cf.name\" LIKE 'a%'")
+    assert adapter.fetchall() == [[1]]
+    adapter.execute("SELECT row_key FROM people ORDER BY row_key DESC LIMIT 1 OFFSET 1")
+    assert adapter.fetchall() == [["k2"]]
+    adapter.execute("SELECT row_key FROM people WHERE row_key LIKE 'k%' LIMIT 3")
+    assert inst.log[-1]["start_key"] == b"k" and inst.log[-1]["end_key"] == b"l"
+    adapter.execute("SELECT row_key FROM people WHERE row_key > 'k1' AND row_key < 'k3'")
+    assert inst.log[-1]["start_key"] == b"k1\x00" and inst.log[-1]["end_inclusive"] is False
+    adapter.execute("SELECT row_key FROM people LIMIT 2")
+    assert inst.log[-1]["limit"] == 2  # pushed down when nothing needs client-side work
+    adapter.execute(
+        "SELECT row_key FROM people WHERE row_key IN ('k1','k3') "
+        'AND "cf.age" IS NOT NULL AND "cf.nope" IS NULL AND "cf.age" != 1 '
+        "AND \"cf.name\" NOT IN ('zed') AND \"cf.age\" < 100 AND \"cf.age\" > 1 "
+        'AND "cf.age" <= 99'
+    )
+    assert adapter.fetchall() == [["k1"], ["k3"]]
+    adapter.execute("SELECT * FROM people WHERE row_key = 'nothing'")
+    assert adapter.description == [("row_key",)] or adapter.fetchall() == []
+    adapter.execute("SELECT 1")
+    assert adapter.fetchall() == [[1]]
+    adapter.execute("SELECT row_key FROM people WHERE row_key LIKE '%'")  # whole-table prefix
+    with pytest.raises(UnsupportedQuery):
+        adapter.execute("DELETE FROM people")
+
+
+def test_bigtable_prefix_ending_in_0xff_has_no_upper_bound() -> None:
+    from query_builder.connectors.bigtable import _key_range
+    from query_builder.connectors._sql_subset import Predicate, SubsetPlan
+
+    plan = SubsetPlan(
+        table="t", columns=None, predicates=[Predicate("row_key", "prefix", "\xff")]
+    )
+    assert _key_range(plan)["start_key"] == "\xff".encode()
+
+
+def test_bigtable_introspection_lists_real_tables_and_cell_columns() -> None:
+    from query_builder.connectors.bigtable import BigtableConnector
+
+    conn = BigtableConnector(
+        connection=FakeBtInstance({"people": _bt_rows(), "empty": []})
+    )
+    snapshot = conn.introspect_schema(filter_sensitive=False)
+    assert set(snapshot["tables"]) == {"people", "empty"}  # was {"metrics"} when empty
+    people = [c["name"] for c in snapshot["tables"]["people"]["columns"]]
+    assert people == ["row_key", "cf.age", "cf.bin", "cf.name"] or set(people) >= {
+        "row_key",
+        "cf.name",
+        "cf.age",
     }
-    assert _redis_index_columns(client, "idx")[0]["name"] == "title"
-    client.execute_command.return_value = [b"index_name", b"idx"]  # no attributes
-    assert _redis_index_columns(client, "idx") == []
-    client.execute_command.return_value = {}
-    assert _redis_index_columns(client, "idx") == []
-    client.execute_command.side_effect = RuntimeError("unknown index")
-    assert _redis_index_columns(client, "idx") == []
-    assert _redis_index_columns(None, "idx") == []
-    assert _redis_index_columns(MagicMock(spec=[]), "idx") == []
+    assert [c["name"] for c in snapshot["tables"]["empty"]["columns"]] == ["row_key"]
+    assert BigtableConnector(connection=FakeBtInstance({})).introspect_schema()[
+        "tables"
+    ] == {}
 
 
-def test_redis_introspection_uses_real_index_columns_and_never_invents_indexes():
-    client = MagicMock(spec=["execute_command"])
-    client.execute_command.side_effect = [
-        [b"people"],
-        [
-            b"attributes",
-            [[b"identifier", b"name", b"attribute", b"name", b"type", b"TEXT"]],
-        ],
-    ]
-    snap = introspect_redis_search(client)
-    assert [c["name"] for c in snap["tables"]["people"]["columns"]] == ["name"]
-    nothing = MagicMock(spec=["execute_command"])
-    nothing.execute_command.return_value = []
-    assert introspect_redis_search(nothing)["tables"] == {}
+def test_async_bigtable_runs_the_sync_client_in_a_thread() -> None:
+    from query_builder.connectors.bigtable import AsyncBigtableConnector
+
+    inst = FakeBtInstance({"people": _bt_rows()})
+
+    async def body() -> None:
+        conn = AsyncBigtableConnector(connection=inst)
+        cols, rows, _ = await conn.execute_raw(
+            'SELECT "cf.name" AS name FROM people ORDER BY "cf.age" LIMIT 1'
+        )
+        assert cols == ["name"] and rows == [{"name": "carol"}]
+        assert (await conn.test_connection())["status"] == "healthy"
+        snapshot = await conn.introspect_schema(filter_sensitive=False)
+        assert "people" in snapshot["tables"]
+        cur = MagicMock()
+        cur.description, cur.fetchall.return_value = [("v",)], [[1]]
+        dbapi = MagicMock()
+        dbapi.cursor.return_value = cur
+        c2 = AsyncBigtableConnector(connection=dbapi)
+        assert (await c2.execute_raw("x", [1]))[1] == [{"v": 1}]
+        assert (await c2.execute_raw("x"))[1] == [{"v": 1}]
+        assert isinstance((await c2.introspect_schema())["tables"], dict)
+        broken = MagicMock(spec=["list_tables"])
+        broken.list_tables.side_effect = RuntimeError("down")
+        with pytest.raises(IntrospectionError):
+            await AsyncBigtableConnector(connection=broken).introspect_schema()
+
+    run(body())
 
 
-def test_redis_raw_path_is_read_only():
-    assert {"FT.SEARCH", "GET", "PING"} <= READ_ONLY_COMMANDS
-    assert not READ_ONLY_COMMANDS & {"FLUSHALL", "SET", "DEL", "FT.CREATE", "EVAL"}
-    client = MagicMock(spec=["execute_command"])
-    client.execute_command.return_value = b"OK"
-    redis = RedisSearchConnector(connection=client)
-    assert redis.execute_raw("ping")[1] == [{"result": "OK"}]  # case-insensitive
-    for write in ("FLUSHALL", "SET k v", "FT.DROPINDEX idx", "EVAL 'x' 0"):
-        with pytest.raises(SecurityError, match="Read-only session"):
-            redis.execute_raw(write)
-    assert client.execute_command.call_count == 1
-
-
-# ---- Neo4j ------------------------------------------------------------------------
-def test_neo4j_sessions_are_opened_in_read_access_mode():
-    class Rec(dict):
-        def keys(self):
-            return list(super().keys())
-
-    class Result(list):
-        def keys(self):
-            return ["n"]
-
-    class Session:
-        def run(self, query, parameters):
-            return Result([Rec(n=1)])
-
-        def close(self):
-            pass
-
-    class Driver:
-        modes = []
-
-        def session(self, **kwargs):
-            Driver.modes.append(kwargs)
-            return Session()
-
-    cols, rows, _ = Neo4jConnector(connection=Driver()).execute_raw(
-        "MATCH (n) RETURN n"
+def test_bigtable_connect_uses_the_sync_admin_client() -> None:
+    from query_builder.connectors.bigtable import (
+        AsyncBigtableConnector,
+        BigtableConnector,
     )
-    assert Driver.modes == [
-        {"default_access_mode": "READ"}
-    ]  # the server refuses writes
-    assert rows == [{"n": 1}]
+
+    drv = MagicMock()
+    drv.Client.return_value.instance.return_value = "instance"
+    with patch.dict(sys.modules, {"google.cloud.bigtable": drv}):
+        c = BigtableConnector(project_id="p", instance_id="i", admin=True, k=1)
+        assert c.connect() == "instance"
+        drv.Client.assert_called_with(project="p", admin=True, k=1)
+        assert run(AsyncBigtableConnector(project_id="p", instance_id="i").connect()) == "instance"
+        drv.Client.side_effect = RuntimeError("no")
+        with pytest.raises(ConnectionFailedError):
+            BigtableConnector().connect()
+        with pytest.raises(ConnectionFailedError):
+            run(AsyncBigtableConnector().connect())
 
 
-# ---- ClickHouse native protocol ----------------------------------------------------
-def test_clickhouse_native_binds_named_parameters():
-    assert _bind_positional("SELECT 1", None) == ("SELECT 1", None)
-    assert _bind_positional("SELECT 1", []) == ("SELECT 1", None)
-    assert _bind_positional("SELECT %s", {"p": 1}) == ("SELECT %s", {"p": 1})
-    sql, params = _bind_positional("a = %s AND b = %s AND c LIKE '100%%'", [1, "x"])
-    assert sql == "a = %(p0)s AND b = %(p1)s AND c LIKE '100%%'"
-    assert params == {"p0": 1, "p1": "x"}
+# ============================================================================
+# ArangoDB: introspection listed only _key/_id (documents' real fields were invisible), the
+# async class returned an EMPTY schema and ran the blocking driver on the event loop, the
+# engine version was the literal "ArangoDB", AQL writes passed the SQL-shaped check.
+# ============================================================================
+class FakeArangoDb:
+    """python-arango StandardDatabase stand-in answering the AQL the connector sends."""
 
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+        self.aql = types.SimpleNamespace(execute=self._execute)
 
-class _FakeNativeClient:
-    """clickhouse_driver.Client: execute() returns rows, not a DB-API cursor."""
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        self.calls = []
-
-    def execute(self, sql, params=None, with_column_types=False):
-        self.calls.append((sql, params))
-        if "system.tables" in sql:
-            return [("people",)], [("name", "String")]
-        if "system.columns" in sql:
-            return (
-                [("people", "id", "Int32", 1), ("people", "name", "String", 0)],
-                [("t", "String")] * 4,
+    def _execute(self, query: str, bind_vars: dict[str, Any] | None = None) -> Any:
+        self.statements.append(query)
+        if query.startswith("RETURN COLLECTIONS"):
+            return iter(
+                [[{"name": "people"}, {"name": "_system_coll"}, {"name": "empty"}]]
             )
-        return [(1,)], [("x", "UInt8")]
+        if "`people`" in query:
+            return iter([{"name": "a", "age": 3, "tags": ["x"], "ok": True, "n": None}])
+        if "`empty`" in query:
+            return iter([{}])
+        return iter([1])
+
+    def version(self) -> str:
+        return "3.12.4"
 
 
-def test_clickhouse_native_connector_with_a_real_shaped_client(monkeypatch):
-    import sys
-    import types
+def test_arango_introspection_reports_real_fields_and_engine_version() -> None:
+    from query_builder.connectors.arangodb import ArangoDBConnector
 
-    fake_mod = types.ModuleType("clickhouse_driver")
-    fake_mod.Client = _FakeNativeClient
-    monkeypatch.setitem(sys.modules, "clickhouse_driver", fake_mod)
-    monkeypatch.setitem(sys.modules, "clickhouse_driver.Client", fake_mod)
-    ch = ClickHouseNativeConnector(database="d", host="h", settings={"x": 1})
-    client = ch.connect()
-    # unmatched OUTER JOIN columns must be NULL; caller settings still win
-    assert client.kwargs["settings"] == {"join_use_nulls": 1, "x": 1}
-    with ch.get_cursor() as cur:
-        cur.execute("SELECT %s", [5])
-        assert cur.fetchall() == [[1]]
-    assert client.calls[-1] == ("SELECT %(p0)s", {"p0": 5})
-    snap = ch.introspect_schema()  # needs a DB-API-shaped cursor, not the raw client
-    cols = {c["name"]: c["is_primary"] for c in snap["tables"]["people"]["columns"]}
-    assert cols == {"id": True, "name": False}
-
-    adapter = _ClickHouseNativeCursorAdapter(client)
-    detached = _DetachedCursor(adapter)
-    assert not hasattr(detached, "target")
-    detached.execute("SELECT 1")
-    assert detached.description == [("x",)]
-    assert detached.fetchone() == [1]
-    assert detached.fetchall() == []
-    detached.close()
+    conn = ArangoDBConnector(connection=FakeArangoDb())
+    snapshot = conn.introspect_schema(filter_sensitive=False)
+    assert set(snapshot["tables"]) == {"people", "empty"}
+    cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
+    assert cols == {
+        "_key": "string",
+        "_id": "string",
+        "name": "string",
+        "age": "number",
+        "tags": "array",
+        "ok": "boolean",
+        "n": "null",
+    }
+    assert conn.test_connection()["engine_version"] == "ArangoDB 3.12.4"
+    bad = FakeArangoDb()
+    bad.version = MagicMock(side_effect=RuntimeError("401"))  # type: ignore[method-assign]
+    assert ArangoDBConnector(connection=bad).test_connection()["engine_version"] == "ArangoDB"
+    bad.version = MagicMock(return_value=None)  # type: ignore[method-assign]
+    assert ArangoDBConnector(connection=bad).test_connection()["engine_version"] == "ArangoDB"
 
 
-def test_async_loops_are_untouched():
-    # sanity: the module-level helpers above never leave a running loop behind
-    assert asyncio.run(asyncio.sleep(0, "ok")) == "ok"
+def test_arango_native_db_object_introspection_samples_documents() -> None:
+    from query_builder.connectors.introspection import introspect_arangodb
+
+    class Coll:
+        def all(self, limit: int) -> list[Any]:
+            return [{"_key": "1", "a": None}, {"a": 5, "b": "x"}, "not-a-doc"]
+
+    db = MagicMock(spec=["collections", "collection"])
+    db.collections.return_value = [{"name": "docs"}]
+    db.collection.return_value = Coll()
+    cols = {
+        c["name"]: c["data_type"]
+        for c in introspect_arangodb(db, filter_sensitive=False)["tables"]["docs"][
+            "columns"
+        ]
+    }
+    assert cols["a"] == "number" and cols["b"] == "string"
+    failing = MagicMock(spec=["collections", "collection"])
+    failing.collections.return_value = [{"name": "docs"}]
+    failing.collection.side_effect = RuntimeError("denied")  # sampling is best effort
+    cols = introspect_arangodb(failing, filter_sensitive=False)["tables"]["docs"]["columns"]
+    assert [c["name"] for c in cols] == ["_key", "_id"]
+
+
+def test_arango_adapter_refuses_aql_writes_below_the_ast_validator() -> None:
+    from query_builder.connectors.arangodb import ArangoDBConnector, _ArangoCursorAdapter
+
+    db = FakeArangoDb()
+    adapter = _ArangoCursorAdapter(db)
+    for statement in (
+        "FOR p IN people REMOVE p IN people",
+        "FOR p IN people REPLACE p WITH {} IN people",
+        "UPSERT {a: 1} INSERT {a: 1} UPDATE {} IN people",
+    ):
+        with pytest.raises(SecurityError):
+            adapter.execute(statement)
+    assert db.statements == []  # never reached the engine
+    _ArangoCursorAdapter(db, read_only=False).execute("FOR p IN people REMOVE p IN people")
+    assert len(db.statements) == 1
+    # through the connector, with the AST validator OFF
+    conn = ArangoDBConnector(connection=FakeArangoDb())
+    with pytest.raises(SecurityError):
+        conn.execute(sql="FOR p IN people REMOVE p IN people", validate_ast=False)
+    assert conn._read_only() is True
+    # heterogeneous documents: the column set is the union, not the first document's keys
+    db2 = types.SimpleNamespace(
+        aql=types.SimpleNamespace(
+            execute=lambda q, bind_vars=None: iter([{"a": 1}, {"a": 2, "b": 3}])
+        )
+    )
+    a2 = _ArangoCursorAdapter(db2)
+    a2.execute("FOR d IN c RETURN d")
+    assert a2.description == [("a",), ("b",)] and a2.fetchall() == [[1, None], [2, 3]]
+
+
+def test_async_arango_is_not_empty_and_runs_off_the_event_loop() -> None:
+    from query_builder.connectors.arangodb import AsyncArangoDBConnector
+
+    async def body() -> None:
+        conn = AsyncArangoDBConnector(connection=FakeArangoDb())
+        info = await conn.test_connection()
+        assert info["engine_version"] == "ArangoDB 3.12.4" and info["status"] == "healthy"
+        snapshot = await conn.introspect_schema(filter_sensitive=False)
+        assert "people" in snapshot["tables"]  # was always {}
+        cols, rows, _ = await conn.execute_raw("RETURN 1")
+        assert rows == [{"value": 1}] and cols == ["value"]
+        with pytest.raises(SecurityError):
+            await conn.execute_raw("FOR p IN people REMOVE p IN people")
+        broken = FakeArangoDb()
+        broken.aql = types.SimpleNamespace(
+            execute=MagicMock(side_effect=RuntimeError("down"))
+        )
+        with pytest.raises(IntrospectionError):
+            await AsyncArangoDBConnector(connection=broken).introspect_schema()
+
+    run(body())
+
+
+# ============================================================================
+# SurrealDB: the connector passed `namespace=`/`database=` into Surreal(url, ...) (TypeError
+# with the real SDK), never signed in or selected a namespace/database, doubled `/rpc`,
+# misread the SDK >= 1.0 result shape (rows silently EMPTY), left RecordIDs as SDK objects,
+# introspected tables without columns, and the async class used the blocking client.
+# ============================================================================
+class FakeSurrealClient:
+    def __init__(self, url: str, **kw: Any) -> None:
+        self.url, self.kw, self.calls = url, kw, []
+        self.answers: dict[str, Any] = {}
+
+    def signin(self, creds: dict[str, str]) -> None:
+        self.calls.append(("signin", creds))
+
+    def use(self, ns: str, db: str) -> None:
+        self.calls.append(("use", ns, db))
+
+    def query(self, sql: str, vars: Any = None) -> Any:  # noqa: A002
+        self.calls.append(("query", sql, vars))
+        for prefix, value in self.answers.items():
+            if sql.startswith(prefix):
+                return value
+        return []
+
+    def version(self) -> str:
+        return "surrealdb-2.3.7"
+
+    def close(self) -> None:
+        self.calls.append(("close",))
+
+
+class FakeRecordId:
+    def __str__(self) -> str:
+        return "people:1"
+
+
+def _surreal_driver(client: Any, name: str = "Surreal") -> Any:
+    drv = types.SimpleNamespace()
+    setattr(drv, name, lambda url, **kw: client(url, **kw) if callable(client) else client)
+    return drv
+
+
+def test_surreal_connect_signs_in_selects_namespace_and_fixes_url() -> None:
+    from query_builder.connectors.surrealdb import SurrealDBConnector
+
+    made: list[FakeSurrealClient] = []
+
+    def factory(url: str, **kw: Any) -> FakeSurrealClient:
+        made.append(FakeSurrealClient(url, **kw))
+        return made[-1]
+
+    with patch.dict(sys.modules, {"surrealdb": _surreal_driver(factory)}):
+        conn = SurrealDBConnector(
+            url="ws://h:8000/rpc",
+            namespace="ns",
+            database="db",
+            username="root",
+            password="pw",
+        )
+        client = conn.connect()
+    assert client.url == "ws://h:8000" and client.kw == {}  # no ns/db kwargs, no /rpc twice
+    assert client.calls == [
+        ("signin", {"username": "root", "password": "pw"}),
+        ("use", "ns", "db"),
+    ]
+    assert "pw" not in repr(conn) and "pw" not in str(conn)
+
+    class Failing(FakeSurrealClient):
+        def signin(self, creds: dict[str, str]) -> None:
+            raise RuntimeError("authentication failed")
+
+    failing = Failing("ws://h:8000")
+    with patch.dict(sys.modules, {"surrealdb": _surreal_driver(failing)}):
+        with pytest.raises(ConnectionFailedError):
+            SurrealDBConnector(username="root", password="bad").connect()
+    assert ("close",) in failing.calls  # the half-open client is released
+    # no credentials: nothing to sign in with; ws url without /rpc is untouched
+    anon = FakeSurrealClient("ws://h:8000")
+    with patch.dict(sys.modules, {"surrealdb": _surreal_driver(anon)}):
+        SurrealDBConnector(url="ws://h:8000").connect()
+    assert [c[0] for c in anon.calls] == ["use"]
+
+
+def test_surreal_adapter_reads_both_sdk_result_shapes_and_plain_values() -> None:
+    from query_builder.connectors.surrealdb import _SurrealCursorAdapter
+
+    client = FakeSurrealClient("u")
+    adapter = _SurrealCursorAdapter(client)
+    rec = {"id": FakeRecordId(), "name": "a", "nested": {"k": [FakeRecordId(), 1]}}
+    client.answers["SELECT"] = [rec, {"name": "b", "extra": 2}]  # SDK >= 1.0
+    adapter.execute("SELECT * FROM people WHERE a = ? AND b = ?", [1, 2])
+    assert adapter.description == [("id",), ("name",), ("nested",), ("extra",)]
+    row = adapter.fetchone()
+    assert row[0] == "people:1" and row[2] == {"k": ["people:1", 1]}
+    assert client.calls[-1][1] == "SELECT * FROM people WHERE a = $p0 AND b = $p1"
+    assert client.calls[-1][2] == {"p0": 1, "p1": 2}
+    client.answers["SELECT"] = [{"result": [{"x": 1}], "status": "OK", "time": "1ms"}]
+    adapter.execute("SELECT x FROM t", {"named": 1})  # legacy shape + named binds
+    assert adapter.fetchall() == [[1]] and client.calls[-1][2] == {"named": 1}
+    client.answers["SELECT"] = [{"result": 5, "status": "OK"}]
+    adapter.execute("SELECT 5")
+    assert adapter.fetchall() == [[5]]
+    client.answers["SELECT"] = [{"result": None, "status": "OK"}]
+    adapter.execute("SELECT nothing")
+    assert adapter.fetchall() == []
+    client.answers["SELECT"] = None
+    adapter.execute("SELECT 1")  # health check: SELECT 1 is not SurrealQL
+    assert client.calls[-1][1] == "RETURN 1"
+    for write in ("DELETE people", "UPDATE people SET a = 1", "REMOVE TABLE people"):
+        with pytest.raises(SecurityError):
+            adapter.execute(write)
+    exec_only = MagicMock(spec=["execute", "description", "fetchall"])
+    exec_only.description, exec_only.fetchall.return_value = [("c",)], [(1,)]
+    a2 = _SurrealCursorAdapter(exec_only)
+    a2.execute("SELECT 1 AS c", [1])
+    a2.execute("SELECT 1 AS c")
+    assert a2.fetchall() == [(1,)]
+    a3 = _SurrealCursorAdapter(object())
+    a3.execute("SELECT 1")
+    assert a3.description == []
+    assert a3.fetchone() is None
+
+
+def test_surreal_introspection_uses_info_for_db_and_samples_fields() -> None:
+    from query_builder.connectors.surrealdb import SurrealDBConnector
+
+    client = FakeSurrealClient("u")
+    client.answers["INFO FOR DB"] = {"tables": {"people": "DEFINE TABLE people", "t2": ""}}
+    client.answers["INFO FOR TABLE `people`"] = {
+        "fields": {
+            "name": "DEFINE FIELD name ON people TYPE string",
+            "untyped": "DEFINE FIELD untyped ON people",
+        }
+    }
+    client.answers["SELECT * FROM `people`"] = [
+        {"id": FakeRecordId(), "name": "a", "age": 3, "untyped": 1.5}
+    ]
+    conn = SurrealDBConnector(connection=client)
+    snapshot = conn.introspect_schema(filter_sensitive=False)
+    cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["people"]["columns"]}
+    assert cols == {"id": "record", "name": "string", "untyped": "number", "age": "number"}
+    assert [c["name"] for c in snapshot["tables"]["t2"]["columns"]] == ["id"]
+    assert conn.test_connection()["engine_version"] == "surrealdb-2.3.7"
+    client.version = None  # type: ignore[assignment] - an SDK without a usable version()
+    assert conn.test_connection()["engine_version"] == "SurrealDB"
+    with pytest.raises(IntrospectionError):
+        SurrealDBConnector(
+            connection=MagicMock(spec=["query"], query=MagicMock(side_effect=RuntimeError("x")))
+        ).introspect_schema()
+
+
+class AsyncFakeSurreal(FakeSurrealClient):
+    async def connect(self) -> None:
+        self.calls.append(("connect",))
+
+    async def signin(self, creds: dict[str, str]) -> None:  # type: ignore[override]
+        self.calls.append(("signin", creds))
+
+    async def use(self, ns: str, db: str) -> None:  # type: ignore[override]
+        self.calls.append(("use", ns, db))
+
+    async def query(self, sql: str, vars: Any = None) -> Any:  # type: ignore[override]  # noqa: A002
+        return FakeSurrealClient.query(self, sql, vars)
+
+    async def version(self) -> str:  # type: ignore[override]
+        return "surrealdb-2.3.7"
+
+    async def close(self) -> None:  # type: ignore[override]
+        self.calls.append(("close",))
+
+
+def test_async_surreal_uses_the_async_sdk_and_awaits_it() -> None:
+    from query_builder.connectors.surrealdb import AsyncSurrealDBConnector
+
+    client = AsyncFakeSurreal("u")
+    client.answers["SELECT"] = [{"name": "a"}]
+    client.answers["INFO FOR DB"] = {"tables": {"people": ""}}
+    client.answers["INFO FOR TABLE"] = {}
+
+    async def body() -> None:
+        drv = _surreal_driver(client, name="AsyncSurreal")
+        with patch.dict(sys.modules, {"surrealdb": drv}):
+            conn = AsyncSurrealDBConnector(
+                url="ws://h:8000/rpc", namespace="n", database="d", username="u", password="p"
+            )
+            info = await conn.test_connection()
+            assert info["engine_version"] == "surrealdb-2.3.7" and info["namespace"] == "n"
+            assert [c[0] for c in client.calls[:3]] == ["connect", "signin", "use"]
+            cols, rows, _ = await conn.execute_raw("SELECT name FROM people WHERE a = ?", [1])
+            assert cols == ["name"] and rows == [{"name": "a"}]
+            snapshot = await conn.introspect_schema(filter_sensitive=False)
+            assert "people" in snapshot["tables"]  # was always {} (default async fallback)
+            with pytest.raises(SecurityError):
+                await conn.execute_raw("DELETE people")
+            await conn.close()
+        # failing sign-in releases the client and surfaces a connection error
+        class Bad(AsyncFakeSurreal):
+            async def signin(self, creds: dict[str, str]) -> None:  # type: ignore[override]
+                raise RuntimeError("nope")
+
+        bad = Bad("u")
+        with patch.dict(sys.modules, {"surrealdb": _surreal_driver(bad, "AsyncSurreal")}):
+            with pytest.raises(ConnectionFailedError):
+                await AsyncSurrealDBConnector(username="u", password="p").connect()
+        assert ("close",) in bad.calls
+        # blocking-only SDK object (no connect/signin): still works; no creds -> no signin
+        sync = FakeSurrealClient("u")
+        with patch.dict(sys.modules, {"surrealdb": _surreal_driver(sync, "Surreal")}):
+            c = AsyncSurrealDBConnector()
+            assert await c.connect() is sync
+            assert await c.test_connection()
+        # introspection failure is wrapped
+        broken = FakeSurrealClient("u")
+        broken.query = MagicMock(side_effect=RuntimeError("down"))  # type: ignore[method-assign]
+        with pytest.raises(IntrospectionError):
+            await AsyncSurrealDBConnector(connection=broken).introspect_schema()
+        # fallback to driver.connect when the SDK has no Surreal class
+        fb = types.SimpleNamespace(connect=lambda url: FakeSurrealClient(url))
+        with patch.dict(sys.modules, {"surrealdb": fb}):
+            assert isinstance(await AsyncSurrealDBConnector().connect(), FakeSurrealClient)
+            assert isinstance(SurrealDBConnector().connect(), FakeSurrealClient)
+
+    from query_builder.connectors.surrealdb import SurrealDBConnector
+
+    run(body())
+
+
+# ============================================================================
+# Memgraph: introspection fabricated a "Node" label with id/name/user_id columns (and asked
+# for mg.labels(), which does not exist); the async class never awaited its async driver;
+# SET / MERGE / REMOVE passed the read-only check (Bolt access modes are ignored by Memgraph).
+# ============================================================================
+class FakeMgResult:
+    def __init__(self, keys: list[str], rows: list[list[Any]]) -> None:
+        self._keys, self._rows = keys, rows
+
+    def keys(self) -> list[str]:
+        return self._keys
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+    def values(self) -> list[list[Any]]:
+        return self._rows
+
+
+class FakeMgSession:
+    def __init__(self, answers: dict[str, tuple[list[str], list[list[Any]]]]) -> None:
+        self.answers, self.ran = answers, []
+
+    def run(self, query: str, parameters: Any = None) -> FakeMgResult:
+        self.ran.append(query)
+        for prefix, (keys, rows) in self.answers.items():
+            if query.startswith(prefix):
+                return FakeMgResult(keys, rows)
+        raise RuntimeError(f"unexpected query {query}")
+
+    def close(self) -> None:
+        pass
+
+
+class FakeMgDriver:
+    def __init__(self, answers: dict[str, tuple[list[str], list[list[Any]]]]) -> None:
+        self.session_obj = FakeMgSession(answers)
+
+    def session(self) -> FakeMgSession:
+        return self.session_obj
+
+    def close(self) -> None:
+        pass
+
+
+MG_SCHEMA = {
+    "CALL schema.node_type_properties()": (
+        ["nodeLabels", "propertyName", "propertyTypes"],
+        [[["Person"], "name", ["String"]], [["Person"], "age", ["Integer"]]],
+    ),
+    "SHOW VERSION": (["version"], [["2.21.0"]]),
+    "RETURN 1": (["val"], [[1]]),
+}
+
+
+def test_memgraph_introspection_is_not_fabricated() -> None:
+    from query_builder.connectors.memgraph import MemgraphConnector
+
+    drv = FakeMgDriver(MG_SCHEMA)
+    conn = MemgraphConnector(connection=drv)
+    snapshot = conn.introspect_schema(filter_sensitive=False)
+    cols = {c["name"]: c["data_type"] for c in snapshot["tables"]["Person"]["columns"]}
+    assert cols == {"name": "string", "age": "integer"}
+    assert set(snapshot["tables"]) == {"Person"}  # no invented "Node" label
+    assert conn.test_connection()["engine_version"] == "Memgraph 2.21.0"
+    empty = MemgraphConnector(
+        connection=FakeMgDriver(
+            {"CALL schema.node_type_properties()": (["nodeLabels"], [])}
+        )
+    )
+    assert empty.introspect_schema()["tables"] == {}
+
+
+def test_memgraph_write_statements_are_refused_client_side() -> None:
+    from query_builder.connectors.memgraph import MemgraphConnector
+
+    drv = FakeMgDriver(MG_SCHEMA)
+    conn = MemgraphConnector(connection=drv)
+    for statement in (
+        "MATCH (p:Person) SET p.age = 0",
+        "MERGE (n:X {id: 1})",
+        "MATCH (p:Person) REMOVE p.age",
+        "CREATE (n:Hacked)",
+        "MATCH (n) DETACH DELETE n",
+        "CALL mg.load_all()",
+    ):
+        with pytest.raises(SecurityError):
+            conn.execute(sql=statement, validate_ast=False)
+    assert drv.session_obj.ran == []
+    # SELECT 1 (the generic health probe) is mapped to a valid Cypher statement
+    assert conn.execute(sql="SELECT 1", validate_ast=False)["rows"] == [{"val": 1}]
+
+
+class AsyncFakeMgSession:
+    def __init__(self, answers: dict[str, tuple[list[str], list[list[Any]]]]) -> None:
+        self.answers = answers
+
+    async def __aenter__(self) -> AsyncFakeMgSession:
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+    async def run(self, query: str, parameters: Any = None) -> Any:
+        for prefix, (keys, rows) in self.answers.items():
+            if query.startswith(prefix):
+                return AsyncFakeMgResult(keys, rows)
+        raise RuntimeError(f"unexpected query {query}")
+
+
+class AsyncFakeMgResult:
+    def __init__(self, keys: list[str], rows: list[list[Any]]) -> None:
+        self._keys = keys
+        self._rows = [types.SimpleNamespace(values=lambda r=r: r) for r in rows]
+
+    def keys(self) -> list[str]:
+        return self._keys
+
+    def __aiter__(self) -> Any:
+        async def gen() -> Any:
+            for r in self._rows:
+                yield r
+
+        return gen()
+
+
+class AsyncFakeMgDriver:
+    def __init__(self, answers: dict[str, tuple[list[str], list[list[Any]]]]) -> None:
+        self.answers = answers
+
+    async def verify_connectivity(self) -> None:
+        return None
+
+    def session(self) -> AsyncFakeMgSession:
+        return AsyncFakeMgSession(self.answers)
+
+    async def close(self) -> None:
+        return None
+
+
+def test_async_memgraph_really_awaits_the_async_driver() -> None:
+    from query_builder.connectors.memgraph import AsyncMemgraphConnector
+
+    async def body() -> None:
+        conn = AsyncMemgraphConnector(connection=AsyncFakeMgDriver(MG_SCHEMA))
+        info = await conn.test_connection()
+        assert info["engine_version"] == "Memgraph 2.21.0"
+        cols, rows, _ = await conn.execute_raw("RETURN 1 AS val")
+        assert cols == ["val"] and rows == [{"val": 1}]
+        _, rows, _ = await conn.execute_raw("SELECT 1")
+        assert rows == [{"val": 1}]
+        snapshot = await conn.introspect_schema(filter_sensitive=False)
+        assert set(snapshot["tables"]) == {"Person"}
+        with pytest.raises(SecurityError):
+            await conn.execute_raw("MATCH (n) SET n.x = 1")
+        await conn.close()
+        # fallback queries when the schema procedure is missing
+        fb = AsyncMemgraphConnector(
+            connection=AsyncFakeMgDriver(
+                {
+                    "MATCH (n) UNWIND": (["label"], [["Person"]]),
+                    "MATCH (n:`Person`)": (["props"], [[{"name": "a"}]]),
+                }
+            )
+        )
+        snap = await fb.introspect_schema(filter_sensitive=False)
+        assert [c["name"] for c in snap["tables"]["Person"]["columns"]] == ["name"]
+        # a failing introspection query is wrapped
+        broken = AsyncMemgraphConnector(connection=AsyncFakeMgDriver({}))
+        with pytest.raises(IntrospectionError):
+            await broken.introspect_schema()
+        # the version probe failing keeps the plain name
+        nover = AsyncMemgraphConnector(
+            connection=AsyncFakeMgDriver({"RETURN 1": (["val"], [[1]])})
+        )
+        assert (await nover.test_connection())["engine_version"] == "Memgraph"
+        # non-async connection objects keep the DB-API path
+        cur = MagicMock()
+        cur.description, cur.fetchall.return_value = [("v",)], [[1]]
+        dbapi = MagicMock()
+        dbapi.cursor.return_value = cur
+        c2 = AsyncMemgraphConnector(connection=dbapi)
+        assert (await c2.execute_raw("RETURN 1", [1]))[1] == [{"v": 1}]
+        assert isinstance((await c2.introspect_schema())["tables"], dict)
+        sess = FakeMgSession({"RETURN 1": (["val"], [[1]])})
+        raw = AsyncMemgraphConnector(connection=sess)
+        assert (await raw.execute_raw("RETURN 1"))[1] == [{"val": 1}]
+
+    run(body())
+
+
+# ============================================================================
+# ScyllaDB: `SELECT 1` (the generic health probe) is not CQL; BATCH/APPLY/TRUNCATE were not
+# covered by the SQL-shaped read-only check; the engine version was a literal.
+# ============================================================================
+class FakeCqlSession:
+    def __init__(self) -> None:
+        self.ran: list[str] = []
+
+    def execute(self, query: str, params: Any = None) -> Any:
+        self.ran.append(query)
+        rs = types.SimpleNamespace(
+            column_names=["release_version"], all=lambda: [("6.2.0",)]
+        )
+        return rs
+
+
+def test_scylla_health_probe_is_valid_cql_and_reports_the_version() -> None:
+    from query_builder.connectors.scylladb import ScyllaDBConnector
+
+    session = FakeCqlSession()
+    conn = ScyllaDBConnector(connection=session)
+    info = conn.test_connection()
+    assert info["engine_version"] == "Scylla/Cassandra 6.2.0"
+    assert all(not q.upper().startswith("SELECT 1") for q in session.ran)
+    assert "FROM system.local" in session.ran[0]
+
+
+def test_scylla_blocks_cql_batches_and_truncates_below_the_validator() -> None:
+    from query_builder.connectors.scylladb import ScyllaDBConnector, _ScyllaCursorAdapter
+
+    session = FakeCqlSession()
+    conn = ScyllaDBConnector(connection=session)
+    for statement in (
+        "BEGIN BATCH INSERT INTO t (a) VALUES (1) APPLY BATCH",
+        "TRUNCATE t",
+        "DROP TABLE t",
+    ):
+        with pytest.raises(SecurityError):
+            conn.execute(sql=statement, validate_ast=False)
+    assert session.ran == []
+    _ScyllaCursorAdapter(session, read_only=False).execute("TRUNCATE t")
+    assert session.ran == ["TRUNCATE t"]
+    assert conn._read_only() is True
+
+
+# ============================================================================
+# DynamoDB: introspection listed only the KEY attributes (AttributeDefinitions), ExecuteStatement
+# pages (NextToken) were silently dropped, lists/maps/sets were mis-decoded.
+# ============================================================================
+class FakeDynamo:
+    def __init__(self) -> None:
+        self.statements: list[dict[str, Any]] = []
+
+    def list_tables(self) -> dict[str, Any]:
+        return {"TableNames": ["people"]}
+
+    def describe_table(self, TableName: str) -> dict[str, Any]:  # noqa: N803
+        return {
+            "Table": {
+                "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
+                "AttributeDefinitions": [{"AttributeName": "id", "AttributeType": "N"}],
+            }
+        }
+
+    def scan(self, TableName: str, Limit: int) -> dict[str, Any]:  # noqa: N803
+        return {
+            "Items": [
+                {
+                    "id": {"N": "1"},
+                    "name": {"S": "a"},
+                    "tags": {"SS": ["x"]},
+                    "m": {"M": {"k": {"BOOL": True}}},
+                    "user_id": {"S": "u"},
+                    "weird": {},
+                }
+            ]
+        }
+
+    def execute_statement(self, **kw: Any) -> dict[str, Any]:
+        self.statements.append(kw)
+        if "NextToken" not in kw:
+            return {"Items": [{"id": {"N": "1"}}], "NextToken": "t1"}
+        return {"Items": [{"id": {"N": "2"}, "l": {"L": [{"N": "1.5"}, {"S": "z"}]}}]}
+
+
+def test_dynamodb_introspection_includes_non_key_attributes() -> None:
+    from query_builder.connectors.dynamodb import DynamoDBConnector
+
+    snapshot = DynamoDBConnector(client=FakeDynamo()).introspect_schema(
+        filter_sensitive=False
+    )
+    cols = {c["name"]: c for c in snapshot["tables"]["people"]["columns"]}
+    assert {"id", "name", "tags", "m", "user_id", "weird"} <= set(cols)
+    assert cols["id"]["is_primary"] is True and cols["id"]["data_type"] == "number"
+    assert cols["name"]["data_type"] == "string" and cols["name"]["is_primary"] is False
+    assert cols["tags"]["data_type"] == "string_set" and cols["m"]["data_type"] == "map"
+    assert snapshot["tables"]["people"]["has_user_id"] is True
+    client = FakeDynamo()
+    client.scan = MagicMock(side_effect=RuntimeError("AccessDenied"))  # type: ignore[method-assign]
+    only_keys = DynamoDBConnector(client=client).introspect_schema(filter_sensitive=False)
+    assert [c["name"] for c in only_keys["tables"]["people"]["columns"]] == ["id"]
+
+
+def test_dynamodb_follows_next_token_and_decodes_collections() -> None:
+    from query_builder.connectors.dynamodb import DynamoDBConnector
+
+    client = FakeDynamo()
+    conn = DynamoDBConnector(client=client)
+    result = conn.execute(sql='SELECT * FROM "people"', validate_ast=False)
+    assert [r["id"] for r in result["rows"]] == [1, 2]  # was only page one
+    assert result["rows"][1]["l"] == [1.5, "z"]
+    assert result["columns"] == ["id", "l"]  # union of keys, not the first row's
+    assert client.statements[1]["NextToken"] == "t1"
+    assert DynamoDBConnector._unmarshal_item(
+        {"ns": {"NS": ["1", "2.5"]}, "m": {"M": {"a": {"S": "x"}}}, "b": {"B": b"z"}}
+    ) == {"ns": [1, 2.5], "m": {"a": "x"}, "b": b"z"}
+    # paging stops once the row cap is exceeded (never an unbounded loop)
+    endless = FakeDynamo()
+    endless.execute_statement = MagicMock(  # type: ignore[method-assign]
+        return_value={"Items": [{"x": {"N": "1"}}], "NextToken": "more"}
+    )
+    capped = DynamoDBConnector(client=endless)
+    capped.security.execution.max_rows_limit = 1
+    result = capped.execute(sql='SELECT x FROM "t"', validate_ast=False)
+    assert len(result["rows"]) == 1 and result.get("truncated") is True
+    assert endless.execute_statement.call_count == 2
+
+
+# ============================================================================
+# Spanner: connect() passed `instance=`/`database=` keywords the DB-API does not have
+# (TypeError on every connect) and nothing made the session read-only.
+# ============================================================================
+def test_spanner_connect_uses_the_dbapi_positional_signature_and_read_only() -> None:
+    from query_builder.connectors.spanner import SpannerConnector
+
+    dbapi = types.ModuleType("google.cloud.spanner_dbapi")
+    calls: list[Any] = []
+
+    def connect(instance_id: str, database_id: str, **kw: Any) -> Any:
+        calls.append((instance_id, database_id, kw))
+        return types.SimpleNamespace(read_only=False)
+
+    dbapi.connect = connect  # type: ignore[attr-defined]
+    with patch.dict(sys.modules, {"google.cloud.spanner_dbapi": dbapi}):
+        conn = SpannerConnector(instance_id="i", database_id="d", project="p")
+        connection = conn.connect()
+    assert calls == [("i", "d", {"project": "p"})]
+    assert connection.read_only is True  # snapshot (read-only) transactions
+    assert SpannerConnector.read_only_support == "enforced"

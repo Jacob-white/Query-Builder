@@ -170,7 +170,7 @@ class ScyllaDBConnector(BaseConnector):
         with contextlib.suppress(Exception), self.get_cursor() as cur:
             cur.execute("SELECT release_version FROM system.local")
             row = cur.fetchone()
-            if row and row[0]:
+            if row and isinstance(row[0], str) and row[0]:
                 info["engine_version"] = f"Scylla/Cassandra {row[0]}"
         info["keyspace"] = self.keyspace
         return info

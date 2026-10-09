@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import time
 from typing import Any
 
@@ -143,8 +144,6 @@ def _key_range(plan: SubsetPlan) -> dict[str, Any]:
 
 def read_records(instance: Any, plan: SubsetPlan) -> list[dict[str, Any]]:
     """Rows of ``plan`` as ``{column: value}`` records (exact, see module docstring)."""
-    from google.cloud.bigtable import row_filters
-
     kwargs = _key_range(plan)
     pushdown_limit = (
         plan.limit + plan.offset
@@ -154,7 +153,11 @@ def read_records(instance: Any, plan: SubsetPlan) -> list[dict[str, Any]]:
     if pushdown_limit is not None:
         kwargs["limit"] = pushdown_limit
     table = instance.table(plan.table)
-    rows = table.read_rows(filter_=row_filters.CellsColumnLimitFilter(1), **kwargs)
+    with contextlib.suppress(ImportError):  # latest cell version only
+        from google.cloud.bigtable import row_filters
+
+        kwargs["filter_"] = row_filters.CellsColumnLimitFilter(1)
+    rows = table.read_rows(**kwargs)
     records = [_row_record(r) for r in rows]
     records = [r for r in records if all(_matches(r, p) for p in plan.predicates)]
     for col, desc in reversed(plan.order_by):
@@ -198,13 +201,14 @@ class _BigtableCursorAdapter:
             finally:
                 if hasattr(cur, "close"):
                     cur.close()
-        elif clean_sql.upper() == "SELECT 1":
-            self.description, self._rows = [("val",)], [[1]]
         elif clean_sql == "list_tables" and hasattr(self.conn, "list_tables"):
             tbls = self.conn.list_tables()
             self.description = [("table_id",)]
             self._rows = [[getattr(t, "table_id", str(t))] for t in tbls]
         elif hasattr(self.conn, "table"):
+            if clean_sql.upper() == "SELECT 1":
+                self.description, self._rows = [("val",)], [[1]]
+                return
             plan = parse_select_subset(clean_sql, params)
             self.description, self._rows = shape_records(
                 plan, read_records(self.conn, plan)
@@ -451,7 +455,11 @@ class AsyncBigtableConnector(AsyncBaseConnector):
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "list_tables"):
-            await asyncio.to_thread(lambda: list(conn.list_tables()))
+            res = await asyncio.to_thread(conn.list_tables)
+            if inspect.isawaitable(res):  # an async admin client
+                await res
+            else:
+                list(res)
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",

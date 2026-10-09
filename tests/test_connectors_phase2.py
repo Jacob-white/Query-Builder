@@ -1759,32 +1759,54 @@ def test_introspect_timestream_branches():
 
 def test_introspect_memgraph_branches():
     mock_cur = MagicMock()
-    mock_cur.execute.side_effect = [
-        None,  # labels
-        None,  # constraint info
-        None,  # relationship types
-    ]
-    mock_cur.fetchall.side_effect = [
-        [["User"], ["Order"]],
-        [["User", "id", "PRIMARY KEY"], ["User", "email", "UNIQUE"]],
-        [["PLACED"], ["OWNS"]],
-    ]
+    state = {}
+
+    def execute(sql, params=None):
+        assert sql.startswith("CALL schema.node_type_properties()")
+        state["rows"] = [
+            [["User"], "id", ["Integer"]],
+            [["User"], "email", ["String"]],
+            [["Order"], "total", ["Float"]],
+            [["Order"], None, None],
+        ]
+        mock_cur.description = [("nodeLabels",), ("propertyName",), ("propertyTypes",)]
+
+    mock_cur.execute.side_effect = execute
+    mock_cur.fetchall.side_effect = lambda: state["rows"]
     schema = introspect_memgraph(mock_cur, filter_sensitive=True)
-    assert any(k.lower() == "user" for k in schema["tables"])
-    assert any(k.lower() == "order" for k in schema["tables"])
+    user = {c["name"]: c for c in schema["tables"]["User"]["columns"]}
+    assert set(user) == {"id", "email"}  # real properties only; nothing invented
+    assert user["id"]["data_type"] == "integer" and user["id"]["is_primary"] is True
+    assert user["email"]["is_primary"] is False
+    assert [c["name"] for c in schema["tables"]["Order"]["columns"]] == ["total"]
 
-    # Empty branch
+    # Fallback when the schema procedure is missing: labels(n) + sampled properties(n)
+    fb = MagicMock()
+    fb_state = {}
+
+    def fb_execute(sql, params=None):
+        if sql.startswith("CALL schema."):
+            raise RuntimeError("no such procedure")
+        if "RETURN DISTINCT label" in sql:
+            fb_state["rows"] = [["Person"]]
+            fb.description = [("label",)]
+        else:
+            fb_state["rows"] = [[{"name": "a", "age": 3}]]
+            fb.description = [("props",)]
+
+    fb.execute.side_effect = fb_execute
+    fb.fetchall.side_effect = lambda: fb_state["rows"]
+    cols = {
+        c["name"]: c["data_type"]
+        for c in introspect_memgraph(fb)["tables"]["Person"]["columns"]
+    }
+    assert cols == {"name": "string", "age": "number"}
+
+    # Empty graph: no tables (no invented "Node")
     mock_empty = MagicMock()
+    mock_empty.description = [("nodeLabels",)]
     mock_empty.fetchall.return_value = []
-    schema_empty = introspect_memgraph(mock_empty)
-    assert "Node" in schema_empty["tables"]
-
-    # Error wrapping
-    mock_err = MagicMock()
-    mock_err.execute.side_effect = RuntimeError("Memgraph query error")
-    with pytest.raises(IntrospectionError):
-        introspect_memgraph(mock_err)
-
+    assert introspect_memgraph(mock_empty)["tables"] == {}
 
 def test_introspect_neptune_branches():
     mock_cur = MagicMock()
