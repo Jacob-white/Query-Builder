@@ -86,6 +86,15 @@ FAMILIES: dict[str, Ddl] = {
         not_null="",
         table_suffix=" ENGINE = MergeTree ORDER BY id",
     ),
+    "questdb": Ddl(
+        int_t="INT",
+        nint_t="INT",
+        str_t="STRING",
+        nstr_t="STRING",
+        pk=False,
+        fk=False,
+        not_null="",
+    ),
     "trino": Ddl(
         int_t="INTEGER", str_t="VARCHAR", nstr_t="VARCHAR", pk=False, fk=False
     ),

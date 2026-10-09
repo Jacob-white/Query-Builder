@@ -162,7 +162,7 @@ class PulsarSQLConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         with self.get_cursor() as cur:
-            cur.execute("SELECT 1;")
+            cur.execute("SELECT 1")
             cur.fetchone()
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {

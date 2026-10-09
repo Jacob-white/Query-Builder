@@ -58,6 +58,8 @@ class BaseDialect:
     # ``None`` (default): the bound value is passed through unchanged, so a user
     # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live
     # set the escape character (and whether it must be declared with ESCAPE).
+    avg_template: str = "AVG({})"
+    count_distinct_template: str = "COUNT(DISTINCT {})"
     like_escape_char: str | None = None
     like_escape_clause: bool = False
     like_special_chars: str = "%_"
@@ -274,6 +276,8 @@ class MSSQLDialect(BaseDialect):
     name: str = "mssql"
     placeholder: str = "%s"
     requires_order_by_for_pagination: bool = True
+    # AVG over an integer column does integer division in T-SQL (AVG(1,2) = 1).
+    avg_template = "AVG(CAST({} AS FLOAT))"
     like_escape_char = "\\"
     like_escape_clause = True
     like_special_chars = "%_["
@@ -625,9 +629,19 @@ class QuestDBDialect(BaseDialect):
 
     name: str = "questdb"
     placeholder: str = "%s"
+    count_distinct_template = (
+        "count_distinct({})"  # COUNT(DISTINCT x) is a syntax error
+    )
+    like_escape_char = "\\"
 
     def format_ilike(self, col_ref: str) -> str:
         return f"{col_ref} ILIKE {self.placeholder}"
+
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # QuestDB has no OFFSET keyword: pagination is `LIMIT lower, upper`
+        # (row range [lower, upper)). Integers are inlined after int() coercion.
+        lo = max(int(offset), 0)
+        return f"LIMIT {lo}, {lo + max(int(limit), 0)}", []
 
 
 class ElasticsearchDialect(BaseDialect):
