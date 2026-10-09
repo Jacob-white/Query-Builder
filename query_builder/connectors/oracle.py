@@ -11,6 +11,7 @@ driver.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from query_builder.connectors.base import (
@@ -128,10 +129,10 @@ class OracleConnector(BaseConnector):
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
         # python-oracledb: per-round-trip call timeout (milliseconds) on the connection
         conn = getattr(cursor, "connection", None) or self._connection
-        try:
+        with contextlib.suppress(
+            Exception
+        ):  # driver without call_timeout (old cx_Oracle)
             conn.call_timeout = int(timeout_ms)
-        except Exception:  # noqa: BLE001 - driver without call_timeout (old cx_Oracle)
-            pass
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()

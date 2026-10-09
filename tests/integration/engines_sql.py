@@ -444,3 +444,106 @@ register(
         container_port=5433,
     )
 )
+
+
+# --------------------------------------------------------------------------- IBM (ibm_db)
+def _ibm_dsn(
+    e: Engine, user: str, password: str, database: str, extra: str = ""
+) -> str:
+    return (
+        f"DATABASE={database};HOSTNAME={e.host};PORT={e.port_};PROTOCOL=TCPIP;"
+        f"UID={user};PWD={password};{extra}"
+    )
+
+
+def _ibm_native(e: Engine, database: str) -> Native:
+    import ibm_db_dbi
+
+    conn = ibm_db_dbi.connect(_ibm_dsn(e, e.user_, e.password_, database), "", "")
+    conn.set_autocommit(True)
+    return _dbapi_native(conn, commit=False)
+
+
+# ---- Db2 LUW
+ds.FAMILIES["db2"] = ds.Ddl(drop="DROP TABLE {t}")
+
+
+def _db2_native(e: Engine) -> Native:
+    return _ibm_native(e, e.database_)
+
+
+def _kw_db2(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dsn": _ibm_dsn(e, e.user_, o.get("password") or e.password_, e.database_),
+        "schema_name": e.user_.upper(),
+    }
+
+
+register(
+    SqlEngine(
+        name="db2",
+        connector="db2",
+        async_connector="async_db2",
+        tier="extended",
+        family="db2",
+        drivers=("ibm_db_dbi", "ibm_db"),
+        pip="ibm_db",
+        port=41054,
+        user="db2inst1",
+        password="qb_it_password",
+        database="qbit",
+        connector_factory=_kw_db2,
+        native_factory=_db2_native,
+        slow_sql=(
+            "SELECT COUNT(*) FROM syscat.columns a, syscat.columns b, syscat.columns c"
+        ),
+        service="db2",
+        container_port=50000,
+        fold_alias=True,
+        unsupported={
+            "db_read_only": (
+                "Db2 authenticates operating-system users; a restricted login would have to "
+                "be created inside the container's OS, which the harness cannot do"
+            ),
+        },
+    )
+)
+
+
+# ---- Informix (DRDA port of the developer image)
+ds.FAMILIES["informix"] = ds.Ddl(drop="DROP TABLE IF EXISTS {t}")
+
+
+def _informix_native(e: Engine) -> Native:
+    return _ibm_native(e, e.database_)
+
+
+def _kw_informix(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dsn": _ibm_dsn(e, e.user_, o.get("password") or e.password_, e.database_),
+        "schema_name": e.user_,
+    }
+
+
+register(
+    SqlEngine(
+        name="informix",
+        connector="informix",
+        async_connector="async_informix",
+        tier="extended",
+        family="informix",
+        drivers=("ibm_db_dbi", "ibm_db"),
+        pip="ibm_db",
+        port=41056,
+        user="informix",
+        password="in4mix",
+        database="sysmaster",
+        connector_factory=_kw_informix,
+        native_factory=_informix_native,
+        slow_sql=(
+            "SELECT COUNT(*) FROM syscolumns a, syscolumns b, syscolumns c, syscolumns d"
+        ),
+        service="informix",
+        container_port=9089,
+    )
+)
