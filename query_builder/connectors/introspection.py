@@ -8,6 +8,8 @@ and foreign key relationships across supported SQL database engines.
 from __future__ import annotations
 
 import contextlib
+import re
+from collections.abc import Generator
 from typing import Any
 
 from query_builder.connectors.base import DriverNotInstalledError, IntrospectionError
@@ -1223,74 +1225,105 @@ def introspect_tdengine(
         ) from exc
 
 
+def surreal_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]], dict[str, Any]]:
+    """SurrealDB introspection as a coroutine-free generator.
+
+    It yields a SurrealQL statement, is sent that statement's records (a list of dicts) and
+    finally returns the normalized snapshot.  A synchronous cursor and an ``async`` driver
+    can both drive it (see :func:`introspect_surrealdb` and the async connector), so the
+    sync and async classes share one algorithm.  Tables come from ``INFO FOR DB``; columns
+    from ``INFO FOR TABLE`` (declared fields) merged with a sample of the records, because
+    SurrealDB tables are schemaless unless fields are DEFINEd.  Nothing is invented.
+    """
+    info_rows = yield "INFO FOR DB"
+    info = info_rows[0] if info_rows else {}
+    table_names = sorted((info.get("tables") or {}).keys())
+    tables: dict[str, dict[str, Any]] = {}
+    for tbl in table_names:
+        safe = str(tbl).replace("`", "")
+        cols: dict[str, str] = {}
+        tinfo_rows = yield f"INFO FOR TABLE `{safe}`"
+        declared = (tinfo_rows[0] if tinfo_rows else {}).get("fields") or {}
+        for fname, definition in declared.items():
+            m = re.search(r"\bTYPE\s+(\S+)", str(definition), re.IGNORECASE)
+            cols[str(fname)] = m.group(1) if m else "any"
+        sample = yield f"SELECT * FROM `{safe}` LIMIT 100"
+        for rec in sample:
+            for k, v in rec.items():
+                if k != "id" and (k not in cols or cols[k] == "any"):
+                    cols[k] = _arango_json_type(v)
+        columns: list[dict[str, Any]] = [
+            {
+                "name": "id",
+                "data_type": "record",
+                "is_nullable": False,
+                "is_primary": True,
+                "comment": None,
+            }
+        ]
+        columns += [
+            {
+                "name": n,
+                "data_type": t,
+                "is_nullable": True,
+                "is_primary": False,
+                "comment": None,
+            }
+            for n, t in cols.items()
+        ]
+        tables[tbl] = {
+            "name": tbl,
+            "columns": columns,
+            "has_user_id": "user_id" in cols,
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
+def drive_steps(steps: Any, run: Any) -> Any:
+    """Run a statement-yielding generator to completion against a synchronous ``run(sql)``.
+
+    A failing statement is thrown INTO the generator, which may catch it (to fall back to
+    another statement) or let it propagate.
+    """
+    try:
+        statement = next(steps)
+        while True:
+            try:
+                result = run(statement)
+            except Exception as exc:  # noqa: BLE001 - handed to the generator
+                statement = steps.throw(exc)
+                continue
+            statement = steps.send(result)
+    except StopIteration as done:
+        return done.value
+
+
 def introspect_surrealdb(
     client_or_cursor: Any, database: str = "test", filter_sensitive: bool = True
 ) -> dict[str, Any]:
-    """Introspects SurrealDB schema using INFO FOR DB and table metadata."""
-    cur = None
-    own_cur = False
+    """Introspects SurrealDB: tables from INFO FOR DB, columns from DEFINEd fields + samples."""
     try:
-        if hasattr(client_or_cursor, "execute") or hasattr(client_or_cursor, "query"):
-            cur = client_or_cursor
-        elif hasattr(client_or_cursor, "cursor"):
-            cur = client_or_cursor.cursor()
-            own_cur = True
-        else:
-            cur = client_or_cursor
-        table_names: list[str] = []
-        if hasattr(cur, "execute"):
-            cur.execute("INFO FOR DB;")
-            res = cur.fetchone()
-            if isinstance(res, dict) and "tables" in res:
-                table_names = list(res["tables"].keys())
-            elif isinstance(res, (list, tuple)) and res:
-                first = res[0]
-                if isinstance(first, dict) and "tables" in first:
-                    table_names = list(first["tables"].keys())
-                else:
-                    table_names = [str(r[0]) for r in res if r and r[0]]
-            elif isinstance(res, str):
-                table_names = [res]
-        elif hasattr(cur, "query"):
-            res = cur.query("INFO FOR DB;")
-            if isinstance(res, list) and res and isinstance(res[0], dict):
-                table_names = list(res[0].get("result", {}).get("tables", {}).keys())
+        cur = client_or_cursor
+        if not hasattr(cur, "execute") and hasattr(cur, "cursor"):
+            cur = cur.cursor()
 
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = [
-                {
-                    "name": "id",
-                    "data_type": "record",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                }
-            ]
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": False,
-                "user_col": "user_id",
-                "comment": None,
-            }
+        def run(sql: str) -> list[dict[str, Any]]:
+            cur.execute(sql)
+            names = [d[0] for d in (cur.description or [])]
+            return [dict(zip(names, row, strict=False)) for row in cur.fetchall() or []]
 
-        raw_snapshot = {
-            "tables": tables,
-            "foreign_keys": [],
-            "relationships": [],
-        }
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        return drive_steps(surreal_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect SurrealDB database '{database}': {exc}"
         ) from exc
-    finally:
-        if own_cur and cur is not None and hasattr(cur, "close"):
-            with contextlib.suppress(Exception):
-                cur.close()
 
 
 def _arango_json_type(value: Any) -> str:
@@ -4170,59 +4203,86 @@ def introspect_timestream(
                 cur.close()
 
 
+def _graph_type_name(types: Any) -> str:
+    first = types[0] if isinstance(types, (list, tuple)) and types else types
+    return str(first).lower() if first else "any"
+
+
+def memgraph_schema_steps(
+    filter_sensitive: bool = True,
+) -> Generator[str, list[dict[str, Any]] | None, dict[str, Any]]:
+    """Memgraph introspection as a statement-yielding generator (see ``drive_steps``).
+
+    Labels and property names/types come from ``schema.node_type_properties()``; when that
+    procedure is unavailable they come from ``labels(n)`` plus a sample of ``properties(n)``.
+    Relationship types come from ``schema.rel_type_properties()``/``type(r)``.  Nothing is
+    invented: a graph with no nodes introspects to no tables, and a node label has no
+    primary key (graph nodes are identified by an internal id, not a column).
+    """
+    props: dict[str, dict[str, str]] = {}
+    try:
+        rows = yield (
+            "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, "
+            "propertyTypes RETURN nodeLabels, propertyName, propertyTypes"
+        )
+    except Exception:  # noqa: BLE001 - procedure missing: fall back to sampling below
+        rows = None
+    if rows is not None:
+        for r in rows:
+            for label in r.get("nodeLabels") or []:
+                cols = props.setdefault(str(label), {})
+                if r.get("propertyName"):
+                    cols[str(r["propertyName"])] = _graph_type_name(r.get("propertyTypes"))
+    else:
+        label_rows = yield "MATCH (n) UNWIND labels(n) AS label RETURN DISTINCT label"
+        for r in label_rows or []:
+            label = str(r["label"])
+            safe = label.replace("`", "")
+            sample = yield f"MATCH (n:`{safe}`) RETURN properties(n) AS props LIMIT 100"
+            cols = props.setdefault(label, {})
+            for rec in sample or []:
+                for k, v in (rec.get("props") or {}).items():
+                    cols.setdefault(str(k), _arango_json_type(v))
+
+    tables: dict[str, dict[str, Any]] = {}
+    for label in sorted(props):
+        columns = [
+            {
+                "name": name,
+                "data_type": dtype,
+                "is_nullable": True,
+                "is_primary": name == "id",
+                "comment": None,
+            }
+            for name, dtype in props[label].items()
+        ]
+        tables[label] = {
+            "name": label,
+            "columns": columns,
+            "has_user_id": "user_id" in props[label],
+            "user_col": "user_id",
+            "comment": None,
+        }
+    return normalize_schema_snapshot(
+        {"tables": tables, "foreign_keys": [], "relationships": []},
+        filter_sensitive=filter_sensitive,
+    )
+
+
 def introspect_memgraph(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
-    """Introspects Memgraph OpenCypher graph schema."""
+    """Introspects a Memgraph graph: node labels as tables, their real properties as columns."""
     cur = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
         own_cur = cur is not cursor and cur is not getattr(cursor, "target", None)
 
-        labels: list[str] = []
-        if hasattr(cur, "execute"):
-            cur.execute("CALL mg.labels() YIELD label RETURN label;")
-            rows = cur.fetchall() or []
-            labels = [str(r[0]) for r in rows if r and r[0]]
+        def run(statement: str) -> list[dict[str, Any]]:
+            cur.execute(statement)
+            names = [d[0] for d in (cur.description or [])]
+            return [dict(zip(names, row, strict=False)) for row in cur.fetchall() or []]
 
-        if not labels:
-            labels = ["Node"]
-
-        tables: dict[str, dict[str, Any]] = {}
-        for lbl in labels:
-            cols = [
-                {
-                    "name": "id",
-                    "data_type": "integer",
-                    "is_nullable": False,
-                    "is_primary": True,
-                    "comment": None,
-                },
-                {
-                    "name": "name",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-                {
-                    "name": "user_id",
-                    "data_type": "string",
-                    "is_nullable": True,
-                    "is_primary": False,
-                    "comment": None,
-                },
-            ]
-            tables[lbl] = {
-                "name": lbl,
-                "columns": cols,
-                "has_user_id": True,
-                "user_col": "user_id",
-                "comment": None,
-            }
-        raw_snapshot = {"tables": tables, "foreign_keys": [], "relationships": []}
-        return normalize_schema_snapshot(
-            raw_snapshot, filter_sensitive=filter_sensitive
-        )
+        return drive_steps(memgraph_schema_steps(filter_sensitive), run)
     except Exception as exc:
         raise IntrospectionError(
             f"Failed to introspect Memgraph database: {exc}"

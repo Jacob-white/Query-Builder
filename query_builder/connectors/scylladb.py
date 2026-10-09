@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.base import (
     BaseConnector,
     ConnectionFailedError,
@@ -23,14 +24,20 @@ from query_builder.connectors.registry import register_connector
 class _ScyllaCursorAdapter:
     """Adapts a Cassandra / ScyllaDB Session into a DB-API compliant cursor interface."""
 
-    def __init__(self, session: Any) -> None:
+    def __init__(self, session: Any, read_only: bool = True) -> None:
         self.session = session
+        self.read_only = read_only
         self.description: list[tuple[str]] | None = None
         self._rows: list[list[Any]] = []
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         # Strip trailing semicolon and surrounding whitespace for CQL driver
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() == "SELECT 1":  # CQL has no FROM-less SELECT
+            clean_sql = "SELECT release_version FROM system.local"
+        if self.read_only:
+            # CQL BATCH / APPLY / TRUNCATE / GRANT are outside the SQL-shaped generic check
+            assert_read_only(clean_sql, "cql", "ScyllaDB")
         if hasattr(self.session, "execute"):
             if params:
                 result_set = self.session.execute(clean_sql, params)
@@ -150,12 +157,21 @@ class ScyllaDBConnector(BaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         else:
-            adapter = _ScyllaCursorAdapter(conn)
+            adapter = _ScyllaCursorAdapter(conn, read_only=self._read_only())
             yield adapter
+
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         info["engine_version"] = "ScyllaDB / Apache Cassandra"
+        with contextlib.suppress(Exception), self.get_cursor() as cur:
+            cur.execute("SELECT release_version FROM system.local")
+            row = cur.fetchone()
+            if row and row[0]:
+                info["engine_version"] = f"Scylla/Cassandra {row[0]}"
         info["keyspace"] = self.keyspace
         return info
 
