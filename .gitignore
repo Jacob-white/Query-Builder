@@ -74,3 +74,6 @@ dist-ssr/
 
 # Live integration reports
 tests/integration/.reports/
+
+# Local agent worktrees
+.claude/worktrees/

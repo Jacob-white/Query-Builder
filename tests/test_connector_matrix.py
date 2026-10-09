@@ -159,6 +159,8 @@ _DIST_ALIASES = {
     "hdbcli": "hdbcli",
     "pyspark": "pyspark",
     "kyuubi": "pyhive",
+    # the `prestodb` module ships in the `presto-python-client` distribution
+    "prestodb": "presto-python-client",
 }
 
 #: Known gaps between a class's driver modules and its install extra, found by
@@ -172,15 +174,28 @@ KNOWN_EXTRA_GAPS: set[str] = {
 }
 
 
-def _extra_requirements(extra: str) -> list[str]:
+def _extra_requirements(extra: str, _seen: frozenset[str] = frozenset()) -> list[str]:
+    """Distribution names an extra installs, following self-referencing alias extras
+    (``query-builder-engine[postgresql]``) to the extra they point at."""
     import tomllib
     from pathlib import Path
 
     data = tomllib.loads(
         (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text("utf-8")
     )
-    reqs = data["project"]["optional-dependencies"][extra]
-    return [re.split(r"[\[<>=!~; ]", r, maxsplit=1)[0].lower() for r in reqs]
+    project = data["project"]
+    own_name = project["name"].lower().replace("_", "-")
+    out: list[str] = []
+    for req in project["optional-dependencies"][extra]:
+        name = re.split(r"[\[<>=!~; ]", req, maxsplit=1)[0].lower()
+        if name.replace("_", "-") == own_name:
+            for target in re.findall(r"\[([^\]]*)\]", req):
+                for sub in (t.strip() for t in target.split(",")):
+                    if sub and sub not in _seen:
+                        out.extend(_extra_requirements(sub, _seen | {extra}))
+        else:
+            out.append(name)
+    return out
 
 
 def extra_provides_driver(rec) -> bool | None:

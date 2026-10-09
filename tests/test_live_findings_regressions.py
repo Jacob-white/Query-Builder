@@ -146,7 +146,14 @@ def test_mysql_statement_timeout_does_not_swallow_other_errors():
 @pytest.mark.parametrize("cls", [PostgresConnector, MySQLConnector])
 def test_failed_statement_rolls_the_connection_back(cls):
     conn = MagicMock()
-    conn.cursor.return_value.execute.side_effect = RuntimeError("syntax error")
+
+    def _fail_only_the_bad_statement(sql, *args, **kwargs):
+        # Connect-time session statements (e.g. the read-only SET) must succeed so the
+        # failure under test happens inside the caller's statement, not during connect.
+        if sql.startswith("SELEC "):
+            raise RuntimeError("syntax error")
+
+    conn.cursor.return_value.execute.side_effect = _fail_only_the_bad_statement
     c = cls(connection=conn)
     with pytest.raises(RuntimeError), c.get_cursor() as cur:
         cur.execute("SELEC 1")
