@@ -297,3 +297,150 @@ register(
         fold_alias=True,
     )
 )
+
+
+# --------------------------------------------------------------------------- Oracle
+ds.FAMILIES["oracle"] = ds.Ddl(
+    str_t="VARCHAR2(100)",
+    nstr_t="VARCHAR2(100)",
+    drop="DROP TABLE {t} CASCADE CONSTRAINTS PURGE",
+)
+ORACLE_SERVICE = "FREEPDB1"
+
+
+def _oracle_connect(e: Engine, user: str, password: str) -> Any:
+    import oracledb
+
+    return oracledb.connect(
+        user=user,
+        password=password,
+        host=e.host,
+        port=e.port_,
+        service_name=e.env("SERVICE", ORACLE_SERVICE),
+    )
+
+
+def _oracle_native(e: Engine) -> Native:
+    conn = _oracle_connect(e, e.user_, e.password_)
+    return _dbapi_native(conn, commit=True)
+
+
+def _oracle_ro(e: Engine, native: Native) -> None:
+    """Read-only login: SYSTEM creates it; a logon trigger points it at the data schema."""
+    sysconn = _oracle_connect(e, "system", e.env("SYS_PASSWORD", "qb_it_sys_password"))
+    try:
+        cur = sysconn.cursor()
+        with contextlib.suppress(Exception):
+            cur.execute(f"DROP USER {RO_USER} CASCADE")
+        cur.execute(f'CREATE USER {RO_USER} IDENTIFIED BY "{RO_PASSWORD}"')
+        cur.execute(f"GRANT CREATE SESSION TO {RO_USER}")
+        owner = e.user_.upper()
+        names = [f'"{t}"' for t in (ds.T_DEPT, ds.T_EMP, ds.T_RES, ds.T_MIXED)]
+        names += [t.upper() for t in ALIASED]
+        for n in names:
+            cur.execute(f"GRANT SELECT ON {owner}.{n} TO {RO_USER}")
+        cur.execute(
+            f"CREATE OR REPLACE TRIGGER {owner}.qb_ro_logon AFTER LOGON ON "
+            f"{RO_USER.upper()}.SCHEMA BEGIN EXECUTE IMMEDIATE "
+            f"'ALTER SESSION SET CURRENT_SCHEMA={owner}'; END;"
+        )
+    finally:
+        sysconn.close()
+
+
+def _kw_oracle(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    user, pw = _ro_creds(o, e)
+    return {
+        "user": user,
+        "password": pw,
+        "host": e.host,
+        "port": e.port_,
+        "service_name": e.env("SERVICE", ORACLE_SERVICE),
+    }
+
+
+register(
+    SqlEngine(
+        name="oracle",
+        connector="oracle",
+        tier="extended",
+        family="oracle",
+        drivers=("oracledb",),
+        pip="oracledb  # thin mode, pure python",
+        port=41052,
+        connector_factory=_kw_oracle,
+        native_factory=_oracle_native,
+        ro_native=_oracle_ro,
+        slow_sql="SELECT COUNT(*) FROM all_objects a, all_objects b, all_objects c",
+        service="oracle",
+        container_port=1521,
+        fold_alias=True,
+    )
+)
+
+
+# --------------------------------------------------------------------------- Vertica
+ds.FAMILIES["vertica"] = ds.Ddl(drop="DROP TABLE IF EXISTS {t} CASCADE")
+
+
+def _vertica_connect(e: Engine, user: str, password: str) -> Any:
+    import vertica_python
+
+    return vertica_python.connect(
+        host=e.host,
+        port=e.port_,
+        user=user,
+        password=password,
+        database=e.database_,
+        autocommit=True,
+        connection_timeout=10,
+    )
+
+
+def _vertica_native(e: Engine) -> Native:
+    return _dbapi_native(_vertica_connect(e, e.user_, e.password_), commit=False)
+
+
+def _vertica_ro(e: Engine, native: Native) -> None:
+    with contextlib.suppress(Exception):
+        native.run(f"DROP USER {RO_USER}")
+    native.run(f"CREATE USER {RO_USER} IDENTIFIED BY '{RO_PASSWORD}'")
+    for t in (ds.T_DEPT, ds.T_EMP, ds.T_RES, ds.T_MIXED):
+        native.run(f'GRANT SELECT ON "{t}" TO {RO_USER}')
+
+
+def _kw_vertica(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
+    user, pw = _ro_creds(o, e)
+    return {
+        "host": e.host,
+        "port": e.port_,
+        "user": user,
+        "password": pw,
+        "database": e.database_,
+        "connection_timeout": 10,
+    }
+
+
+register(
+    SqlEngine(
+        name="vertica",
+        connector="vertica",
+        tier="extended",
+        family="vertica",
+        drivers=("vertica_python",),
+        pip="vertica-python",
+        port=41053,
+        user="dbadmin",
+        password="",
+        database="qb_it",
+        connector_factory=_kw_vertica,
+        native_factory=_vertica_native,
+        ro_native=_vertica_ro,
+        slow_sql=(
+            "SELECT COUNT(*) FROM v_catalog.columns a CROSS JOIN v_catalog.columns b "
+            "CROSS JOIN v_catalog.columns c"
+        ),
+        service="vertica",
+        container_port=5433,
+    )
+)

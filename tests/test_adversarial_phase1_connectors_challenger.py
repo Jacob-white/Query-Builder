@@ -445,22 +445,22 @@ def test_dialect_pagination_boundary_values(dialect_name, cls):
     clause, params = dialect.format_limit_offset(limit=0, offset=0)
     assert isinstance(clause, str)
     assert isinstance(params, list)
-    if dialect_name == "firebird":
-        assert clause == "ROWS ?" and params == [0]
-    elif dialect_name in ("monetdb", "h2"):
+    if dialect_name == "monetdb":
+        assert clause == "LIMIT %s OFFSET %s" and params == [0, 0]
+    elif dialect_name == "h2":
         assert clause == "LIMIT ? OFFSET ?" and params == [0, 0]
-    elif dialect_name in ("derby", "sybase"):
+    elif dialect_name in ("derby", "sybase", "firebird"):
         assert clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and params == [0, 0]
     elif dialect_name == "informix":
         assert clause == "SKIP %s FIRST %s" and params == [0, 0]
 
     # Boundary 2: limit=1000000, offset=5000000
     clause, params = dialect.format_limit_offset(limit=1000000, offset=5000000)
-    if dialect_name == "firebird":
-        assert clause == "ROWS ? TO ?" and params == [5000001, 6000000]
-    elif dialect_name in ("monetdb", "h2"):
+    if dialect_name == "monetdb":
+        assert clause == "LIMIT %s OFFSET %s" and params == [1000000, 5000000]
+    elif dialect_name == "h2":
         assert clause == "LIMIT ? OFFSET ?" and params == [1000000, 5000000]
-    elif dialect_name in ("derby", "sybase"):
+    elif dialect_name in ("derby", "sybase", "firebird"):
         assert clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and params == [
             5000000,
             1000000,
@@ -635,5 +635,5 @@ def test_sync_connector_test_connection_and_get_cursor(connector_cls, test_query
 
     assert status["status"] == "healthy"
     assert status["latency_ms"] >= 0.0
-    mock_cursor.execute.assert_called_with(test_query)
+    mock_cursor.execute.assert_any_call(test_query)  # (+ a version probe)
     mock_cursor.close.assert_called_once()

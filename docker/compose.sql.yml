@@ -32,7 +32,7 @@ services:
     volumes: ["qb_it_firebird:/var/lib/firebird/data"]
 
   oracle:
-    image: gvenzl/oracle-free:23.26.3-slim-faststart
+    image: ghcr.io/gvenzl/oracle-free:23.26.3-slim-faststart  # same publisher as docker.io/gvenzl; ghcr avoids Docker Hub pull limits
     profiles: ["sql"]
     # faststart: the database is pre-built inside the image (no volume, so nothing to purge)
     environment:
@@ -47,6 +47,69 @@ services:
       retries: 60
       start_period: 60s
 
+  vertica:
+    # vertica/vertica-ce was withdrawn from Docker Hub; this is the community build of real
+    # Vertica 9.2 CE (Debian 8 base) and still the only runnable standalone Vertica image.
+    image: jbfavre/vertica:9.2.0-7_debian-8
+    profiles: ["sql"]
+    environment:
+      DATABASE_NAME: qb_it
+    ports: ["127.0.0.1:${QB_IT_PORT_VERTICA:-41053}:5433"]
+    volumes: ["qb_it_vertica:/home/dbadmin/docker"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/vertica/bin/vsql -U dbadmin -d qb_it -tAc 'select 1' | grep -q 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+
+  db2:
+    image: icr.io/db2_community/db2:12.1.1.0
+    profiles: ["sql"]
+    privileged: true  # required by the Db2 container (IPC / kernel parameters)
+    environment:
+      LICENSE: accept
+      DB2INSTANCE: db2inst1
+      DB2INST1_PASSWORD: qb_it_password
+      DBNAME: qbit
+      BLU: "false"
+      ENABLE_ORACLE_COMPATIBILITY: "false"
+      UPDATEAVAIL: "NO"
+      TO_CREATE_SAMPLEDB: "false"
+      REPODB: "false"
+      IS_OSXFS: "false"
+      PERSISTENT_HOME: "false"
+    ports: ["127.0.0.1:${QB_IT_PORT_DB2:-41054}:50000"]
+    volumes: ["qb_it_db2:/database"]
+    healthcheck:
+      test: ["CMD-SHELL", "su - db2inst1 -c 'db2 connect to qbit' | grep -q 'Database Connection Information'"]
+      interval: 15s
+      timeout: 20s
+      retries: 80
+      start_period: 120s
+
+  informix:
+    image: icr.io/informix/informix-developer-database:15.0.1.0.3
+    profiles: ["sql"]
+    environment:
+      LICENSE: accept
+      SIZE: small
+    ports:
+      - "127.0.0.1:${QB_IT_PORT_INFORMIX:-41055}:9088"
+      - "127.0.0.1:${QB_IT_PORT_INFORMIX_DRDA:-41056}:9089"
+    volumes: ["qb_it_informix:/opt/ibm/data"]
+
+  exasol:
+    image: exasol/docker-db:2025.1.16
+    profiles: ["sql"]
+    privileged: true  # required by Exasol's container runtime
+    ports: ["127.0.0.1:${QB_IT_PORT_EXASOL:-41057}:8563"]
+    volumes: ["qb_it_exasol:/exa"]
+
 volumes:
+  qb_it_vertica:
+  qb_it_db2:
+  qb_it_informix:
+  qb_it_exasol:
   qb_it_monetdb:
   qb_it_firebird:

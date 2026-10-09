@@ -60,6 +60,8 @@ class BaseDialect:
     # set the escape character (and whether it must be declared with ESCAPE).
     avg_template: str = "AVG({})"
     count_distinct_template: str = "COUNT(DISTINCT {})"
+    #: keyword between a derived table's ")" and its alias; Oracle rejects ``AS`` there
+    subquery_alias_keyword: str = "AS "
     like_escape_char: str | None = None
     like_escape_clause: bool = False
     like_special_chars: str = "%_"
@@ -491,7 +493,10 @@ class OracleDialect(BaseDialect):
     """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
 
     name: str = "oracle"
-    placeholder: str = "%s"
+    placeholder: str = "%s"  # OracleConnector rewrites to :1, :2, ... for the driver
+    subquery_alias_keyword = ""  # ORA-03048: no AS before a derived-table alias
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -1852,11 +1857,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, c.name, c.type, c.\"null\" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;",
+                f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;',
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, c.name, c.type, c.\"null\" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;",
+            f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;',
             [schema_name],
         )
 
