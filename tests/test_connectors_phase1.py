@@ -79,10 +79,11 @@ def test_firebird_dialect():
     assert d.quote_identifier("users") == '"users"'
 
     # format_limit_offset branches
+    # SQL:2008 form: the legacy `ROWS m TO n` was rejected by the structural validator
     c, p = d.format_limit_offset(10, 20)
-    assert c == "ROWS ? TO ?" and p == [21, 30]
+    assert c == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and p == [20, 10]
     c, p = d.format_limit_offset(10, 0)
-    assert c == "ROWS ?" and p == [10]
+    assert c == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and p == [0, 10]
 
     # inspect queries
     q, p = d.inspect_tables_query("public")
@@ -110,14 +111,14 @@ def test_monetdb_dialect():
     d = get_dialect("monetdb")
     assert isinstance(d, MonetDBDialect)
     assert d.name == "monetdb"
-    assert d.placeholder == "?"
+    assert d.placeholder == "%s"  # pymonetdb is pyformat
     assert get_dialect("monet").name == "monetdb"
 
-    assert d.format_ilike('"name"') == '"name" ILIKE ?'
+    assert d.format_ilike('"name"') == '"name" ILIKE %s'
     assert d.quote_identifier("users") == '"users"'
 
     c, p = d.format_limit_offset(10, 20)
-    assert c == "LIMIT ? OFFSET ?" and p == [10, 20]
+    assert c == "LIMIT %s OFFSET %s" and p == [10, 20]
 
     q, p = d.inspect_tables_query("sys")
     assert "sys.tables" in q and p == ["sys"]
@@ -132,9 +133,9 @@ def test_monetdb_dialect():
     assert "sys.keys" in q and p == ["sys"]
 
     q, p = d.inspect_foreign_keys_query("sys", "users")
-    assert "sys.fkeys" in q and p == ["sys", "users"]
+    assert "k.type = 2" in q and p == ["sys", "users"]
     q, p = d.inspect_foreign_keys_query("sys")
-    assert "sys.fkeys" in q and p == ["sys"]
+    assert "k.type = 2" in q and p == ["sys"]
 
 
 # H2 tries psycopg2/psycopg (PostgreSQL wire mode) before jaydebeapi; hide them so these tests
@@ -1525,9 +1526,9 @@ def test_introspect_monetdb_deep():
     ]
 
     snap = introspect_monetdb(cur, schema_name="sys", filter_sensitive=True)
-    assert "users" in snap["tables"]
-    assert "passwords" not in snap["tables"]
-    assert snap["tables"]["users"]["has_user_id"] is True
+    assert "USERS" in snap["tables"]
+    assert "PASSWORDS" not in snap["tables"]
+    assert snap["tables"]["USERS"]["has_user_id"] is True
 
     # Without filter_sensitive
     cur_s = MagicMock()
@@ -1538,7 +1539,7 @@ def test_introspect_monetdb_deep():
         [],
     ]
     snap_s = introspect_monetdb(cur_s, schema_name="sys", filter_sensitive=False)
-    assert "passwords" in snap_s["tables"]
+    assert "PASSWORDS" in snap_s["tables"]
 
     # Fallback branch to information_schema when sys.tables fails
     cur_fb = MagicMock()
@@ -1550,8 +1551,8 @@ def test_introspect_monetdb_deep():
         [],  # FKs
     ]
     snap_fb = introspect_monetdb(cur_fb, schema_name="sys", filter_sensitive=False)
-    assert "items" in snap_fb["tables"]
-    item_cols = snap_fb["tables"]["items"]["columns"]
+    assert "ITEMS" in snap_fb["tables"]
+    item_cols = snap_fb["tables"]["ITEMS"]["columns"]
     assert any(c["name"] == "id" and c["is_nullable"] is False for c in item_cols)
     assert any(c["name"] == "title" and c["is_nullable"] is True for c in item_cols)
 
@@ -1564,7 +1565,7 @@ def test_introspect_monetdb_deep():
         RuntimeError("FK query failed"),
     ]
     snap_supp = introspect_monetdb(cur_suppress)
-    assert "t1" in snap_supp["tables"]
+    assert "T1" in snap_supp["tables"]
 
     # Fatal error raises IntrospectionError
     cur_err = MagicMock()

@@ -60,6 +60,8 @@ class BaseDialect:
     # set the escape character (and whether it must be declared with ESCAPE).
     avg_template: str = "AVG({})"
     count_distinct_template: str = "COUNT(DISTINCT {})"
+    #: keyword between a derived table's ")" and its alias; Oracle rejects ``AS`` there
+    subquery_alias_keyword: str = "AS "
     like_escape_char: str | None = None
     like_escape_clause: bool = False
     like_special_chars: str = "%_"
@@ -502,7 +504,10 @@ class OracleDialect(BaseDialect):
     """Oracle SQL dialect using standard ANSI double-quote escaping and OFFSET-FETCH pagination."""
 
     name: str = "oracle"
-    placeholder: str = "%s"
+    placeholder: str = "%s"  # OracleConnector rewrites to :1, :2, ... for the driver
+    subquery_alias_keyword = ""  # ORA-03048: no AS before a derived-table alias
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
@@ -1796,13 +1801,18 @@ class FirebirdDialect(BaseDialect):
     def format_ilike(self, col_ref: str) -> str:
         return f"LOWER({col_ref}) LIKE LOWER({self.placeholder})"
 
+    like_escape_char = "\\"
+    like_escape_clause = True
+    # AVG over an INTEGER column is integer division in Firebird
+    avg_template = "AVG(CAST({} AS DOUBLE PRECISION))"
+
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        if offset > 0:
-            return (
-                f"ROWS {self.placeholder} TO {self.placeholder}",
-                [offset + 1, offset + limit],
-            )
-        return f"ROWS {self.placeholder}", [limit]
+        # SQL:2008 OFFSET/FETCH (Firebird 3.0+): standard, so the structural validator can
+        # parse it (the legacy ``ROWS m TO n`` form is not parseable and was rejected).
+        return (
+            f"OFFSET {self.placeholder} ROWS FETCH NEXT {self.placeholder} ROWS ONLY",
+            [offset, limit],
+        )
 
     def inspect_tables_query(
         self, schema_name: str = "public"
@@ -1856,7 +1866,10 @@ class MonetDBDialect(BaseDialect):
     """MonetDB columnar analytical database dialect using double-quote escaping and LIMIT/OFFSET."""
 
     name: str = "monetdb"
-    placeholder: str = "?"
+    placeholder: str = "%s"  # pymonetdb paramstyle is pyformat
+    # MonetDB rejects a backslash ESCAPE; "!" works
+    like_escape_char = "!"
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]
@@ -1872,11 +1885,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;",
+                f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY c.number;',
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, c.name, c.type, c.null FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;",
+            f'SELECT t.name, c.name, c.type, c."null" FROM sys.columns c JOIN sys.tables t ON c.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE s.name = {self.placeholder} AND t.system = FALSE ORDER BY t.name, c.number;',
             [schema_name],
         )
 
@@ -1885,11 +1898,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
+                f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} AND t.name = {self.placeholder} ORDER BY kc.nr;",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
+            f"SELECT t.name, kc.name FROM sys.keys k JOIN sys.objects kc ON k.id = kc.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id WHERE k.type = 0 AND s.name = {self.placeholder} ORDER BY t.name, kc.nr;",
             [schema_name],
         )
 
@@ -1898,11 +1911,11 @@ class MonetDBDialect(BaseDialect):
     ) -> tuple[str, list[Any]]:
         if table_name:
             return (
-                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder} AND t.name = {self.placeholder};",
+                f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE k.type = 2 AND s.name = {self.placeholder} AND t.name = {self.placeholder};",
                 [schema_name, table_name],
             )
         return (
-            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.fkeys fk JOIN sys.keys k ON fk.id = k.id JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.keycolumns kc ON k.id = kc.id JOIN sys.keys rk ON fk.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.keycolumns rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
+            f"SELECT t.name AS src_table, kc.name AS src_column, rt.name AS tgt_table, rkc.name AS tgt_column FROM sys.keys k JOIN sys.tables t ON k.table_id = t.id JOIN sys.schemas s ON t.schema_id = s.id JOIN sys.objects kc ON k.id = kc.id JOIN sys.keys rk ON k.rkey = rk.id JOIN sys.tables rt ON rk.table_id = rt.id JOIN sys.objects rkc ON rk.id = rkc.id AND kc.nr = rkc.nr WHERE s.name = {self.placeholder};",
             [schema_name],
         )
 
