@@ -11,8 +11,8 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 
 | Tier | Meaning | Classes |
 | --- | --- | --- |
-| `certified` | The live conformance suite (`tests/integration`) ran against a real engine through this class and passed in the latest recorded run. | 20 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 118 |
+| `certified` | The live conformance suite (`tests/integration`) ran against a real engine through this class and passed in the latest recorded run. | 21 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 117 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 Latest recorded live run: **2026-10-09 13:54 UTC**.
@@ -124,8 +124,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `MonetDBConnector` | sync | verified | `[monetdb]` | - | `monet`, `monetdb` |
 | `AsyncMonetDBConnector` | async | verified | `[monetdb]` | - | `async_monet`, `async_monetdb` |
 | `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | mongodb (5 pass, 1 known) | `mongo`, `atlas_sql`, `mongodb` |
-| `MSSQLConnector` | sync | verified | `[mssql]` | synapse (0 pass) | `mssql`, `sqlserver` |
-| `MySQLConnector` | sync | certified | `[mysql]` | mysql (88 pass) | `mysql`, `mariadb` |
+| `MSSQLConnector` | sync | certified | `[mssql]` | mssql (89 pass) | `mssql`, `sqlserver` |
+| `MySQLConnector` | sync | certified | `[mysql]` | mariadb (88 pass) | `mysql`, `mariadb` |
 | `Neo4jConnector` | sync | certified | `[neo4j]` | neo4j (10 pass) | `neo4j`, `cypher`, `neo4j_sql` |
 | `AsyncNeo4jConnector` | async | certified | `[neo4j]` | neo4j (10 pass) | `async_neo4j`, `async_cypher` |
 | `NeonConnector` | sync | verified | `[neon]` | - | `neon` |

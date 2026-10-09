@@ -332,3 +332,20 @@ def test_markdown_lists_engines_that_were_selected_but_not_exercised():
     md = status.render_markdown(report)
     assert "not exercised" in md and "snowflake" in md
     assert "Engines in the latest live run" not in md
+
+
+def test_live_index_keeps_the_strongest_evidence_when_engines_share_a_class():
+    """SQL Server and the Synapse cloud stub both use MSSQLConnector: a passing real run must
+    win over a stub that was skipped, whichever engine sorts last."""
+    from query_builder.connectors.status import _live_index
+
+    live = {
+        "engines": {
+            "mssql": {"connectors": ["MSSQLConnector"], "passed": 89, "failed": 0},
+            "synapse": {"connectors": ["MSSQLConnector"], "passed": 0, "failed": 0},
+            "flaky": {"connectors": ["MSSQLConnector"], "passed": 100, "failed": 2},
+        }
+    }
+    best = _live_index(live)["MSSQLConnector"]
+    assert best["engine"] == "mssql"
+    assert best["passed"] == 89

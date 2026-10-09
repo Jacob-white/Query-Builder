@@ -255,10 +255,25 @@ def record_live(reports: list[dict[str, Any]], root: Path | None = None) -> Path
 
 
 def _live_index(live: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Best live evidence per connector class.
+
+    Several engines can exercise the same class (e.g. SQL Server and the Synapse cloud stub
+    both use ``MSSQLConnector``); keep the strongest result - a clean pass beats a failing run,
+    and more passes beat fewer - instead of whichever engine happens to be listed last.
+    """
+
+    def strength(rec: dict[str, Any]) -> tuple[bool, int]:
+        return (
+            rec.get("failed", 0) == 0 and rec.get("passed", 0) > 0,
+            rec.get("passed", 0),
+        )
+
     index: dict[str, dict[str, Any]] = {}
     for engine, rec in live.get("engines", {}).items():
         for key in rec.get("connectors", []):
-            index[key] = {"engine": engine, **rec}
+            current = index.get(key)
+            if current is None or strength(rec) > strength(current):
+                index[key] = {"engine": engine, **rec}
     return index
 
 
