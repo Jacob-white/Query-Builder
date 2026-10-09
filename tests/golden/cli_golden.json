@@ -1,0 +1,665 @@
+{
+ "compile_bad_inline_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\"\n}\n",
+  "rc": 1
+ },
+ "compile_bad_json_file": {
+  "err": "Compilation error: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_compilation_error": {
+  "err": "Compilation error: Invalid or missing base table in schema: 'ghost'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_file": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT \"t1\".\"id\" AS \"orders.id\", \"t2\".\"email\" AS \"users.email\"\nFROM \"orders\" \"t1\"\nLEFT JOIN \"users\" \"t2\" ON \"t1\".\"user_id\" = \"t2\".\"id\"\nWHERE (\"t1\".\"total\" > %s)\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n[5, 5, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"orders\" \"t1\"\nLEFT JOIN \"users\" \"t2\" ON \"t1\".\"user_id\" = \"t2\".\"id\"\nWHERE (\"t1\".\"total\" > %s)\n",
+  "rc": 0
+ },
+ "compile_inline": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT \"t1\".*\nFROM \"users\" \"t1\"\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n[2, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"users\" \"t1\"\n",
+  "rc": 0
+ },
+ "compile_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"main_sql\": \"SELECT `t1`.`id` AS `orders.id`, `t2`.`email` AS `users.email`/nFROM `orders` `t1`/nLEFT JOIN `users` `t2` ON `t1`.`user_id` = `t2`.`id`/nWHERE (`t1`.`total` > %s)/nLIMIT %s OFFSET %s\",\n  \"params\": [\n    5,\n    5,\n    0\n  ],\n  \"count_sql\": \"SELECT COUNT(*)/nFROM `orders` `t1`/nLEFT JOIN `users` `t2` ON `t1`.`user_id` = `t2`.`id`/nWHERE (`t1`.`total` > %s)\",\n  \"count_params\": [\n    5\n  ],\n  \"dialect\": \"mysql\"\n}\n",
+  "rc": 0
+ },
+ "compile_missing_spec_file": {
+  "err": "Compilation error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_missing_spec_file_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"[Errno 2] No such file or directory: '<TMP>//nope.json'\"\n}\n",
+  "rc": 1
+ },
+ "compile_mssql": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT [t1].[id] AS [orders.id], [t2].[email] AS [users.email]\nFROM [orders] [t1]\nLEFT JOIN [users] [t2] ON [t1].[user_id] = [t2].[id]\nWHERE ([t1].[total] > %s)\nORDER BY (SELECT NULL)\nOFFSET %s ROWS FETCH NEXT %s ROWS ONLY\n\n--- Bind Parameters ---\n[5, 0, 5]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM [orders] [t1]\nLEFT JOIN [users] [t2] ON [t1].[user_id] = [t2].[id]\nWHERE ([t1].[total] > %s)\n",
+  "rc": 0
+ },
+ "compile_output_json": {
+  "err": "",
+  "files": {
+   "out.json": "{\n  \"main_sql\": \"SELECT /\"t1/\"./\"id/\" AS /\"orders.id/\", /\"t2/\"./\"email/\" AS /\"users.email/\"/nFROM /\"orders/\" /\"t1/\"/nLEFT JOIN /\"users/\" /\"t2/\" ON /\"t1/\"./\"user_id/\" = /\"t2/\"./\"id/\"/nWHERE (/\"t1/\"./\"total/\" > %s)/nLIMIT %s OFFSET %s\",\n  \"params\": [\n    5,\n    5,\n    0\n  ],\n  \"count_sql\": \"SELECT COUNT(*)/nFROM /\"orders/\" /\"t1/\"/nLEFT JOIN /\"users/\" /\"t2/\" ON /\"t1/\"./\"user_id/\" = /\"t2/\"./\"id/\"/nWHERE (/\"t1/\"./\"total/\" > %s)\",\n  \"count_params\": [\n    5\n  ],\n  \"dialect\": \"postgres\"\n}"
+  },
+  "out": "{\n  \"main_sql\": \"SELECT /\"t1/\"./\"id/\" AS /\"orders.id/\", /\"t2/\"./\"email/\" AS /\"users.email/\"/nFROM /\"orders/\" /\"t1/\"/nLEFT JOIN /\"users/\" /\"t2/\" ON /\"t1/\"./\"user_id/\" = /\"t2/\"./\"id/\"/nWHERE (/\"t1/\"./\"total/\" > %s)/nLIMIT %s OFFSET %s\",\n  \"params\": [\n    5,\n    5,\n    0\n  ],\n  \"count_sql\": \"SELECT COUNT(*)/nFROM /\"orders/\" /\"t1/\"/nLEFT JOIN /\"users/\" /\"t2/\" ON /\"t1/\"./\"user_id/\" = /\"t2/\"./\"id/\"/nWHERE (/\"t1/\"./\"total/\" > %s)\",\n  \"count_params\": [\n    5\n  ],\n  \"dialect\": \"postgres\"\n}\n",
+  "rc": 0
+ },
+ "compile_output_text": {
+  "err": "",
+  "files": {
+   "out.sql": "SELECT \"t1\".\"id\" AS \"orders.id\", \"t2\".\"email\" AS \"users.email\"\nFROM \"orders\" \"t1\"\nLEFT JOIN \"users\" \"t2\" ON \"t1\".\"user_id\" = \"t2\".\"id\"\nWHERE (\"t1\".\"total\" > %s)\nLIMIT %s OFFSET %s"
+  },
+  "out": "--- Main SQL ---\nSELECT \"t1\".\"id\" AS \"orders.id\", \"t2\".\"email\" AS \"users.email\"\nFROM \"orders\" \"t1\"\nLEFT JOIN \"users\" \"t2\" ON \"t1\".\"user_id\" = \"t2\".\"id\"\nWHERE (\"t1\".\"total\" > %s)\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n[5, 5, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"orders\" \"t1\"\nLEFT JOIN \"users\" \"t2\" ON \"t1\".\"user_id\" = \"t2\".\"id\"\nWHERE (\"t1\".\"total\" > %s)\n",
+  "rc": 0
+ },
+ "compile_schema_missing": {
+  "err": "Compilation error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_tenant_error": {
+  "err": "Compilation error: Table 'items' does not have a client_id or tenant_id column for tenant isolation.\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_topk_no_vs": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT \"t1\".*\nFROM \"users\" \"t1\"\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n[50, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"users\" \"t1\"\n",
+  "rc": 0
+ },
+ "compile_topk_only": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT \"t1\".\"id\" AS \"id\", (\"t1\".\"embedding\" <=> %s) AS \"_distance\"\nFROM \"users\" \"t1\"\nORDER BY \"_distance\" ASC\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n['[1, 2]', 3, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"users\" \"t1\"\n",
+  "rc": 0
+ },
+ "compile_user_tenant": {
+  "err": "Compilation error: Table 'users' does not have a client_id or tenant_id column for tenant isolation.\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "compile_vector_csv": {
+  "err": "",
+  "files": {},
+  "out": "--- Main SQL ---\nSELECT \"t1\".\"id\" AS \"id\", (\"t1\".\"embedding\" <=> %s) AS \"_distance\"\nFROM \"users\" \"t1\"\nORDER BY \"_distance\" ASC\nLIMIT %s OFFSET %s\n\n--- Bind Parameters ---\n['[0.1, 0.2, 0.3]', 4, 0]\n\n--- Count Subquery ---\nSELECT COUNT(*)\nFROM \"users\" \"t1\"\n",
+  "rc": 0
+ },
+ "compile_vector_json_list": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"main_sql\": \"SELECT /\"t1/\"./\"id/\" AS /\"id/\", (/\"t1/\"./\"embedding/\" <=> %s) AS /\"_distance/\"/nFROM /\"users/\" /\"t1/\"/nORDER BY /\"_distance/\" ASC/nLIMIT %s OFFSET %s\",\n  \"params\": [\n    \"[1, 2]\",\n    10,\n    0\n  ],\n  \"count_sql\": \"SELECT COUNT(*)/nFROM /\"users/\" /\"t1/\"\",\n  \"count_params\": [],\n  \"dialect\": \"postgres\"\n}\n",
+  "rc": 0
+ },
+ "doctor_bad_connector": {
+  "err": "Doctor error: No connector registered for 'nonesuch'. Available connectors: [<names>]\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "doctor_bad_connector_json": {
+  "err": "",
+  "files": {},
+  "out": "{\"error\": \"No connector registered for 'nonesuch'. Available connectors: [<names>]\"}",
+  "rc": 1
+ },
+ "doctor_connector": {
+  "err": "",
+  "files": {},
+  "out": "{\"connectivity\": [\"sqlite\"], \"drivers\": [\"asyncpg\", \"duckdb\", \"fastapi\", \"mysql.connector\", \"psycopg\", \"psycopg2\", \"pyarrow\", \"pydantic\", \"pymssql\", \"pymysql\", \"pyodbc\", \"snowflake.connector\", \"sqlalchemy\", \"sqlite3\", \"sqlparse\"], \"environment\": [\"platform\", \"python_supported\", \"python_version\", \"query_builder_version\"], \"registered_connectors\": \"<list>\"}",
+  "rc": 0
+ },
+ "doctor_json": {
+  "err": "",
+  "files": {},
+  "out": "{\"connectivity\": [\"sqlite (in-memory)\"], \"drivers\": [\"asyncpg\", \"duckdb\", \"fastapi\", \"mysql.connector\", \"psycopg\", \"psycopg2\", \"pyarrow\", \"pydantic\", \"pymssql\", \"pymysql\", \"pyodbc\", \"snowflake.connector\", \"sqlalchemy\", \"sqlite3\", \"sqlparse\"], \"environment\": [\"platform\", \"python_supported\", \"python_version\", \"query_builder_version\"], \"registered_connectors\": \"<list>\"}",
+  "rc": 0
+ },
+ "doctor_text": {
+  "err": "",
+  "files": {},
+  "out": "Query-Builder Doctor Diagnostics\n=================================\nDatabase Drivers & Dependencies:\nRegistered Connectors:\nDatabase Connectivity:",
+  "rc": 0
+ },
+ "export_drizzle": {
+  "err": "",
+  "files": {},
+  "out": "import { blob, integer, real, sqliteTable, text } from \"drizzle-orm/sqlite-core\";\n\nexport const users = sqliteTable(\"users\", {\n  id: integer(\"id\").primaryKey({ autoIncrement: true }),\n  email: text(\"email\").notNull(),\n  password: text(\"password\"),\n});\n\nexport const orders = sqliteTable(\"orders\", {\n  id: integer(\"id\").primaryKey({ autoIncrement: true }),\n  userId: integer(\"user_id\").references(() => users.id),\n  total: real(\"total\"),\n});\n\nexport const items = sqliteTable(\"items\", {\n  id: integer(\"id\").primaryKey({ autoIncrement: true }),\n  orderId: integer(\"order_id\").references(() => orders.id),\n});\n",
+  "rc": 0
+ },
+ "export_missing_schema": {
+  "err": "Export error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "export_prisma": {
+  "err": "",
+  "files": {},
+  "out": "datasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n}\n\ngenerator client {\n  provider = \"prisma-client-js\"\n}\n\nmodel Users {\n  id Int @id @default(autoincrement())\n  email String\n  password String?\n  ordersList Orders[]\n\n  @@map(\"users\")\n}\n\nmodel Orders {\n  id Int @id @default(autoincrement())\n  userId Int? @map(\"user_id\")\n  total Decimal?\n  user Users? @relation(fields: [userId], references: [id])\n  itemsList Items[]\n\n  @@map(\"orders\")\n}\n\nmodel Items {\n  id Int @id @default(autoincrement())\n  orderId Int? @map(\"order_id\")\n  order Orders? @relation(fields: [orderId], references: [id])\n\n  @@map(\"items\")\n}\n",
+  "rc": 0
+ },
+ "export_prisma_mysql_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": true,\n  \"format\": \"prisma\",\n  \"dialect\": \"mysql\",\n  \"content\": \"datasource db {/n  provider = /\"mysql/\"/n  url      = env(/\"DATABASE_URL/\")/n}/n/ngenerator client {/n  provider = /\"prisma-client-js/\"/n}/n/nmodel Users {/n  id Int @id @default(autoincrement())/n  email String/n  password String?/n  ordersList Orders[]/n/n  @@map(/\"users/\")/n}/n/nmodel Orders {/n  id Int @id @default(autoincrement())/n  userId Int? @map(/\"user_id/\")/n  total Decimal?/n  user Users? @relation(fields: [userId], references: [id])/n  itemsList Items[]/n/n  @@map(/\"orders/\")/n}/n/nmodel Items {/n  id Int @id @default(autoincrement())/n  orderId Int? @map(/\"order_id/\")/n  order Orders? @relation(fields: [orderId], references: [id])/n/n  @@map(/\"items/\")/n}\"\n}\n",
+  "rc": 0
+ },
+ "export_sqlalchemy_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": true,\n  \"format\": \"sqlalchemy\",\n  \"dialect\": \"sqlalchemy\",\n  \"content\": \"from __future__ import annotations/n/nfrom sqlalchemy import (/n    Boolean,/n    Column,/n    DateTime,/n    Float,/n    ForeignKey,/n    Integer,/n    Numeric,/n    String,/n    Text,/n)/nfrom sqlalchemy.orm import declarative_base, relationship/n/nBase = declarative_base()/n/n/nclass Users(Base):/n    /\"/\"/\"People/\"/\"/\"/n    __tablename__ = /\"users/\"/n    id = Column(Integer, primary_key=True, nullable=True)/n    email = Column(Text, primary_key=False, nullable=False)/n    password = Column(Text, primary_key=False, nullable=True)/n/n/nclass Orders(Base):/n    /\"/\"/\"Declarative model for table 'orders'./\"/\"/\"/n    __tablename__ = /\"orders/\"/n    id = Column(Integer, primary_key=True, nullable=True)/n    user_id = Column(Integer, ForeignKey(/\"users.id/\"), primary_key=False, nullable=True)/n    total = Column(Numeric, primary_key=False, nullable=True)/n    user = relationship(/\"Users/\", foreign_keys=[user_id])/n/n/nclass Items(Base):/n    /\"/\"/\"Declarative model for table 'items'./\"/\"/\"/n    __tablename__ = /\"items/\"/n    id = Column(Integer, primary_key=True, nullable=True)/n    order_id = Column(Integer, ForeignKey(/\"orders.id/\"), primary_key=False, nullable=True)/n    order = relationship(/\"Orders/\", foreign_keys=[order_id])\"\n}\n",
+  "rc": 0
+ },
+ "export_sqlalchemy_output": {
+  "err": "",
+  "files": {
+   "models.py": "from __future__ import annotations\n\nfrom sqlalchemy import (\n    Boolean,\n    Column,\n    DateTime,\n    Float,\n    ForeignKey,\n    Integer,\n    Numeric,\n    String,\n    Text,\n)\nfrom sqlalchemy.orm import declarative_base, relationship\n\nBase = declarative_base()\n\n\nclass Users(Base):\n    \"\"\"People\"\"\"\n    __tablename__ = \"users\"\n    id = Column(Integer, primary_key=True, nullable=True)\n    email = Column(Text, primary_key=False, nullable=False)\n    password = Column(Text, primary_key=False, nullable=True)\n\n\nclass Orders(Base):\n    \"\"\"Declarative model for table 'orders'.\"\"\"\n    __tablename__ = \"orders\"\n    id = Column(Integer, primary_key=True, nullable=True)\n    user_id = Column(Integer, ForeignKey(\"users.id\"), primary_key=False, nullable=True)\n    total = Column(Numeric, primary_key=False, nullable=True)\n    user = relationship(\"Users\", foreign_keys=[user_id])\n\n\nclass Items(Base):\n    \"\"\"Declarative model for table 'items'.\"\"\"\n    __tablename__ = \"items\"\n    id = Column(Integer, primary_key=True, nullable=True)\n    order_id = Column(Integer, ForeignKey(\"orders.id\"), primary_key=False, nullable=True)\n    order = relationship(\"Orders\", foreign_keys=[order_id])"
+  },
+  "out": "[OK] Exported sqlalchemy schema to <TMP>/models.py\n",
+  "rc": 0
+ },
+ "export_unknown_format": {
+  "err": "Export error: Unknown format 'cobol'. Choose from: prisma, drizzle, sqlalchemy\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "export_unknown_format_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"Unknown format 'cobol'. Choose from: prisma, drizzle, sqlalchemy\"\n}\n",
+  "rc": 1
+ },
+ "init_default": {
+  "err": "",
+  "files": {
+   "proj_default/README.md": "# Query-Builder Starter (Fullstack)\n\nScaffolded with default dialect: `sqlite`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect sqlite\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_default/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import SQLiteConnector, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\n# Auto-seed starter tables on launch if using SQLite\nimport sqlite3\n_conn = sqlite3.connect(\"starter.db\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);\")\nif _conn.execute(\"SELECT COUNT(*) FROM users;\").fetchone()[0] == 0:\n    _conn.execute(\"INSERT INTO users (id, email, full_name, created_at) VALUES (1, 'alice@example.com', 'Alice Smith', '2026-01-01');\")\n    _conn.execute(\"INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, 'COMPLETED');\")\n    _conn.commit()\n_conn.close()\n\nconnector = SQLiteConnector(database=\"starter.db\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_default/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_default/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fullstack' starter project in: <TMP>/proj_default\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_default\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_error": {
+  "err": "Scaffolding error: [WinError 3] The system cannot find the path specified: '<TMP>/afile/sub'\n",
+  "files": {
+   "afile": "x"
+  },
+  "out": "",
+  "rc": 1
+ },
+ "init_error_json": {
+  "err": "",
+  "files": {
+   "afile": "x"
+  },
+  "out": "{\n  \"success\": false,\n  \"error\": \"[WinError 3] The system cannot find the path specified: '<TMP>//afile//sub'\"\n}\n",
+  "rc": 1
+ },
+ "init_fastapi_duckdb": {
+  "err": "",
+  "files": {
+   "proj_duck/README.md": "# Query-Builder Starter (Fastapi)\n\nScaffolded with default dialect: `duckdb`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect duckdb\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_duck/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import ConnectorRegistry, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\nconnector = ConnectorRegistry.get(\"duckdb\", database=\"starter.duckdb\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_duck/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_duck/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fastapi' starter project in: <TMP>/proj_duck\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_duck\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_force": {
+  "err": "",
+  "files": {
+   "proj_force/README.md": "# Query-Builder Starter (Fullstack)\n\nScaffolded with default dialect: `sqlite`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect sqlite\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_force/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import SQLiteConnector, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\n# Auto-seed starter tables on launch if using SQLite\nimport sqlite3\n_conn = sqlite3.connect(\"starter.db\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);\")\nif _conn.execute(\"SELECT COUNT(*) FROM users;\").fetchone()[0] == 0:\n    _conn.execute(\"INSERT INTO users (id, email, full_name, created_at) VALUES (1, 'alice@example.com', 'Alice Smith', '2026-01-01');\")\n    _conn.execute(\"INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, 'COMPLETED');\")\n    _conn.commit()\n_conn.close()\n\nconnector = SQLiteConnector(database=\"starter.db\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_force/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_force/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fullstack' starter project in: <TMP>/proj_force\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_force\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_fullstack_mysql": {
+  "err": "",
+  "files": {
+   "proj_mysql/README.md": "# Query-Builder Starter (Fullstack)\n\nScaffolded with default dialect: `mysql`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect mysql\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_mysql/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import ConnectorRegistry, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\nconnector = ConnectorRegistry.get(\"mysql\", database=\"starter\", user=\"root\", host=\"localhost\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_mysql/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_mysql/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fullstack' starter project in: <TMP>/proj_mysql\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_mysql\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_json": {
+  "err": "",
+  "files": {
+   "proj_json/README.md": "# Query-Builder Starter (Fullstack)\n\nScaffolded with default dialect: `postgres`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect postgres\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_json/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import ConnectorRegistry, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\nconnector = ConnectorRegistry.get(\"postgres\", database=\"starter\", user=\"postgres\", host=\"localhost\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_json/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_json/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "{\n  \"success\": true,\n  \"directory\": \"<TMP>/proj_json\",\n  \"template\": \"fullstack\",\n  \"dialect\": \"postgres\",\n  \"created_files\": [\n    \"schema.json\",\n    \"spec.json\",\n    \"main.py\",\n    \"README.md\"\n  ],\n  \"skipped_files\": []\n}\n",
+  "rc": 0
+ },
+ "init_minimal": {
+  "err": "",
+  "files": {
+   "proj_min/README.md": "# Query-Builder Starter (Minimal)\n\nScaffolded with default dialect: `snowflake`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect snowflake\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_min/main.py": "\"\"\"\nQuery-Builder Minimal Starter.\n\"\"\"\n\nimport json\nfrom query_builder import QueryCompiler, validate_sql_ast\n\nwith open(\"spec.json\", \"r\") as f:\n    spec = json.load(f)\nwith open(\"schema.json\", \"r\") as f:\n    schema = json.load(f)\n\ncompiler = QueryCompiler(spec, schema=schema, dialect=\"snowflake\")\nsql, params, count_sql, count_params = compiler.compile()\n\nprint(\"Compiled SQL:/n\", sql)\nprint(\"Params:\", params)\nprint(\"AST Validation:\", validate_sql_ast(sql))\n",
+   "proj_min/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_min/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'minimal' starter project in: <TMP>/proj_min\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_min\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_postgresql": {
+  "err": "",
+  "files": {
+   "proj_pg/README.md": "# Query-Builder Starter (Fastapi)\n\nScaffolded with default dialect: `postgresql`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect postgresql\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_pg/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import ConnectorRegistry, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\nconnector = ConnectorRegistry.get(\"postgres\", database=\"starter\", user=\"postgres\", host=\"localhost\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_pg/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_pg/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fastapi' starter project in: <TMP>/proj_pg\n  + Created schema.json\n  + Created spec.json\n  + Created main.py\n  + Created README.md\n\nNext steps:\n  cd <TMP>/proj_pg\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_skip_existing": {
+  "err": "",
+  "files": {
+   "proj_skip/README.md": "# Query-Builder Starter (Fullstack)\n\nScaffolded with default dialect: `sqlite`.\n\n## Quickstart Commands\n\n- **Validate Environment & Drivers:**\n  ```bash\n  query-builder doctor\n  ```\n- **Compile QuerySpec to SQL:**\n  ```bash\n  query-builder compile --spec spec.json --schema schema.json --dialect sqlite\n  ```\n- **Validate SQL AST Safety:**\n  ```bash\n  query-builder validate \"SELECT * FROM users;\"\n  ```\n- **Start API Server:**\n  ```bash\n  python main.py\n  ```\n",
+   "proj_skip/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import SQLiteConnector, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\n# Auto-seed starter tables on launch if using SQLite\nimport sqlite3\n_conn = sqlite3.connect(\"starter.db\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);\")\nif _conn.execute(\"SELECT COUNT(*) FROM users;\").fetchone()[0] == 0:\n    _conn.execute(\"INSERT INTO users (id, email, full_name, created_at) VALUES (1, 'alice@example.com', 'Alice Smith', '2026-01-01');\")\n    _conn.execute(\"INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, 'COMPLETED');\")\n    _conn.commit()\n_conn.close()\n\nconnector = SQLiteConnector(database=\"starter.db\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_skip/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_skip/spec.json": "KEEP"
+  },
+  "out": "[OK] Scaffolded Query-Builder 'fullstack' starter project in: <TMP>/proj_skip\n  + Created schema.json\n  + Created main.py\n  + Created README.md\n  - Skipped spec.json (already exists, use --force to overwrite)\n\nNext steps:\n  cd <TMP>/proj_skip\n  query-builder doctor\n  query-builder compile --spec spec.json\n",
+  "rc": 0
+ },
+ "init_skip_existing_json": {
+  "err": "",
+  "files": {
+   "proj_skipj/README.md": "KEEP",
+   "proj_skipj/main.py": "\"\"\"\nQuery-Builder Starter Backend API.\n\"\"\"\n\nfrom fastapi import FastAPI\nfrom query_builder import SQLiteConnector, create_query_builder_router\n\napp = FastAPI(title=\"Query-Builder Starter API\")\n\n# Auto-seed starter tables on launch if using SQLite\nimport sqlite3\n_conn = sqlite3.connect(\"starter.db\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, full_name TEXT, created_at TEXT NOT NULL);\")\n_conn.execute(\"CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), total_amount REAL NOT NULL, status TEXT NOT NULL);\")\nif _conn.execute(\"SELECT COUNT(*) FROM users;\").fetchone()[0] == 0:\n    _conn.execute(\"INSERT INTO users (id, email, full_name, created_at) VALUES (1, 'alice@example.com', 'Alice Smith', '2026-01-01');\")\n    _conn.execute(\"INSERT INTO orders (id, user_id, total_amount, status) VALUES (1, 1, 99.50, 'COMPLETED');\")\n    _conn.commit()\n_conn.close()\n\nconnector = SQLiteConnector(database=\"starter.db\")\nrouter = create_query_builder_router(connector=connector, prefix=\"/api\")\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health():\n    return {\"status\": \"healthy\"}\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8000)\n",
+   "proj_skipj/schema.json": "{\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"full_name\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": true\n        },\n        {\n          \"name\": \"created_at\",\n          \"data_type\": \"timestamp\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": true,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"total_amount\",\n          \"data_type\": \"decimal\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        },\n        {\n          \"name\": \"status\",\n          \"data_type\": \"text\",\n          \"is_primary\": false,\n          \"is_nullable\": false\n        }\n      ]\n    }\n  },\n  \"foreign_keys\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ],\n  \"relationships\": [\n    {\n      \"source_table\": \"orders\",\n      \"source_column\": \"user_id\",\n      \"target_table\": \"users\",\n      \"target_column\": \"id\"\n    }\n  ]\n}",
+   "proj_skipj/spec.json": "{\n  \"table\": \"orders\",\n  \"columns\": [\n    \"orders.id\",\n    \"orders.total_amount\",\n    \"users.email\"\n  ],\n  \"joins\": [\n    {\n      \"table\": \"users\",\n      \"type\": \"INNER JOIN\",\n      \"on\": [\n        {\n          \"left\": \"orders.user_id\",\n          \"right\": \"users.id\"\n        }\n      ]\n    }\n  ],\n  \"filters\": [\n    {\n      \"column\": \"orders.status\",\n      \"op\": \"eq\",\n      \"value\": \"COMPLETED\"\n    }\n  ],\n  \"limit\": 25\n}"
+  },
+  "out": "{\n  \"success\": true,\n  \"directory\": \"<TMP>/proj_skipj\",\n  \"template\": \"fullstack\",\n  \"dialect\": \"sqlite\",\n  \"created_files\": [\n    \"schema.json\",\n    \"spec.json\",\n    \"main.py\"\n  ],\n  \"skipped_files\": [\n    \"README.md\"\n  ]\n}\n",
+  "rc": 0
+ },
+ "introspect_error": {
+  "err": "Introspection error: No connector registered for 'nonesuch'. Available connectors: [<names>]\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "introspect_error_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"No connector registered for 'nonesuch'. Available connectors: [<names>]\"\n}\n",
+  "rc": 1
+ },
+ "introspect_json_output": {
+  "err": "",
+  "files": {
+   "snap.json": "{\n  \"tables\": {\n    \"people\": {\n      \"name\": \"people\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"name\",\n          \"data_type\": \"TEXT\",\n          \"is_nullable\": false,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": false,\n      \"user_col\": \"user_id\",\n      \"comment\": null\n    },\n    \"pets\": {\n      \"name\": \"pets\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"owner\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": false,\n      \"user_col\": \"user_id\",\n      \"comment\": null\n    }\n  },\n  \"foreign_keys\": [],\n  \"relationships\": [],\n  \"categories\": {}\n}"
+  },
+  "out": "{\n  \"tables\": {\n    \"people\": {\n      \"name\": \"people\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"name\",\n          \"data_type\": \"TEXT\",\n          \"is_nullable\": false,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": false,\n      \"user_col\": \"user_id\",\n      \"comment\": null\n    },\n    \"pets\": {\n      \"name\": \"pets\",\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"owner\",\n          \"data_type\": \"INTEGER\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": false,\n      \"user_col\": \"user_id\",\n      \"comment\": null\n    }\n  },\n  \"foreign_keys\": [],\n  \"relationships\": [],\n  \"categories\": {}\n}\n",
+  "rc": 0
+ },
+ "introspect_no_filter": {
+  "err": "",
+  "files": {},
+  "out": "[OK] Introspected 2 tables (4 columns) from 'sqlite'.\n  Tables: people, pets\n",
+  "rc": 0
+ },
+ "introspect_text": {
+  "err": "",
+  "files": {},
+  "out": "[OK] Introspected 2 tables (4 columns) from 'sqlite'.\n  Tables: people, pets\n",
+  "rc": 0
+ },
+ "join_bad_schema": {
+  "err": "Join path error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "join_inline_schema": {
+  "err": "",
+  "files": {},
+  "out": "[\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"orders\",\n    \"left_col\": \"user_id\",\n    \"table\": \"users\",\n    \"right_col\": \"id\"\n  }\n]\n",
+  "rc": 0
+ },
+ "join_no_path": {
+  "err": "",
+  "files": {},
+  "out": "[\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"orders\",\n    \"left_col\": \"id\",\n    \"table\": \"ghost\",\n    \"right_col\": \"id\"\n  }\n]\n",
+  "rc": 0
+ },
+ "join_no_path_json": {
+  "err": "",
+  "files": {},
+  "out": "[\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"orders\",\n    \"left_col\": \"id\",\n    \"table\": \"ghost\",\n    \"right_col\": \"id\"\n  }\n]\n",
+  "rc": 0
+ },
+ "join_no_schema": {
+  "err": "",
+  "files": {},
+  "out": "[\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"orders\",\n    \"left_col\": \"id\",\n    \"table\": \"users\",\n    \"right_col\": \"id\"\n  }\n]\n",
+  "rc": 0
+ },
+ "join_ok": {
+  "err": "",
+  "files": {},
+  "out": "[\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"items\",\n    \"left_col\": \"order_id\",\n    \"table\": \"orders\",\n    \"right_col\": \"id\"\n  },\n  {\n    \"type\": \"LEFT JOIN\",\n    \"left_table\": \"orders\",\n    \"left_col\": \"user_id\",\n    \"table\": \"users\",\n    \"right_col\": \"id\"\n  }\n]\n",
+  "rc": 0
+ },
+ "schema_bad_file": {
+  "err": "Schema Explorer error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "schema_bad_file_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"[Errno 2] No such file or directory: '<TMP>//nope.json'\"\n}\n",
+  "rc": 1
+ },
+ "schema_no_filter": {
+  "err": "",
+  "files": {},
+  "out": "Schema Overview: 3 tables, 8 columns, 2 foreign keys\n  User-Isolated Tables: 2\n  Tables: items, orders, users\n",
+  "rc": 0
+ },
+ "schema_overview": {
+  "err": "",
+  "files": {},
+  "out": "Schema Overview: 3 tables, 8 columns, 2 foreign keys\n  User-Isolated Tables: 2\n  Tables: items, orders, users\n",
+  "rc": 0
+ },
+ "schema_overview_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"table_count\": 3,\n  \"column_count\": 8,\n  \"primary_key_count\": 3,\n  \"foreign_key_count\": 2,\n  \"relationship_count\": 2,\n  \"user_isolated_count\": 2,\n  \"categories\": {},\n  \"hubs\": [],\n  \"isolated_tables\": [],\n  \"data_types\": {\n    \"integer\": 5,\n    \"text\": 2,\n    \"decimal\": 1\n  },\n  \"tables\": {\n    \"users\": {\n      \"name\": \"users\",\n      \"column_count\": 3,\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"email\",\n          \"data_type\": \"text\",\n          \"is_nullable\": false,\n          \"is_primary\": false,\n          \"comment\": null\n        },\n        {\n          \"name\": \"password\",\n          \"data_type\": \"text\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": true,\n      \"user_col\": \"user_id\",\n      \"comment\": \"People\",\n      \"primary_keys\": [\n        \"id\"\n      ],\n      \"outgoing_fks\": [],\n      \"incoming_fks\": [\n        {\n          \"table\": \"orders\",\n          \"column\": \"user_id\",\n          \"foreign_table\": \"users\",\n          \"foreign_column\": \"id\"\n        }\n      ]\n    },\n    \"orders\": {\n      \"name\": \"orders\",\n      \"column_count\": 3,\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"user_id\",\n          \"data_type\": \"integer\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        },\n        {\n          \"name\": \"total\",\n          \"data_type\": \"decimal\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": true,\n      \"user_col\": \"user_id\",\n      \"comment\": null,\n      \"primary_keys\": [\n        \"id\"\n      ],\n      \"outgoing_fks\": [\n        {\n          \"table\": \"orders\",\n          \"column\": \"user_id\",\n          \"foreign_table\": \"users\",\n          \"foreign_column\": \"id\"\n        }\n      ],\n      \"incoming_fks\": [\n        {\n          \"table\": \"items\",\n          \"column\": \"order_id\",\n          \"foreign_table\": \"orders\",\n          \"foreign_column\": \"id\"\n        }\n      ]\n    },\n    \"items\": {\n      \"name\": \"items\",\n      \"column_count\": 2,\n      \"columns\": [\n        {\n          \"name\": \"id\",\n          \"data_type\": \"integer\",\n          \"is_nullable\": true,\n          \"is_primary\": true,\n          \"comment\": null\n        },\n        {\n          \"name\": \"order_id\",\n          \"data_type\": \"integer\",\n          \"is_nullable\": true,\n          \"is_primary\": false,\n          \"comment\": null\n        }\n      ],\n      \"has_user_id\": false,\n      \"user_col\": \"user_id\",\n      \"comment\": null,\n      \"primary_keys\": [\n        \"id\"\n      ],\n      \"outgoing_fks\": [\n        {\n          \"table\": \"items\",\n          \"column\": \"order_id\",\n          \"foreign_table\": \"orders\",\n          \"foreign_column\": \"id\"\n        }\n      ],\n      \"incoming_fks\": []\n    }\n  }\n}\n",
+  "rc": 0
+ },
+ "schema_table": {
+  "err": "",
+  "files": {},
+  "out": "Table: orders [user-isolated]\nColumns (3):\n  \u2022 id (integer, NULL) [PK]\n  \u2022 user_id (integer, NULL)\n  \u2022 total (decimal, NULL)\nOutgoing Foreign Keys:\n  \u2794 user_id -> users.id\nIncoming References:\n  \u2b05 items.order_id -> id\n",
+  "rc": 0
+ },
+ "schema_table_incoming": {
+  "err": "",
+  "files": {},
+  "out": "Table: orders [user-isolated]\nColumns (3):\n  \u2022 id (integer, NULL) [PK]\n  \u2022 user_id (integer, NULL)\n  \u2022 total (decimal, NULL)\nOutgoing Foreign Keys:\n  \u2794 user_id -> users.id\nIncoming References:\n  \u2b05 items.order_id -> id\n",
+  "rc": 0
+ },
+ "schema_table_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"name\": \"users\",\n  \"column_count\": 3,\n  \"columns\": [\n    {\n      \"name\": \"id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": true,\n      \"is_primary\": true,\n      \"comment\": null\n    },\n    {\n      \"name\": \"email\",\n      \"data_type\": \"text\",\n      \"is_nullable\": false,\n      \"is_primary\": false,\n      \"comment\": null\n    },\n    {\n      \"name\": \"password\",\n      \"data_type\": \"text\",\n      \"is_nullable\": true,\n      \"is_primary\": false,\n      \"comment\": null\n    }\n  ],\n  \"has_user_id\": true,\n  \"user_col\": \"user_id\",\n  \"comment\": \"People\",\n  \"primary_keys\": [\n    \"id\"\n  ],\n  \"outgoing_fks\": [],\n  \"incoming_fks\": [\n    {\n      \"table\": \"orders\",\n      \"column\": \"user_id\",\n      \"foreign_table\": \"users\",\n      \"foreign_column\": \"id\"\n    }\n  ]\n}\n",
+  "rc": 0
+ },
+ "schema_table_missing": {
+  "err": "Schema Explorer error: Table 'ghost' not found in schema snapshot.\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "schema_table_missing_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"error\": \"Table 'ghost' not found in schema snapshot.\"\n}\n",
+  "rc": 1
+ },
+ "schema_table_users": {
+  "err": "",
+  "files": {},
+  "out": "Table: users [user-isolated]\nComment: People\nColumns (3):\n  \u2022 id (integer, NULL) [PK]\n  \u2022 email (text, NOT NULL)\n  \u2022 password (text, NULL)\nIncoming References:\n  \u2b05 orders.user_id -> id\n",
+  "rc": 0
+ },
+ "schema_tree": {
+  "err": "",
+  "files": {},
+  "out": "Database Schema (3 tables, 8 columns, 2 FKs):\n\u251c\u2500\u2500 items (2 cols)\n\u2502   \u251c\u2500\u2500 id: integer [PK]\n\u2502   \u251c\u2500\u2500 order_id: integer\n\u2502   \u2514\u2500\u2500 FK: order_id -> orders.id\n\u251c\u2500\u2500 orders (3 cols) [user-isolated]\n\u2502   \u251c\u2500\u2500 id: integer [PK]\n\u2502   \u251c\u2500\u2500 user_id: integer\n\u2502   \u251c\u2500\u2500 total: decimal\n\u2502   \u2514\u2500\u2500 FK: user_id -> users.id\n\u2514\u2500\u2500 users (3 cols) [user-isolated]\n    \u251c\u2500\u2500 id: integer [PK]\n    \u251c\u2500\u2500 email: text\n    \u251c\u2500\u2500 password: text\n",
+  "rc": 0
+ },
+ "test_alias_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"status\": \"healthy\",\n  \"dialect\": \"sqlite\",\n  \"latency_ms\": <N>,\n  \"engine_version\": \"3.49.1\"\n}\n",
+  "rc": 0
+ },
+ "test_bad_config": {
+  "err": "",
+  "files": {},
+  "out": "[ERROR] Connection to 'sqlite' failed: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+  "rc": 1
+ },
+ "test_sqlite_ok": {
+  "err": "",
+  "files": {},
+  "out": "[OK] Connection to 'sqlite' successful (dialect: sqlite, latency: <N>ms)\n",
+  "rc": 0
+ },
+ "test_unknown_connector": {
+  "err": "",
+  "files": {},
+  "out": "[ERROR] Connection to 'nonesuch' failed: No connector registered for 'nonesuch'. Available connectors: [<names>]\n",
+  "rc": 1
+ },
+ "test_unknown_connector_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"success\": false,\n  \"status\": \"unhealthy\",\n  \"error\": \"No connector registered for 'nonesuch'. Available connectors: [<names>]\"\n}\n",
+  "rc": 1
+ },
+ "validate_cte": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_delete": {
+  "err": "",
+  "files": {},
+  "out": "[FAIL] AST validation failed:\n  Statement type: DELETE\n  Injection risk: CRITICAL\n  Violations:\n    - Restricted statement type: DELETE. Only SELECT queries are permitted.\n    - Forbidden mutation keyword: 'DELETE'\n    - [sqlglot-ast] Statement type DELETE is not a read-only query.\n    - [sqlglot-ast] Non read-only construct DELETE is not permitted.\n",
+  "rc": 1
+ },
+ "validate_delete_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"ast_validated\": true,\n  \"statement_type\": \"DELETE\",\n  \"is_read_only\": false,\n  \"violations\": [\n    \"Restricted statement type: DELETE. Only SELECT queries are permitted.\",\n    \"Forbidden mutation keyword: 'DELETE'\",\n    \"[sqlglot-ast] Statement type DELETE is not a read-only query.\",\n    \"[sqlglot-ast] Non read-only construct DELETE is not permitted.\"\n  ],\n  \"injection_risk\": \"CRITICAL\",\n  \"message\": \"Restricted statement type: DELETE. Only SELECT queries are permitted.\",\n  \"violation_layers\": {\n    \"legacy\": [\n      \"Restricted statement type: DELETE. Only SELECT queries are permitted.\",\n      \"Forbidden mutation keyword: 'DELETE'\"\n    ],\n    \"sqlglot_ast\": [\n      \"[sqlglot-ast] Statement type DELETE is not a read-only query.\",\n      \"[sqlglot-ast] Non read-only construct DELETE is not permitted.\"\n    ]\n  }\n}\n",
+  "rc": 1
+ },
+ "validate_empty": {
+  "err": "Validation error: No query target provided.\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "validate_empty_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"violations\": [\n    \"No query provided.\"\n  ],\n  \"injection_risk\": \"NONE\"\n}\n",
+  "rc": 1
+ },
+ "validate_evil_sql_file": {
+  "err": "",
+  "files": {},
+  "out": "[FAIL] AST validation failed:\n  Statement type: DROP\n  Injection risk: CRITICAL\n  Violations:\n    - Restricted statement type: DROP. Only SELECT queries are permitted.\n    - Forbidden mutation keyword: 'DROP'\n    - [sqlglot-ast] Statement type DROP is not a read-only query.\n    - [sqlglot-ast] Non read-only construct DROP is not permitted.\n",
+  "rc": 1
+ },
+ "validate_fail_critical": {
+  "err": "",
+  "files": {},
+  "out": "[FAIL] AST validation failed:\n  Statement type: DROP\n  Injection risk: CRITICAL\n  Violations:\n    - Restricted statement type: DROP. Only SELECT queries are permitted.\n    - Forbidden mutation keyword: 'DROP'\n    - [sqlglot-ast] Statement type DROP is not a read-only query.\n    - [sqlglot-ast] Non read-only construct DROP is not permitted.\n    - Risk level CRITICAL meets or exceeds threshold CRITICAL\n",
+  "rc": 1
+ },
+ "validate_fail_critical_pass": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_fail_high": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_inline_bad_json": {
+  "err": "Validation error: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "validate_inline_bad_json_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"violations\": [\n    \"Failed to load or compile target: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\"\n  ],\n  \"injection_risk\": \"CRITICAL\"\n}\n",
+  "rc": 1
+ },
+ "validate_inline_bad_spec": {
+  "err": "Validation error: Invalid table identifier name: 'a b'\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "validate_inline_spec": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_inline_sql_key": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_json_bad_file": {
+  "err": "Validation error: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "validate_json_bad_file_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"violations\": [\n    \"Failed to load or compile target: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\"\n  ],\n  \"injection_risk\": \"CRITICAL\"\n}\n",
+  "rc": 1
+ },
+ "validate_json_spec_file": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_json_sql_file": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_missing_json_file_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"violations\": [\n    \"Target file not found: nope.json\"\n  ],\n  \"injection_risk\": \"CRITICAL\"\n}\n",
+  "rc": 1
+ },
+ "validate_missing_sql_file": {
+  "err": "Validation error: Target file not found: nope.sql\n",
+  "files": {},
+  "out": "",
+  "rc": 1
+ },
+ "validate_no_cte": {
+  "err": "",
+  "files": {},
+  "out": "[FAIL] AST validation failed:\n  Statement type: SELECT\n  Injection risk: HIGH\n  Violations:\n    - Common Table Expressions (WITH) are not permitted.\n    - [sqlglot-ast] Common Table Expressions (WITH) are not permitted.\n",
+  "rc": 1
+ },
+ "validate_ok": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_ok_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": true,\n  \"ast_validated\": true,\n  \"statement_type\": \"SELECT\",\n  \"is_read_only\": true,\n  \"violations\": [],\n  \"injection_risk\": \"NONE\",\n  \"message\": \"Query passed AST validation and read-only policy.\",\n  \"violation_layers\": {\n    \"legacy\": [],\n    \"sqlglot_ast\": []\n  }\n}\n",
+  "rc": 0
+ },
+ "validate_restricted": {
+  "err": "",
+  "files": {},
+  "out": "[FAIL] AST validation failed:\n  Statement type: SELECT\n  Injection risk: CRITICAL\n  Violations:\n    - Access Denied: Table 'USERS' is restricted. Authentication, credentials, and session data cannot be queried.\n    - [sqlglot-ast] Table 'USERS' is restricted.\n",
+  "rc": 1
+ },
+ "validate_restricted_json": {
+  "err": "",
+  "files": {},
+  "out": "{\n  \"valid\": false,\n  \"ast_validated\": true,\n  \"statement_type\": \"SELECT\",\n  \"is_read_only\": false,\n  \"violations\": [\n    \"Access Denied: Table 'USERS' is restricted. Authentication, credentials, and session data cannot be queried.\",\n    \"[sqlglot-ast] Table 'USERS' is restricted.\"\n  ],\n  \"injection_risk\": \"CRITICAL\",\n  \"message\": \"Access Denied: Table 'USERS' is restricted. Authentication, credentials, and session data cannot be queried.\",\n  \"violation_layers\": {\n    \"legacy\": [\n      \"Access Denied: Table 'USERS' is restricted. Authentication, credentials, and session data cannot be queried.\"\n    ],\n    \"sqlglot_ast\": [\n      \"[sqlglot-ast] Table 'USERS' is restricted.\"\n    ]\n  }\n}\n",
+  "rc": 1
+ },
+ "validate_schemas_allowed": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_schemas_denied": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_sql_file": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "validate_union_injection": {
+  "err": "",
+  "files": {},
+  "out": "[PASS] AST validation succeeded. Safe read-only SELECT query.\n",
+  "rc": 0
+ },
+ "verify_json": {
+  "err": "",
+  "files": {},
+  "out": "[\"connectors\", \"generated_for\", \"live_engines\", \"live_run_at\", \"totals\"]",
+  "rc": 0
+ },
+ "verify_table": {
+  "err": "",
+  "files": {},
+  "out": "CLASS",
+  "rc": 0
+ }
+}
