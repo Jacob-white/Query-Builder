@@ -68,7 +68,10 @@ def test_async_introspection_matches_sync(async_engine: Engine) -> None:
         return await conn.introspect_schema(filter_sensitive=False)
 
     got = _table_columns(run(_with_connector(async_engine, body)))
-    interesting = {t for t in expected if t.startswith("qbit_") or t == "person"}
+    # 'qbit-': Pinecone index names cannot contain underscores
+    interesting = {
+        t for t in expected if t.startswith(("qbit_", "qbit-")) or t == "person"
+    }
     assert interesting, expected
     for table in interesting:
         assert got.get(table) == expected[table], (table, got.get(table))

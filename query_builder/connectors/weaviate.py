@@ -12,6 +12,15 @@ import json
 import time
 from typing import Any
 
+from query_builder.connectors._vector_sql import (
+    VectorQuery,
+    VectorQueryError,
+    drive_async,
+    drive_sync,
+    parse_vector_sql,
+    payload_columns,
+    shape_rows,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -19,8 +28,260 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_weaviate
+from query_builder.connectors.introspection import (
+    introspect_weaviate,
+    normalize_schema_snapshot,
+)
 from query_builder.connectors.registry import register_connector
+
+_WEAVIATE_TYPES = {
+    "text": "string",
+    "text[]": "array",
+    "int": "integer",
+    "int[]": "array",
+    "number": "float",
+    "number[]": "array",
+    "boolean": "boolean",
+    "boolean[]": "array",
+    "date": "timestamp",
+    "uuid": "uuid",
+    "object": "json",
+    "blob": "binary",
+}
+
+
+def _is_real_client(conn: Any) -> bool:
+    return type(conn).__module__.startswith("weaviate")
+
+
+def _endpoint(url: str) -> tuple[str, int, bool]:
+    """``http://host:port`` -> (host, port, secure); a bare ``host[:port]`` is accepted too."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url if "//" in url else f"//{url}")
+    secure = parsed.scheme == "https"
+    return (
+        parsed.hostname or "localhost",
+        parsed.port or (443 if secure else 8080),
+        secure,
+    )
+
+
+def _connect_kwargs(
+    url: str, config: dict[str, Any], api_key: str | None
+) -> dict[str, Any]:
+    """Keyword arguments for ``weaviate.connect_to_custom`` / ``use_async_with_custom``."""
+    host, port, secure = _endpoint(url)
+    cfg = dict(config)
+    kwargs: dict[str, Any] = {
+        "http_host": cfg.pop("http_host", host),
+        "http_port": cfg.pop("http_port", port),
+        "http_secure": cfg.pop("http_secure", secure),
+        "grpc_host": cfg.pop("grpc_host", host),
+        "grpc_port": cfg.pop("grpc_port", 50051),
+        "grpc_secure": cfg.pop("grpc_secure", secure),
+    }
+    if api_key and "auth_credentials" not in cfg:
+        from weaviate.classes.init import Auth
+
+        kwargs["auth_credentials"] = Auth.api_key(api_key)
+    kwargs.update(cfg)
+    return kwargs
+
+
+def _weaviate_filter(conds: list[Any]) -> Any:
+    if not conds:
+        return None
+    from weaviate.classes.query import Filter
+
+    parts: list[Any] = []
+    for c in conds:
+        prop = Filter.by_property(c.column)
+        if c.op == "=":
+            parts.append(prop.equal(c.value))
+        elif c.op == "!=":
+            parts.append(prop.not_equal(c.value))
+        elif c.op == ">":
+            parts.append(prop.greater_than(c.value))
+        elif c.op == ">=":
+            parts.append(prop.greater_or_equal(c.value))
+        elif c.op == "<":
+            parts.append(prop.less_than(c.value))
+        elif c.op == "<=":
+            parts.append(prop.less_or_equal(c.value))
+        elif c.op == "in":
+            parts.append(prop.contains_any(list(c.value)))
+        elif c.op == "not_in":
+            parts.extend(Filter.by_property(c.column).not_equal(v) for v in c.value)
+        elif c.op == "is_null":
+            parts.append(prop.is_none(True))
+        else:  # is_not_null
+            parts.append(prop.is_none(False))
+    return parts[0] if len(parts) == 1 else Filter.all_of(parts)
+
+
+def _vector_config(cfg: Any) -> Any:
+    index = getattr(cfg, "vector_index_config", None)
+    if index is None:
+        named = getattr(cfg, "vector_config", None) or {}
+        for entry in named.values():
+            index = getattr(entry, "vector_index_config", None)
+            break
+    return index
+
+
+def _metric_of(cfg: Any) -> str:
+    dm = getattr(_vector_config(cfg), "distance_metric", None)
+    return str(getattr(dm, "value", dm) or "cosine")
+
+
+def _resolve_name(listing: Any, wanted: str) -> str:
+    names = list(listing.keys()) if isinstance(listing, dict) else list(listing)
+    for n in names:
+        if n == wanted or n.lower() == wanted.lower():
+            return n
+    raise VectorQueryError(
+        f"collection {wanted!r} does not exist; have {sorted(names)}"
+    )
+
+
+def weaviate_plan(vq: VectorQuery) -> Any:
+    from weaviate.classes.query import MetadataQuery, Sort
+
+    listing = yield ("collections.list_all", {})
+    name = _resolve_name(listing, vq.table)
+    coll = yield ("collections.get", {"name": name})
+    flt = _weaviate_filter(vq.conds)
+    wanted = vq.wanted_payload_fields()
+    props = (
+        None if wanted is None else [w for w in wanted if w not in ("id", "_distance")]
+    )
+
+    if vq.count_only and not vq.is_search:
+        agg = yield (coll.aggregate.over_all, {"filters": flt, "total_count": True})
+        return [("count",)], [[agg.total_count]]
+
+    hits: list[dict[str, Any]] = []
+    if vq.is_search:
+        if any(n != "_distance" or desc for n, desc in vq.order_by):
+            raise VectorQueryError(
+                "a vector search can only be ordered by distance, ascending"
+            )
+        cfg = yield (coll.config.get, {})
+        engine_metric = _metric_of(cfg)
+        wmetric = {"cosine": "cosine", "dot": "dot", "l2-squared": "euclidean"}.get(
+            engine_metric, engine_metric
+        )
+        if wmetric != vq.metric:
+            raise VectorQueryError(
+                f"query asks for {vq.metric} distance but the collection uses {engine_metric}"
+            )
+        want = 10_000 if vq.count_only else vq.limit or 10
+        res = yield (
+            coll.query.near_vector,
+            {
+                "near_vector": vq.vector,
+                "limit": want,
+                "offset": 0 if vq.count_only else vq.offset,
+                "filters": flt,
+                "return_metadata": MetadataQuery(distance=True),
+                "return_properties": props,
+            },
+        )
+        for obj in res.objects:
+            d = obj.metadata.distance
+            if engine_metric == "l2-squared":
+                d = float(d) ** 0.5
+            if vq.max_distance is None or d <= vq.max_distance:
+                hits.append({"id": str(obj.uuid), **obj.properties, "_distance": d})
+        if vq.count_only:
+            return [("count",)], [[len(hits)]]
+        return shape_rows(vq, hits)
+
+    sort = None
+    for col, desc in vq.order_by:
+        sort = (
+            Sort.by_property(col, ascending=not desc)
+            if sort is None
+            else sort.by_property(col, ascending=not desc)
+        )
+    res = yield (
+        coll.query.fetch_objects,
+        {
+            "limit": vq.limit or 10_000,
+            "offset": vq.offset,
+            "filters": flt,
+            "sort": sort,
+            "return_properties": props,
+        },
+    )
+    hits = [{"id": str(o.uuid), **o.properties} for o in res.objects]
+    return shape_rows(vq, hits)
+
+
+def weaviate_introspect_plan() -> Any:
+    listing = yield ("collections.list_all", {})
+    tables: dict[str, dict[str, Any]] = {}
+    for name in listing:
+        coll = yield ("collections.get", {"name": name})
+        cfg = yield (coll.config.get, {})
+        sample = yield (coll.query.fetch_objects, {"limit": 1, "include_vector": True})
+        dim = None
+        if sample.objects:
+            vec = sample.objects[0].vector
+            first = next(iter(vec.values()), None) if isinstance(vec, dict) else None
+            dim = len(first) if first is not None else None
+        cols: list[dict[str, Any]] = [
+            {
+                "name": "id",
+                "data_type": "uuid",
+                "is_nullable": False,
+                "is_primary": True,
+                "comment": None,
+            },
+            {
+                "name": "vector",
+                "data_type": "vector",
+                "is_nullable": False,
+                "is_primary": False,
+                "comment": f"distance={_metric_of(cfg)}"
+                + (f"; dimension={dim}" if dim else ""),
+            },
+        ]
+        declared = {
+            p.name: _WEAVIATE_TYPES.get(
+                str(getattr(p.data_type, "value", p.data_type)), "unknown"
+            )
+            for p in cfg.properties
+        }
+        for key, typ in payload_columns([], declared).items():
+            cols.append(
+                {
+                    "name": key,
+                    "data_type": typ,
+                    "is_nullable": True,
+                    "is_primary": False,
+                    "comment": None,
+                }
+            )
+        tables[name] = {
+            "name": name,
+            "columns": cols,
+            "has_user_id": "user_id" in declared,
+            "user_col": "user_id" if "user_id" in declared else None,
+            "comment": None,
+        }
+    return {"tables": tables, "foreign_keys": [], "relationships": []}
+
+
+def _version_plan() -> Any:
+    meta = yield ("get_meta", {})
+    return meta
+
+
+def _server_version(meta: Any) -> str:
+    version = meta.get("version") if isinstance(meta, dict) else None
+    return f"Weaviate {version}" if version else "Weaviate"
 
 
 class _WeaviateCursorAdapter:
@@ -33,7 +294,12 @@ class _WeaviateCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
-        if hasattr(self.conn, "cursor"):
+        if _is_real_client(self.conn) and not clean_sql.startswith(
+            "collections.list_all"
+        ):
+            vq = parse_vector_sql(clean_sql, params)
+            self.description, self._rows = drive_sync(weaviate_plan(vq), self.conn)
+        elif hasattr(self.conn, "cursor"):
             cur = self.conn.cursor()
             try:
                 if params:
@@ -179,7 +445,7 @@ class WeaviateConnector(BaseConnector):
         try:
             if hasattr(driver, "connect_to_custom"):
                 self._connection = driver.connect_to_custom(
-                    http_host=self.url, **self.config
+                    **_connect_kwargs(self.url, self.config, self.api_key)
                 )
             elif hasattr(driver, "Client"):
                 self._connection = driver.Client(url=self.url, **self.config)
@@ -215,19 +481,33 @@ class WeaviateConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = self.connect()
+        version = "Weaviate"
         if hasattr(conn, "is_ready"):
-            conn.is_ready()
+            if not conn.is_ready():
+                raise ConnectionFailedError("Weaviate reports it is not ready")
         elif hasattr(conn, "collections"):
             conn.collections.list_all()
+        if _is_real_client(conn):
+            with contextlib.suppress(Exception):
+                version = _server_version(drive_sync(_version_plan(), conn))
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Weaviate",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = self.connect()
+        if _is_real_client(conn):
+            try:
+                raw = drive_sync(weaviate_introspect_plan(), conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Weaviate schema: {exc}"
+                ) from exc
         with self.get_cursor() as cur:
             try:
                 return introspect_weaviate(cur, filter_sensitive=filter_sensitive)
@@ -277,9 +557,15 @@ class AsyncWeaviateConnector(AsyncBaseConnector):
             )
 
         try:
-            if hasattr(driver, "connect_to_custom"):
+            if hasattr(driver, "use_async_with_custom"):
+                client = driver.use_async_with_custom(
+                    **_connect_kwargs(self.url, self.config, self.api_key)
+                )
+                await client.connect()
+                self._connection = client
+            elif hasattr(driver, "connect_to_custom"):
                 self._connection = driver.connect_to_custom(
-                    http_host=self.url, **self.config
+                    **_connect_kwargs(self.url, self.config, self.api_key)
                 )
             elif hasattr(driver, "Client"):
                 self._connection = driver.Client(url=self.url, **self.config)
@@ -296,6 +582,12 @@ class AsyncWeaviateConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_real_client(conn):
+            vq = parse_vector_sql(sql, params)
+            desc, rows = await drive_async(weaviate_plan(vq), conn)
+            names = [d[0] for d in desc]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return names, [dict(zip(names, r, strict=False)) for r in rows], latency_ms
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
         else:
@@ -319,20 +611,34 @@ class AsyncWeaviateConnector(AsyncBaseConnector):
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
+        version = "Weaviate"
         if hasattr(conn, "is_ready"):
             res = conn.is_ready()
             if hasattr(res, "__await__"):
-                await res
+                res = await res
+            if res is False:
+                raise ConnectionFailedError("Weaviate reports it is not ready")
+        if _is_real_client(conn):
+            with contextlib.suppress(Exception):
+                version = _server_version(await drive_async(_version_plan(), conn))
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Weaviate",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        if _is_real_client(conn):
+            try:
+                raw = await drive_async(weaviate_introspect_plan(), conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Weaviate schema: {exc}"
+                ) from exc
         cur = conn.cursor() if hasattr(conn, "cursor") else _WeaviateCursorAdapter(conn)
         try:
             return introspect_weaviate(cur, filter_sensitive=filter_sensitive)
