@@ -93,15 +93,13 @@ def _end_read_transaction(conn: Any) -> None:
 
 
 def _firebird_version(cur: Any) -> str:
-    try:
+    with contextlib.suppress(Exception):  # version is informational only
         cur.execute(
             "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') FROM rdb$database"
         )
         row = cur.fetchone()
         if row and isinstance(row[0], str) and row[0]:
             return f"Firebird {row[0]}"
-    except Exception:  # noqa: BLE001 - version is informational only
-        pass
     return "Firebird"
 
 

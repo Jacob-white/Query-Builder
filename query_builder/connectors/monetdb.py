@@ -86,13 +86,11 @@ class _MonetDBCursorAdapter:
 
 def _monetdb_version(cur: Any) -> str:
     """Real server version (``MonetDB 11.55.7``); falls back to the bare product name."""
-    try:
+    with contextlib.suppress(Exception):  # version is informational only
         cur.execute("SELECT value FROM sys.env() WHERE name = 'monet_version'")
         row = cur.fetchone()
         if row and isinstance(row[0], str) and row[0]:
             return f"MonetDB {row[0]}"
-    except Exception:  # noqa: BLE001 - version is informational only
-        pass
     return "MonetDB"
 
 
