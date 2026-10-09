@@ -126,7 +126,10 @@ def test_rest_query_failed_state_reports_profile_error() -> None:
         ]
     )
     cur = dr._DrillCursorAdapter(rest)
-    with patch.object(dr.time, "sleep") as sleep, pytest.raises(QueryExecutionError) as ei:
+    with (
+        patch.object(dr.time, "sleep") as sleep,
+        pytest.raises(QueryExecutionError) as ei,
+    ):
         cur.execute("SELECT * FROM x")
     assert "FAILED: VALIDATION ERROR: Table 'x' not found" in str(ei.value)
     assert sleep.call_count == 2

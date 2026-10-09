@@ -12,7 +12,9 @@ from query_builder.connectors.chroma import UnsupportedChromaQuery, _ChromaCurso
 
 
 class _Collection:
-    def __init__(self, get_res: dict[str, Any], query_res: dict[str, Any] | None = None):
+    def __init__(
+        self, get_res: dict[str, Any], query_res: dict[str, Any] | None = None
+    ):
         self.get_res = get_res
         self.query_res = query_res or {}
         self.get_calls: list[dict[str, Any]] = []
@@ -88,7 +90,9 @@ def test_literals_and_where_translation() -> None:
         "n = 1 + 2",
     ],
 )
-def test_unsupported_where_raises_instead_of_returning_unfiltered_rows(where: str) -> None:
+def test_unsupported_where_raises_instead_of_returning_unfiltered_rows(
+    where: str,
+) -> None:
     with pytest.raises(UnsupportedChromaQuery):
         _where(f"SELECT * FROM t WHERE {where}")
 
@@ -98,7 +102,11 @@ def test_select_star_with_filter_order_limit_offset() -> None:
         "SELECT * FROM docs WHERE n >= 1 ORDER BY n DESC LIMIT 1 OFFSET 1;"
     )
     assert coll.get_calls == [
-        {"ids": None, "where": {"n": {"$gte": 1}}, "include": ["documents", "metadatas"]}
+        {
+            "ids": None,
+            "where": {"n": {"$gte": 1}},
+            "include": ["documents", "metadatas"],
+        }
     ]
     # DESC puts NULLs first (c, a, b); OFFSET 1 LIMIT 1 keeps "a"
     assert [d[0] for d in cur.description] == ["id", "document", "n", "tag"]
@@ -113,7 +121,9 @@ def test_projection_aliases_and_ordering_with_nulls_last() -> None:
 
 
 def test_select_star_with_no_rows_names_default_columns() -> None:
-    cur, _ = _run("SELECT * FROM docs", res={"ids": [], "documents": [], "metadatas": []})
+    cur, _ = _run(
+        "SELECT * FROM docs", res={"ids": [], "documents": [], "metadatas": []}
+    )
     assert [d[0] for d in cur.description] == ["id", "document"]
     assert cur.fetchall() == []
 
@@ -122,7 +132,9 @@ def test_id_filter_goes_to_get_ids() -> None:
     cur, coll = _run("SELECT id FROM docs WHERE id IN ('a', 'c')")
     assert coll.get_calls[0]["ids"] == ["a", "c"] and coll.get_calls[0]["where"] is None
     assert cur.fetchone() == ["a"]
-    assert cur.fetchone() == ["b"]  # the fake does not filter; adapter returns what get gave
+    assert cur.fetchone() == [
+        "b"
+    ]  # the fake does not filter; adapter returns what get gave
     assert cur.fetchmany(5) == [["c"]]
 
 
@@ -192,6 +204,8 @@ def test_vector_query_rejects_malformed_requests() -> None:
 
 def test_chroma_records_handles_ragged_results() -> None:
     assert ch._chroma_records({}) == []
-    recs = ch._chroma_records({"ids": ["a", "b"], "documents": ["x"], "metadatas": [{"k": 1}]})
+    recs = ch._chroma_records(
+        {"ids": ["a", "b"], "documents": ["x"], "metadatas": [{"k": 1}]}
+    )
     assert recs == [{"id": "a", "document": "x", "k": 1}, {"id": "b", "document": None}]
     assert ch._chroma_version().startswith("ChromaDB")

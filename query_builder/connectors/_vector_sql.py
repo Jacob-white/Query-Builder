@@ -116,7 +116,15 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
         raise VectorQueryError(f"cannot parse vector query: {exc}") from exc
     if not isinstance(tree, exp.Select):
         raise VectorQueryError("only SELECT is supported by vector stores")
-    for forbidden in ("joins", "group", "having", "with", "with_", "distinct", "laterals"):
+    for forbidden in (
+        "joins",
+        "group",
+        "having",
+        "with",
+        "with_",
+        "distinct",
+        "laterals",
+    ):
         if tree.args.get(forbidden):
             raise VectorQueryError(
                 f"{forbidden.rstrip('_').upper()} is not supported by vector stores"
