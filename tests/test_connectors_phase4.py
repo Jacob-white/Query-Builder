@@ -762,6 +762,9 @@ def _test_async_lifecycle(async_conn_cls, driver_path, mock_client, introspect_f
             "connect",
             "connect_async",
             "connect_to_custom",
+            "use_async_with_custom",
+            "PineconeAsyncio",
+            "AsyncMilvusClient",
             "Redis",
             "from_url",
             "BigtableDataClientAsync",
@@ -1501,6 +1504,7 @@ def test_pinecone_coverage_branches():
         mock_idx2 = MagicMock()
         mock_pc2.Index.return_value = mock_idx2
         mock_drv2.Pinecone.return_value = mock_pc2
+        del mock_drv2.PineconeAsyncio  # legacy driver without an asyncio client
         with patch.dict(sys.modules, {"pinecone": mock_drv2}):
             c_a_idx = AsyncPineconeConnector(index_name="my_idx")
             assert await c_a_idx.connect() is mock_idx2
@@ -1669,6 +1673,7 @@ def test_weaviate_coverage_branches():
         mock_async_drv = MagicMock()
         mock_async_client = MagicMock()
         mock_async_drv.Client.return_value = mock_async_client
+        del mock_async_drv.use_async_with_custom  # legacy driver without async API
         del mock_async_drv.connect_to_custom
         with patch.dict(sys.modules, {"weaviate": mock_async_drv}):
             c_a_client = AsyncWeaviateConnector()
