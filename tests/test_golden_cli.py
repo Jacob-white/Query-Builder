@@ -744,7 +744,12 @@ simple("verify_json", "verify-connectors", "--json")
 _LATENCY = re.compile(r"(latency(?:_ms)?\"?[:=]? ?\"?)[0-9.]+")
 
 
+_AVAILABLE = re.compile(r"Available connectors: \[[^\]]*\]")
+
+
 def _norm(text: str, tmp: Path) -> str:
+    # the registry content depends on which connectors other tests registered
+    text = _AVAILABLE.sub("Available connectors: [<names>]", text)
     for width in (4, 2, 1):
         text = text.replace(str(tmp).replace("\\", "\\" * width), "<TMP>")
     text = text.replace("\\\\", "/").replace("\\", "/")
@@ -752,7 +757,7 @@ def _norm(text: str, tmp: Path) -> str:
 
 
 def _stable_doctor(out: str, rc_name: str) -> str:
-    """Doctor output embeds host/driver specifics; keep only its stable shape."""
+    """Doctor / verify output embeds host and registry specifics; keep the stable shape."""
     if rc_name in ("doctor_json", "doctor_connector", "doctor_bad_connector_json"):
         try:
             data = json.loads(out)
@@ -778,6 +783,10 @@ def _stable_doctor(out: str, rc_name: str) -> str:
                 ("Query-Builder Doctor", "====", "Database", "Registered")
             )
         )
+    if rc_name == "verify_json":
+        return json.dumps(sorted(json.loads(out)))
+    if rc_name == "verify_table":
+        return out.splitlines()[0].split()[0]  # first header column
     return out
 
 
