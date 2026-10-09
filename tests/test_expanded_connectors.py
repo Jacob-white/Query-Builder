@@ -1327,8 +1327,11 @@ def test_introspect_cratedb_protocol():
             ("t1", "user_id", "integer", "YES"),
             ("t2", "name", "text", "YES"),
         ],
+        [("t1", "user_id")],  # catalog says user_id (not id) is the primary key
     ]
     res = introspect_cratedb(mock_cur, schema_name="doc")
+    cols = {c["name"]: c["is_primary"] for c in res["tables"]["t1"]["columns"]}
+    assert cols == {"id": False, "user_id": True}
     assert "t1" in res["tables"]
     assert "t2" in res["tables"]
     assert res["tables"]["t1"]["has_user_id"] is True
@@ -1337,6 +1340,26 @@ def test_introspect_cratedb_protocol():
     mock_cur.execute.side_effect = RuntimeError("Catalog error")
     with pytest.raises(IntrospectionError, match="Failed to introspect CrateDB schema"):
         introspect_cratedb(mock_cur)
+
+
+def test_introspect_cratedb_falls_back_when_catalog_has_no_key_views():
+    mock_cur = MagicMock()
+    mock_cur.fetchall.side_effect = [
+        [("t1",)],
+        [("t1", "id", "integer", "NO"), ("t1", "n", "integer", "YES")],
+    ]
+    calls = []
+
+    def execute(sql, params=None):
+        calls.append(sql)
+        if "key_column_usage" in sql:
+            raise RuntimeError("relation does not exist")
+
+    mock_cur.execute.side_effect = execute
+    res = introspect_cratedb(mock_cur, schema_name="doc")
+    cols = {c["name"]: c["is_primary"] for c in res["tables"]["t1"]["columns"]}
+    assert cols == {"id": True, "n": False}  # legacy `id` guess
+    assert any("key_column_usage" in c for c in calls)
 
 
 def test_introspect_druid_protocol():

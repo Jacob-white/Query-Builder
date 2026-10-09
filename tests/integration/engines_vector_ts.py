@@ -500,11 +500,15 @@ def _kw_tdengine(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
 
 
 def _seed_tdengine(e: Engine) -> None:
-    conn = _td_rest(e)
-    cur = conn.cursor()
+    # REST statements are stateless and need a database in the URL: administer the
+    # database from the always-present information_schema, then work inside it
+    admin = _td_rest(e, "information_schema")
+    cur = admin.cursor()
     cur.execute(f"DROP DATABASE IF EXISTS {TD_DB}")
     cur.execute(f"CREATE DATABASE {TD_DB}")
-    cur.execute(f"USE {TD_DB}")
+    admin.close()
+    conn = _td_rest(e, TD_DB)
+    cur = conn.cursor()
     cur.execute(
         "CREATE TABLE qbit_people (ts TIMESTAMP, id INT, name VARCHAR(20), age INT)"
     )

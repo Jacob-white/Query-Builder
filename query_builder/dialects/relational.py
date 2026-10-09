@@ -280,6 +280,11 @@ class MaterializeDialect(PostgresDialect):
 
     name: str = "materialize"
 
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # Materialize rejects a bound OFFSET ("OFFSET must be an integer constant"):
+        # inline the int-coerced values.
+        return f"LIMIT {int(limit)} OFFSET {int(offset)}", []
+
 
 class RisingWaveDialect(PostgresDialect):
     """RisingWave distributed streaming SQL database dialect."""
@@ -291,7 +296,9 @@ class CrateDBDialect(BaseDialect):
     """CrateDB distributed SQL database dialect."""
 
     name: str = "cratedb"
-    placeholder: str = "%s"
+    placeholder: str = (
+        "?"  # the `crate` client binds qmark parameters; `%s` is a parse error
+    )
 
     def inspect_tables_query(self, schema_name: str = "doc") -> tuple[str, list[Any]]:
         return (

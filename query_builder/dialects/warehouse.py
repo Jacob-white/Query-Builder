@@ -251,6 +251,7 @@ class StarRocksDialect(BaseDialect):
 
     name: str = "starrocks"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"  # no ILIKE operator
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)

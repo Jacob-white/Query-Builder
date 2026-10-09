@@ -18295,7 +18295,7 @@
     "name": "cratedb",
     "neq_operator": "!=",
     "pagination_placement": "suffix",
-    "placeholder": "%s",
+    "placeholder": "?",
     "requires_order_by_for_pagination": false,
     "subquery_alias_keyword": "AS ",
     "supports_cte": true,
@@ -18320,32 +18320,32 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "\"t\".\"c\" ILIKE ?",
+     "t.c ILIKE ?",
+     "col ILIKE ?"
     ],
     "format_like": [
-     "\"t\".\"c\" LIKE %s",
-     "t.c LIKE %s",
-     "col LIKE %s"
+     "\"t\".\"c\" LIKE ?",
+     "t.c LIKE ?",
+     "col LIKE ?"
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        10,
        0
       ]
      ],
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        5,
        20
       ]
      ],
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        0,
        0
@@ -18353,13 +18353,13 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "\"t\".\"c\" ILIKE ?",
+     "t.c ILIKE ?",
+     "col ILIKE ?"
     ],
     "format_text_search": [
      "1.0",
-     "((CASE WHEN a LIKE %s THEN 1.0 ELSE 0.0 END))",
+     "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END) + (CASE WHEN b LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN t.c LIKE $1 THEN 1.0 ELSE 0.0 END))"
     ],
@@ -18367,75 +18367,75 @@
      [
       "\"t\".\"c\"",
       "cosine",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "l2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "euclidean",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "dot_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "inner_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "other",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "L2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "t.c",
       "cosine",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "l2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "euclidean",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "dot_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "inner_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "other",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "L2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ]
     ],
-    "format_vector_distance_default": "COSINE_DISTANCE(c, %s)",
+    "format_vector_distance_default": "COSINE_DISTANCE(c, ?)",
     "format_vector_param": [
      "[0.1, 0.2]",
      "[]",
@@ -18443,13 +18443,13 @@
     ],
     "inspect_columns": [
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position;",
       [
        "sch",
        "tbl"
@@ -18457,20 +18457,20 @@
      ]
     ],
     "inspect_columns_default": [
-     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
      [
       "public"
      ]
     ],
     "inspect_columns_query": [
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position;",
       [
        "sch",
        "tbl"
@@ -18478,20 +18478,20 @@
      ]
     ],
     "inspect_columns_query_default": [
-     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
      [
       "doc"
      ]
     ],
     "inspect_foreign_keys": [
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -18499,20 +18499,20 @@
      ]
     ],
     "inspect_foreign_keys_default": [
-     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_foreign_keys_query": [
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -18520,20 +18520,20 @@
      ]
     ],
     "inspect_foreign_keys_query_default": [
-     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys": [
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -18541,20 +18541,20 @@
      ]
     ],
     "inspect_primary_keys_default": [
-     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys_query": [
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -18562,47 +18562,47 @@
      ]
     ],
     "inspect_primary_keys_query_default": [
-     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_tables": [
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_default": [
-     "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+     "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
      [
       "public"
      ]
     ],
     "inspect_tables_query": [
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_query_default": [
-     "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+     "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
      [
       "doc"
      ]
@@ -18783,7 +18783,7 @@
     "name": "cratedb",
     "neq_operator": "!=",
     "pagination_placement": "suffix",
-    "placeholder": "%s",
+    "placeholder": "?",
     "requires_order_by_for_pagination": false,
     "subquery_alias_keyword": "AS ",
     "supports_cte": true,
@@ -18808,32 +18808,32 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "\"t\".\"c\" ILIKE ?",
+     "t.c ILIKE ?",
+     "col ILIKE ?"
     ],
     "format_like": [
-     "\"t\".\"c\" LIKE %s",
-     "t.c LIKE %s",
-     "col LIKE %s"
+     "\"t\".\"c\" LIKE ?",
+     "t.c LIKE ?",
+     "col LIKE ?"
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        10,
        0
       ]
      ],
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        5,
        20
       ]
      ],
      [
-      "LIMIT %s OFFSET %s",
+      "LIMIT ? OFFSET ?",
       [
        0,
        0
@@ -18841,13 +18841,13 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "\"t\".\"c\" ILIKE ?",
+     "t.c ILIKE ?",
+     "col ILIKE ?"
     ],
     "format_text_search": [
      "1.0",
-     "((CASE WHEN a LIKE %s THEN 1.0 ELSE 0.0 END))",
+     "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END) + (CASE WHEN b LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN t.c LIKE $1 THEN 1.0 ELSE 0.0 END))"
     ],
@@ -18855,75 +18855,75 @@
      [
       "\"t\".\"c\"",
       "cosine",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "l2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "euclidean",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "dot_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "inner_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "other",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "L2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "t.c",
       "cosine",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "l2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "euclidean",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "dot_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "inner_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "other",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "L2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ]
     ],
-    "format_vector_distance_default": "COSINE_DISTANCE(c, %s)",
+    "format_vector_distance_default": "COSINE_DISTANCE(c, ?)",
     "format_vector_param": [
      "[0.1, 0.2]",
      "[]",
@@ -18931,13 +18931,13 @@
     ],
     "inspect_columns": [
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position;",
       [
        "sch",
        "tbl"
@@ -18945,20 +18945,20 @@
      ]
     ],
     "inspect_columns_default": [
-     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
      [
       "public"
      ]
     ],
     "inspect_columns_query": [
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position;",
+      "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position;",
       [
        "sch",
        "tbl"
@@ -18966,20 +18966,20 @@
      ]
     ],
     "inspect_columns_query_default": [
-     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %s ORDER BY table_name, ordinal_position;",
+     "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = ? ORDER BY table_name, ordinal_position;",
      [
       "doc"
      ]
     ],
     "inspect_foreign_keys": [
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -18987,20 +18987,20 @@
      ]
     ],
     "inspect_foreign_keys_default": [
-     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_foreign_keys_query": [
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -19008,20 +19008,20 @@
      ]
     ],
     "inspect_foreign_keys_query_default": [
-     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name AS src_table, kcu.column_name AS src_column, ccu.table_name AS tgt_table, ccu.column_name AS tgt_column FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys": [
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -19029,20 +19029,20 @@
      ]
     ],
     "inspect_primary_keys_default": [
-     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys_query": [
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s AND tc.table_name = %s;",
+      "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ? AND tc.table_name = ?;",
       [
        "sch",
        "tbl"
@@ -19050,47 +19050,47 @@
      ]
     ],
     "inspect_primary_keys_query_default": [
-     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = %s;",
+     "SELECT kcu.table_name, kcu.column_name FROM information_schema.table_constraints AS tc JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = ?;",
      [
       "public"
      ]
     ],
     "inspect_tables": [
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_default": [
-     "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+     "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
      [
       "public"
      ]
     ],
     "inspect_tables_query": [
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "public"
       ]
      ],
      [
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_query_default": [
-     "SELECT table_name FROM information_schema.tables WHERE table_schema = %s ORDER BY table_name;",
+     "SELECT table_name FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name;",
      [
       "doc"
      ]
@@ -40904,25 +40904,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -46962,25 +46953,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -72264,9 +72246,9 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_like": [
      "\"t\".\"c\" LIKE %s",
@@ -72297,9 +72279,9 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_text_search": [
      "1.0",

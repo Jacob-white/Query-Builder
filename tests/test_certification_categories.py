@@ -99,9 +99,9 @@ def test_plain_string_limitation_is_unprobed_and_backward_compatible():
     lim = as_limitation("no foreign keys")
     assert lim == Limitation("no foreign keys") and lim.probe is None
     assert as_limitation(lim) is lim
-    e = eng.ENGINES["clickhouse"]  # declared with a plain string in the merged registry
-    got = e.limitation("introspect_fk")
-    assert got is not None and got.probe is None and "foreign keys" in got.reason
+    e = eng.ENGINES["questdb"]  # still declared with a plain string
+    got = e.limitation("db_read_only")
+    assert got is not None and got.probe is None and "read-only" in got.reason
     assert e.limitation("window") is None
 
 

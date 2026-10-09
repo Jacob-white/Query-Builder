@@ -59,6 +59,12 @@ class TrinoConnector(BaseConnector):
         except Exception as exc:
             raise ConnectionFailedError(f"Failed to connect to Trino: {exc}") from exc
 
+    def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        """Bound execution time with Trino's ``query_max_execution_time`` session property
+        (the client keeps session properties on the connection)."""
+        cursor.execute(f"SET SESSION query_max_execution_time = '{int(timeout_ms)}ms'")
+        cursor.fetchall()
+
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
         with self.get_cursor() as cur:
