@@ -294,7 +294,6 @@ include = ["query_builder*"]
 query_builder = ["py.typed"]
 
 [tool.pytest.ini_options]
-markers = ["fuzz: differential/fuzz suites against real parsers (HYPOTHESIS_PROFILE=deep for the long run)", "integration: needs a live database; skipped when unreachable"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 # Live-engine tests (tests/integration) are opt-in: run them with
@@ -302,6 +301,7 @@ python_files = ["test_*.py"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: live-engine conformance tests; need a running database (opt-in)",
+    "fuzz: differential/fuzz suites against real parsers (HYPOTHESIS_PROFILE=deep for the long run)",
 ]
 filterwarnings = [
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
