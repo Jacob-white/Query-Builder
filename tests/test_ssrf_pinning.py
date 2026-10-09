@@ -81,9 +81,17 @@ def test_every_special_address_is_rejected_when_resolved(ip: str) -> None:
 
 @pytest.mark.parametrize(
     "ip",
-    ["169.254.169.254", "::ffff:169.254.169.254", "fd00:ec2::254", "64:ff9b::a9fe:a9fe", "2002:a9fe:a9fe::1"],
+    [
+        "169.254.169.254",
+        "::ffff:169.254.169.254",
+        "fd00:ec2::254",
+        "64:ff9b::a9fe:a9fe",
+        "2002:a9fe:a9fe::1",
+    ],
 )
-def test_cloud_metadata_is_forbidden_even_when_private_networks_are_allowed(ip: str) -> None:
+def test_cloud_metadata_is_forbidden_even_when_private_networks_are_allowed(
+    ip: str,
+) -> None:
     with pytest.raises(SecurityError, match="metadata"):
         resolve_and_validate_target(
             "evil.example",
@@ -132,7 +140,9 @@ def test_ip_literals_are_validated_and_pinned_without_dns() -> None:
 )
 def test_metadata_hostname_variants_are_forbidden(host: str) -> None:
     with pytest.raises(SecurityError, match="metadata"):
-        validate_network_target(host=host, network_config=_net(allow_private_networks=True))
+        validate_network_target(
+            host=host, network_config=_net(allow_private_networks=True)
+        )
 
 
 def test_unresolvable_host_legacy_fallback_vs_fail_closed() -> None:
