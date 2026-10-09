@@ -11,6 +11,18 @@ import contextlib
 import time
 from typing import Any
 
+from query_builder.connectors._vector_sql import (
+    VectorQuery,
+    VectorQueryError,
+    distance_from_score,
+    drive_async,
+    drive_sync,
+    matches,
+    parse_vector_sql,
+    payload_columns,
+    shape_rows,
+    sort_hits,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -18,21 +30,230 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_pinecone
+from query_builder.connectors.introspection import (
+    introspect_pinecone,
+    normalize_schema_snapshot,
+)
 from query_builder.connectors.registry import register_connector
+
+#: a filter-only / ordered read has to list and fetch ids; stop at this many vectors
+MAX_SCAN_VECTORS = 10_000
+_METRICS = {"cosine": "cosine", "euclidean": "euclidean", "dotproduct": "dot"}
+_OPS = {
+    "=": "$eq",
+    "!=": "$ne",
+    ">": "$gt",
+    ">=": "$gte",
+    "<": "$lt",
+    "<=": "$lte",
+    "in": "$in",
+    "not_in": "$nin",
+}
+
+
+def _is_real_client(conn: Any) -> bool:
+    return type(conn).__module__.startswith("pinecone")
+
+
+def _is_index(conn: Any) -> bool:
+    """A data-plane index handle (as opposed to the control-plane ``Pinecone`` client)."""
+    return _is_real_client(conn) and hasattr(conn, "query") and hasattr(conn, "fetch")
+
+
+def _pinecone_filter(conds: list[Any]) -> dict[str, Any] | None:
+    if not conds:
+        return None
+    out: dict[str, Any] = {}
+    for c in conds:
+        if c.op in ("is_null", "is_not_null"):
+            raise VectorQueryError("Pinecone metadata filters cannot test for NULL")
+        out.setdefault(c.column, {})[_OPS[c.op]] = c.value
+    return out
+
+
+def _get(obj: Any, name: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _index_plan(conn_is_index: bool, table: str, make_index: str) -> Any:
+    """Yield the calls that produce (index handle, describe_index info) for ``table``."""
+    if conn_is_index:
+        return None, None
+    info = yield ("describe_index", {"name": table})
+    idx = yield (make_index, {"host": _get(info, "host")})
+    return idx, info
+
+
+def _resolve_table(names: list[str], wanted: str) -> str:
+    for n in names:
+        if n == wanted or n.lower() == wanted.lower():
+            return n
+    raise VectorQueryError(f"index {wanted!r} does not exist; have {sorted(names)}")
+
+
+def _index_names(listing: Any) -> list[str]:
+    items = listing.names() if callable(getattr(listing, "names", None)) else listing
+    return [str(_get(i, "name", i)) for i in items]
+
+
+def pinecone_plan(
+    vq: VectorQuery, conn_is_index: bool, make_index: str, index_metric: str | None
+) -> Any:
+    """``index_metric`` is only needed when the connector holds a bare index handle."""
+    table = vq.table
+    info = None
+    if conn_is_index:
+        idx = None  # the connection itself is the index; calls below use ``target``
+    else:
+        listing = yield ("list_indexes", {})
+        table = _resolve_table(_index_names(listing), vq.table)
+        idx, info = yield from _index_plan(False, table, make_index)
+
+    def call(method: str) -> Any:
+        return method if idx is None else getattr(idx, method)
+
+    metric_name = str(_get(info, "metric", index_metric) or "cosine")
+    engine_metric = _METRICS.get(metric_name, metric_name)
+
+    hits: list[dict[str, Any]] = []
+    if vq.is_search:
+        if any(n != "_distance" or d for n, d in vq.order_by):
+            raise VectorQueryError(
+                "a vector search can only be ordered by distance, ascending"
+            )
+        want = 10_000 if vq.count_only else (vq.limit or 10) + vq.offset
+        res = yield (
+            call("query"),
+            {
+                "vector": vq.vector,
+                "top_k": min(want, 10_000),
+                "filter": _pinecone_filter(vq.conds),
+                "include_metadata": True,
+            },
+        )
+        for m in _get(res, "matches", []):
+            score = float(_get(m, "score", 0.0))
+            if engine_metric == "euclidean":  # Pinecone scores euclidean as squared L2
+                score = score**0.5
+            d = distance_from_score(vq.metric or "cosine", score, engine_metric)
+            if vq.max_distance is None or d <= vq.max_distance:
+                hits.append(
+                    {"id": _get(m, "id"), **(_get(m, "metadata") or {}), "_distance": d}
+                )
+        if vq.count_only:
+            return [("count",)], [[len(hits)]]
+        hits = hits[vq.offset :]
+    else:
+        ids: list[str] = []
+        pages = yield (call("list"), {})
+        for page in pages:
+            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            if len(ids) > MAX_SCAN_VECTORS:
+                raise VectorQueryError(
+                    f"index scan exceeds {MAX_SCAN_VECTORS} vectors; use a vector search"
+                )
+        everything: list[dict[str, Any]] = []
+        for start in range(0, len(ids), 100):
+            fetched = yield (call("fetch"), {"ids": ids[start : start + 100]})
+            for vid, vec in (_get(fetched, "vectors", {}) or {}).items():
+                everything.append({"id": vid, **(_get(vec, "metadata") or {})})
+        everything = [h for h in everything if matches(vq.conds, h)]
+        if vq.count_only:
+            return [("count",)], [[len(everything)]]
+        if not vq.order_by:
+            everything.sort(key=lambda h: str(h["id"]))
+        hits = sort_hits(vq, everything)[vq.offset :]
+    if vq.limit is not None:
+        hits = hits[: vq.limit]
+    return shape_rows(vq, hits)
+
+
+def pinecone_introspect_plan(
+    conn_is_index: bool, make_index: str, index_name: str | None
+) -> Any:
+    tables: dict[str, dict[str, Any]] = {}
+    targets: list[tuple[str, Any, Any]] = []
+    if conn_is_index:
+        targets.append((index_name or "index", None, None))
+    else:
+        listing = yield ("list_indexes", {})
+        for name in _index_names(listing):
+            idx, info = yield from _index_plan(False, name, make_index)
+            targets.append((name, idx, info))
+    for name, idx, info in targets:
+        sample: list[dict[str, Any]] = []
+        pages = yield ((idx.list if idx is not None else "list"), {})
+        ids: list[str] = []
+        for page in pages:
+            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            if len(ids) >= 20:
+                break
+        if ids:
+            fetched = yield (
+                (idx.fetch if idx is not None else "fetch"),
+                {"ids": ids[:20]},
+            )
+            sample = [
+                dict(_get(v, "metadata") or {})
+                for v in (_get(fetched, "vectors", {}) or {}).values()
+            ]
+        dim = _get(info, "dimension")
+        metric = _get(info, "metric")
+        cols: list[dict[str, Any]] = [
+            {
+                "name": "id",
+                "data_type": "string",
+                "is_nullable": False,
+                "is_primary": True,
+                "comment": None,
+            },
+            {
+                "name": "vector",
+                "data_type": "vector",
+                "is_nullable": False,
+                "is_primary": False,
+                "comment": f"dimension={dim}; metric={metric}" if dim else None,
+            },
+        ]
+        meta = payload_columns(sample)
+        cols.extend(
+            {
+                "name": k,
+                "data_type": t,
+                "is_nullable": True,
+                "is_primary": False,
+                "comment": "metadata",
+            }
+            for k, t in meta.items()
+        )
+        tables[name] = {
+            "name": name,
+            "columns": cols,
+            "has_user_id": "user_id" in meta,
+            "user_col": "user_id" if "user_id" in meta else None,
+            "comment": None,
+        }
+    return {"tables": tables, "foreign_keys": [], "relationships": []}
 
 
 class _PineconeCursorAdapter:
     """Adapts a Pinecone Index / Client connection into a DB-API cursor interface."""
 
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Any, metric: str | None = None) -> None:
         self.conn = connection
+        self.metric = metric
         self.description: list[tuple[str, ...]] | None = None
         self._rows: list[list[Any]] = []
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
-        if hasattr(self.conn, "cursor"):
+        if _is_real_client(self.conn) and not clean_sql.startswith("list_indexes"):
+            vq = parse_vector_sql(clean_sql, params)
+            plan = pinecone_plan(vq, _is_index(self.conn), "Index", self.metric)
+            self.description, self._rows = drive_sync(plan, self.conn)
+        elif hasattr(self.conn, "cursor"):
             cur = self.conn.cursor()
             try:
                 if params:
@@ -182,7 +403,8 @@ class PineconeConnector(BaseConnector):
 
         try:
             if hasattr(driver, "Pinecone"):
-                pc = driver.Pinecone(api_key=self.api_key, **self.config)
+                pc_cfg = {k: v for k, v in self.config.items() if k != "metric"}
+                pc = driver.Pinecone(api_key=self.api_key, **pc_cfg)
                 if self.index_name and hasattr(pc, "Index"):
                     self._connection = pc.Index(self.index_name)
                 else:
@@ -210,7 +432,7 @@ class PineconeConnector(BaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         else:
-            adapter = _PineconeCursorAdapter(conn)
+            adapter = _PineconeCursorAdapter(conn, self.config.get("metric"))
             try:
                 yield adapter
             finally:
@@ -221,6 +443,8 @@ class PineconeConnector(BaseConnector):
         conn = self.connect()
         if hasattr(conn, "list_indexes"):
             conn.list_indexes()
+        elif _is_index(conn):
+            conn.describe_index_stats()
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
@@ -230,6 +454,18 @@ class PineconeConnector(BaseConnector):
         }
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = self.connect()
+        if _is_real_client(conn):
+            try:
+                plan = pinecone_introspect_plan(
+                    _is_index(conn), "Index", self.index_name
+                )
+                raw = drive_sync(plan, conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Pinecone schema: {exc}"
+                ) from exc
         with self.get_cursor() as cur:
             try:
                 return introspect_pinecone(cur, filter_sensitive=filter_sensitive)
@@ -275,8 +511,17 @@ class AsyncPineconeConnector(AsyncBaseConnector):
             )
 
         try:
-            if hasattr(driver, "Pinecone"):
-                pc = driver.Pinecone(api_key=self.api_key, **self.config)
+            pc_cfg = {k: v for k, v in self.config.items() if k != "metric"}
+            if hasattr(driver, "PineconeAsyncio"):
+                pc = driver.PineconeAsyncio(api_key=self.api_key, **pc_cfg)
+                if self.index_name:
+                    info = await pc.describe_index(self.index_name)
+                    self._index_owner = pc
+                    self._connection = pc.IndexAsyncio(host=info.host)
+                else:
+                    self._connection = pc
+            elif hasattr(driver, "Pinecone"):
+                pc = driver.Pinecone(api_key=self.api_key, **pc_cfg)
                 if self.index_name and hasattr(pc, "Index"):
                     self._connection = pc.Index(self.index_name)
                 else:
@@ -294,6 +539,15 @@ class AsyncPineconeConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_real_client(conn):
+            vq = parse_vector_sql(sql, params)
+            plan = pinecone_plan(
+                vq, _is_index(conn), "IndexAsyncio", self.config.get("metric")
+            )
+            desc, rows = await drive_async(plan, conn)
+            names = [d[0] for d in desc]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return names, [dict(zip(names, r, strict=False)) for r in rows], latency_ms
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
         else:
@@ -318,7 +572,13 @@ class AsyncPineconeConnector(AsyncBaseConnector):
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "list_indexes"):
-            conn.list_indexes()
+            res = conn.list_indexes()
+            if hasattr(res, "__await__"):
+                await res
+        elif _is_index(conn):
+            res = conn.describe_index_stats()
+            if hasattr(res, "__await__"):
+                await res
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
@@ -329,6 +589,17 @@ class AsyncPineconeConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        if _is_real_client(conn):
+            try:
+                plan = pinecone_introspect_plan(
+                    _is_index(conn), "IndexAsyncio", self.index_name
+                )
+                raw = await drive_async(plan, conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Pinecone schema: {exc}"
+                ) from exc
         cur = conn.cursor() if hasattr(conn, "cursor") else _PineconeCursorAdapter(conn)
         try:
             return introspect_pinecone(cur, filter_sensitive=filter_sensitive)

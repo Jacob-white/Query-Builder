@@ -50,6 +50,7 @@ class VectorQuery:
     conds: list[Cond] = field(default_factory=list)
     vector: list[float] | None = None
     metric: str | None = None
+    vector_column: str | None = None
     #: from ``min_score``: keep only hits with distance <= this
     max_distance: float | None = None
     order_by: list[tuple[str, bool]] = field(default_factory=list)  # (name, desc)
@@ -117,7 +118,9 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
         raise VectorQueryError("only SELECT is supported by vector stores")
     for forbidden in ("joins", "group", "having", "with", "distinct", "laterals"):
         if tree.args.get(forbidden):
-            raise VectorQueryError(f"{forbidden.upper()} is not supported by vector stores")
+            raise VectorQueryError(
+                f"{forbidden.upper()} is not supported by vector stores"
+            )
 
     def value_of(node: Any) -> Any:
         if isinstance(node, exp.Placeholder):
@@ -126,8 +129,10 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
                 raise VectorQueryError("missing query parameter")
             return params[idx]
         if isinstance(node, exp.Literal):
-            return int(node.this) if not node.is_string and "." not in node.this else (
-                float(node.this) if not node.is_string else node.this
+            return (
+                int(node.this)
+                if not node.is_string and "." not in node.this
+                else (float(node.this) if not node.is_string else node.this)
             )
         if isinstance(node, exp.Boolean):
             return bool(node.this)
@@ -161,7 +166,7 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
             vq.count_only = True
         elif func is not None:
             vq.columns.append((alias or "_distance", "_distance"))
-            _set_vector(vq, func, value_of(_func_args(inner)[1]))
+            _set_vector(vq, func, value_of(_func_args(inner)[1]), _arg_col(inner))
         elif isinstance(inner, exp.Column):
             vq.columns.append((alias or inner.name, inner.name))
         else:
@@ -178,7 +183,12 @@ def parse_vector_sql(sql: str, params: list[Any] | None = None) -> VectorQuery:
             target = o.this
             if dist_func(target) is not None:
                 name = "_distance"
-                _set_vector(vq, dist_func(target) or "", value_of(_func_args(target)[1]))
+                _set_vector(
+                    vq,
+                    dist_func(target) or "",
+                    value_of(_func_args(target)[1]),
+                    _arg_col(target),
+                )
             elif isinstance(target, exp.Column):
                 name = target.name
             else:
@@ -208,6 +218,11 @@ def _distance_func(node: Any) -> str | None:
     return None
 
 
+def _arg_col(node: Any) -> str | None:
+    first = _func_args(node)[0]
+    return str(first.name) if hasattr(first, "name") else None
+
+
 def _func_args(node: Any) -> list[Any]:
     from sqlglot import exp
 
@@ -216,12 +231,15 @@ def _func_args(node: Any) -> list[Any]:
     return [node.this, node.args.get("expression")]
 
 
-def _set_vector(vq: VectorQuery, func: str, raw: Any) -> None:
+def _set_vector(
+    vq: VectorQuery, func: str, raw: Any, column: str | None = None
+) -> None:
     vec = vector_from_param(raw)
     metric = DISTANCE_FUNCS[func]
     if vq.vector is not None and (vq.vector != vec or vq.metric != metric):
         raise VectorQueryError("only one query vector per statement is supported")
     vq.vector, vq.metric = vec, metric
+    vq.vector_column = column or vq.vector_column
 
 
 def _and_leaves(node: Any) -> list[Any]:
@@ -234,7 +252,9 @@ def _and_leaves(node: Any) -> list[Any]:
     return [node]
 
 
-def _read_condition(vq: VectorQuery, node: Any, value_of: Any, col_name: Any, dist_func: Any) -> None:
+def _read_condition(
+    vq: VectorQuery, node: Any, value_of: Any, col_name: Any, dist_func: Any
+) -> None:
     from sqlglot import exp
 
     while isinstance(node, exp.Paren):
@@ -244,7 +264,12 @@ def _read_condition(vq: VectorQuery, node: Any, value_of: Any, col_name: Any, di
             _read_condition(vq, leaf, value_of, col_name, dist_func)
         return
     if isinstance(node, (exp.LT, exp.LTE)) and dist_func(node.left) is not None:
-        _set_vector(vq, dist_func(node.left), value_of(_func_args(node.left)[1]))
+        _set_vector(
+            vq,
+            dist_func(node.left),
+            value_of(_func_args(node.left)[1]),
+            _arg_col(node.left),
+        )
         vq.max_distance = float(value_of(node.right))
         return
     for cls_name, op in _CMP.items():
@@ -334,3 +359,76 @@ def matches(conds: list[Cond], hit: dict[str, Any]) -> bool:
         if not ok:
             return False
     return True
+
+
+# ---------------------------------------------------------------- plan drivers
+# An adapter expresses its logic once as a generator that yields ``(method, kwargs)`` calls to
+# the vendor client and receives the results. The sync adapter drives it with direct calls,
+# the async adapter awaits each call, so both classes share exactly one implementation.
+Call = tuple[str, dict[str, Any]]
+
+
+def _resolve(client: Any, dotted: Any) -> Any:
+    if callable(dotted):  # a bound method of an object returned by an earlier call
+        return dotted
+    target = client
+    for part in dotted.split("."):
+        target = getattr(target, part)
+    return target
+
+
+def drive_sync(plan: Any, client: Any) -> Any:
+    try:
+        request = next(plan)
+        while True:
+            name, kwargs = request
+            request = plan.send(_resolve(client, name)(**kwargs))
+    except StopIteration as done:
+        return done.value
+
+
+async def drive_async(plan: Any, client: Any) -> Any:
+    import inspect
+
+    try:
+        request = next(plan)
+        while True:
+            name, kwargs = request
+            result = _resolve(client, name)(**kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            if hasattr(result, "__aiter__"):  # async generator: collect it
+                result = [item async for item in result]
+            request = plan.send(result)
+    except StopIteration as done:
+        return done.value
+
+
+def infer_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (list, tuple)):
+        return "array"
+    if isinstance(value, dict):
+        return "json"
+    return "unknown"
+
+
+def payload_columns(
+    samples: list[dict[str, Any]], declared: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Union of payload keys (declared schema first, then keys observed in samples)."""
+    cols: dict[str, str] = dict(declared or {})
+    for sample in samples:
+        for key, value in sample.items():
+            if value is None:
+                cols.setdefault(key, "unknown")
+            elif cols.get(key, "unknown") == "unknown":
+                cols[key] = infer_type(value)
+    return cols

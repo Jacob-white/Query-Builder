@@ -12,6 +12,17 @@ import json
 import time
 from typing import Any
 
+from query_builder.connectors._vector_sql import (
+    VectorQuery,
+    VectorQueryError,
+    distance_from_score,
+    drive_async,
+    drive_sync,
+    parse_vector_sql,
+    payload_columns,
+    shape_rows,
+    sort_hits,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -19,8 +30,217 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_qdrant
+from query_builder.connectors.introspection import (
+    introspect_qdrant,
+    normalize_schema_snapshot,
+)
 from query_builder.connectors.registry import register_connector
+
+#: ORDER BY on a scan has to read the whole collection (Qdrant orders only by indexed fields)
+MAX_SCAN_POINTS = 10_000
+_METRICS = {"Cosine": "cosine", "Euclid": "euclidean", "Dot": "dot"}
+
+
+def _is_real_client(conn: Any) -> bool:
+    """True for a genuine qdrant-client object (not a DB-API style wrapper or a test double)."""
+    return type(conn).__module__.startswith("qdrant_client")
+
+
+def _qdrant_filter(conds: list[Any]) -> Any:
+    """Translate AND-ed conditions into a ``qdrant_client.models.Filter`` (or None)."""
+    if not conds:
+        return None
+    from qdrant_client import models as m
+
+    must: list[Any] = []
+    must_not: list[Any] = []
+    for c in conds:
+        if c.op == "=":
+            must.append(
+                m.FieldCondition(key=c.column, match=m.MatchValue(value=c.value))
+            )
+        elif c.op == "!=":
+            must_not.append(
+                m.FieldCondition(key=c.column, match=m.MatchValue(value=c.value))
+            )
+        elif c.op in (">", ">=", "<", "<="):
+            rng = {">": "gt", ">=": "gte", "<": "lt", "<=": "lte"}[c.op]
+            must.append(m.FieldCondition(key=c.column, range=m.Range(**{rng: c.value})))
+        elif c.op == "in":
+            must.append(
+                m.FieldCondition(key=c.column, match=m.MatchAny(any=list(c.value)))
+            )
+        elif c.op == "not_in":
+            must_not.append(
+                m.FieldCondition(key=c.column, match=m.MatchAny(any=list(c.value)))
+            )
+        elif c.op == "is_null":
+            must.append(m.IsNullCondition(is_null=m.PayloadField(key=c.column)))
+        else:  # is_not_null
+            must_not.append(m.IsNullCondition(is_null=m.PayloadField(key=c.column)))
+    return m.Filter(must=must or None, must_not=must_not or None)
+
+
+def _hit(point: Any, distance: float | None = None) -> dict[str, Any]:
+    hit: dict[str, Any] = {"id": point.id}
+    hit.update(point.payload or {})
+    if distance is not None:
+        hit["_distance"] = distance
+    return hit
+
+
+def qdrant_plan(vq: VectorQuery) -> Any:
+    """Run one parsed query as a generator of client calls (see ``drive_sync``)."""
+    flt = _qdrant_filter(vq.conds)
+    table = vq.table
+    if vq.count_only and not vq.is_search:
+        res = yield (
+            "count",
+            {"collection_name": table, "count_filter": flt, "exact": True},
+        )
+        return [("count",)], [[res.count]]
+
+    hits: list[dict[str, Any]] = []
+    if vq.is_search:
+        if any(name != "_distance" or desc for name, desc in vq.order_by):
+            raise VectorQueryError(
+                "a vector search can only be ordered by distance, ascending"
+            )
+        info = yield ("get_collection", {"collection_name": table})
+        vectors = info.config.params.vectors
+        using = None
+        if isinstance(vectors, dict):
+            using = vq.vector_column
+            if using not in vectors:
+                raise VectorQueryError(
+                    f"collection {table} has named vectors {sorted(vectors)}; "
+                    f"{using!r} is not one of them"
+                )
+            params = vectors[using]
+        else:
+            params = vectors
+        dist = getattr(params.distance, "value", params.distance)
+        engine_metric = _METRICS.get(str(dist), str(dist).lower())
+        want = 10_000 if vq.count_only else (vq.limit or 10) + vq.offset
+        res = yield (
+            "query_points",
+            {
+                "collection_name": table,
+                "query": vq.vector,
+                "using": using,
+                "query_filter": flt,
+                "limit": want,
+                "with_payload": True,
+                "with_vectors": False,
+            },
+        )
+        for point in res.points:
+            d = distance_from_score(vq.metric or "cosine", point.score, engine_metric)
+            if vq.max_distance is None or d <= vq.max_distance:
+                hits.append(_hit(point, d))
+        if vq.count_only:
+            return [("count",)], [[len(hits)]]
+        hits = hits[vq.offset :]
+    else:
+        need = None if vq.order_by or vq.limit is None else vq.limit + vq.offset
+        offset: Any = None
+        while True:
+            points, offset = yield (
+                "scroll",
+                {
+                    "collection_name": table,
+                    "scroll_filter": flt,
+                    "limit": 256,
+                    "offset": offset,
+                    "with_payload": True,
+                    "with_vectors": False,
+                },
+            )
+            hits.extend(_hit(p) for p in points)
+            if offset is None or (need is not None and len(hits) >= need):
+                break
+            if len(hits) > MAX_SCAN_POINTS:
+                raise VectorQueryError(
+                    f"collection scan exceeds {MAX_SCAN_POINTS} points; add a filter or LIMIT"
+                )
+        hits = sort_hits(vq, hits)[vq.offset :]
+    if vq.limit is not None:
+        hits = hits[: vq.limit]
+    return shape_rows(vq, hits)
+
+
+def _version_plan() -> Any:
+    info = yield ("http.service_api.root", {})
+    return info
+
+
+def _server_version(info: Any) -> str:
+    version = getattr(info, "version", None)
+    return f"Qdrant {version}" if version else "Qdrant"
+
+
+def qdrant_introspect_plan() -> Any:
+    """Describe every collection from the server: vector config, payload fields, ids."""
+    listing = yield ("get_collections", {})
+    tables: dict[str, dict[str, Any]] = {}
+    for coll in listing.collections:
+        name = coll.name
+        info = yield ("get_collection", {"collection_name": name})
+        points, _ = yield (
+            "scroll",
+            {
+                "collection_name": name,
+                "limit": 50,
+                "with_payload": True,
+                "with_vectors": False,
+            },
+        )
+        declared = {
+            key: str(getattr(getattr(schema, "data_type", None), "value", "unknown"))
+            for key, schema in (info.payload_schema or {}).items()
+        }
+        payload = payload_columns([p.payload or {} for p in points], declared)
+        id_type = "integer" if points and isinstance(points[0].id, int) else "uuid"
+        cols = [
+            {
+                "name": "id",
+                "data_type": id_type,
+                "is_nullable": False,
+                "is_primary": True,
+                "comment": None,
+            }
+        ]
+        vectors = info.config.params.vectors
+        named = vectors if isinstance(vectors, dict) else {"vector": vectors}
+        for vname, vp in named.items():
+            dist = getattr(vp.distance, "value", vp.distance)
+            cols.append(
+                {
+                    "name": vname,
+                    "data_type": "vector",
+                    "is_nullable": False,
+                    "is_primary": False,
+                    "comment": f"dimension={vp.size}; distance={dist}",
+                }
+            )
+        cols.extend(
+            {
+                "name": key,
+                "data_type": typ,
+                "is_nullable": True,
+                "is_primary": False,
+                "comment": None,
+            }
+            for key, typ in payload.items()
+        )
+        tables[name] = {
+            "name": name,
+            "columns": cols,
+            "has_user_id": "user_id" in payload,
+            "user_col": "user_id" if "user_id" in payload else None,
+            "comment": None,
+        }
+    return {"tables": tables, "foreign_keys": [], "relationships": []}
 
 
 class _QdrantCursorAdapter:
@@ -33,7 +253,10 @@ class _QdrantCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
-        if hasattr(self.conn, "cursor"):
+        if _is_real_client(self.conn) and not clean_sql.startswith("GET /"):
+            vq = parse_vector_sql(clean_sql, params)
+            self.description, self._rows = drive_sync(qdrant_plan(vq), self.conn)
+        elif hasattr(self.conn, "cursor"):
             cur = self.conn.cursor()
             try:
                 if params:
@@ -224,17 +447,30 @@ class QdrantConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = self.connect()
+        version = "Qdrant"
         if hasattr(conn, "get_collections"):
             conn.get_collections()
+        if _is_real_client(conn):
+            with contextlib.suppress(Exception):
+                version = _server_version(drive_sync(_version_plan(), conn))
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Qdrant",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = self.connect()
+        if _is_real_client(conn):
+            try:
+                raw = drive_sync(qdrant_introspect_plan(), conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Qdrant schema: {exc}"
+                ) from exc
         with self.get_cursor() as cur:
             try:
                 return introspect_qdrant(cur, filter_sensitive=filter_sensitive)
@@ -296,6 +532,12 @@ class AsyncQdrantConnector(AsyncBaseConnector):
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_real_client(conn):
+            vq = parse_vector_sql(sql, params)
+            desc, rows = await drive_async(qdrant_plan(vq), conn)
+            names = [d[0] for d in desc]
+            latency_ms = (time.perf_counter() - start) * 1000.0
+            return names, [dict(zip(names, r, strict=False)) for r in rows], latency_ms
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
         else:
@@ -319,20 +561,32 @@ class AsyncQdrantConnector(AsyncBaseConnector):
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
+        version = "Qdrant"
         if hasattr(conn, "get_collections"):
             res = conn.get_collections()
             if hasattr(res, "__await__"):
                 await res
+        if _is_real_client(conn):
+            with contextlib.suppress(Exception):
+                version = _server_version(await drive_async(_version_plan(), conn))
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Qdrant",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
+        if _is_real_client(conn):
+            try:
+                raw = await drive_async(qdrant_introspect_plan(), conn)
+                return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Qdrant schema: {exc}"
+                ) from exc
         cur = conn.cursor() if hasattr(conn, "cursor") else _QdrantCursorAdapter(conn)
         try:
             return introspect_qdrant(cur, filter_sensitive=filter_sensitive)
