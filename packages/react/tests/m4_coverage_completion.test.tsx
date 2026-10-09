@@ -19,6 +19,28 @@ import {
   type QueryState,
 } from "../src";
 import { generateSdkSnippet } from "../src/components/ExportWorkbench";
+import type {
+  ColumnMeta,
+  QueryResultData,
+  QuerySpec,
+  SchemaSnapshot,
+  TableMeta,
+  VisualFilter,
+} from "../src/types";
+import { invalid } from "./helpers";
+import { makeCanvasProps } from "./helpers/canvas";
+
+type CompilerInputs = Pick<QueryState, "primaryTable" | "selectedColumns" | "orderedProjectionKeys">;
+
+const usersWithIdName: TableMeta[] = [
+  {
+    name: "users",
+    columns: [
+      { name: "id", data_type: "int", is_nullable: true, is_primary: false },
+      { name: "name", data_type: "varchar", is_nullable: true, is_primary: false },
+    ],
+  },
+];
 
 describe("Milestone 4: Full Branch Coverage Verification", () => {
   it("covers useSqlCompiler edge branches, missing performance, and error handling", () => {
@@ -32,7 +54,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       isDistinct: false,
       limit: 10,
     };
-    const { result: stateResult } = renderHook(() => useSqlCompiler(mockState as any));
+    const { result: stateResult } = renderHook(() => useSqlCompiler(mockState));
     expect(stateResult.current.sql).toBeDefined();
 
     // 2. Exception with non-Error string
@@ -42,7 +64,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       },
     };
     const { result: nonErrorResult } = renderHook(() =>
-      useSqlCompiler(throwingNonErrorSpec as any),
+      useSqlCompiler(throwingNonErrorSpec),
     );
     expect(nonErrorResult.current.isValid).toBe(false);
     expect(nonErrorResult.current.error).toBe("String exception");
@@ -54,7 +76,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       },
     };
     const { result: errorResult } = renderHook(() =>
-      useSqlCompiler(throwingErrorSpec as any),
+      useSqlCompiler(throwingErrorSpec),
     );
     expect(errorResult.current.isValid).toBe(false);
     expect(errorResult.current.error).toBe("Explicit Error instance");
@@ -62,8 +84,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     // 4. Fallback when performance is undefined
     const origPerf = globalThis.performance;
     try {
-      // @ts-ignore
-      delete globalThis.performance;
+      Reflect.deleteProperty(globalThis, "performance");
       const { result: perfUndefinedResult } = renderHook(() =>
         useSqlCompiler({
           table: "users",
@@ -74,7 +95,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       expect(perfUndefinedResult.current.compileTimeMs).toBe(0);
 
       const { result: perfUndefinedErrorResult } = renderHook(() =>
-        useSqlCompiler(throwingErrorSpec as any),
+        useSqlCompiler(throwingErrorSpec),
       );
       expect(perfUndefinedErrorResult.current.compileTimeMs).toBe(0);
     } finally {
@@ -95,13 +116,13 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
         },
       },
       orderedProjectionKeys: ["users.id"],
-      joins: undefined as any,
-      filters: undefined as any,
-      sorts: undefined as any,
+      joins: invalid<QueryState["joins"]>(undefined),
+      filters: invalid<QueryState["filters"]>(undefined),
+      sorts: invalid<QueryState["sorts"]>(undefined),
       isDistinct: false,
       limit: 20,
     };
-    const spec = stateToSpec(partialState as any);
+    const spec = stateToSpec(partialState as QueryState);
     expect(spec.joins).toEqual([]);
     expect(spec.filters).toEqual([]);
     expect(spec.order_by).toEqual([]);
@@ -114,12 +135,12 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     // 2. specToState with filter having missing column property
     const parsed = specToState({
       table: "users",
-      filters: [{ op: "=", value: 42 } as any],
+      filters: [{ op: "=", value: 42 }],
     });
     expect(parsed.filters?.[0]?.column).toBe("");
 
     // 3. useQueryState with empty primaryTable
-    const { result } = renderHook(() => useQueryState({ table: "" } as any));
+    const { result } = renderHook(() => useQueryState({ table: "" }));
     expect(result.current.state.activeTables).toEqual([]);
   });
 
@@ -140,7 +161,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
     const { unmount: unmountFirst } = render(
       <QueryPlayground
-        initialSpec={sparseSpec as any}
+        initialSpec={invalid<QuerySpec>(sparseSpec)}
         schema={{ tables: {} }}
       />,
     );
@@ -171,7 +192,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
         { column: "users.email", agg: "COUNT", alias: "email_cnt" },
       ],
       joins: [
-        { table: "orders" } as any,
+        { table: "orders" },
         { table: "items", left_col: "id", right_col: "item_id" },
       ],
       filters: [],
@@ -180,7 +201,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
     const { container, unmount: unmountSecond } = render(
       <QueryPlayground
-        initialSpec={joinColSpec as any}
+        initialSpec={invalid<QuerySpec>(joinColSpec)}
         schema={{ tables: {} }}
       />,
     );
@@ -207,14 +228,14 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
   });
 
   it("covers ExportWorkbench edge branches for join columns and unstyled", () => {
-    const snippet = generateSdkSnippet({
+    const snippet = generateSdkSnippet(invalid<QuerySpec>({
       table: "users",
       columns: ["id"],
       joins: [
-        { table: "orders" } as any,
-        { table: "items", left_col: "", right_col: "" } as any,
+        { table: "orders" },
+        { table: "items", left_col: "", right_col: "" },
       ],
-    });
+    }));
     expect(snippet).toContain('.join("orders", "id", "=", "id")');
     expect(snippet).toContain('.join("items", "id", "=", "id")');
   });
@@ -222,20 +243,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
   it("covers QueryCanvas unstyled branches for empty state and projection reorder buttons", () => {
     // Empty state unstyled
     const { container, unmount } = render(
-      <QueryCanvas
-        activeTables={[]}
-        primaryTable=""
-        onSelectPrimaryTable={() => {}}
-        onAddTable={() => {}}
-        onRemoveTable={() => {}}
-        selectedColumns={{}}
-        orderedProjectionKeys={[]}
-        onToggleColumn={() => {}}
-        onUpdateColumnSelect={() => {}}
-        onRemoveColumnProjection={() => {}}
-        joins={[]}
-        unstyled={true}
-      />,
+      <QueryCanvas {...makeCanvasProps({ unstyled: true })} />,
     );
     const emptyState = container.querySelector('[data-qb="canvas-empty-state"]');
     expect(emptyState).not.toBeNull();
@@ -246,7 +254,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     const onReorder = vi.fn();
     const { container: container2, unmount: unmount2 } = render(
       <QueryCanvas
-        activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int" }, { name: "name", data_type: "varchar" }] }] as any}
+        activeTables={usersWithIdName}
         primaryTable="users"
         selectedColumns={{
           "users.id": { table: "users", name: "id" },
@@ -284,13 +292,13 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
   it("covers SchemaErdModal focus trap loop and bridge discovery when src === tgt or empty", () => {
     vi.useFakeTimers();
     const handleClose = vi.fn();
-    const schema = {
+    const schema: SchemaSnapshot = {
       tables: {
         users: { name: "users", columns: [{ name: "id", data_type: "int", is_nullable: false, is_primary: true }] },
       },
     };
     const { unmount } = render(
-      <SchemaErdModal isOpen={true} onClose={handleClose} schema={schema as any} />,
+      <SchemaErdModal isOpen={true} onClose={handleClose} schema={schema} />,
     );
     act(() => {
       vi.advanceTimersByTime(100);
@@ -335,14 +343,14 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
   it("covers TableFiltersEditor combiner toggles and unstyled mode", () => {
     const onUpdate = vi.fn();
-    const filters = [
+    const filters: VisualFilter[] = [
       { id: "f1", tablePrefix: "users", column: "id", operator: "=", value: "1", combiner: "AND" },
       { id: "f2", tablePrefix: "users", column: "name", operator: "=", value: "A", combiner: "OR" },
     ];
     const { container, unmount } = render(
       <TableFiltersEditor
-        filters={filters as any}
-        activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int" }, { name: "name", data_type: "varchar" }] }] as any}
+        filters={filters}
+        activeTables={usersWithIdName}
         onChange={onUpdate}
         unstyled={false}
       />,
@@ -358,14 +366,14 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
     // Now test with combiner === "AND" to toggle to "OR"
     const onUpdate2 = vi.fn();
-    const filters2 = [
+    const filters2: VisualFilter[] = [
       { id: "f1", tablePrefix: "users", column: "id", operator: "=", value: "1", combiner: "AND" },
       { id: "f2", tablePrefix: "users", column: "name", operator: "=", value: "A", combiner: "AND" },
     ];
     const { container: container2, unmount: unmount2 } = render(
       <TableFiltersEditor
-        filters={filters2 as any}
-        activeTables={[{ name: "users", columns: [{ name: "id", data_type: "int" }, { name: "name", data_type: "varchar" }] }] as any}
+        filters={filters2}
+        activeTables={usersWithIdName}
         onChange={onUpdate2}
         unstyled={true}
       />,
@@ -477,24 +485,24 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
   it("covers useQueryState autoJoinTable when activeTables is empty", () => {
     const { result } = renderHook(() =>
       useQueryState({
-        table: "" as any,
+        table: "",
         columns: [],
       }),
     );
     act(() => {
-      result.current.actions.autoJoinTable("orders" as any);
+      result.current.actions.autoJoinTable("orders");
     });
     expect(result.current.state.joins).toHaveLength(1);
 
     // When activeTables is empty but primaryTable is set
     const { result: result2 } = renderHook(() =>
       useQueryState({
-        primaryTable: "users" as any,
-        activeTables: [] as any,
+        primaryTable: "users",
+        activeTables: [],
       }),
     );
     act(() => {
-      result2.current.actions.autoJoinTable("orders" as any);
+      result2.current.actions.autoJoinTable("orders");
     });
     expect(result2.current.state.joins).toHaveLength(1);
   });
@@ -502,11 +510,10 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
   it("covers useQueryExecution performance fallback when performance is undefined", async () => {
     const origPerf = globalThis.performance;
     try {
-      // @ts-ignore
-      delete globalThis.performance;
+      Reflect.deleteProperty(globalThis, "performance");
       const { result } = renderHook(() =>
         useQueryExecution({
-          onExecuteQuery: async () => ({
+          onExecuteQuery: async () => invalid<QueryResultData>({
             columns: ["id"],
             rows: [[1]],
             total_rows: 1,
@@ -525,9 +532,8 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
   it("covers compiler numeric suffix loops for alias collisions", () => {
     // 1. Column aliases: 4 columns with same alias on same table
-    const stateWithColCollisions: any = {
+    const stateWithColCollisions: CompilerInputs = {
       primaryTable: "users",
-      activeTables: ["users"],
       selectedColumns: {
         "users.c1": { table: "users", name: "c1", alias: "col" },
         "users.c2": { table: "users", name: "c2", alias: "col" },
@@ -535,12 +541,6 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
         "users.c4": { table: "users", name: "c4", alias: "col" },
       },
       orderedProjectionKeys: ["users.c1", "users.c2", "users.c3", "users.c4"],
-      joins: [],
-      filters: [],
-      sorts: [],
-      isDistinct: false,
-      limit: 10,
-      offset: 0,
     };
     const compiled1 = compileVisualState(
       stateWithColCollisions.primaryTable,
@@ -556,9 +556,8 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     expect(compiled1.sql).toContain('"col_3"');
 
     // 2. Aggregate aliases: 4 aggregates with same alias on same table
-    const stateWithAggCollisions: any = {
+    const stateWithAggCollisions: CompilerInputs = {
       primaryTable: "users",
-      activeTables: ["users"],
       selectedColumns: {
         "users.a1": { table: "users", name: "a1", aggregate: "COUNT", alias: "cnt" },
         "users.a2": { table: "users", name: "a2", aggregate: "COUNT", alias: "cnt" },
@@ -566,12 +565,6 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
         "users.a4": { table: "users", name: "a4", aggregate: "COUNT", alias: "cnt" },
       },
       orderedProjectionKeys: ["users.a1", "users.a2", "users.a3", "users.a4"],
-      joins: [],
-      filters: [],
-      sorts: [],
-      isDistinct: false,
-      limit: 10,
-      offset: 0,
     };
     const compiled2 = compileVisualState(
       stateWithAggCollisions.primaryTable,
@@ -621,7 +614,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
 
   it("covers compiler filter parens and falsy filterJoin fallbacks", () => {
     // Empty primary table with falsy filterJoin
-    const compiledEmpty = compileVisualState("" as any, {}, [], [], [], [], false, 10, null, "postgres", "" as any);
+    const compiledEmpty = compileVisualState("", {}, [], [], [], [], false, 10, null, "postgres", invalid<"AND">(""));
     expect(compiledEmpty.spec.filter_join).toBe("AND");
 
     // Filter with parenOpen, parenClose, and falsy combiner
@@ -639,7 +632,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
           value: "1",
           parenOpen: "(",
           parenClose: ")",
-          combiner: "" as any,
+          combiner: invalid<"AND">(""),
         },
       ],
       [],
@@ -647,20 +640,20 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       50,
       null,
       "postgres",
-      "" as any,
+      invalid<"AND">(""),
     );
     expect(compiledParens.sql).toContain('("users"."id" = 1)');
   });
 
   it("covers SchemaErdModal column search and undefined table columns", () => {
-    const schema = {
+    const schema: SchemaSnapshot = {
       tables: {
-        tblA: { name: "tblA", columns: [{ name: "special_col", data_type: "text" }] },
-        tblB: { name: "tblB", columns: undefined as any },
+        tblA: { name: "tblA", columns: [{ name: "special_col", data_type: "text", is_nullable: true, is_primary: false }] },
+        tblB: { name: "tblB", columns: invalid<ColumnMeta[]>(undefined) },
       },
     };
     const { unmount } = render(
-      <SchemaErdModal isOpen={true} onClose={() => {}} schema={schema as any} />,
+      <SchemaErdModal isOpen={true} onClose={() => {}} schema={schema} />,
     );
     // Search for column name to trigger line 97
     const searchInput = screen.getByPlaceholderText("Search tables or columns...");
@@ -671,11 +664,11 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
     unmount();
 
     // 2-hop bridge discovery test (line 321: Path (2 hops))
-    const schemaWith2Hops = {
+    const schemaWith2Hops: SchemaSnapshot = {
       tables: {
-        users: { name: "users", columns: [{ name: "id", data_type: "int" }] },
-        orders: { name: "orders", columns: [{ name: "id", data_type: "int" }, { name: "user_id", data_type: "int" }] },
-        items: { name: "items", columns: [{ name: "id", data_type: "int" }, { name: "order_id", data_type: "int" }] },
+        users: { name: "users", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }] },
+        orders: { name: "orders", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }, { name: "user_id", data_type: "int", is_nullable: true, is_primary: false }] },
+        items: { name: "items", columns: [{ name: "id", data_type: "int", is_nullable: true, is_primary: false }, { name: "order_id", data_type: "int", is_nullable: true, is_primary: false }] },
       },
       foreign_keys: [
         { table: "orders", column: "user_id", foreign_table: "users", foreign_column: "id" },
@@ -683,7 +676,7 @@ describe("Milestone 4: Full Branch Coverage Verification", () => {
       ],
     };
     const { container: container2, unmount: unmount2 } = render(
-      <SchemaErdModal isOpen={true} onClose={() => {}} schema={schemaWith2Hops as any} />,
+      <SchemaErdModal isOpen={true} onClose={() => {}} schema={schemaWith2Hops} />,
     );
     const srcSelect = screen.getByLabelText("Bridge source table");
     const tgtSelect = screen.getByLabelText("Bridge target table");
