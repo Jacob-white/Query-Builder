@@ -7,6 +7,7 @@ AQL and SQL query execution, cursor adaptation, and schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import Any
@@ -18,6 +19,7 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
+from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.introspection import introspect_arangodb
 from query_builder.connectors.registry import register_connector
 
@@ -25,8 +27,9 @@ from query_builder.connectors.registry import register_connector
 class _ArangoCursorAdapter:
     """Adapts an ArangoDB database or cursor object into a DB-API cursor interface."""
 
-    def __init__(self, db: Any) -> None:
+    def __init__(self, db: Any, read_only: bool = True) -> None:
         self.db = db
+        self.read_only = read_only
         self.description: list[tuple[str]] | None = None
         self._rows: list[list[Any]] = []
 
@@ -34,6 +37,9 @@ class _ArangoCursorAdapter:
         clean_sql = sql.strip().rstrip(";").strip()
         if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
             clean_sql = "RETURN 1"
+        if self.read_only:
+            # AQL has REMOVE / REPLACE / UPSERT, which the SQL-shaped generic check misses.
+            assert_read_only(clean_sql, "aql", "ArangoDB")
         if hasattr(self.db, "aql") and hasattr(self.db.aql, "execute"):
             bind_vars: dict[str, Any] = {}
             if params:
@@ -53,7 +59,10 @@ class _ArangoCursorAdapter:
             docs = list(cursor)
             if docs:
                 if isinstance(docs[0], dict):
-                    col_names = list(docs[0].keys())
+                    # union of keys in first-seen order: documents are schemaless
+                    col_names = list(
+                        dict.fromkeys(k for d in docs if isinstance(d, dict) for k in d)
+                    )
                     self.description = [(col,) for col in col_names]
                     self._rows = [[doc.get(c) for c in col_names] for doc in docs]
                 else:
@@ -85,6 +94,15 @@ class _ArangoCursorAdapter:
 
     def close(self) -> None:
         pass
+
+
+def _server_version(db: Any) -> str:
+    """``ArangoDB <version>`` from the server (``/_api/version``); plain name if unavailable."""
+    try:
+        version = db.version()
+    except Exception:  # noqa: BLE001 - the version string is informational only
+        return "ArangoDB"
+    return f"ArangoDB {version}" if isinstance(version, str) and version else "ArangoDB"
 
 
 @register_connector("arangodb", aliases=["arango", "aql"])
@@ -156,12 +174,16 @@ class ArangoDBConnector(BaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         else:
-            adapter = _ArangoCursorAdapter(conn)
+            adapter = _ArangoCursorAdapter(conn, read_only=self._read_only())
             yield adapter
+
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        info["engine_version"] = "ArangoDB"
+        info["engine_version"] = _server_version(self.connect())
         info["database"] = self.database
         return info
 
@@ -232,19 +254,56 @@ class AsyncArangoDBConnector(AsyncBaseConnector):
                 f"Failed to connect asynchronously to ArangoDB: {exc}"
             ) from exc
 
-    async def execute_raw(
-        self, sql: str, params: list[Any] | None = None
-    ) -> tuple[list[str], list[dict[str, Any]], float]:
-        conn = await self.connect()
-        start = time.perf_counter()
-        adapter = _ArangoCursorAdapter(conn)
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
+
+    def _execute_blocking(
+        self, conn: Any, sql: str, params: list[Any] | None
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        adapter = _ArangoCursorAdapter(conn, read_only=self._read_only())
         try:
             adapter.execute(sql, params)
             desc = adapter.description or []
             col_names = [col[0] for col in desc]
             rows = adapter.fetchall() or []
-            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
+            return col_names, [dict(zip(col_names, r, strict=False)) for r in rows]
         finally:
             adapter.close()
+
+    async def execute_raw(
+        self, sql: str, params: list[Any] | None = None
+    ) -> tuple[list[str], list[dict[str, Any]], float]:
+        conn = await self.connect()
+        start = time.perf_counter()
+        # python-arango is a blocking HTTP client: keep it off the event loop.
+        col_names, dict_rows = await asyncio.to_thread(
+            self._execute_blocking, conn, sql, params
+        )
+        return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
+
+    async def test_connection(self) -> dict[str, Any]:
+        info = await super().test_connection()
+        conn = await self.connect()
+        info["engine_version"] = await asyncio.to_thread(_server_version, conn)
+        info["database"] = self.database
+        return info
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = await self.connect()
+
+        def _blocking() -> dict[str, Any]:
+            adapter = _ArangoCursorAdapter(conn, read_only=self._read_only())
+            try:
+                return introspect_arangodb(
+                    adapter, database=self.database, filter_sensitive=filter_sensitive
+                )
+            finally:
+                adapter.close()
+
+        try:
+            return await asyncio.to_thread(_blocking)
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect ArangoDB database '{self.database}': {exc}"
+            ) from exc

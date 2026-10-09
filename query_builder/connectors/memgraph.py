@@ -8,9 +8,11 @@ dual sync and async execution protocols, and OpenCypher schema introspection.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import time
 from typing import Any
 
+from query_builder.connectors._native_readonly import assert_read_only
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -18,20 +20,30 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_memgraph
+from query_builder.connectors.introspection import (
+    introspect_memgraph,
+    memgraph_schema_steps,
+)
 from query_builder.connectors.registry import register_connector
 
 
 class _MemgraphCursorAdapter:
     """Adapts a Memgraph Driver / Session into a DB-API cursor interface."""
 
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Any, read_only: bool = True) -> None:
         self.conn = connection
+        self.read_only = read_only
         self.description: list[tuple[str, ...]] | None = None
         self._rows: list[list[Any]] = []
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() in ("SELECT 1", "SELECT 1;"):
+            clean_sql = "RETURN 1 AS val"
+        if self.read_only:
+            # Memgraph ignores Bolt access modes, and SET / MERGE / REMOVE are not in the
+            # SQL-shaped generic mutation check: refuse them here, below every code path.
+            assert_read_only(clean_sql, "cypher", "Memgraph")
         if hasattr(self.conn, "cursor"):
             cur = self.conn.cursor()
             try:
@@ -61,7 +73,7 @@ class _MemgraphCursorAdapter:
         elif hasattr(self.conn, "session"):
             session = self.conn.session()
             try:
-                adapter = _MemgraphCursorAdapter(session)
+                adapter = _MemgraphCursorAdapter(session, read_only=False)
                 adapter.execute(clean_sql, params)
                 self.description = adapter.description
                 self._rows = adapter._rows
@@ -162,7 +174,7 @@ class MemgraphConnector(BaseConnector):
         conn = self.connect()
         if hasattr(conn, "session"):
             session = conn.session()
-            adapter = _MemgraphCursorAdapter(session)
+            adapter = _MemgraphCursorAdapter(session, read_only=self._read_only())
             try:
                 yield adapter
             finally:
@@ -177,22 +189,32 @@ class MemgraphConnector(BaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         else:
-            adapter = _MemgraphCursorAdapter(conn)
+            adapter = _MemgraphCursorAdapter(conn, read_only=self._read_only())
             try:
                 yield adapter
             finally:
                 adapter.close()
 
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
+
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
+        version = "Memgraph"
         with self.get_cursor() as cur:
             cur.execute("RETURN 1 AS val;")
             cur.fetchone()
+            with contextlib.suppress(Exception):
+                cur.execute("SHOW VERSION;")
+                row = cur.fetchone()
+                if row and row[0]:
+                    version = f"Memgraph {row[0]}"
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Memgraph",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
@@ -260,15 +282,38 @@ class AsyncMemgraphConnector(AsyncBaseConnector):
                 f"Failed to connect asynchronously to Memgraph: {exc}"
             ) from exc
 
+    def _read_only(self) -> bool:
+        sec = getattr(self, "security", None)
+        return sec is None or sec.execution.enforce_read_only_session
+
+    async def _fetch(
+        self, conn: Any, cypher: str, params: Any = None
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """One query on a real ``neo4j.AsyncDriver`` (Memgraph speaks Bolt)."""
+        clean = cypher.strip().rstrip(";").strip()
+        if self._read_only():
+            assert_read_only(clean, "cypher", "Memgraph")
+        parameters = params if isinstance(params, dict) else {}
+        async with conn.session() as session:
+            result = await session.run(clean, parameters)
+            records = [record async for record in result]
+            keys = list(result.keys())
+        return keys, [dict(zip(keys, rec.values(), strict=False)) for rec in records]
+
     async def execute_raw(
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
         conn = await self.connect()
         start = time.perf_counter()
+        if _is_async_driver(conn):
+            if sql.strip().rstrip(";").strip().upper() == "SELECT 1":
+                sql = "RETURN 1 AS val"
+            keys, dict_rows = await self._fetch(conn, sql, params)
+            return keys, dict_rows, (time.perf_counter() - start) * 1000.0
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
         else:
-            cur = _MemgraphCursorAdapter(conn)
+            cur = _MemgraphCursorAdapter(conn, read_only=self._read_only())
 
         try:
             if params:
@@ -288,17 +333,45 @@ class AsyncMemgraphConnector(AsyncBaseConnector):
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         await self.execute_raw("RETURN 1 AS val;")
+        version = "Memgraph"
+        conn = self._connection
+        if conn is not None and _is_async_driver(conn):
+            with contextlib.suppress(Exception):
+                _, rows = await self._fetch(conn, "SHOW VERSION")
+                if rows:
+                    version = f"Memgraph {next(iter(rows[0].values()))}"
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
             "dialect": self.dialect_name,
-            "engine_version": "Memgraph",
+            "engine_version": version,
             "latency_ms": round(latency_ms, 2),
         }
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _MemgraphCursorAdapter(conn)
+        if _is_async_driver(conn):
+            try:
+                steps = memgraph_schema_steps(filter_sensitive)
+                statement = next(steps)
+                while True:
+                    try:
+                        _, rows = await self._fetch(conn, statement)
+                    except Exception as exc:  # noqa: BLE001 - handed to the generator
+                        statement = steps.throw(exc)
+                        continue
+                    statement = steps.send(rows)
+            except StopIteration as done:
+                return done.value  # type: ignore[no-any-return]
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Memgraph schema: {exc}"
+                ) from exc
+        cur = (
+            conn.cursor()
+            if hasattr(conn, "cursor")
+            else _MemgraphCursorAdapter(conn, read_only=self._read_only())
+        )
         try:
             return introspect_memgraph(cur, filter_sensitive=filter_sensitive)
         except Exception as exc:
@@ -308,3 +381,8 @@ class AsyncMemgraphConnector(AsyncBaseConnector):
         finally:
             if hasattr(cur, "close"):
                 cur.close()
+
+
+def _is_async_driver(conn: Any) -> bool:
+    """A real ``neo4j.AsyncDriver`` (its methods are coroutines; Mocks' are not)."""
+    return inspect.iscoroutinefunction(getattr(conn, "verify_connectivity", None))

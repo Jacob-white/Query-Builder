@@ -3,6 +3,13 @@ Google Cloud Firestore Document Database Connector.
 ===================================================
 Provides Google Cloud Firestore connectivity via google-cloud-firestore,
 dual sync and async execution protocols, and collection schema introspection.
+
+Firestore has no SQL.  The connector runs a documented SQL SUBSET (see
+:mod:`query_builder.connectors._sql_subset`) by translating it to Firestore structured
+queries: one collection, a projection, AND-ed simple predicates, ``ORDER BY``,
+``LIMIT``/``OFFSET`` and ``COUNT(*)``.  A statement outside the subset raises
+``UnsupportedQuery``; it is never approximated.  The document id is exposed as column
+``id`` unless the documents carry an ``id`` field of their own.
 """
 
 from __future__ import annotations
@@ -11,6 +18,11 @@ import contextlib
 import time
 from typing import Any
 
+from query_builder.connectors._sql_subset import (
+    SubsetPlan,
+    UnsupportedQuery,
+    parse_select_subset,
+)
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
     BaseConnector,
@@ -18,8 +30,82 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_firestore
+from query_builder.connectors.introspection import (
+    firestore_schema_steps,
+    introspect_firestore,
+)
 from query_builder.connectors.registry import register_connector
+
+_OPS = {"=": "==", "!=": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
+
+
+def _plain(value: Any) -> Any:
+    """Firestore value as a plain value (references and geo points become strings)."""
+    if value is None or isinstance(value, (str, int, float, bool, bytes)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    path = getattr(value, "path", None)  # DocumentReference
+    return str(path) if path else str(value)
+
+
+def build_query(client: Any, plan: SubsetPlan) -> Any:
+    """Firestore ``Query`` for ``plan`` (works for the sync and the async client)."""
+    query = client.collection(plan.table)
+    for pred in plan.predicates:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        col, op, val = pred.column, pred.op, pred.value
+        if op in _OPS:
+            filters = [(_OPS[op], val)]
+        elif op in ("in", "not-in"):
+            filters = [(op, list(val))]
+        elif op == "is-null":
+            filters = [("==", None)]
+        elif op == "is-not-null":
+            filters = [("!=", None)]
+        elif op == "prefix":
+            filters = [(">=", val), ("<=", val + "")]
+        else:  # pragma: no cover - parse_select_subset only yields the ops above
+            raise UnsupportedQuery(f"unsupported operator {op}")
+        for fop, fval in filters:
+            query = query.where(filter=FieldFilter(col, fop, fval))
+    for col, desc in plan.order_by:
+        query = query.order_by(col, direction="DESCENDING" if desc else "ASCENDING")
+    if plan.offset:
+        query = query.offset(plan.offset)
+    if plan.limit is not None:
+        query = query.limit(plan.limit)
+    return query
+
+
+def shape_documents(
+    plan: SubsetPlan, docs: list[Any]
+) -> tuple[list[tuple[str]], list[list[Any]]]:
+    """Documents -> (description, rows) following the projection of ``plan``."""
+    records: list[dict[str, Any]] = []
+    for doc in docs:
+        data = {k: _plain(v) for k, v in (doc.to_dict() or {}).items()}
+        records.append({"id": doc.id, **data})
+    if plan.columns is None:
+        names = list(dict.fromkeys(k for r in records for k in r))
+        out_names = names
+    else:
+        names, out_names = plan.columns, plan.out_names
+    return (
+        [(n,) for n in out_names],
+        [[r.get(n) for n in names] for r in records],
+    )
+
+
+def _count_result(res: Any) -> int:
+    """First value of a Firestore aggregation result (``[[AggregationResult]]``)."""
+    first = res[0][0] if res and isinstance(res[0], (list, tuple)) else res[0]
+    return int(first.value)
 
 
 class _FirestoreCursorAdapter:
@@ -51,40 +137,18 @@ class _FirestoreCursorAdapter:
             self.description = [("collection_name",)]
             self._rows = [[getattr(c, "id", str(c))] for c in colls]
         elif hasattr(self.conn, "collection"):
-            import re
-
-            m = re.search(
-                r"\b(?:FROM|INTO|UPDATE|TABLE)\s+[`\"\[]?([a-zA-Z0-9_.-]+)[`\"\]]?",
-                clean_sql,
-                re.IGNORECASE,
-            )
-            coll_name = m.group(1) if m else "users"
-            try:
-                coll_ref = self.conn.collection(coll_name)
-                docs = (
-                    list(coll_ref.limit(10).stream())
-                    if hasattr(coll_ref, "limit")
-                    else []
+            if clean_sql.upper() == "SELECT 1":
+                self.description, self._rows = [("val",)], [[1]]
+                return
+            plan = parse_select_subset(clean_sql, params)
+            query = build_query(self.conn, plan)
+            if plan.count_star:
+                value = _count_result(query.count().get())
+                self.description, self._rows = [(plan.count_alias,)], [[value]]
+            else:
+                self.description, self._rows = shape_documents(
+                    plan, list(query.stream())
                 )
-                if docs:
-                    first_dict = (
-                        docs[0].to_dict() if hasattr(docs[0], "to_dict") else {}
-                    )
-                    keys = ["id"] + list(first_dict.keys())
-                    self.description = [(k,) for k in keys]
-                    rows = []
-                    for d in docs:
-                        dd = d.to_dict() if hasattr(d, "to_dict") else {}
-                        rows.append(
-                            [getattr(d, "id", "")] + [dd.get(k) for k in keys[1:]]
-                        )
-                    self._rows = rows
-                else:
-                    self.description = [("id",), ("data",)]
-                    self._rows = []
-            except Exception:  # noqa: BLE001
-                self.description = [("id",), ("data",)]
-                self._rows = []
         elif hasattr(self.conn, "execute"):
             res = (
                 self.conn.execute(clean_sql, params)
@@ -262,6 +326,22 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
                 f"Failed to connect asynchronously to Google Cloud Firestore: {exc}"
             ) from exc
 
+    async def _run(
+        self, conn: Any, sql: str, params: list[Any] | None
+    ) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
+        """One statement on the ASYNC client (awaiting its coroutines and async streams)."""
+        clean_sql = sql.strip().rstrip(";").strip()
+        if clean_sql.upper() == "SELECT 1":
+            return [("val",)], [[1]]
+        if clean_sql == "collections":
+            return [("collection_name",)], [[c.id] async for c in conn.collections()]
+        plan = parse_select_subset(clean_sql, params)
+        query = build_query(conn, plan)
+        if plan.count_star:
+            return [(plan.count_alias,)], [[_count_result(await query.count().get())]]
+        docs = [d async for d in query.stream()]
+        return shape_documents(plan, docs)
+
     async def execute_raw(
         self, sql: str, params: list[Any] | None = None
     ) -> tuple[list[str], list[dict[str, Any]], float]:
@@ -269,30 +349,38 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
         start = time.perf_counter()
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
+            try:
+                if params:
+                    cur.execute(sql, params)
+                else:
+                    cur.execute(sql)
+                desc = cur.description or []
+                rows = cur.fetchall() or []
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+        elif hasattr(conn, "collection") and hasattr(conn, "collections"):
+            desc, rows = await self._run(conn, sql, params)
         else:
-            cur = _FirestoreCursorAdapter(conn)
-
-        try:
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            desc = cur.description or []
-            col_names = [col[0] for col in desc]
-            rows = cur.fetchall() or []
-            dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
-            latency_ms = (time.perf_counter() - start) * 1000.0
-            return col_names, dict_rows, latency_ms
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+            adapter = _FirestoreCursorAdapter(conn)
+            try:
+                adapter.execute(sql, params)
+                desc = adapter.description or []
+                rows = adapter.fetchall() or []
+            finally:
+                adapter.close()
+        col_names = [col[0] for col in desc]
+        dict_rows = [dict(zip(col_names, r, strict=False)) for r in rows]
+        return col_names, dict_rows, (time.perf_counter() - start) * 1000.0
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         conn = await self.connect()
         if hasattr(conn, "collections"):
             res = conn.collections()
-            if hasattr(res, "__await__"):
+            if hasattr(res, "__aiter__"):
+                _ = [c async for c in res]
+            elif hasattr(res, "__await__"):
                 await res
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
@@ -304,15 +392,34 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = (
-            conn.cursor() if hasattr(conn, "cursor") else _FirestoreCursorAdapter(conn)
-        )
         try:
-            return introspect_firestore(cur, filter_sensitive=filter_sensitive)
+            if hasattr(conn, "collection") and hasattr(conn, "collections"):
+                steps = firestore_schema_steps(filter_sensitive)
+                statement = next(steps)
+                while True:
+                    try:
+                        desc, rows = await self._run(conn, statement, None)
+                    except Exception as exc:  # noqa: BLE001 - handed to the generator
+                        statement = steps.throw(exc)
+                        continue
+                    names = [d[0] for d in desc]
+                    statement = steps.send(
+                        [dict(zip(names, r, strict=False)) for r in rows]
+                    )
+            cur = (
+                conn.cursor()
+                if hasattr(conn, "cursor")
+                else _FirestoreCursorAdapter(conn)
+            )
+            try:
+                return introspect_firestore(cur, filter_sensitive=filter_sensitive)
+            finally:
+                if hasattr(cur, "close"):
+                    cur.close()
+        except StopIteration as done:
+            return done.value  # type: ignore[no-any-return]
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect Firestore schema: {exc}"
             ) from exc
-        finally:
-            if hasattr(cur, "close"):
-                cur.close()
+
