@@ -284,8 +284,18 @@ def test_base_connector_lifecycle_and_errors():
 # ============================================================================
 
 
+def _writable_security():
+    """These tests build their fixtures through the connector, so they opt out of the
+    database-side read-only session (which now really refuses writes)."""
+    from query_builder.config import SecurityConfig
+
+    sec = SecurityConfig()
+    sec.execution.enforce_read_only_session = False
+    return sec
+
+
 def test_sqlite_connector_full_flow():
-    connector = SQLiteConnector(database=":memory:")
+    connector = SQLiteConnector(database=":memory:", security=_writable_security())
     # Re-connect when already connected
     conn1 = connector.connect()
     assert connector.connect() is conn1

@@ -35,6 +35,7 @@ from query_builder.security import (
     apply_column_masking,
     calculate_ast_complexity,
     check_cartesian_products,
+    resolve_and_validate_target,
     scrub_secrets,
     validate_network_target,
 )
@@ -71,6 +72,12 @@ class BaseConnector(ABC):
     dialect_name: str = "postgres"
     default_timeout_ms: int = 5000
 
+    #: How strongly the engine can enforce a read-only session (see ``apply_read_only``):
+    #: ``"enforced"`` (the engine refuses writes), ``"best_effort"`` (the statement is sent
+    #: but the engine/driver may not honour it), ``"none"`` (no mechanism available; rely
+    #: on a read-only database role).  Documented per engine in docs/THREAT_MODEL.md.
+    read_only_support: str = "none"
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if "connect" in cls.__dict__:
@@ -80,8 +87,11 @@ class BaseConnector(ABC):
                 @functools.wraps(orig_connect)
                 def wrapped_connect(self: Any, *args: Any, **kw: Any) -> Any:
                     self._validate_network_target()
+                    self._pin_network_target()
                     try:
-                        return orig_connect(self, *args, **kw)
+                        conn = orig_connect(self, *args, **kw)
+                        self._ensure_read_only(conn)
+                        return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
                         if scrubbed is exc:
@@ -154,11 +164,70 @@ class BaseConnector(ABC):
     def _validate_network_target(
         self, security_config: SecurityConfig | None = None
     ) -> None:
+        ctx = self._network_context(security_config)
+        if ctx is None:
+            return
+        net_cfg, target_config = ctx
+        validate_network_target(
+            config=target_config,
+            network_config=net_cfg,
+        )
+
+    def _pin_network_target(self) -> None:
+        """Resolves the configured host ONCE, validates every address, and remembers the
+        validated address in ``self._pinned_target`` for the connector to connect to.
+
+        Only plain ``host``/``hostname``/``server`` configs are pinnable; URL/DSN based
+        drivers resolve internally and are documented as not pinnable.
+        """
+        self._pinned_target = None
+        ctx = self._network_context(None)
+        if ctx is None:
+            return
+        net_cfg, target_config = ctx
+        if not getattr(net_cfg, "pin_resolved_addresses", True):
+            return
+        host = None
+        for key in ("host", "hostname", "server"):
+            if isinstance(target_config.get(key), str) and target_config[key].strip():
+                host = target_config[key].strip()
+                break
+        if host is None or "://" in host:
+            return
+        port = target_config.get("port")
+        try:
+            port = int(port) if port is not None else None
+        except (TypeError, ValueError):
+            return
+        self._pinned_target = resolve_and_validate_target(
+            host,
+            port,
+            net_cfg,
+            resolver=getattr(self, "_dns_resolver", None),
+            fail_closed=bool(getattr(net_cfg, "fail_closed_on_dns_error", False)),
+        )
+
+    def pinned_connect_config(self, address_key: str = "hostaddr") -> dict[str, Any]:
+        """``self.config`` plus ``address_key=<validated IP>`` when the host was pinned.
+
+        For drivers that accept a separate numeric address next to the hostname (libpq's
+        ``hostaddr``): the hostname is still used for TLS verification, but no DNS lookup
+        happens at connect time.
+        """
+        cfg = dict(self.config)
+        target = getattr(self, "_pinned_target", None)
+        if target is not None and target.pinned_address and not cfg.get(address_key):
+            cfg[address_key] = target.pinned_address
+        return cfg
+
+    def _network_context(
+        self, security_config: SecurityConfig | None
+    ) -> tuple[Any, dict[str, Any]] | None:
         sec = (
             security_config or getattr(self, "security", None) or get_security_config()
         )
         if not sec or not sec.network:
-            return
+            return None
 
         net_cfg = sec.network
         if not self._explicit_security:
@@ -201,10 +270,7 @@ class BaseConnector(ABC):
             if val is not None and attr not in target_config:
                 target_config[attr] = val
 
-        validate_network_target(
-            config=target_config,
-            network_config=net_cfg,
-        )
+        return net_cfg, target_config
 
     def validate_network(self, security_config: SecurityConfig | None = None) -> None:
         """Validates network egress target against active network security policy."""
@@ -296,6 +362,27 @@ class BaseConnector(ABC):
                     cur.close()
         else:
             yield conn
+
+    def apply_read_only(self, connection: Any) -> None:
+        """Hook: make ``connection`` refuse writes at the DATABASE (defense in depth).
+
+        Called automatically from the wrapped ``connect()`` whenever
+        ``security.execution.enforce_read_only_session`` is on, once per connection object,
+        so a connector cannot forget it.  Engines without a mechanism keep this no-op
+        (``read_only_support == "none"``).  Raising here fails the connection closed.
+        """
+        return None
+
+    def _ensure_read_only(self, connection: Any) -> None:
+        if connection is None:
+            return
+        sec = getattr(self, "security", None)
+        if sec is None or not sec.execution.enforce_read_only_session:
+            return
+        if getattr(self, "_read_only_applied_to", None) is connection:
+            return
+        self.apply_read_only(connection)
+        self._read_only_applied_to = connection
 
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
         """Hook for dialect-specific statement timeout configuration."""
@@ -408,7 +495,7 @@ class BaseConnector(ABC):
                     )
 
                 if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql)
+                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_res["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_res['message']}"
@@ -501,12 +588,12 @@ class BaseConnector(ABC):
                 count_params = compilation["count_params"]
 
                 if validate_ast:
-                    v_main = validate_sql_ast(main_sql)
+                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
                     if not v_main["valid"]:
                         raise SecurityError(
                             f"Generated query failed AST safety validation: {v_main['message']}"
                         )
-                    v_count = validate_sql_ast(count_sql)
+                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
                     if not v_count["valid"]:
                         raise SecurityError(
                             f"Generated count query failed AST safety validation: {v_count['message']}"

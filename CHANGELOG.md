@@ -41,6 +41,23 @@
 - Per-filter `combiner` values are whitelisted to `AND`/`OR` in the TypeScript compiler and
   parser as well as the Python compiler.
 
+### Security (structural validation, DB-side enforcement, SSRF pinning)
+- New sqlglot **structural layer** (`query_builder/sql_ast.py`): `validate_sql_ast(..., dialect=None)`
+  now requires BOTH the legacy lexer layer and an AST allowlist (one statement, read-only query
+  root, no DML/DDL/Command/INTO/locking nodes, no denied function, no restricted real relation,
+  scoped CTE resolution) to accept the query; fails closed when sqlglot cannot parse. Results gain
+  `violation_layers`; structural messages are prefixed `[sqlglot-ast]`. `sqlglot` is a new dependency.
+- Found by the new differential fuzzers (SQLite / PostgreSQL / DuckDB oracles): an unterminated
+  `/*` was treated as a syntax error (SQLite accepts it as a comment), letting
+  `SELECT $$ FROM auth_user/* $$` slip through; `pragma_*` table functions are now denied.
+- Connectors call a new `apply_read_only(connection)` hook from `connect()`: real read-only sessions
+  for SQLite (`query_only` + `mode=ro`), DuckDB (`read_only=True` for files), PostgreSQL family,
+  MySQL/MariaDB/TiDB and ClickHouse; documented `none` for engines without a mechanism.
+- SSRF: one injectable resolver, every resolved address validated (embedded IPv4 in NAT64/6to4/
+  Teredo/mapped/compat), trailing-dot / ideographic-dot metadata hostnames, and
+  `resolve_and_validate_target` + libpq `hostaddr` pinning for the PostgreSQL family.
+- `docs/THREAT_MODEL.md` documents guarantees, non-guarantees and how to run the fuzz suites.
+
 ### Fixed
 - Mixed `AND`/`OR` filters round-trip correctly between SQL, the React client spec and the
   Python compiler (every filter carries a combiner once any is `OR`); Python

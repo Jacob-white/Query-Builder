@@ -20,6 +20,14 @@ class RedshiftConnector(BaseConnector):
     """Connector for Amazon Redshift."""
 
     dialect_name = "redshift"
+    read_only_support = "best_effort"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """Best effort: Redshift accepts the PostgreSQL syntax but enforcement varies by
+        driver/version; use a read-only database user for a real guarantee."""
+        from query_builder.connectors.postgres import _pg_read_only
+
+        _pg_read_only(connection)
 
     def __init__(
         self,
