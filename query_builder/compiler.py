@@ -830,6 +830,13 @@ class QueryCompiler:
     and automatic COUNT subquery construction.
     """
 
+    def _sql_op(self, op: str) -> str:
+        """Comparison operator text; dialects may spell not-equal ``<>`` (``neq_operator``)."""
+        text = OPERATOR_MAP[op]
+        if text == "!=":
+            return getattr(self.dialect, "neq_operator", "!=")
+        return text
+
     def __init__(
         self,
         spec: dict[str, Any] | Any,
@@ -1177,7 +1184,7 @@ class QueryCompiler:
                 cond_expr = f"{quoted_cond_ref} {neg}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
                 self.params.extend([v1, v2])
             elif op in OPERATOR_MAP:
-                sql_op = OPERATOR_MAP[op]
+                sql_op = self._sql_op(op)
                 cond_expr = f"{quoted_cond_ref} {sql_op} {self.dialect.placeholder}"
                 self.params.append(val)
             else:
@@ -1964,12 +1971,12 @@ class QueryCompiler:
                     inner=True,
                 )
                 sub_sql, sub_params, _, _ = sub_compiler.compile()
-                sql_op = OPERATOR_MAP[op]
+                sql_op = self._sql_op(op)
                 clause_str = f"{quoted_ref} {sql_op} ({sub_sql})"
                 self.params.extend(sub_params)
 
             elif op in OPERATOR_MAP:
-                sql_op = OPERATOR_MAP[op]
+                sql_op = self._sql_op(op)
                 clause_str = f"{quoted_ref} {sql_op} {self.dialect.placeholder}"
                 self.params.append(val)
 
@@ -2180,7 +2187,7 @@ class QueryCompiler:
 
             if op not in OPERATOR_MAP:
                 continue
-            sql_op = OPERATOR_MAP[op]
+            sql_op = self._sql_op(op)
             self.having_clauses.append(
                 f"{agg_expr} {sql_op} {self.dialect.placeholder}"
             )

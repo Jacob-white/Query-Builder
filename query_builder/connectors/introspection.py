@@ -2076,6 +2076,49 @@ def introspect_kyuubi(
         ) from exc
 
 
+def _drill_qualified(schema_name: str, table: str) -> str:
+    parts = [p for p in schema_name.split(".") if p] + [table]
+    return ".".join("`" + p.replace("`", "``") + "`" for p in parts)
+
+
+def _drill_file_tables(cur: Any, schema_name: str) -> list[str]:
+    """Directories/data files of a file-system workspace (``SHOW FILES``), as table names."""
+    names: list[str] = []
+    try:
+        workspace = ".".join(
+            "`" + p.replace("`", "``") + "`" for p in schema_name.split(".") if p
+        )
+        cur.execute(f"SHOW FILES IN {workspace}")
+        cols = [str(d[0]).lower() for d in (cur.description or [])]
+        name_ix = cols.index("name") if "name" in cols else 0
+        dir_ix = cols.index("isdirectory") if "isdirectory" in cols else None
+        for row in cur.fetchall():
+            name = str(row[name_ix])
+            if name.startswith((".", "_")):
+                continue
+            is_dir = dir_ix is not None and str(row[dir_ix]).lower() in ("true", "1")
+            if is_dir or name.rsplit(".", 1)[-1] in ("parquet", "json", "csv", "csvh"):
+                names.append(name)
+    except Exception:  # noqa: BLE001
+        return []
+    return sorted(names)
+
+
+def _drill_probe_columns(
+    cur: Any, schema_name: str, table: str
+) -> list[tuple[str, str]]:
+    """Column names/types of a file table: a ``LIMIT 0`` read still reports the schema."""
+    try:
+        cur.execute(f"SELECT * FROM {_drill_qualified(schema_name, table)} LIMIT 0")
+        cur.fetchall()
+        return [
+            (str(d[0]), str(d[1]) if len(d) > 1 and d[1] else "VARCHAR")
+            for d in (cur.description or [])
+        ]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def introspect_drill(
     cursor_or_client: Any,
     schema_name: str = "dfs.default",
@@ -2084,10 +2127,20 @@ def introspect_drill(
     cur = None
     own_cur = False
     try:
-        cur = _unwrap_cursor(cursor_or_client)
-        own_cur = cur is not cursor_or_client and cur is not getattr(
-            cursor_or_client, "target", None
-        )
+        if (
+            not hasattr(cursor_or_client, "_mock_children")
+            and hasattr(cursor_or_client, "execute")
+            and hasattr(cursor_or_client, "fetchall")
+        ):
+            # already a cursor (e.g. the Drill REST adapter): unwrapping it would hand the
+            # raw PyDrill client (which has no execute()) to the queries below
+            cur = cursor_or_client
+            own_cur = False
+        else:
+            cur = _unwrap_cursor(cursor_or_client)
+            own_cur = cur is not cursor_or_client and cur is not getattr(
+                cursor_or_client, "target", None
+            )
         table_names: list[str] = []
         try:
             cur.execute(
@@ -2106,8 +2159,17 @@ def introspect_drill(
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
 
+        # File-system workspaces (dfs.*) are NOT listed by INFORMATION_SCHEMA.TABLES: their
+        # tables are directories/files, found with SHOW FILES and described by a LIMIT 0 read.
+        file_tables = False
+        if not table_names:
+            table_names = _drill_file_tables(cur, schema_name)
+            file_tables = bool(table_names)
+
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         try:
+            if file_tables:
+                raise LookupError("file tables are described by probing")
             cur.execute(
                 """
                 SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
@@ -2138,6 +2200,20 @@ def introspect_drill(
                 )
         except Exception:  # noqa: BLE001
             for tbl in table_names:
+                if file_tables:
+                    for c_name, d_type in _drill_probe_columns(cur, schema_name, tbl):
+                        if filter_sensitive and _is_sensitive_column(c_name):
+                            continue
+                        table_cols_map.setdefault(tbl, []).append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name == "id",
+                                "comment": None,
+                            }
+                        )
+                    continue
                 cur.execute(f"DESCRIBE `{tbl}`;")
                 col_rows = cur.fetchall()
                 for r in col_rows:
