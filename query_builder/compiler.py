@@ -1202,7 +1202,11 @@ class QueryCompiler:
         else:
             alias = self._get_alias(clean_tbl)
 
-        if clean_col == "*":
+        if not self.dialect.supports_table_aliases:
+            quoted_ref = (
+                "*" if clean_col == "*" else self.dialect.quote_identifier(clean_col)
+            )
+        elif clean_col == "*":
             quoted_ref = f"{self.dialect.quote_identifier(alias)}.*"
         else:
             quoted_ref = f"{self.dialect.quote_identifier(alias)}.{self.dialect.quote_identifier(clean_col)}"
@@ -1464,6 +1468,9 @@ class QueryCompiler:
             )
         self._base_alias = self._get_alias(self._clean_base, default_alias="t1")
         self.table_aliases[base_table] = self._base_alias
+        if not self.dialect.supports_table_aliases:
+            self._from_str = f"FROM {self.dialect.quote_identifier(base_table)}"
+            return
         self._from_str = f"FROM {self.dialect.quote_identifier(base_table)} {self.dialect.quote_identifier(self._base_alias)}"
 
     def _compile_base_isolation(self) -> None:
@@ -1517,6 +1524,11 @@ class QueryCompiler:
         ):
             raise CompilationError(f"Invalid join table in schema: '{target_table}'")
 
+        if not self.dialect.supports_table_aliases:
+            raise CompilationError(
+                f"The '{self.dialect.name}' dialect cannot compile joins "
+                "(its SQL layer does not support table aliases)."
+            )
         join_type = self._normalise_join_type(join.get("type", "left"))
         target_alias = self._resolve_join_alias(join, target_table, clean_target)
         on_conditions = self._join_on_conditions(join, clean_target, target_alias)
@@ -1664,11 +1676,14 @@ class QueryCompiler:
             else:
                 self._compile_dict_column(col_item)
 
+    def _star_ref(self) -> str:
+        if not self.dialect.supports_table_aliases:
+            return "*"
+        return f"{self.dialect.quote_identifier(self._base_alias)}.*"
+
     def _compile_string_column(self, col_item: str) -> None:
         if col_item == "*":
-            self.select_clause_items.append(
-                f"{self.dialect.quote_identifier(self._base_alias)}.*"
-            )
+            self.select_clause_items.append(self._star_ref())
             self.select_column_names.append("*")
             return
         _, col_name, quoted_ref = self._resolve_column_ref(col_item, self._clean_base)
@@ -1728,9 +1743,7 @@ class QueryCompiler:
 
     def _compile_star_column(self, agg: str, alias: str | None) -> None:
         if not agg:
-            self.select_clause_items.append(
-                f"{self.dialect.quote_identifier(self._base_alias)}.*"
-            )
+            self.select_clause_items.append(self._star_ref())
             self.select_column_names.append("*")
         elif agg == "count":
             self.has_aggregation = True

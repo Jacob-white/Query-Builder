@@ -286,7 +286,7 @@ Resolved: RisingWave and the MongoDB `''` quote escape. RisingWave now passes li
 categories); it previously failed `SELECT DISTINCT ... ORDER BY` (the engine wants the select alias) and an
 aggregate window over a NULL partition key (the engine drops those rows), both worked around in
 `RisingWaveDialect`. pymongosql ignores `''`, so the MongoDB connector binds such literals as `?` parameters.
-Still a known issue for MongoDB: pymongosql rejects the compiler's table aliases and double-quoted identifiers.
+MongoDB now passes the compiled-spec test too: pymongosql returned no rows for table aliases and double-quoted identifiers, so `MongoDBSQLDialect` emits bare identifiers and an un-aliased `FROM` (`supports_table_aliases = False`; joins are refused).
 
 Run any of them with `scripts/it_batch.py` (see section 2); a batch that hangs is stopped by
 `timeout`, and `--purge` removes only containers of the `qb-integration` compose project.

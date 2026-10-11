@@ -66,6 +66,11 @@
 - `docs/THREAT_MODEL.md` documents guarantees, non-guarantees and how to run the fuzz suites.
 
 ### Fixed (defects found by running the live suite against real engines)
+- **MongoDB (pymongosql):** compiled specs silently returned no rows because the driver cannot
+  resolve `alias.column` references or double-quoted identifiers (and keeps quotes in result column
+  names). The MongoDB dialect now emits bare identifiers, bare aliases and an un-aliased `FROM`
+  (new `BaseDialect.supports_table_aliases` knob); joins raise a clear `CompilationError`. The live
+  known-issue is gone and `MongoDBAtlasSQLConnector` is re-recorded as certified.
 - **Async connectors silently reported an empty schema.** Seven async classes (Exasol,
   GreptimeDB, Materialize, PrestoDB, RisingWave, Spark SQL, StarRocks) inherited a default
   `introspect_schema` that returns "no tables"; they now introspect for real, and a test fails if

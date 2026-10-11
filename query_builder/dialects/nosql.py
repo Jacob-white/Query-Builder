@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from query_builder.dialects.base import (
@@ -64,6 +65,22 @@ class MongoDBSQLDialect(BaseDialect):
     name: str = "mongodb"
     placeholder: str = "?"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    supports_table_aliases: bool = False
+
+    def quote_identifier(self, ident: str) -> str:
+        # pymongosql reads a double-quoted or backticked identifier as a string literal and
+        # returns NULL for every row, so identifiers are emitted bare. They are validated
+        # against the identifier whitelist first, so nothing unsafe can reach the SQL text.
+        _validate_identifier(ident)
+        return ident
+
+    def quote_alias(self, alias_name: str) -> str:
+        # pymongosql keeps the quotes in the result column name (`"name"`), so a plain
+        # alias is emitted bare; anything else falls back to standard quoting.
+        _validate_alias(alias_name)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", alias_name):
+            return alias_name
+        return super().quote_alias(alias_name)
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # pymongosql cannot bind LIMIT/OFFSET (`Invalid LIMIT value '?'`) and then
