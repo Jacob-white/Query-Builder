@@ -32,18 +32,13 @@ python -m mypy query_builder
 
 ## Modules still in the baseline
 
-Suggested order, easiest and most self-contained first:
+The core engine is fully graduated (compiler, parser, sql_ast, ast_validator, dialects, server,
+cli). What remains is the optional-dependency surface, where fallback imports such as
+`try: import x / except ImportError: x = None` need careful typing:
 
-1. `sql_ast` (pure data structures; most others import it)
-2. `ast_validator`
-3. `dialects`
-4. `compiler` (large; many `Any` leaks from untyped spec dicts, consider `TypedDict`s for specs)
-5. `parser`
-6. `connectors/**` (`base` and `async_base` first, then each connector; optional vendor SDKs
+1. `connectors/**` (`base` and `async_base` first, then each connector; optional vendor SDKs
    need scoped `ignore_missing_imports` overrides or stubs)
-7. `integrations/*` (`fastapi`, `django`, ...; optional framework imports)
-8. `server`
-9. `cli` (last, it touches almost everything)
+2. `integrations/*` (`fastapi`, `django`, ...; optional framework imports)
 
 The authoritative list is `docs/typing_baseline.txt`.
 

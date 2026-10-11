@@ -708,7 +708,7 @@ def _validate_ctes(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
         raise ValidationError("Field 'ctes' must be a list.")
     from query_builder.ast_validator import validate_cte_dag
 
-    cte_res = validate_cte_dag(ctes_val)
+    cte_res = validate_cte_dag(list(ctes_val))
     if not cte_res.get("valid", True):
         raise ValidationError(cte_res["violations"][0])
 
@@ -930,7 +930,9 @@ class QueryCompiler:
         if middleware is not None:
             from query_builder.middleware import MiddlewarePipeline
 
-            self.middleware = MiddlewarePipeline.ensure(middleware)
+            self.middleware: MiddlewarePipeline | None = MiddlewarePipeline.ensure(
+                middleware
+            )
         else:
             self.middleware = None
         if hasattr(spec, "__dict__"):
@@ -1160,7 +1162,7 @@ class QueryCompiler:
         return alias
 
     def _resolve_column_ref(
-        self, col_ref: str, default_table: str, target_alias: str | None = None
+        self, col_ref: str | None, default_table: str, target_alias: str | None = None
     ) -> tuple[str, str, str]:
         """Resolves a column reference to (alias, col_name, quoted_column_ref)."""
         if not isinstance(col_ref, str) or not col_ref.strip():
@@ -1371,7 +1373,7 @@ class QueryCompiler:
             )
 
         if self.middleware is not None:
-            compilation = {
+            compilation: dict[str, Any] = {
                 "main_sql": main_sql,
                 "main_params": main_params,
                 "count_sql": count_sql,
@@ -1765,8 +1767,8 @@ class QueryCompiler:
 
         from query_builder.semantic import MetricDefinition, expand_metric_sql
 
-        metric_name = (
-            col_item.get("metric")
+        metric_name: str = (
+            col_item["metric"]
             if isinstance(col_item.get("metric"), str)
             else raw_col_ref
         )
@@ -1791,6 +1793,7 @@ class QueryCompiler:
         for m_entry in top_metrics:
             m_def = None
             m_alias = None
+            m_name: str | None
             if isinstance(m_entry, str):
                 m_name = m_entry
             elif isinstance(m_entry, dict):
@@ -2217,7 +2220,7 @@ class QueryCompiler:
                 self.params.extend(new_params)
             else:
                 self.params.append(new_params)
-            return clause_str  # type: ignore[no-any-return]
+            return clause_str
         if isinstance(res, str):
             return res
         raise CompilationError(
@@ -2463,7 +2466,7 @@ class QueryCompiler:
                 cte_dict = cte
             else:
                 raise CompilationError(f"Invalid CTE item type: {type(cte).__name__}")
-            c_name = cte_dict.get("name")
+            c_name: Any = cte_dict.get("name")
             c_cols = cte_dict.get("columns", [])
             c_mat = cte_dict.get("materialized")
             c_query = cte_dict.get("query")
