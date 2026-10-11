@@ -57,6 +57,10 @@ class BaseDialect:
     #: equivalent ``ORDER BY <partition key> ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED
     #: FOLLOWING``, which the engine evaluates correctly
     window_partition_null_rows_dropped: bool = False
+    #: False when the engine cannot resolve ``alias.column`` references or ``FROM t alias``
+    #: (MongoDB via pymongosql, which silently returns no rows): the compiler then emits bare
+    #: column names and an un-aliased FROM, and refuses joins, which need aliases
+    supports_table_aliases: bool = True
     # LIKE wildcard handling for the contains/starts_with/ends_with operators.
     # ``None`` (default): the bound value is passed through unchanged, so a user
     # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live

@@ -269,8 +269,10 @@ def test_new_dialects_behavior():
     mongo = get_dialect("mongodb")
     assert mongo.name == "mongodb"
     assert mongo.placeholder == "?"
-    assert mongo.quote_identifier("users") == '"users"'
-    assert mongo.quote_alias("my_alias") == '"my_alias"'
+    assert (
+        mongo.quote_identifier("users") == "users"
+    )  # bare: pymongosql misreads quoted identifiers
+    assert mongo.quote_alias("my_alias") == "my_alias"
     assert mongo.format_like('"c"') == '"c" LIKE ?'
     assert mongo.format_ilike('"c"') == 'LOWER("c") LIKE LOWER(?)'
     mongo_clause, mongo_params = mongo.format_limit_offset(100, 200)

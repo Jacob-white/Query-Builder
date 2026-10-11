@@ -182,3 +182,60 @@ def test_mongodb_connector_executes_escaped_quote_query_with_bound_value() -> No
         "SELECT name FROM people WHERE name = ?", ["O'Brien"]
     )
     assert result["rows"] == [{"name": "O'Brien"}]
+
+
+# ----------------------------------------------- MongoDB: aliases / quoted identifiers
+def _mongo_sql(spec: dict[str, Any]) -> str:
+    return QueryCompiler(spec, dialect=get_dialect("mongodb")).compile()[0]
+
+
+def test_mongodb_compiles_bare_identifiers_without_table_aliases() -> None:
+    sql = _mongo_sql(
+        {
+            "table": "qbit_people",
+            "columns": ["name", "age"],
+            "order_by": [{"column": "age", "direction": "asc"}],
+            "limit": 10,
+        }
+    )
+    assert sql == (
+        "SELECT name AS name, age AS age\nFROM qbit_people\nORDER BY age ASC\nLIMIT 10"
+    )
+
+
+def test_mongodb_star_and_filter_are_unqualified() -> None:
+    sql = _mongo_sql(
+        {
+            "table": "qbit_people",
+            "columns": ["*"],
+            "filters": [{"column": "age", "op": "gt", "value": 25}],
+        }
+    )
+    assert sql.startswith("SELECT *\nFROM qbit_people\nWHERE (age > ?)")
+    assert '"' not in sql and "t1" not in sql
+
+
+def test_mongodb_refuses_joins_it_cannot_alias() -> None:
+    from query_builder.exceptions import CompilationError
+
+    with pytest.raises(CompilationError, match="cannot compile joins"):
+        _mongo_sql(
+            {
+                "table": "a",
+                "columns": ["x"],
+                "joins": [{"table": "b", "on": [{"left": "a.id", "right": "b.id"}]}],
+            }
+        )
+
+
+def test_mongodb_unusual_alias_is_still_quoted_and_safe() -> None:
+    dialect = get_dialect("mongodb")
+    assert dialect.quote_alias("total") == "total"
+    assert dialect.quote_alias('we"ird name') == '"we""ird name"'
+
+
+def test_other_dialects_keep_table_aliases() -> None:
+    sql = QueryCompiler(
+        {"table": "p", "columns": ["name"]}, dialect=get_dialect("postgres")
+    ).compile()[0]
+    assert '"t1"."name"' in sql and 'FROM "p" "t1"' in sql
