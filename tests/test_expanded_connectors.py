@@ -1327,8 +1327,11 @@ def test_introspect_cratedb_protocol():
             ("t1", "user_id", "integer", "YES"),
             ("t2", "name", "text", "YES"),
         ],
+        [("t1", "user_id")],  # catalog says user_id (not id) is the primary key
     ]
     res = introspect_cratedb(mock_cur, schema_name="doc")
+    cols = {c["name"]: c["is_primary"] for c in res["tables"]["t1"]["columns"]}
+    assert cols == {"id": False, "user_id": True}
     assert "t1" in res["tables"]
     assert "t2" in res["tables"]
     assert res["tables"]["t1"]["has_user_id"] is True
@@ -1337,6 +1340,26 @@ def test_introspect_cratedb_protocol():
     mock_cur.execute.side_effect = RuntimeError("Catalog error")
     with pytest.raises(IntrospectionError, match="Failed to introspect CrateDB schema"):
         introspect_cratedb(mock_cur)
+
+
+def test_introspect_cratedb_falls_back_when_catalog_has_no_key_views():
+    mock_cur = MagicMock()
+    mock_cur.fetchall.side_effect = [
+        [("t1",)],
+        [("t1", "id", "integer", "NO"), ("t1", "n", "integer", "YES")],
+    ]
+    calls = []
+
+    def execute(sql, params=None):
+        calls.append(sql)
+        if "key_column_usage" in sql:
+            raise RuntimeError("relation does not exist")
+
+    mock_cur.execute.side_effect = execute
+    res = introspect_cratedb(mock_cur, schema_name="doc")
+    cols = {c["name"]: c["is_primary"] for c in res["tables"]["t1"]["columns"]}
+    assert cols == {"id": True, "n": False}  # legacy `id` guess
+    assert any("key_column_usage" in c for c in calls)
 
 
 def test_introspect_druid_protocol():
@@ -1599,9 +1622,6 @@ def test_connector_inspect_methods_sync():
 def test_connector_inspect_methods_async():
     async def _test():
         conn = AsyncPrestoDBConnector()
-        # Default fallback introspection
-        snap = await conn.introspect_schema()
-        assert snap["tables"] == {}
 
         # Mocked introspect_schema
         with patch.object(conn, "introspect_schema") as mock_intro:
@@ -1718,3 +1738,14 @@ def test_dialect_inspection_queries():
     assert "partition_key" in scylla.inspect_primary_keys_query("system", "users")[0]
     assert "partition_key" in scylla.inspect_primary_keys_query("system")[0]
     assert scylla.inspect_foreign_keys_query("system", "users") == ("", [])
+
+
+def test_introspect_greptimedb_inlines_an_escaped_schema_literal():
+    from query_builder.connectors.introspection import introspect_greptimedb
+
+    cur = MagicMock()
+    cur.fetchall.side_effect = [[("t",)], [("t", "c", "int", "YES")]]
+    introspect_greptimedb(cur, schema_name="it's")
+    first_sql = cur.execute.call_args_list[0].args[0]
+    assert "table_schema = 'it''s'" in first_sql
+    assert all(len(c.args) == 1 for c in cur.execute.call_args_list)  # nothing bound

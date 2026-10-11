@@ -78,10 +78,40 @@ def _get(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
-def _index_plan(table: str, make_index: str) -> Any:
+def _page_ids(page: Any) -> list[str]:
+    """Vector ids on one ``list()`` page: current clients yield plain id lists, older ones
+    page objects carrying ``.vectors``."""
+    items = page if isinstance(page, (list, tuple)) else _get(page, "vectors", [])
+    return [str(_get(v, "id", v)) for v in items]
+
+
+def _index_host(info: Any, control_host: str | None) -> Any:
+    """The data-plane host of an index.
+
+    ``describe_index`` returns it WITHOUT a scheme and the client then assumes ``https``,
+    which breaks against Pinecone Local (plain http).  When the connector was pointed at an
+    explicit ``host`` that carries a scheme, the index host inherits that scheme.
+    """
+    host = _get(info, "host")
+    if isinstance(host, str) and "://" not in host and control_host:
+        scheme, sep, _ = str(control_host).partition("://")
+        if sep:
+            return f"{scheme}://{host}"
+    return host
+
+
+def _open_index(pc: Any, name: str, control_host: str | None) -> Any:
+    """``pc.Index(name)``; against a scheme-carrying ``host`` (Pinecone Local) the data-plane
+    host is resolved explicitly so it keeps that scheme instead of defaulting to https."""
+    if control_host and "://" in str(control_host):
+        return pc.Index(host=_index_host(pc.describe_index(name), control_host))
+    return pc.Index(name)
+
+
+def _index_plan(table: str, make_index: str, control_host: str | None = None) -> Any:
     """Yield the calls that produce (index handle, describe_index info) for ``table``."""
     info = yield ("describe_index", {"name": table})
-    idx = yield (make_index, {"host": _get(info, "host")})
+    idx = yield (make_index, {"host": _index_host(info, control_host)})
     return idx, info
 
 
@@ -101,7 +131,11 @@ def _index_names(listing: Any) -> list[str]:
 
 
 def pinecone_plan(
-    vq: VectorQuery, conn_is_index: bool, make_index: str, index_metric: str | None
+    vq: VectorQuery,
+    conn_is_index: bool,
+    make_index: str,
+    index_metric: str | None,
+    control_host: str | None = None,
 ) -> Any:
     """``index_metric`` is only needed when the connector holds a bare index handle."""
     table = vq.table
@@ -111,7 +145,7 @@ def pinecone_plan(
     else:
         listing = yield ("list_indexes", {})
         table = _resolve_table(_index_names(listing), vq.table)
-        idx, info = yield from _index_plan(table, make_index)
+        idx, info = yield from _index_plan(table, make_index, control_host)
 
     def call(method: str) -> Any:
         return method if idx is None else getattr(idx, method)
@@ -146,12 +180,15 @@ def pinecone_plan(
                 )
         if vq.count_only:
             return [("count",)], [[len(hits)]]
+        # nearest first, whatever order the service returned its top_k in (Pinecone Local
+        # does not always sort), so OFFSET skips the genuinely nearest rows
+        hits.sort(key=lambda h: h["_distance"])
         hits = hits[vq.offset :]
     else:
         ids: list[str] = []
         pages = yield (call("list"), {})
         for page in pages:
-            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            ids.extend(_page_ids(page))
             if len(ids) > MAX_SCAN_VECTORS:
                 raise VectorQueryError(
                     f"index scan exceeds {MAX_SCAN_VECTORS} vectors; use a vector search"
@@ -173,7 +210,10 @@ def pinecone_plan(
 
 
 def pinecone_introspect_plan(
-    conn_is_index: bool, make_index: str, index_name: str | None
+    conn_is_index: bool,
+    make_index: str,
+    index_name: str | None,
+    control_host: str | None = None,
 ) -> Any:
     tables: dict[str, dict[str, Any]] = {}
     targets: list[tuple[str, Any, Any]] = []
@@ -182,14 +222,14 @@ def pinecone_introspect_plan(
     else:
         listing = yield ("list_indexes", {})
         for name in _index_names(listing):
-            idx, info = yield from _index_plan(name, make_index)
+            idx, info = yield from _index_plan(name, make_index, control_host)
             targets.append((name, idx, info))
     for name, idx, info in targets:
         sample: list[dict[str, Any]] = []
         pages = yield ((idx.list if idx is not None else "list"), {})
         ids: list[str] = []
         for page in pages:
-            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            ids.extend(_page_ids(page))
             if len(ids) >= 20:
                 break
         if ids:
@@ -243,9 +283,15 @@ def pinecone_introspect_plan(
 class _PineconeCursorAdapter:
     """Adapts a Pinecone Index / Client connection into a DB-API cursor interface."""
 
-    def __init__(self, connection: Any, metric: str | None = None) -> None:
+    def __init__(
+        self,
+        connection: Any,
+        metric: str | None = None,
+        control_host: str | None = None,
+    ) -> None:
         self.conn = connection
         self.metric = metric
+        self.control_host = control_host
         self.description: list[tuple[str, ...]] | None = None
         self._rows: list[list[Any]] = []
 
@@ -253,7 +299,9 @@ class _PineconeCursorAdapter:
         clean_sql = sql.strip().rstrip(";").strip()
         if _is_real_client(self.conn) and not clean_sql.startswith("list_indexes"):
             vq = parse_vector_sql(clean_sql, params)
-            plan = pinecone_plan(vq, _is_index(self.conn), "Index", self.metric)
+            plan = pinecone_plan(
+                vq, _is_index(self.conn), "Index", self.metric, self.control_host
+            )
             self.description, self._rows = drive_sync(plan, self.conn)
         elif hasattr(self.conn, "cursor"):
             cur = self.conn.cursor()
@@ -408,7 +456,9 @@ class PineconeConnector(BaseConnector):
                 pc_cfg = {k: v for k, v in self.config.items() if k != "metric"}
                 pc = driver.Pinecone(api_key=self.api_key, **pc_cfg)
                 if self.index_name and hasattr(pc, "Index"):
-                    self._connection = pc.Index(self.index_name)
+                    self._connection = _open_index(
+                        pc, self.index_name, pc_cfg.get("host")
+                    )
                 else:
                     self._connection = pc
             else:
@@ -434,7 +484,9 @@ class PineconeConnector(BaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         else:
-            adapter = _PineconeCursorAdapter(conn, self.config.get("metric"))
+            adapter = _PineconeCursorAdapter(
+                conn, self.config.get("metric"), self.config.get("host")
+            )
             try:
                 yield adapter
             finally:
@@ -460,7 +512,7 @@ class PineconeConnector(BaseConnector):
         if _is_real_client(conn):
             try:
                 plan = pinecone_introspect_plan(
-                    _is_index(conn), "Index", self.index_name
+                    _is_index(conn), "Index", self.index_name, self.config.get("host")
                 )
                 raw = drive_sync(plan, conn)
                 return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
@@ -519,13 +571,17 @@ class AsyncPineconeConnector(AsyncBaseConnector):
                 if self.index_name:
                     info = await pc.describe_index(self.index_name)
                     self._index_owner = pc
-                    self._connection = pc.IndexAsyncio(host=info.host)
+                    self._connection = pc.IndexAsyncio(
+                        host=_index_host(info, self.config.get("host"))
+                    )
                 else:
                     self._connection = pc
             elif hasattr(driver, "Pinecone"):
                 pc = driver.Pinecone(api_key=self.api_key, **pc_cfg)
                 if self.index_name and hasattr(pc, "Index"):
-                    self._connection = pc.Index(self.index_name)
+                    self._connection = _open_index(
+                        pc, self.index_name, pc_cfg.get("host")
+                    )
                 else:
                     self._connection = pc
             else:
@@ -544,7 +600,11 @@ class AsyncPineconeConnector(AsyncBaseConnector):
         if _is_real_client(conn):
             vq = parse_vector_sql(sql, params)
             plan = pinecone_plan(
-                vq, _is_index(conn), "IndexAsyncio", self.config.get("metric")
+                vq,
+                _is_index(conn),
+                "IndexAsyncio",
+                self.config.get("metric"),
+                self.config.get("host"),
             )
             desc, rows = await drive_async(plan, conn)
             names = [d[0] for d in desc]
@@ -553,7 +613,7 @@ class AsyncPineconeConnector(AsyncBaseConnector):
         if hasattr(conn, "cursor"):
             cur = conn.cursor()
         else:
-            cur = _PineconeCursorAdapter(conn)
+            cur = _PineconeCursorAdapter(conn, None, self.config.get("host"))
 
         try:
             if params:
@@ -594,7 +654,10 @@ class AsyncPineconeConnector(AsyncBaseConnector):
         if _is_real_client(conn):
             try:
                 plan = pinecone_introspect_plan(
-                    _is_index(conn), "IndexAsyncio", self.index_name
+                    _is_index(conn),
+                    "IndexAsyncio",
+                    self.index_name,
+                    self.config.get("host"),
                 )
                 raw = await drive_async(plan, conn)
                 return normalize_schema_snapshot(raw, filter_sensitive=filter_sensitive)
@@ -602,7 +665,11 @@ class AsyncPineconeConnector(AsyncBaseConnector):
                 raise IntrospectionError(
                     f"Failed to introspect Pinecone schema: {exc}"
                 ) from exc
-        cur = conn.cursor() if hasattr(conn, "cursor") else _PineconeCursorAdapter(conn)
+        cur = (
+            conn.cursor()
+            if hasattr(conn, "cursor")
+            else _PineconeCursorAdapter(conn, None, self.config.get("host"))
+        )
         try:
             return introspect_pinecone(cur, filter_sensitive=filter_sensitive)
         except Exception as exc:

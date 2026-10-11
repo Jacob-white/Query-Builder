@@ -21,7 +21,11 @@ from typing import Any, Self
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig, get_security_config
-from query_builder.connectors.base import ConnectionFailedError, as_connector_error
+from query_builder.connectors.base import (
+    ConnectionFailedError,
+    IntrospectionError,
+    as_connector_error,
+)
 from query_builder.dialects import BaseDialect, get_dialect
 from query_builder.middleware import (
     LifecycleInterceptor,
@@ -314,6 +318,43 @@ class AsyncBaseConnector(ABC):
             {"tables": {}, "foreign_keys": [], "relationships": []},
             filter_sensitive=filter_sensitive,
         )
+
+    async def _introspect_blocking(
+        self,
+        introspect: Any,
+        label: str,
+        schema_name: str | None,
+        filter_sensitive: bool,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Run a synchronous ``introspect_*(cursor, ...)`` helper against this connector's
+        DB-API connection in a worker thread.
+
+        For async connectors whose driver is blocking DB-API: without an override they would
+        inherit the empty default snapshot above and silently report "no tables".
+        """
+        conn = await self.connect()
+
+        def work() -> dict[str, Any]:
+            cur = conn.cursor()
+            try:
+                return introspect(
+                    cur,
+                    schema_name=schema_name,
+                    filter_sensitive=filter_sensitive,
+                    **kwargs,
+                )
+            finally:
+                close = getattr(cur, "close", None)
+                if close is not None:
+                    close()
+
+        try:
+            return await asyncio.to_thread(work)
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect {label} schema '{schema_name}': {exc}"
+            ) from exc
 
     async def inspect_tables(self) -> list[str]:
         """Returns a sorted list of table names in the database schema asynchronously."""

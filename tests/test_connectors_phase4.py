@@ -105,7 +105,10 @@ def test_phase4_dialects():
     assert isinstance(pd, PineconeDialect)
     assert pd.name == "pinecone"
     assert get_dialect("pinecone_vector").name == "pinecone"
-    assert pd.format_limit_offset(10, 0) == ("LIMIT %s", [10])
+    assert pd.format_limit_offset(10, 5) == (
+        "LIMIT %s OFFSET %s",
+        [10, 5],
+    )  # offset kept
     assert pd.inspect_tables_query()[0] == "list_indexes"
     assert pd.inspect_columns_query(table_name="idx")[0] == "describe_index:idx"
     assert pd.inspect_columns_query()[0] == "list_indexes"

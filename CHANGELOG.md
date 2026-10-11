@@ -65,6 +65,37 @@
   `resolve_and_validate_target` + libpq `hostaddr` pinning for the PostgreSQL family.
 - `docs/THREAT_MODEL.md` documents guarantees, non-guarantees and how to run the fuzz suites.
 
+### Fixed (defects found by running the live suite against real engines)
+- **Async connectors silently reported an empty schema.** Seven async classes (Exasol,
+  GreptimeDB, Materialize, PrestoDB, RisingWave, Spark SQL, StarRocks) inherited a default
+  `introspect_schema` that returns "no tables"; they now introspect for real, and a test fails if
+  any registered async connector inherits the empty default again.
+- **CrateDB:** the dialect emitted `%s` placeholders to a driver that binds `?` (every bound query
+  failed); primary keys are read from the catalog instead of guessing a column named `id`;
+  `LIKE` escapes `%`/`_`; a parameter inside a `WITH` clause was bound out of order and silently
+  returned wrong rows (the compiler now orders CTE parameters the way CrateDB numbers them).
+- **Pinecone:** `OFFSET` was silently dropped; metadata columns were missing from introspection
+  (`list()` yields id lists, not page objects); an index on Pinecone Local used `https`; async
+  introspection crashed on `IndexList`; results are now sorted nearest-first.
+- **Materialize, RisingWave, TDengine:** bound `LIMIT`/`OFFSET` are rejected by the engine, so the
+  values are inlined (int-coerced). **StarRocks:** `ILIKE` emulation, `LIKE` escaping, primary keys
+  via `column_key`. **GreptimeDB:** schema name inlined (the server cannot type a bound parameter).
+  **TiDB:** `SET SESSION TRANSACTION READ ONLY` is a no-op there, so read-only is a documented
+  "not enforced by the engine" mode (`docs/THREAT_MODEL.md`). **Trino:** a real statement timeout.
+- Driver exceptions from `execute()` are `QueryExecutionError`; the compatibility subclass also
+  keeps vendor `__str__` working (it broke `clickhouse_driver`) and falls back safely.
+- SQL literal scanner: linear time (CodeQL `py/polynomial-redos`) and dialect-aware backslash
+  handling (T-SQL `''`).
+- `scripts/it_batch.py` teardown now removes services that sit behind a compose profile.
+
+### Changed
+- `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
+  change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and
+  every dialect's output). `query_builder.dialects` is now a package; all names still import from
+  `query_builder.dialects`.
+- Live certification: connector tiers are computed from evidence (see `docs/CONNECTORS.md`);
+  limitations that are claimed must be probe-verified against the real engine.
+
 ### Fixed
 - Mixed `AND`/`OR` filters round-trip correctly between SQL, the React client spec and the
   Python compiler (every filter carries a combiner once any is `OR`); Python

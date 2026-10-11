@@ -39,3 +39,28 @@ def test_uncombinable_vendor_class_falls_back(monkeypatch):
     monkeypatch.setattr(base, "_compat_class", boom)
     fallback = base.as_connector_error(RuntimeError("r"))
     assert type(fallback) is QueryExecutionError
+
+
+def test_vendor_str_that_needs_init_state_still_works():
+    class Vendor(Exception):
+        def __init__(self, message, nested):
+            super().__init__(message)
+            self.nested = nested
+
+        def __str__(self):
+            return f"{self.args[0]} (nested={self.nested})"
+
+    original = Vendor("boom", nested="inner")
+    mapped = as_connector_error(original)
+    assert isinstance(mapped, QueryExecutionError)
+    assert str(mapped)  # must not raise AttributeError
+    assert mapped.__cause__ is original
+
+
+def test_vendor_str_that_always_fails_falls_back():
+    class Broken(Exception):
+        def __str__(self):
+            raise RuntimeError("cannot stringify")
+
+    mapped = as_connector_error(Broken("x"))
+    assert type(mapped) is QueryExecutionError

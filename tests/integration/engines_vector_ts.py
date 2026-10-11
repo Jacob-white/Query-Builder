@@ -500,11 +500,15 @@ def _kw_tdengine(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
 
 
 def _seed_tdengine(e: Engine) -> None:
-    conn = _td_rest(e)
-    cur = conn.cursor()
+    # REST statements are stateless and need a database in the URL: administer the
+    # database from the always-present information_schema, then work inside it
+    admin = _td_rest(e, "information_schema")
+    cur = admin.cursor()
     cur.execute(f"DROP DATABASE IF EXISTS {TD_DB}")
     cur.execute(f"CREATE DATABASE {TD_DB}")
-    cur.execute(f"USE {TD_DB}")
+    admin.close()
+    conn = _td_rest(e, TD_DB)
+    cur = conn.cursor()
     cur.execute(
         "CREATE TABLE qbit_people (ts TIMESTAMP, id INT, name VARCHAR(20), age INT)"
     )
@@ -670,7 +674,14 @@ def _bq_native(e: Engine) -> Native:
     client = _bq_client(e)
 
     def run(sql: str) -> Any:
-        return list(client.query(sql).result())
+        # retry=None/timeout: the emulator answers 500 (not "not found") for DROP of a table
+        # that does not exist, and the client's default retry would spin on it for 40 minutes
+        try:
+            return list(client.query(sql, retry=None).result(retry=None, timeout=60))
+        except Exception:
+            if sql.lstrip().upper().startswith("DROP TABLE IF EXISTS"):
+                return None  # nothing to drop on a fresh emulator
+            raise
 
     return Native(run, client.close)
 
