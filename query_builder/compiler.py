@@ -1357,9 +1357,13 @@ class QueryCompiler:
         cte_prefix, cte_params = self._compile_ctes()
         if cte_prefix:
             main_sql = f"{cte_prefix}{main_sql}"
-            main_params = cte_params + main_params
             count_sql = f"{cte_prefix}{count_sql}"
-            count_params = cte_params + count_params
+            if getattr(self.dialect, "cte_params_after_main", False):
+                main_params = main_params + cte_params
+                count_params = count_params + cte_params
+            else:
+                main_params = cte_params + main_params
+                count_params = cte_params + count_params
 
         if self.spec.get("set_operations"):
             main_sql, main_params, count_sql, count_params = self._apply_set_operations(

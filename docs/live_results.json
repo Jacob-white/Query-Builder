@@ -1,5 +1,404 @@
 {
   "engines": {
+    "alloydb": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.alloydb.AlloyDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:47 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "PostgreSQL 16.8 on x86_64-pc-linux-gnu, compiled by Debian clang version 12.0.1, 64-bit",
+      "xfailed": 0
+    },
+    "arangodb": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.arangodb.ArangoDBConnector",
+        "query_builder.connectors.arangodb.AsyncArangoDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 10,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:51 UTC",
+      "skip_reasons": {
+        "arangodb: no SQL compiler path (native query language)": 1,
+        "arangodb: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "arangodb: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "arangodb: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "arangodb: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "arangodb: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "ArangoDB 3.12.4",
+      "xfailed": 0
+    },
     "athena": {
       "categories": {
         "connect": {
@@ -87,7 +486,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "athena: set QB_IT_ATHENA_S3_STAGING_DIR, QB_IT_ATHENA_REGION to run this test (AWS credentials come from the standard AWS environment/profile)": 7
       },
@@ -183,12 +582,339 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "bigquery: set QB_IT_BIGQUERY_DATASET to run this test (also set GOOGLE_APPLICATION_CREDENTIALS (service-account JSON))": 7
       },
       "skipped": 7,
       "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "bigquery_emulator": {
+      "categories": {
+        "aggregates": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 3,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 30,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 3,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 17,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 13,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.bigquery.BigQueryConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": true,
+      "failed": 92,
+      "failures": [
+        "tests/integration/test_conformance.py::test_connect_and_test_connection[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_introspection_finds_seeded_tables[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_introspection_finds_seeded_columns[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_introspection_primary_keys[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_introspection_foreign_keys[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-select-projection]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-select-all-rows-with-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-eq]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-eq-symbol]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-neq]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-gt]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-gte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-lt]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-lte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-contains]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-starts-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-ends-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-like]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-ilike]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-like]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-contains]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-starts-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-ends-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-in]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-in-strings]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-in]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-in-empty]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-between]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-not-between]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-is-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-is-not-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-eq-none-is-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-neq-none-is-not-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-apostrophe-value]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-unicode-value]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-and]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-or]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-filter-in-subquery]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-join-inner]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-join-left]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-join-right]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-join-with-filter-and-order]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-group-by-count-sum]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-group-having]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-aggregate-min-max-avg]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-aggregate-null-handling]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-order-desc-limit-offset]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-order-multi-key]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-offset-past-end]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-limit-zero-one]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-distinct]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-cte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-window-row-number-and-partition-sum]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-drop-table]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-or-true]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-union]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-comment]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-backslash]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-percent]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-eq-semicolon]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-in-mixed]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-contains-quote]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-contains-literal-percent]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-binding-contains-literal-underscore]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-quoting-reserved-words-mixed-case]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-quoting-reserved-filter]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[bigquery_emulator-quoting-mixed-case-table]",
+        "tests/integration/test_conformance.py::test_non_ascii_identifiers_are_rejected_before_reaching_the_database[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[bigquery_emulator-'; DROP TABLE qbit_employees; --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[bigquery_emulator-x' OR '1'='1]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[bigquery_emulator-x' UNION SELECT name FROM qbit_departments --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[bigquery_emulator-\\\\'; DELETE FROM qbit_employees; --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[bigquery_emulator-1; DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_raw_sql_parameter_binding[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-UPDATE qbit_employees SET salary = 1]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-INSERT INTO qbit_departments (id, name) VALUES (99, 'x')]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-DROP TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-TRUNCATE TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-CREATE TABLE qbit_should_not_exist (id INTEGER)]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-ALTER TABLE qbit_employees ADD COLUMN x INTEGER]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-SELECT 1; DROP TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[bigquery_emulator-WITH x AS (SELECT 1) DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[bigquery_emulator-DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[bigquery_emulator-UPDATE qbit_employees SET salary = 1]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[bigquery_emulator-INSERT INTO qbit_departments (id, name) VALUES (99, 'x')]",
+        "tests/integration/test_conformance.py::test_database_enforces_read_only_behind_the_validator[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_statement_timeout_cancels_slow_query[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_wrong_password_error_never_leaks_the_password[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_unknown_table_fails_cleanly[bigquery_emulator]",
+        "tests/integration/test_conformance.py::test_bad_native_sql_maps_to_the_connector_error_family[bigquery_emulator-SELEC id FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_bad_native_sql_maps_to_the_connector_error_family[bigquery_emulator-SELECT nosuchcolumn FROM qbit_employees]"
+      ],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 0,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 20:43 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
       "version": null,
       "xfailed": 0
     },
@@ -1112,6 +1838,416 @@
       "version": "CockroachDB CCL v24.2.3 (x86_64-pc-linux-gnu, built 2024/09/23 22:30:53, go1.22.5 X:nocoverageredesign)",
       "xfailed": 0
     },
+    "couchbase": {
+      "categories": {
+        "connect": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.couchbase.CouchbaseConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping"
+      ],
+      "emulated": false,
+      "failed": 12,
+      "failures": [
+        "tests/integration/test_smoke.py::test_connect_and_test_connection[couchbase]",
+        "tests/integration/test_smoke.py::test_introspection_sees_the_seeded_object[couchbase]",
+        "tests/integration/test_smoke.py::test_native_read_through_the_connector[couchbase]",
+        "tests/integration/test_smoke.py::test_query_spec_compiled_and_executed[couchbase]",
+        "tests/integration/test_smoke.py::test_filtered_reads[couchbase]",
+        "tests/integration/test_smoke.py::test_ordered_reads[couchbase]",
+        "tests/integration/test_smoke.py::test_paginated_reads[couchbase]",
+        "tests/integration/test_smoke.py::test_special_values_round_trip_as_data[couchbase]",
+        "tests/integration/test_smoke.py::test_bad_native_queries_map_to_the_connector_error_family[couchbase]",
+        "tests/integration/test_smoke.py::test_writes_are_rejected_and_data_survives[couchbase]",
+        "tests/integration/test_smoke.py::test_writes_rejected_by_read_only_session_without_ast[couchbase]",
+        "tests/integration/test_smoke.py::test_wrong_password_never_leaks[couchbase]"
+      ],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 0,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:56 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": null,
+      "xfailed": 0
+    },
+    "cratedb": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.cratedb.CrateDBConnector",
+        "query_builder.connectors.cratedb.AsyncCrateDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "introspect_fk"
+        ],
+        "verified": []
+      },
+      "passed": 94,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:59 UTC",
+      "skip_reasons": {
+        "[limitation:introspect_fk] cratedb: introspect_fk unsupported - CrateDB has no foreign keys": 1,
+        "cratedb: no password-based authentication": 1
+      },
+      "skipped": 2,
+      "tier": "extended",
+      "version": "CrateDB Distributed Database",
+      "xfailed": 0
+    },
     "databricks": {
       "categories": {
         "connect": {
@@ -1199,7 +2335,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "databricks: set QB_IT_DATABRICKS_HOST, QB_IT_DATABRICKS_HTTP_PATH, QB_IT_DATABRICKS_TOKEN to run this test": 7
       },
@@ -1459,6 +2595,160 @@
       "version": "v1.5.6",
       "xfailed": 0
     },
+    "dynamodb": {
+      "categories": {
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.dynamodb.DynamoDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping"
+      ],
+      "emulated": true,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 5,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:57 UTC",
+      "skip_reasons": {
+        "dynamodb: container runs without authentication": 1,
+        "dynamodb: no SQL compiler path (native query language)": 1,
+        "dynamodb: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "dynamodb: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "dynamodb: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "dynamodb: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "dynamodb: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 7,
+      "tier": "extended",
+      "version": "Amazon DynamoDB PartiQL",
+      "xfailed": 0
+    },
     "elasticsearch": {
       "categories": {
         "connect": {
@@ -1605,6 +2895,906 @@
       "skipped": 1,
       "tier": "extended",
       "version": "Elasticsearch 8.15.2",
+      "xfailed": 0
+    },
+    "firebird": {
+      "categories": {
+        "aggregates": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 3,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 30,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 4,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 3,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 17,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 2,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 13,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.firebird.FirebirdConnector",
+        "query_builder.connectors.firebird.AsyncFirebirdConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 96,
+      "failures": [
+        "tests/integration/test_async_parity.py::test_async_connect_and_test_connection[firebird]",
+        "tests/integration/test_async_parity.py::test_async_introspection_matches_sync[firebird]",
+        "tests/integration/test_async_parity.py::test_async_reads_match_sync[firebird]",
+        "tests/integration/test_async_parity.py::test_async_writes_are_rejected[firebird]",
+        "tests/integration/test_conformance.py::test_connect_and_test_connection[firebird]",
+        "tests/integration/test_conformance.py::test_introspection_finds_seeded_tables[firebird]",
+        "tests/integration/test_conformance.py::test_introspection_finds_seeded_columns[firebird]",
+        "tests/integration/test_conformance.py::test_introspection_primary_keys[firebird]",
+        "tests/integration/test_conformance.py::test_introspection_foreign_keys[firebird]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-select-projection]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-select-all-rows-with-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-eq]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-eq-symbol]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-neq]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-gt]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-gte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-lt]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-lte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-contains]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-starts-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-ends-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-like]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-ilike]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-like]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-contains]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-starts-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-ends-with]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-in]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-in-strings]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-in]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-in-empty]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-between]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-not-between]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-is-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-is-not-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-eq-none-is-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-neq-none-is-not-null]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-apostrophe-value]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-unicode-value]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-and]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-or]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-filter-in-subquery]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-join-inner]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-join-left]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-join-right]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-join-with-filter-and-order]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-group-by-count-sum]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-group-having]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-aggregate-min-max-avg]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-aggregate-null-handling]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-order-desc-limit-offset]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-order-multi-key]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-offset-past-end]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-limit-zero-one]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-distinct]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-cte]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-window-row-number-and-partition-sum]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-drop-table]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-or-true]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-union]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-comment]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-backslash]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-percent]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-eq-semicolon]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-in-mixed]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-contains-quote]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-contains-literal-percent]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-binding-contains-literal-underscore]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-quoting-reserved-words-mixed-case]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-quoting-reserved-filter]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[firebird-quoting-mixed-case-table]",
+        "tests/integration/test_conformance.py::test_non_ascii_identifiers_are_rejected_before_reaching_the_database[firebird]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[firebird-'; DROP TABLE qbit_employees; --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[firebird-x' OR '1'='1]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[firebird-x' UNION SELECT name FROM qbit_departments --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[firebird-\\\\'; DELETE FROM qbit_employees; --]",
+        "tests/integration/test_conformance.py::test_injection_looking_values_are_data[firebird-1; DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_raw_sql_parameter_binding[firebird]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-UPDATE qbit_employees SET salary = 1]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-INSERT INTO qbit_departments (id, name) VALUES (99, 'x')]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-DROP TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-TRUNCATE TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-CREATE TABLE qbit_should_not_exist (id INTEGER)]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-ALTER TABLE qbit_employees ADD COLUMN x INTEGER]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-SELECT 1; DROP TABLE qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_validator[firebird-WITH x AS (SELECT 1) DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[firebird-DELETE FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[firebird-UPDATE qbit_employees SET salary = 1]",
+        "tests/integration/test_conformance.py::test_writes_rejected_by_read_only_session_even_without_ast[firebird-INSERT INTO qbit_departments (id, name) VALUES (99, 'x')]",
+        "tests/integration/test_conformance.py::test_database_enforces_read_only_behind_the_validator[firebird]",
+        "tests/integration/test_conformance.py::test_statement_timeout_cancels_slow_query[firebird]",
+        "tests/integration/test_conformance.py::test_wrong_password_error_never_leaks_the_password[firebird]",
+        "tests/integration/test_conformance.py::test_unknown_table_fails_cleanly[firebird]",
+        "tests/integration/test_conformance.py::test_bad_native_sql_maps_to_the_connector_error_family[firebird-SELEC id FROM qbit_employees]",
+        "tests/integration/test_conformance.py::test_bad_native_sql_maps_to_the_connector_error_family[firebird-SELECT nosuchcolumn FROM qbit_employees]"
+      ],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 0,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:49 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": null,
+      "xfailed": 0
+    },
+    "generic_psycopg": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 12,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.generic.GenericDBAPIConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "db_read_only",
+          "statement_timeout"
+        ],
+        "verified": []
+      },
+      "passed": 90,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 20:50 UTC",
+      "skip_reasons": {
+        "[limitation:db_read_only] generic_psycopg: db_read_only unsupported - no separate read-only login is provisioned for the generic class": 1,
+        "[limitation:statement_timeout] generic_psycopg: statement_timeout unsupported - GenericDBAPIConnector does not set a statement timeout (driver-agnostic)": 1
+      },
+      "skipped": 2,
+      "tier": "extended",
+      "version": "PostgreSQL 15.17 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+      "xfailed": 0
+    },
+    "greptimedb": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.greptimedb.GreptimeDBConnector",
+        "query_builder.connectors.greptimedb.AsyncGreptimeDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 11,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:55 UTC",
+      "skip_reasons": {
+        "greptimedb: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "greptimedb: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "greptimedb: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "greptimedb: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "greptimedb: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 5,
+      "tier": "extended",
+      "version": "GreptimeDB",
+      "xfailed": 0
+    },
+    "influxdb": {
+      "categories": {
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.influxdb.InfluxDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 6,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 20:02 UTC",
+      "skip_reasons": {
+        "influxdb: container runs without authentication": 1,
+        "influxdb: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "influxdb: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "influxdb: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "influxdb: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "influxdb: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "InfluxDB 3.5.0",
       "xfailed": 0
     },
     "mariadb": {
@@ -1839,6 +4029,686 @@
       "skipped": 0,
       "tier": "required",
       "version": "11.4.3-MariaDB-ubu2404",
+      "xfailed": 0
+    },
+    "materialize": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 2,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "limitation_probe": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 1
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 12,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.materialize.MaterializeConnector",
+        "query_builder.connectors.materialize.AsyncMaterializeConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "db_read_only",
+          "introspect_fk",
+          "introspect_pk"
+        ],
+        "verified": [
+          "statement_timeout"
+        ]
+      },
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:54 UTC",
+      "skip_reasons": {
+        "[limitation:db_read_only] materialize: db_read_only unsupported - no read-only role is provisioned for this engine in the harness": 1,
+        "[limitation:introspect_fk] materialize: introspect_fk unsupported - Materialize has no foreign keys": 1,
+        "[limitation:introspect_pk] materialize: introspect_pk unsupported - Materialize tables have no primary keys": 1,
+        "[limitation:statement_timeout] materialize: statement_timeout unsupported - Materialize does not cancel this slow SELECT on statement_timeout": 1,
+        "materialize: no password-based authentication": 1
+      },
+      "skipped": 5,
+      "tier": "extended",
+      "version": "Materialize Streaming SQL",
+      "xfailed": 0
+    },
+    "memgraph": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.memgraph.MemgraphConnector",
+        "query_builder.connectors.memgraph.AsyncMemgraphConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 9,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:52 UTC",
+      "skip_reasons": {
+        "memgraph: container runs without authentication": 1,
+        "memgraph: no SQL compiler path (native query language)": 1,
+        "memgraph: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "memgraph: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "memgraph: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "memgraph: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "memgraph: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 7,
+      "tier": "extended",
+      "version": "Memgraph 2.21.0",
+      "xfailed": 0
+    },
+    "monetdb": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.monetdb.MonetDBConnector",
+        "query_builder.connectors.monetdb.AsyncMonetDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 96,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:48 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "MonetDB 11.55.7",
       "xfailed": 0
     },
     "mongodb": {
@@ -2782,6 +5652,405 @@
       "version": "OpenSearch 2.17.0",
       "xfailed": 0
     },
+    "oracle": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.oracle.OracleConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:50 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "Oracle Database 23.26.3.0.0",
+      "xfailed": 0
+    },
+    "pinecone": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 5,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.pinecone.PineconeConnector",
+        "query_builder.connectors.pinecone.AsyncPineconeConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": true,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 20,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:58 UTC",
+      "skip_reasons": {
+        "pinecone: container runs without authentication": 1,
+        "pinecone: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "pinecone: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "pinecone: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "pinecone: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "pinecone: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "Pinecone",
+      "xfailed": 0
+    },
     "postgres": {
       "categories": {
         "aggregates": {
@@ -3014,6 +6283,337 @@
       "skipped": 0,
       "tier": "required",
       "version": "PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit",
+      "xfailed": 0
+    },
+    "prometheus": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.prometheus.PrometheusConnector",
+        "query_builder.connectors.prometheus.AsyncPrometheusConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 9,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-10 23:42 UTC",
+      "skip_reasons": {
+        "prometheus: container runs without authentication": 1,
+        "prometheus: no SQL compiler path (native query language)": 1,
+        "prometheus: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "prometheus: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "prometheus: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "prometheus: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "prometheus: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 7,
+      "tier": "extended",
+      "version": "Prometheus 2.55.1",
+      "xfailed": 0
+    },
+    "qdrant": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 5,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.qdrant.QdrantConnector",
+        "query_builder.connectors.qdrant.AsyncQdrantConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 20,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:57 UTC",
+      "skip_reasons": {
+        "qdrant: container runs without authentication": 1,
+        "qdrant: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "qdrant: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "qdrant: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "qdrant: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "qdrant: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "Qdrant 1.16.3",
       "xfailed": 0
     },
     "questdb": {
@@ -3541,12 +7141,429 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "redshift: set QB_IT_REDSHIFT_HOST, QB_IT_REDSHIFT_USER, QB_IT_REDSHIFT_PASSWORD, QB_IT_REDSHIFT_DATABASE to run this test": 7
       },
       "skipped": 7,
       "tier": "cloud",
+      "version": null,
+      "xfailed": 0
+    },
+    "risingwave": {
+      "categories": {
+        "aggregates": {
+          "failed": 1,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "limitation_probe": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 1
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 1,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 12,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.risingwave.RisingWaveConnector",
+        "query_builder.connectors.risingwave.AsyncRisingWaveConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 2,
+      "failures": [
+        "tests/integration/test_conformance.py::test_compile_and_execute[risingwave-distinct]",
+        "tests/integration/test_conformance.py::test_compile_and_execute[risingwave-window-row-number-and-partition-sum]"
+      ],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "db_read_only",
+          "introspect_fk"
+        ],
+        "verified": [
+          "statement_timeout"
+        ]
+      },
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:56 UTC",
+      "skip_reasons": {
+        "[limitation:db_read_only] risingwave: db_read_only unsupported - no read-only role is provisioned for this engine in the harness": 1,
+        "[limitation:introspect_fk] risingwave: introspect_fk unsupported - RisingWave has no foreign keys": 1,
+        "[limitation:statement_timeout] risingwave: statement_timeout unsupported - RisingWave does not cancel this slow SELECT on statement_timeout": 1,
+        "risingwave: no password-based authentication": 1
+      },
+      "skipped": 4,
+      "tier": "extended",
+      "version": "RisingWave Streaming Database",
+      "xfailed": 0
+    },
+    "scylladb": {
+      "categories": {
+        "connect": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 1,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 2,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.scylladb.ScyllaDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 0,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:52 UTC",
+      "skip_reasons": {
+        "[environment] driver unusable here (cassandra.cluster is installed but cannot be imported: Unable to load a default connection class\nThe following exceptions were observed: \n - The C extension needed to use libev was not found.  This probably means that you didn't have the required build dependencies when installing the driver.  See https://docs.datastax.com/en/developer/python-driver/latest/installation/index.html#c-extensions for instructions on installing build dependencies and building the C extension.\n - Unable to import asyncore module.  Note that this module has been removed in Python 3.12 so when using the driver with this version (or anything newer) you will need to use one of the other event loop implementations.); try scripts/it_docker_run.sh to run it inside Linux": 12
+      },
+      "skipped": 12,
+      "tier": "extended",
       "version": null,
       "xfailed": 0
     },
@@ -3637,7 +7654,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "snowflake: set QB_IT_SNOWFLAKE_ACCOUNT, QB_IT_SNOWFLAKE_USER, QB_IT_SNOWFLAKE_PASSWORD, QB_IT_SNOWFLAKE_WAREHOUSE, QB_IT_SNOWFLAKE_DATABASE to run this test": 7
       },
@@ -3897,6 +7914,655 @@
       "version": "3.49.1",
       "xfailed": 0
     },
+    "starrocks": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.starrocks.StarRocksConnector",
+        "query_builder.connectors.starrocks.AsyncStarRocksConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "introspect_fk"
+        ],
+        "verified": []
+      },
+      "passed": 95,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 01:19 UTC",
+      "skip_reasons": {
+        "[limitation:introspect_fk] starrocks: introspect_fk unsupported - StarRocks has no foreign keys": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "StarRocks MPP Engine",
+      "xfailed": 0
+    },
+    "supabase": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.supabase.SupabaseConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 92,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-10 23:41 UTC",
+      "skip_reasons": {},
+      "skipped": 0,
+      "tier": "extended",
+      "version": "Supabase Managed PostgreSQL",
+      "xfailed": 0
+    },
+    "surrealdb": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.surrealdb.SurrealDBConnector",
+        "query_builder.connectors.surrealdb.AsyncSurrealDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 10,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:51 UTC",
+      "skip_reasons": {
+        "surrealdb: no SQL compiler path (native query language)": 1,
+        "surrealdb: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "surrealdb: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "surrealdb: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "surrealdb: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "surrealdb: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "surrealdb-2.3.7",
+      "xfailed": 0
+    },
     "synapse": {
       "categories": {
         "connect": {
@@ -3984,13 +8650,415 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:29 UTC",
+      "run_at": "2026-10-09 19:58 UTC",
       "skip_reasons": {
         "synapse: set QB_IT_SYNAPSE_SERVER, QB_IT_SYNAPSE_USER, QB_IT_SYNAPSE_PASSWORD, QB_IT_SYNAPSE_DATABASE to run this test (Azure Synapse dedicated/serverless SQL pool via the SQL Server connector)": 7
       },
       "skipped": 7,
       "tier": "cloud",
       "version": null,
+      "xfailed": 0
+    },
+    "tdengine": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.tdengine.TDengineConnector",
+        "query_builder.connectors.tdengine.AsyncTDengineConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 11,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-11 00:22 UTC",
+      "skip_reasons": {
+        "tdengine: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "tdengine: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "tdengine: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "tdengine: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "tdengine: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 5,
+      "tier": "extended",
+      "version": "TDengine 3.3.3.0",
+      "xfailed": 0
+    },
+    "tidb": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.tidb.TiDBConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "case_sensitive_identifiers"
+        ],
+        "verified": []
+      },
+      "passed": 91,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-10 23:40 UTC",
+      "skip_reasons": {
+        "[limitation:case_sensitive_identifiers] tidb: case_sensitive_identifiers unsupported - TiDB table names follow lower_case_table_names": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "TiDB HTAP",
       "xfailed": 0
     },
     "timescale": {
@@ -4482,7 +9550,338 @@
       "tier": "extended",
       "version": "455",
       "xfailed": 0
+    },
+    "victoriametrics": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.victoriametrics.VictoriaMetricsConnector",
+        "query_builder.connectors.victoriametrics.AsyncVictoriaMetricsConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 9,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 20:01 UTC",
+      "skip_reasons": {
+        "victoriametrics: container runs without authentication": 1,
+        "victoriametrics: no SQL compiler path (native query language)": 1,
+        "victoriametrics: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "victoriametrics: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "victoriametrics: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "victoriametrics: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "victoriametrics: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 7,
+      "tier": "extended",
+      "version": "VictoriaMetrics 2.24.0",
+      "xfailed": 0
+    },
+    "weaviate": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 5,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.weaviate.WeaviateConnector",
+        "query_builder.connectors.weaviate.AsyncWeaviateConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 20,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-09 19:58 UTC",
+      "skip_reasons": {
+        "weaviate: container runs without authentication": 1,
+        "weaviate: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "weaviate: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "weaviate: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "weaviate: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "weaviate: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 6,
+      "tier": "extended",
+      "version": "Weaviate 1.28.2",
+      "xfailed": 0
     }
   },
-  "run_at": "2026-10-09 19:29 UTC"
+  "run_at": "2026-10-11 01:59 UTC"
 }

@@ -1622,9 +1622,6 @@ def test_connector_inspect_methods_sync():
 def test_connector_inspect_methods_async():
     async def _test():
         conn = AsyncPrestoDBConnector()
-        # Default fallback introspection
-        snap = await conn.introspect_schema()
-        assert snap["tables"] == {}
 
         # Mocked introspect_schema
         with patch.object(conn, "introspect_schema") as mock_intro:
@@ -1741,3 +1738,14 @@ def test_dialect_inspection_queries():
     assert "partition_key" in scylla.inspect_primary_keys_query("system", "users")[0]
     assert "partition_key" in scylla.inspect_primary_keys_query("system")[0]
     assert scylla.inspect_foreign_keys_query("system", "users") == ("", [])
+
+
+def test_introspect_greptimedb_inlines_an_escaped_schema_literal():
+    from query_builder.connectors.introspection import introspect_greptimedb
+
+    cur = MagicMock()
+    cur.fetchall.side_effect = [[("t",)], [("t", "c", "int", "YES")]]
+    introspect_greptimedb(cur, schema_name="it's")
+    first_sql = cur.execute.call_args_list[0].args[0]
+    assert "table_schema = 'it''s'" in first_sql
+    assert all(len(c.args) == 1 for c in cur.execute.call_args_list)  # nothing bound

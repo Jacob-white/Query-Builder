@@ -322,7 +322,9 @@ def test_new_dialects_behavior():
     assert sr.name == "starrocks"
     assert sr.quote_identifier("users") == "`users`"
     assert sr.quote_alias("my`alias") == "`my``alias`"
-    assert sr.format_ilike("`c`") == "`c` ILIKE %s"
+    assert (
+        sr.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    )  # StarRocks has no ILIKE
 
     # Materialize & RisingWave
     mz = get_dialect("materialize")

@@ -78,6 +78,13 @@ def _get(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+def _page_ids(page: Any) -> list[str]:
+    """Vector ids on one ``list()`` page: current clients yield plain id lists, older ones
+    page objects carrying ``.vectors``."""
+    items = page if isinstance(page, (list, tuple)) else _get(page, "vectors", [])
+    return [str(_get(v, "id", v)) for v in items]
+
+
 def _index_host(info: Any, control_host: str | None) -> Any:
     """The data-plane host of an index.
 
@@ -173,12 +180,15 @@ def pinecone_plan(
                 )
         if vq.count_only:
             return [("count",)], [[len(hits)]]
+        # nearest first, whatever order the service returned its top_k in (Pinecone Local
+        # does not always sort), so OFFSET skips the genuinely nearest rows
+        hits.sort(key=lambda h: h["_distance"])
         hits = hits[vq.offset :]
     else:
         ids: list[str] = []
         pages = yield (call("list"), {})
         for page in pages:
-            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            ids.extend(_page_ids(page))
             if len(ids) > MAX_SCAN_VECTORS:
                 raise VectorQueryError(
                     f"index scan exceeds {MAX_SCAN_VECTORS} vectors; use a vector search"
@@ -219,7 +229,7 @@ def pinecone_introspect_plan(
         pages = yield ((idx.list if idx is not None else "list"), {})
         ids: list[str] = []
         for page in pages:
-            ids.extend(str(_get(v, "id", v)) for v in _get(page, "vectors", []))
+            ids.extend(_page_ids(page))
             if len(ids) >= 20:
                 break
         if ids:

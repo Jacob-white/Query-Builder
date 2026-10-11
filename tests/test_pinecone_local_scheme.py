@@ -41,3 +41,35 @@ def test_open_index_resolves_the_host_only_for_scheme_carrying_hosts():
     pc2 = MagicMock()
     _open_index(pc2, "idx", None)
     pc2.Index.assert_called_once_with("idx")
+
+
+def test_page_ids_accepts_plain_id_lists_and_legacy_page_objects():
+    from query_builder.connectors.pinecone import _page_ids
+
+    assert _page_ids(["1", "2"]) == ["1", "2"]
+    legacy = SimpleNamespace(vectors=[SimpleNamespace(id=7), {"id": "8"}])
+    assert _page_ids(legacy) == ["7", "8"]
+    assert _page_ids(SimpleNamespace()) == []
+
+
+def test_drive_async_leaves_sync_iterable_results_alone():
+    import asyncio
+
+    from query_builder.connectors._vector_sql import drive_async
+
+    class Both:  # like pinecone's IndexList: sync-iterable and (uselessly) __aiter__
+        def __iter__(self):
+            return iter([1, 2])
+
+        def __aiter__(self):
+            raise TypeError("not a real async iterator")
+
+    class Client:
+        def listing(self):
+            return Both()
+
+    def plan():
+        got = yield ("listing", {})
+        return list(got)
+
+    assert asyncio.run(drive_async(plan(), Client())) == [1, 2]

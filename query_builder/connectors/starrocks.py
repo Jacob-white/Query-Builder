@@ -109,6 +109,7 @@ class StarRocksConnector(BaseConnector):
                     cur,
                     schema_name=self.database,
                     filter_sensitive=filter_sensitive,
+                    pk_column_key_fallback=True,
                 )
             except Exception as exc:
                 raise IntrospectionError(
@@ -144,6 +145,15 @@ class AsyncStarRocksConnector(AsyncBaseConnector):
         self.config.setdefault("database", database)
         self.config.setdefault("user", user)
         self.config.setdefault("password", password)
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        return await self._introspect_blocking(
+            introspect_information_schema,
+            "StarRocks",
+            self.database,
+            filter_sensitive,
+            pk_column_key_fallback=True,
+        )
 
     async def connect(self) -> Any:
         if self._connection is not None:

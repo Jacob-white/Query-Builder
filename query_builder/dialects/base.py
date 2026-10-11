@@ -64,6 +64,9 @@ class BaseDialect:
     #: case-insensitive match template; ``{col}`` is the column reference and
     #: ``{ph}`` the bind placeholder (see ``format_ilike``)
     ilike_template: str = "{col} ILIKE {ph}"
+    #: True for engines that number positional bind parameters of the main query BEFORE those
+    #: inside a ``WITH`` clause (CrateDB), so the compiler appends the CTE params instead
+    cte_params_after_main: bool = False
     #: False for engines with no primary/foreign key catalog: the key
     #: introspection queries then return ``("", [])``
     introspects_keys: bool = True
