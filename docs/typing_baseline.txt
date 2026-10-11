@@ -1,3 +1,2 @@
 # Modules excluded from mypy (ignore_errors). This list may only shrink.
-query_builder.integrations.*
-query_builder.connectors.*
+# It is now empty: every module in query_builder is strictly type-checked.

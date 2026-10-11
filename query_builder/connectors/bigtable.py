@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import inspect
 import time
+from functools import partial
 from typing import Any
 
 from query_builder.connectors._sql_subset import (
@@ -108,6 +109,10 @@ def _matches(record: dict[str, Any], pred: Predicate) -> bool:
     return _compare(value, pred.op, pred.value)
 
 
+def _record_sort_key(column: str, record: dict[str, Any]) -> tuple[int, Any]:
+    return _sort_key(record.get(column))
+
+
 def _sort_key(value: Any) -> tuple[int, Any]:
     if value is None:
         return (2, 0)
@@ -161,14 +166,14 @@ def read_records(instance: Any, plan: SubsetPlan) -> list[dict[str, Any]]:
     records = [_row_record(r) for r in rows]
     records = [r for r in records if all(_matches(r, p) for p in plan.predicates)]
     for col, desc in reversed(plan.order_by):
-        records.sort(key=lambda r, c=col: _sort_key(r.get(c)), reverse=desc)
+        records.sort(key=partial(_record_sort_key, col), reverse=desc)
     end = None if plan.limit is None else plan.offset + plan.limit
     return records[plan.offset : end]
 
 
 def shape_records(
     plan: SubsetPlan, records: list[dict[str, Any]]
-) -> tuple[list[tuple[str]], list[list[Any]]]:
+) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
     if plan.count_star:
         return [(plan.count_alias,)], [[len(records)]]
     if plan.columns is None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import Any
+from typing import Any, cast
 
 from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import (
@@ -43,8 +43,9 @@ class _SparkCursorAdapter:
                 self._rows = [
                     [
                         getattr(r, col, r[col] if isinstance(r, dict) else r)
-                        for col in (
-                            df.columns if hasattr(df, "columns") else range(len(r))
+                        for col in cast(
+                            "Any",
+                            df.columns if hasattr(df, "columns") else range(len(r)),
                         )
                     ]
                     if hasattr(r, "__getitem__")

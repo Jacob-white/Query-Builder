@@ -85,7 +85,7 @@ def build_query(client: Any, plan: SubsetPlan) -> Any:
 
 def shape_documents(
     plan: SubsetPlan, docs: list[Any]
-) -> tuple[list[tuple[str]], list[list[Any]]]:
+) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
     """Documents -> (description, rows) following the projection of ``plan``."""
     records: list[dict[str, Any]] = []
     for doc in docs:
@@ -207,7 +207,7 @@ class FirestoreConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("google.cloud.firestore", "google.cloud.firestore_v1"):
             try:
                 driver = __import__(mod_name, fromlist=["Client"])
@@ -299,7 +299,7 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("google.cloud.firestore", "google.cloud.firestore_v1"):
             try:
                 driver = __import__(mod_name, fromlist=["AsyncClient", "Client"])
@@ -417,7 +417,7 @@ class AsyncFirestoreConnector(AsyncBaseConnector):
                 if hasattr(cur, "close"):
                     cur.close()
         except StopIteration as done:
-            return done.value  # type: ignore[no-any-return]
+            return done.value
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect Firestore schema: {exc}"

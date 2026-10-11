@@ -121,7 +121,7 @@ class FirebirdConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("firebird.driver", "firebird", "fdb"):
             try:
                 driver = __import__(mod_name, fromlist=["connect"])
@@ -212,7 +212,7 @@ class AsyncFirebirdConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("firebird.driver", "firebird", "fdb"):
             try:
                 driver = __import__(mod_name, fromlist=["connect"])

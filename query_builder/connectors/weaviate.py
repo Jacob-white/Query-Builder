@@ -364,7 +364,7 @@ class _WeaviateCursorAdapter:
             ]
         elif hasattr(self.conn, "graphql") and hasattr(self.conn.graphql, "raw_query"):
             res = self.conn.graphql.raw_query(clean_sql)
-            data = getattr(res, "get", lambda _: {})("data", {})
+            data: Any = getattr(res, "get", lambda *_: {})("data", {})
             self.description = [("data",)]
             self._rows = [[str(data)]]
         elif hasattr(self.conn, "execute"):

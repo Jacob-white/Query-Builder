@@ -313,9 +313,11 @@ class DynamoDBConnector(BaseConnector):
                     )
 
                 spec_dict = (
-                    {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
-                    if hasattr(spec, "__dict__") and not isinstance(spec, dict)
-                    else dict(spec)
+                    dict(spec)
+                    if isinstance(spec, dict)
+                    else {
+                        k: v for k, v in spec.__dict__.items() if not k.startswith("_")
+                    }
                 )
 
                 complexity = calculate_ast_complexity(spec_dict)
@@ -370,7 +372,7 @@ class DynamoDBConnector(BaseConnector):
                     count_resp = client.execute_statement(**count_kwargs)
                     count_items = count_resp.get("Items", [])
                     if count_items:
-                        first_val = next(iter(count_items[0].values()), {})
+                        first_val: Any = next(iter(count_items[0].values()), {})
                         if isinstance(first_val, dict) and "N" in first_val:
                             try:
                                 total_count = int(first_val["N"])

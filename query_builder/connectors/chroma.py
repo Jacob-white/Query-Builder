@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 import time
+from functools import partial
 from typing import Any
 
 from query_builder.connectors.async_base import AsyncBaseConnector
@@ -79,6 +80,10 @@ def _chroma_where(node: Any) -> tuple[list[str] | None, dict[str, Any] | None]:
             )
             return [str(v) for v in vals], None
     return None, conv(node)
+
+
+def _null_last_key(column: str, record: dict[str, Any]) -> tuple[bool, Any]:
+    return (record.get(column) is None, record.get(column))
 
 
 def _chroma_records(res: Any) -> list[dict[str, Any]]:
@@ -273,7 +278,7 @@ class _ChromaCursorAdapter:
                     )
                 key = o.this.name
                 records.sort(
-                    key=lambda r, k=key: (r.get(k) is None, r.get(k)),
+                    key=partial(_null_last_key, key),
                     reverse=bool(o.args.get("desc")),
                 )
         limit_node = parsed.args.get("limit")

@@ -289,7 +289,7 @@ class AsyncCosmosDBConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         # the awaitable client lives in azure.cosmos.aio; fall back to the blocking module
         for mod_name in (
             "azure.cosmos.aio",
