@@ -531,7 +531,7 @@ def _post_connections(h: QueryBuilderHandler, req: Request) -> None:
 
     try:
 
-        def factory():
+        def factory() -> Any:
             c = get_connector(
                 connector_name, **(config if isinstance(config, dict) else {})
             )

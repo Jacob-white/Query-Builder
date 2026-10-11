@@ -97,7 +97,7 @@ class AsyncBaseConnector(ABC):
                         raise scrubbed from None
 
                 wrapped_async_connect._security_wrapped = True  # type: ignore[attr-defined]
-                cls.connect = wrapped_async_connect
+                cls.connect = wrapped_async_connect  # type: ignore[method-assign]  # intentional wrap
 
     def __init__(
         self,
@@ -445,7 +445,7 @@ class AsyncBaseConnector(ABC):
                 main_sql = sql
                 main_params = params or []
                 count_sql = ""
-                count_params = []
+                count_params: list[Any] = []
                 compiled_spec: dict[str, Any] = {
                     "table": "raw_query",
                     "limit": 50,
@@ -497,9 +497,11 @@ class AsyncBaseConnector(ABC):
                     )
 
                 spec_dict = (
-                    {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
-                    if hasattr(spec, "__dict__") and not isinstance(spec, dict)
-                    else dict(spec)
+                    dict(spec)
+                    if isinstance(spec, dict)
+                    else {
+                        k: v for k, v in spec.__dict__.items() if not k.startswith("_")
+                    }
                 )
                 spec_table = spec_dict.get("table", "unknown")
 
@@ -545,7 +547,7 @@ class AsyncBaseConnector(ABC):
                 )
                 main_sql, main_params, count_sql, count_params = compiler.compile()
 
-                compilation = {
+                compilation: dict[str, Any] = {
                     "main_sql": main_sql,
                     "main_params": main_params,
                     "count_sql": count_sql,

@@ -17,7 +17,7 @@ import time
 import types
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from typing import Any, NoReturn, Self
+from typing import Any, NoReturn, Self, cast
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
@@ -92,7 +92,7 @@ def as_connector_error(exc: Exception) -> Exception:
     try:
         # Also an instance of the vendor class, so existing ``except sqlite3.Error`` /
         # ``except psycopg.Error`` handlers keep working alongside ``except ConnectorError``.
-        cls = _compat_class(type(exc))
+        cls = cast("Any", _compat_class)(type(exc))  # lru_cache rejects type[...] keys
         wrapped = cls.__new__(cls)
         # vendor ``__str__``/``__repr__`` may read attributes set in their ``__init__``
         wrapped.__dict__.update(getattr(exc, "__dict__", {}))
@@ -107,7 +107,7 @@ def as_connector_error(exc: Exception) -> Exception:
 
 @functools.lru_cache(maxsize=256)
 def _compat_class(vendor: type[BaseException]) -> type[QueryExecutionError]:
-    return type(  # type: ignore[return-value]
+    return type(
         f"QueryExecutionError[{vendor.__name__}]",
         (QueryExecutionError, vendor),
         {"__module__": QueryExecutionError.__module__},
@@ -177,7 +177,7 @@ class BaseConnector(ABC):
                         raise scrubbed from None
 
                 wrapped_connect._security_wrapped = True  # type: ignore[attr-defined]
-                cls.connect = wrapped_connect
+                cls.connect = wrapped_connect  # type: ignore[method-assign]  # intentional wrap
 
     def __init__(
         self,
@@ -569,7 +569,7 @@ class BaseConnector(ABC):
                 main_sql = sql
                 main_params = params or []
                 count_sql = ""
-                count_params = []
+                count_params: list[Any] = []
                 compiled_spec: dict[str, Any] = {
                     "table": "raw_query",
                     "limit": 50,
@@ -620,9 +620,11 @@ class BaseConnector(ABC):
                     )
 
                 spec_dict = (
-                    {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
-                    if hasattr(spec, "__dict__") and not isinstance(spec, dict)
-                    else dict(spec)
+                    dict(spec)
+                    if isinstance(spec, dict)
+                    else {
+                        k: v for k, v in spec.__dict__.items() if not k.startswith("_")
+                    }
                 )
                 spec_table = spec_dict.get("table", "unknown")
 
@@ -668,7 +670,7 @@ class BaseConnector(ABC):
                 )
                 main_sql, main_params, count_sql, count_params = compiler.compile()
 
-                compilation = {
+                compilation: dict[str, Any] = {
                     "main_sql": main_sql,
                     "main_params": main_params,
                     "count_sql": count_sql,

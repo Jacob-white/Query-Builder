@@ -367,7 +367,7 @@ class AsyncSurrealDBConnector(AsyncBaseConnector):
                 ]
                 statement = steps.send(records)
         except StopIteration as done:
-            return done.value  # type: ignore[no-any-return]
+            return done.value
         except Exception as exc:
             raise IntrospectionError(
                 f"Failed to introspect SurrealDB database '{self.database}': {exc}"

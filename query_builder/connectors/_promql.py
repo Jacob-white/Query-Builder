@@ -57,7 +57,9 @@ def _num(value: Any) -> Any:
         return value
 
 
-def shape_response(path: str, payload: Any) -> tuple[list[tuple[str]], list[list[Any]]]:
+def shape_response(
+    path: str, payload: Any
+) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
     """Turn a Prometheus API JSON body into a DB-API ``description`` and rows."""
     if not isinstance(payload, dict) or payload.get("status") not in (None, "success"):
         err = payload.get("error") if isinstance(payload, dict) else payload
@@ -82,7 +84,9 @@ def shape_response(path: str, payload: Any) -> tuple[list[tuple[str]], list[list
         rows = [
             [labels.get(n) for n in names] + [ts, _num(v)] for labels, ts, v in samples
         ]
-        return [(n,) for n in names] + [("timestamp",), ("value",)], rows
+        description: list[tuple[str, ...]] = [(n,) for n in names]
+        description += [("timestamp",), ("value",)]
+        return description, rows
     if isinstance(data, list):
         if data and isinstance(data[0], dict):  # /series
             names = sorted({k for d in data for k in d})
@@ -144,7 +148,7 @@ class PromSync:
     def __init__(self, conn: Any) -> None:
         self.conn = conn
 
-    def request(self, sql: str) -> tuple[list[tuple[str]], list[list[Any]]]:
+    def request(self, sql: str) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
         path, params = build_request(sql)
         res = self.conn.get(path, params=params)
         return shape_response(path, _check(res, path))
@@ -156,7 +160,7 @@ class PromAsync:
     def __init__(self, conn: Any) -> None:
         self.conn = conn
 
-    async def request(self, sql: str) -> tuple[list[tuple[str]], list[list[Any]]]:
+    async def request(self, sql: str) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
         path, params = build_request(sql)
         res = await self.conn.get(path, params=params)
         return shape_response(path, _check(res, path))
