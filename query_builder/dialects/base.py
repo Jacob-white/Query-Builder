@@ -49,6 +49,14 @@ class BaseDialect:
     supports_materialized_cte: bool = False
     supports_window_functions: bool = True
     supports_window_groups_frame: bool = False
+    #: True when ``SELECT DISTINCT`` rejects an ORDER BY expression that is not textually a
+    #: select-list item (RisingWave): the compiler then orders by the select alias instead
+    distinct_order_by_alias: bool = False
+    #: True when an aggregate window with ``PARTITION BY`` and no ORDER BY / frame silently
+    #: drops the rows whose partition key is NULL (RisingWave): the compiler then adds an
+    #: equivalent ``ORDER BY <partition key> ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED
+    #: FOLLOWING``, which the engine evaluates correctly
+    window_partition_null_rows_dropped: bool = False
     # LIKE wildcard handling for the contains/starts_with/ends_with operators.
     # ``None`` (default): the bound value is passed through unchanged, so a user
     # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live
