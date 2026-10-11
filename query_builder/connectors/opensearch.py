@@ -192,7 +192,7 @@ class OpenSearchConnector(BaseConnector):
             client = self._connection
             with contextlib.suppress(Exception):
                 info["engine_version"] = (
-                    f"OpenSearch {client.info()['version']['number']}"  # type: ignore[union-attr]
+                    f"OpenSearch {client.info()['version']['number']}"
                 )
         info["index_pattern"] = self.index_pattern
         return info

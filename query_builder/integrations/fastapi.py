@@ -20,7 +20,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, cast
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
@@ -29,15 +29,17 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
-    APIRouter = object  # type: ignore[misc, assignment]
-    HTTPException = Exception  # type: ignore[misc, assignment]
-    Request = Any  # type: ignore[misc, assignment]
-    Response = Any  # type: ignore[misc, assignment]
-    BaseModel = object  # type: ignore[misc, assignment]
-    ConfigDict = dict  # type: ignore[misc, assignment]
+    APIRouter = object
+    HTTPException = Exception
+    Request = Any
+    Response = Any
+    BaseModel = object
+    ConfigDict = dict
 
-    def Field(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc, assignment]
+    def _field_fallback(*args: Any, **kwargs: Any) -> Any:
         return None
+
+    Field = _field_fallback
 
 
 from query_builder.ast_validator import validate_sql_ast
@@ -307,7 +309,8 @@ def create_query_builder_router(
                 else None,
             )
             return pol
-        return security
+        # Duck-typed policy object (neither SecurityConfig nor dict): passed through as-is.
+        return cast("SecurityPolicy | None", security)
 
     @router.get("/capabilities", summary="Get Engine Capabilities")
     async def get_capabilities() -> dict[str, Any]:
@@ -511,7 +514,8 @@ def create_query_builder_router(
                     detail="Raw SQL execution is restricted when tenant isolation is enforced. Please use structured QuerySpec.",
                 )
 
-            val_res = validate_sql_ast(payload.sql)
+            # Guarded above: with no spec, ``payload.sql`` is a non-empty string.
+            val_res = validate_sql_ast(cast("str", payload.sql))
             if not val_res.get("valid") or not val_res.get("is_read_only"):
                 violations = val_res.get(
                     "violations", ["Query failed AST safety validation."]

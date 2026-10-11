@@ -21,7 +21,7 @@ try:
     from sqlparse.tokens import DDL, DML, Keyword
 except ImportError:
     sqlparse = None  # type: ignore[assignment]
-    DDL = DML = Keyword = None  # type: ignore[assignment]
+    DDL = DML = Keyword = None
 
 from query_builder.sql_ast import analyze_sql, evaluate_policy  # noqa: E402
 
@@ -1362,7 +1362,7 @@ def validate_cte_dag(ctes: list[Any]) -> dict[str, Any]:
                     deps.append(j["table"])
                 elif hasattr(j, "table"):
                     deps.append(j.table)
-        elif hasattr(q, "table"):
+        elif q is not None and hasattr(q, "table"):
             deps.append(q.table)
             for j in getattr(q, "joins", []):
                 if hasattr(j, "table"):

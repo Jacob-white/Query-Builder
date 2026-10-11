@@ -123,7 +123,7 @@ class OracleConnector(BaseConnector):
         except Exception as exc:
             raise ConnectionFailedError(f"Failed to connect to Oracle: {exc}") from exc
 
-    def get_cursor(self) -> Any:  # type: ignore[override]
+    def get_cursor(self) -> Any:
         return _wrap_cursor_context(super().get_cursor())
 
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
