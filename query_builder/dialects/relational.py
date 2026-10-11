@@ -290,6 +290,8 @@ class RisingWaveDialect(PostgresDialect):
     """RisingWave distributed streaming SQL database dialect."""
 
     name: str = "risingwave"
+    distinct_order_by_alias = True
+    window_partition_null_rows_dropped = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         # RisingWave cannot prepare a bound LIMIT/OFFSET ("expected a value, found: $2"):

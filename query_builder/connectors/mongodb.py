@@ -19,6 +19,58 @@ from query_builder.connectors.introspection import introspect_information_schema
 from query_builder.schema import normalize_schema_snapshot
 
 
+def bind_escaped_quote_literals(sql: str, params: Any) -> tuple[str, Any]:
+    """Turn string literals that use the SQL ``''`` quote escape into bound ``?`` parameters.
+
+    pymongosql does not understand the doubled-quote escape: ``WHERE name = 'O''Brien'``
+    matches nothing and silently returns no rows. Binding the value through the driver's
+    own ``?`` placeholder is understood correctly, so every single-quoted literal containing
+    ``''`` is replaced by ``?`` and its unescaped value is inserted into the positional
+    parameter list at the matching position. Literals without ``''``, double-quoted or
+    backtick-quoted identifiers, SQL that is not a positional-parameter list (dict params)
+    and unterminated literals are left exactly as written.
+    """
+    if "''" not in sql or not (params is None or isinstance(params, (list, tuple))):
+        return sql, params
+    out: list[str] = []
+    new_params = list(params or [])
+    placeholders = 0  # `?` seen so far outside literals (index into the parameter list)
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch in '"`':  # quoted identifier: copy verbatim
+            end = sql.find(ch, i + 1)
+            if end == -1:
+                return sql, params
+            out.append(sql[i : end + 1])
+            i = end + 1
+        elif ch == "'":
+            j, value = i + 1, []
+            while True:
+                end = sql.find("'", j)
+                if end == -1:
+                    return sql, params  # unterminated: let the driver report it
+                value.append(sql[j:end])
+                if sql[end + 1 : end + 2] == "'":
+                    value.append("'")
+                    j = end + 2
+                    continue
+                break
+            if len(value) > 1:  # contained at least one doubled quote
+                new_params.insert(placeholders, "".join(value))
+                placeholders += 1
+                out.append("?")
+            else:
+                out.append(sql[i : end + 1])
+            i = end + 1
+        else:
+            if ch == "?":
+                placeholders += 1
+            out.append(ch)
+            i += 1
+    return "".join(out), new_params
+
+
 class MongoDBAtlasSQLConnector(BaseConnector):
     """Connector for MongoDB Atlas SQL interface / DB-API."""
 
@@ -53,6 +105,10 @@ class MongoDBAtlasSQLConnector(BaseConnector):
             raise ConnectionFailedError(
                 f"Failed to connect to MongoDB Atlas SQL database '{self.database}': {exc}"
             ) from exc
+
+    def prepare_raw_sql(self, sql: str, params: list[Any]) -> tuple[str, list[Any]]:
+        new_sql, new_params = bind_escaped_quote_literals(sql, params)
+        return new_sql, new_params
 
     def _native_db(self) -> Any:
         """The underlying pymongo Database of a real pymongosql connection."""

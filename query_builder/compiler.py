@@ -119,6 +119,9 @@ AGGREGATE_MAP = {
     "max": "MAX({})",
 }
 
+#: window functions whose value is the same for every row of a partition (no ORDER BY needed)
+_WHOLE_PARTITION_AGGREGATES = frozenset({"SUM", "AVG", "COUNT", "MIN", "MAX"})
+
 OPERATOR_MAP = {
     "eq": "=",
     "=": "=",
@@ -1993,6 +1996,18 @@ class QueryCompiler:
         part_clause = self._window_partition(wf)
         order_clause = self._window_order(wf)
         frame_clause = self._window_frame(wf)
+        if (
+            part_clause
+            and not order_clause
+            and not frame_clause
+            and wf_func in _WHOLE_PARTITION_AGGREGATES
+            and getattr(self.dialect, "window_partition_null_rows_dropped", False)
+        ):
+            first_part = self._resolve_column_ref(
+                wf["partition_by"][0], self._clean_base
+            )[2]
+            order_clause = f"ORDER BY {first_part}"
+            frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
 
         over_tokens = [tok for tok in (part_clause, order_clause, frame_clause) if tok]
         wf_expr = f"{wf_func}({args_str}) OVER ({' '.join(over_tokens)})"
@@ -2273,7 +2288,26 @@ class QueryCompiler:
                 or self._clean_base
             )
             _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
+            quoted_ref = self._distinct_order_ref(quoted_ref)
             self.order_by_items.append(f"{quoted_ref} {direction}")
+
+    def _distinct_order_ref(self, quoted_ref: str) -> str:
+        """Order by the select alias under ``SELECT DISTINCT`` on engines that require it.
+
+        Only a select item that is exactly ``<quoted_ref> AS <alias>`` is rewritten, so the
+        ordering is unchanged; any other dialect keeps the qualified column reference.
+        """
+        if not (
+            getattr(self.dialect, "distinct_order_by_alias", False)
+            and self.spec.get("distinct", False)
+            and not self.has_aggregation
+        ):
+            return quoted_ref
+        prefix = f"{quoted_ref} AS "
+        for item in self.select_clause_items:
+            if item.startswith(prefix):
+                return item[len(prefix) :]
+        return quoted_ref
 
     # ---- GROUP BY ----------------------------------------------------------
     def _grouping_columns(self, key: str) -> list[str] | None:
