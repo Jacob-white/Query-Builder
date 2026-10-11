@@ -755,7 +755,8 @@ def _norm(text: str, tmp: Path) -> str:
     for width in (4, 2, 1):
         text = text.replace(str(tmp).replace("\\", "\\" * width), "<TMP>")
     text = text.replace("\\\\", "/").replace("\\", "/")
-    text = text.replace("<TMP>//", "<TMP>/")  # a tmp dir may or may not end in a slash
+    # path separators collapse differently once backslashes are escaped (Windows) or not
+    text = re.sub(r"<TMP>[^\s'\"]*", lambda m: re.sub(r"/+", "/", m.group(0)), text)
     # OS-specific wording of the same failure ([Errno 20] vs [WinError 3]) and the SQLite
     # library version differ between the platforms the suite runs on
     text = _OS_ERROR.sub("<OSERROR>:", text)

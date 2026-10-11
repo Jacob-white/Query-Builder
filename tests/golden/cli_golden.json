@@ -215,7 +215,7 @@
   "files": {
    "afile": "x"
   },
-  "out": "{\n  \"success\": false,\n  \"error\": \"<OSERROR>: '<TMP>/afile//sub'\"\n}\n",
+  "out": "{\n  \"success\": false,\n  \"error\": \"<OSERROR>: '<TMP>/afile/sub'\"\n}\n",
   "rc": 1
  },
  "init_fastapi_duckdb": {
