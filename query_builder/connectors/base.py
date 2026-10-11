@@ -460,6 +460,13 @@ class BaseConnector(ABC):
         self.apply_read_only(connection)
         self._read_only_applied_to = connection
 
+    def prepare_raw_sql(self, sql: str, params: list[Any]) -> tuple[str, list[Any]]:
+        """Hook: adapt a caller-supplied raw SQL string for the driver (default: unchanged).
+
+        Runs after the safety checks, so validators always see the statement as written.
+        """
+        return sql, params
+
     def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
         """Hook for dialect-specific statement timeout configuration."""
         # Base implementation is a no-op; subclasses override with dialect-specific SQL.
@@ -596,6 +603,7 @@ class BaseConnector(ABC):
                 if short_circuited:
                     return pipeline.run_post_execute(result_or_plan, ctx)
 
+                main_sql, main_params = self.prepare_raw_sql(main_sql, main_params)
                 try:
                     with self.get_cursor() as cur:
                         self.apply_statement_timeout(cur, timeout)

@@ -87,6 +87,22 @@
 - SQL literal scanner: linear time (CodeQL `py/polynomial-redos`) and dialect-aware backslash
   handling (T-SQL `''`).
 - `scripts/it_batch.py` teardown now removes services that sit behind a compose profile.
+- **RisingWave `SELECT DISTINCT ... ORDER BY`** was rejected ("ORDER BY expressions must appear
+  in select list") because the compiler ordered by `"t1"."col"` while the select item is
+  `"t1"."col" AS "col"`. New dialect knob `distinct_order_by_alias`: RisingWave orders by the
+  select alias. Other dialects' SQL is unchanged.
+- **RisingWave aggregate window without ORDER BY** (`SUM(x) OVER (PARTITION BY k)`) silently
+  dropped every row whose partition key is NULL (engine v2.1.2). New dialect knob
+  `window_partition_null_rows_dropped`: for `SUM/AVG/COUNT/MIN/MAX` with `PARTITION BY` and no
+  ORDER BY/frame, RisingWave gets the equivalent `ORDER BY <first partition key> ROWS BETWEEN
+  UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`, which it evaluates correctly. Other dialects
+  are unchanged. Both live cases now pass (RisingWave 18/18 core categories).
+- **MongoDB (pymongosql) `''` quote escape**: pymongosql ignores the doubled-quote escape and
+  silently returned no rows for `WHERE name = 'O''Brien'`. `execute_raw` / `execute(sql=...)` on
+  the MongoDB connector now rewrites such literals into bound `?` parameters (which pymongosql
+  handles correctly), via the new `BaseConnector.prepare_raw_sql` hook (identity by default;
+  runs after the safety checks). The strict-xfail known issue for it is removed. The separate
+  known issue (pymongosql rejecting compiler table aliases / double-quoted identifiers) remains.
 
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour

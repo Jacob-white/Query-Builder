@@ -281,7 +281,12 @@ tests only) until someone runs them. Reasons are environmental, not connector ve
 | Yugabyte, Drill, Milvus, Couchbase | container never became healthy on the test machine (memory), or crashed on start |
 | Firebird | needs the `fbclient` shared library; run with `--linux` |
 | BigQuery emulator | the emulator wedged on seeding (500 on DROP of a missing table) |
-| RisingWave | 2 known failures: `SELECT DISTINCT ... ORDER BY` and a window query return different rows |
+
+Resolved: RisingWave and the MongoDB `''` quote escape. RisingWave now passes live (97 passed, 18/18 core
+categories); it previously failed `SELECT DISTINCT ... ORDER BY` (the engine wants the select alias) and an
+aggregate window over a NULL partition key (the engine drops those rows), both worked around in
+`RisingWaveDialect`. pymongosql ignores `''`, so the MongoDB connector binds such literals as `?` parameters.
+Still a known issue for MongoDB: pymongosql rejects the compiler's table aliases and double-quoted identifiers.
 
 Run any of them with `scripts/it_batch.py` (see section 2); a batch that hangs is stopped by
 `timeout`, and `--purge` removes only containers of the `qb-integration` compose project.
