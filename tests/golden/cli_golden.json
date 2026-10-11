@@ -36,7 +36,7 @@
   "rc": 0
  },
  "compile_missing_spec_file": {
-  "err": "Compilation error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "err": "Compilation error: <OSERROR>: '<TMP>/nope.json'\n",
   "files": {},
   "out": "",
   "rc": 1
@@ -44,7 +44,7 @@
  "compile_missing_spec_file_json": {
   "err": "",
   "files": {},
-  "out": "{\n  \"success\": false,\n  \"error\": \"[Errno 2] No such file or directory: '<TMP>//nope.json'\"\n}\n",
+  "out": "{\n  \"success\": false,\n  \"error\": \"<OSERROR>: '<TMP>/nope.json'\"\n}\n",
   "rc": 1
  },
  "compile_mssql": {
@@ -70,7 +70,7 @@
   "rc": 0
  },
  "compile_schema_missing": {
-  "err": "Compilation error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "err": "Compilation error: <OSERROR>: '<TMP>/nope.json'\n",
   "files": {},
   "out": "",
   "rc": 1
@@ -148,7 +148,7 @@
   "rc": 0
  },
  "export_missing_schema": {
-  "err": "Export error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "err": "Export error: <OSERROR>: '<TMP>/nope.json'\n",
   "files": {},
   "out": "",
   "rc": 1
@@ -203,7 +203,7 @@
   "rc": 0
  },
  "init_error": {
-  "err": "Scaffolding error: [WinError 3] The system cannot find the path specified: '<TMP>/afile/sub'\n",
+  "err": "Scaffolding error: <OSERROR>: '<TMP>/afile/sub'\n",
   "files": {
    "afile": "x"
   },
@@ -215,7 +215,7 @@
   "files": {
    "afile": "x"
   },
-  "out": "{\n  \"success\": false,\n  \"error\": \"[WinError 3] The system cannot find the path specified: '<TMP>//afile//sub'\"\n}\n",
+  "out": "{\n  \"success\": false,\n  \"error\": \"<OSERROR>: '<TMP>/afile//sub'\"\n}\n",
   "rc": 1
  },
  "init_fastapi_duckdb": {
@@ -339,7 +339,7 @@
   "rc": 0
  },
  "join_bad_schema": {
-  "err": "Join path error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "err": "Join path error: <OSERROR>: '<TMP>/nope.json'\n",
   "files": {},
   "out": "",
   "rc": 1
@@ -375,7 +375,7 @@
   "rc": 0
  },
  "schema_bad_file": {
-  "err": "Schema Explorer error: [Errno 2] No such file or directory: '<TMP>/nope.json'\n",
+  "err": "Schema Explorer error: <OSERROR>: '<TMP>/nope.json'\n",
   "files": {},
   "out": "",
   "rc": 1
@@ -383,7 +383,7 @@
  "schema_bad_file_json": {
   "err": "",
   "files": {},
-  "out": "{\n  \"success\": false,\n  \"error\": \"[Errno 2] No such file or directory: '<TMP>//nope.json'\"\n}\n",
+  "out": "{\n  \"success\": false,\n  \"error\": \"<OSERROR>: '<TMP>/nope.json'\"\n}\n",
   "rc": 1
  },
  "schema_no_filter": {
@@ -449,7 +449,7 @@
  "test_alias_json": {
   "err": "",
   "files": {},
-  "out": "{\n  \"status\": \"healthy\",\n  \"dialect\": \"sqlite\",\n  \"latency_ms\": <N>,\n  \"engine_version\": \"3.49.1\"\n}\n",
+  "out": "{\n  \"status\": \"healthy\",\n  \"dialect\": \"sqlite\",\n  \"latency_ms\": <N>,\n  \"engine_version\": \"<VER>\"\n}\n",
   "rc": 0
  },
  "test_bad_config": {

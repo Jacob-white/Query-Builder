@@ -65,6 +65,13 @@ def _norm(text: str, db_path: str) -> str:
     text = re.sub(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<UUID>", text
     )
+    # the wording of Python's "bad keyword argument" TypeError differs between 3.11 and 3.12+
+    text = re.sub(
+        r"Connection\(\) got an unexpected keyword argument '\w+'"
+        r"|'\w+' is an invalid keyword argument for Connection\(\)",
+        "<BAD_KWARG>",
+        text,
+    )
     return _VOLATILE.sub(lambda m: f'"{m.group(1)}": <V>', text)
 
 

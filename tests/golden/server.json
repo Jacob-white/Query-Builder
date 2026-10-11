@@ -1928,7 +1928,7 @@
   },
   "body": {
    "healthy": false,
-   "error": "Failed to connect to SQLite database ':memory:': Connection() got an unexpected keyword argument 'config'",
+   "error": "Failed to connect to SQLite database ':memory:': <BAD_KWARG>",
    "latency_ms": "<V>",
    "dialect": "sqlite",
    "connection_id": null

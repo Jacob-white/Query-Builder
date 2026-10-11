@@ -744,6 +744,8 @@ simple("verify_json", "verify-connectors", "--json")
 _LATENCY = re.compile(r"(latency(?:_ms)?\"?[:=]? ?\"?)[0-9.]+")
 
 
+_OS_ERROR = re.compile(r"\[(?:WinError|Errno) \d+\] [^:']+:")
+_ENGINE_VERSION = re.compile(r'("engine_version": ")[0-9][0-9.]*')
 _AVAILABLE = re.compile(r"Available connectors: \[[^\]]*\]")
 
 
@@ -753,6 +755,11 @@ def _norm(text: str, tmp: Path) -> str:
     for width in (4, 2, 1):
         text = text.replace(str(tmp).replace("\\", "\\" * width), "<TMP>")
     text = text.replace("\\\\", "/").replace("\\", "/")
+    text = text.replace("<TMP>//", "<TMP>/")  # a tmp dir may or may not end in a slash
+    # OS-specific wording of the same failure ([Errno 20] vs [WinError 3]) and the SQLite
+    # library version differ between the platforms the suite runs on
+    text = _OS_ERROR.sub("<OSERROR>:", text)
+    text = _ENGINE_VERSION.sub(r"\1<VER>", text)
     return _LATENCY.sub(r"\1<N>", text)
 
 
