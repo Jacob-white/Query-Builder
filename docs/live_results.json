@@ -486,7 +486,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "athena: set QB_IT_ATHENA_S3_STAGING_DIR, QB_IT_ATHENA_REGION to run this test (AWS credentials come from the standard AWS environment/profile)": 7
       },
@@ -582,7 +582,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "bigquery: set QB_IT_BIGQUERY_DATASET to run this test (also set GOOGLE_APPLICATION_CREDENTIALS (service-account JSON))": 7
       },
@@ -2335,7 +2335,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "databricks: set QB_IT_DATABRICKS_HOST, QB_IT_DATABRICKS_HTTP_PATH, QB_IT_DATABRICKS_TOKEN to run this test": 7
       },
@@ -4805,13 +4805,13 @@
         },
         "value_safety": {
           "failed": 0,
-          "passed": 0,
+          "passed": 1,
           "skipped": {
             "declared_unverified": 0,
             "environment": 0,
             "verified_limitation": 0
           },
-          "xfailed": 1
+          "xfailed": 0
         },
         "write_refused": {
           "failed": 0,
@@ -4843,24 +4843,23 @@
       "failures": [],
       "family_kind": "native",
       "known_issues": [
-        "tests/integration/test_smoke.py::test_query_spec_compiled_and_executed[mongodb]: known issue, reported: pymongosql rejects the compiler's table aliases and double-quoted identifiers and SILENTLY returns no rows for the compiled SQL",
-        "tests/integration/test_smoke.py::test_special_values_round_trip_as_data[mongodb]: known issue, reported: pymongosql does not understand the standard SQL doubled-quote escape ('O''Brien') and SILENTLY returns no rows instead of the matching document"
+        "tests/integration/test_smoke.py::test_query_spec_compiled_and_executed[mongodb]: known issue, reported: pymongosql rejects the compiler's table aliases and double-quoted identifiers and SILENTLY returns no rows for the compiled SQL"
       ],
       "limitations": {
         "declared_unverified": [],
         "verified": []
       },
-      "passed": 9,
+      "passed": 10,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:01 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "mongodb: container runs without authentication": 1
       },
       "skipped": 1,
       "tier": "extended",
       "version": "MongoDB 7.0.14",
-      "xfailed": 2
+      "xfailed": 1
     },
     "mssql": {
       "categories": {
@@ -7141,7 +7140,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "redshift: set QB_IT_REDSHIFT_HOST, QB_IT_REDSHIFT_USER, QB_IT_REDSHIFT_PASSWORD, QB_IT_REDSHIFT_DATABASE to run this test": 7
       },
@@ -7153,8 +7152,8 @@
     "risingwave": {
       "categories": {
         "aggregates": {
-          "failed": 1,
-          "passed": 3,
+          "failed": 0,
+          "passed": 4,
           "skipped": {
             "declared_unverified": 0,
             "environment": 0,
@@ -7343,8 +7342,8 @@
           "xfailed": 0
         },
         "window": {
-          "failed": 1,
-          "passed": 0,
+          "failed": 0,
+          "passed": 1,
           "skipped": {
             "declared_unverified": 0,
             "environment": 0,
@@ -7388,11 +7387,8 @@
         "async_parity"
       ],
       "emulated": false,
-      "failed": 2,
-      "failures": [
-        "tests/integration/test_conformance.py::test_compile_and_execute[risingwave-distinct]",
-        "tests/integration/test_conformance.py::test_compile_and_execute[risingwave-window-row-number-and-partition-sum]"
-      ],
+      "failed": 0,
+      "failures": [],
       "family_kind": "sql",
       "known_issues": [],
       "limitations": {
@@ -7404,10 +7400,10 @@
           "statement_timeout"
         ]
       },
-      "passed": 92,
+      "passed": 94,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 01:56 UTC",
+      "run_at": "2026-10-11 18:54 UTC",
       "skip_reasons": {
         "[limitation:db_read_only] risingwave: db_read_only unsupported - no read-only role is provisioned for this engine in the harness": 1,
         "[limitation:introspect_fk] risingwave: introspect_fk unsupported - RisingWave has no foreign keys": 1,
@@ -7654,7 +7650,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "snowflake: set QB_IT_SNOWFLAKE_ACCOUNT, QB_IT_SNOWFLAKE_USER, QB_IT_SNOWFLAKE_PASSWORD, QB_IT_SNOWFLAKE_WAREHOUSE, QB_IT_SNOWFLAKE_DATABASE to run this test": 7
       },
@@ -8650,7 +8646,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-09 19:58 UTC",
+      "run_at": "2026-10-11 18:57 UTC",
       "skip_reasons": {
         "synapse: set QB_IT_SYNAPSE_SERVER, QB_IT_SYNAPSE_USER, QB_IT_SYNAPSE_PASSWORD, QB_IT_SYNAPSE_DATABASE to run this test (Azure Synapse dedicated/serverless SQL pool via the SQL Server connector)": 7
       },
@@ -9883,5 +9879,5 @@
       "xfailed": 0
     }
   },
-  "run_at": "2026-10-11 01:59 UTC"
+  "run_at": "2026-10-11 18:57 UTC"
 }
