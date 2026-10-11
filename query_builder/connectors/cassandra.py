@@ -123,7 +123,7 @@ class ApacheCassandraConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("cassandra.cluster", "cassandra"):
             try:
                 driver = __import__(mod_name, fromlist=["Cluster"])
@@ -138,7 +138,7 @@ class ApacheCassandraConnector(BaseConnector):
             )
 
         try:
-            cluster_cls = getattr(driver, "Cluster", None) or getattr(
+            cluster_cls: Any = getattr(driver, "Cluster", None) or getattr(
                 getattr(driver, "cluster", None), "Cluster", None
             )
             cfg = {
@@ -225,7 +225,7 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("cassandra.cluster", "cassandra"):
             try:
                 driver = __import__(mod_name, fromlist=["Cluster"])
@@ -240,7 +240,7 @@ class AsyncApacheCassandraConnector(AsyncBaseConnector):
             )
 
         try:
-            cluster_cls = getattr(driver, "Cluster", None) or getattr(
+            cluster_cls: Any = getattr(driver, "Cluster", None) or getattr(
                 getattr(driver, "cluster", None), "Cluster", None
             )
             cfg = {

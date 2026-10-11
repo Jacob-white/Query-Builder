@@ -362,7 +362,7 @@ class AsyncMemgraphConnector(AsyncBaseConnector):
                         continue
                     statement = steps.send(rows)
             except StopIteration as done:
-                return done.value  # type: ignore[no-any-return]
+                return done.value
             except Exception as exc:
                 raise IntrospectionError(
                     f"Failed to introspect Memgraph schema: {exc}"

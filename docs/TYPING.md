@@ -21,6 +21,12 @@ shrink.
   file (so a finished module cannot quietly be re-added later).
 - **Third-party imports:** never ignored globally. `redis` and `yaml` (optional dependencies)
   have scoped `ignore_missing_imports` overrides; `types-PyYAML` is a dev dependency.
+  The optional vendor SDKs and frameworks that connectors and integrations import (boto3,
+  django, rest_framework, fastapi, pydantic, google.cloud, ...) have one scoped override with
+  `ignore_missing_imports`, `follow_imports = "skip"` and `follow_imports_for_stubs`, so they
+  are `Any` whether or not they (or their stub packages, e.g. `django-stubs`) are installed.
+  This keeps mypy results identical on CI (which installs only a few extras) and on a machine
+  with everything installed, and stops `unused-ignore` flapping. Add new vendor modules there.
 - **`type: ignore`:** must carry a specific error code and a reason comment.
 
 Run it locally:
@@ -32,13 +38,10 @@ python -m mypy query_builder
 
 ## Modules still in the baseline
 
-The core engine is fully graduated (compiler, parser, sql_ast, ast_validator, dialects, server,
-cli). What remains is the optional-dependency surface, where fallback imports such as
-`try: import x / except ImportError: x = None` need careful typing:
-
-1. `connectors/**` (`base` and `async_base` first, then each connector; optional vendor SDKs
-   need scoped `ignore_missing_imports` overrides or stubs)
-2. `integrations/*` (`fastapi`, `django`, ...; optional framework imports)
+None: every module in `query_builder` is strictly type-checked, including `compiler`, `parser`,
+`dialects`, `server`, `cli`, `connectors/**` and `integrations/*`. When adding a connector, put its
+optional import in a module-level `try/except ImportError` with the name typed `Any`
+(`driver: Any = None`), not a bare `x = None` / module assignment, which mypy rejects.
 
 The authoritative list is `docs/typing_baseline.txt`.
 

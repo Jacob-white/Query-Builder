@@ -308,7 +308,7 @@ def _read_condition(
 
 def shape_rows(
     vq: VectorQuery, hits: list[dict[str, Any]]
-) -> tuple[list[tuple[str]], list[list[Any]]]:
+) -> tuple[list[tuple[str, ...]], list[list[Any]]]:
     """Build a DB-API ``description`` and rows from hit dicts (``id``, payload, ``_distance``)."""
     if vq.count_only:
         return [("count",)], [[len(hits)]]
@@ -320,7 +320,7 @@ def shape_rows(
                 if key not in names:
                     names.append(key)
         columns = [(n, n) for n in names] or [("id", "id")]
-    description = [(name,) for name, _ in columns]
+    description: list[tuple[str, ...]] = [(name,) for name, _ in columns]
     rows = [[hit.get(src) for _, src in columns] for hit in hits]
     return description, rows
 

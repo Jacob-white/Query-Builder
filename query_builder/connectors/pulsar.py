@@ -108,7 +108,7 @@ class PulsarSQLConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("trino.dbapi", "trino", "prestodb.dbapi", "prestodb"):
             try:
                 driver = __import__(mod_name, fromlist=["connect"])
@@ -213,7 +213,7 @@ class AsyncPulsarSQLConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("trino.dbapi", "trino", "prestodb.dbapi", "prestodb"):
             try:
                 driver = __import__(mod_name, fromlist=["connect"])
