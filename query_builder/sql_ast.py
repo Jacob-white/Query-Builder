@@ -37,9 +37,10 @@ This is defence in depth, not a replacement for database-side read-only enforcem
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import cache, lru_cache
+from typing import Any, TypeVar
 
 try:
     import sqlglot
@@ -51,6 +52,11 @@ except ImportError:  # pragma: no cover - exercised only without the dependency
     exp = None  # type: ignore[assignment]
     SqlglotError = Exception  # type: ignore[assignment,misc]
     _SqlglotDialect = None  # type: ignore[assignment,misc]
+
+# sqlglot renamed its node base class between releases (Expression vs Expr) and this
+# package supports both, so AST nodes are typed as Any rather than naming either.
+_Node = Any
+T = TypeVar("T")
 
 #: Interpretations tried (and UNIONed) when the dialect is unknown.  Maintainers may
 #: mutate this tuple/list at start-up to widen or narrow coverage.
@@ -321,20 +327,20 @@ def _names_equal(a: object, b: object) -> bool:
     return na.lower() == nb.lower()
 
 
-def _with_of(node: object) -> object | None:
-    w = node.args.get("with_") or node.args.get("with")  # type: ignore[attr-defined]
+def _with_of(node: _Node) -> exp.With | None:
+    w = node.args.get("with_") or node.args.get("with")
     return w if isinstance(w, exp.With) else None
 
 
-def _resolves_to_cte(table: object) -> bool:
+def _resolves_to_cte(table: _Node) -> bool:
     """True if an unqualified table reference names a CTE visible at its position."""
-    ident = table.args.get("this")  # type: ignore[attr-defined]
+    ident = table.args.get("this")
     if not isinstance(ident, exp.Identifier):
         return False
-    if table.args.get("db") or table.args.get("catalog"):  # type: ignore[attr-defined]
+    if table.args.get("db") or table.args.get("catalog"):
         return False
     child = table
-    node = table.parent  # type: ignore[attr-defined]
+    node = table.parent
     while node is not None:
         if isinstance(node, exp.With):
             # `child` is the CTE whose definition contains the reference: only EARLIER
@@ -493,7 +499,7 @@ def _strip_comments(sql: str, dialect: str | None = None) -> str:
     )
 
 
-def _parse(sql: str, dialect: str | None):
+def _parse(sql: str, dialect: str | None) -> list[_Node | None]:
     return sqlglot.parse(_normalize_placeholders(sql, dialect), read=dialect)
 
 
@@ -618,7 +624,7 @@ def _analyze_cached(sql: str, dialects: tuple[str, ...]) -> SqlAnalysis:
         ctes.extend(res["cte_names"])  # type: ignore[arg-type]
         recursive = recursive or bool(res["recursive"])
 
-    def uniq(seq: Iterable[object]) -> tuple:
+    def uniq(seq: Iterable[T]) -> tuple[T, ...]:
         return tuple(dict.fromkeys(seq))
 
     return SqlAnalysis(
@@ -670,7 +676,7 @@ def evaluate_policy(
     denied_keywords: set[str],
     allow_cte: bool = True,
     allow_recursive_cte: bool = False,
-    clean_ident=lambda s: s.upper().strip('"[]`'),
+    clean_ident: Callable[[str], str] = lambda s: s.upper().strip('"[]`'),
 ) -> list[str]:
     """Applies the allowlist policy to an analysis; returns violation messages."""
     out: list[str] = []

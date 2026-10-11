@@ -108,6 +108,9 @@
 - Starter app: per-request SQLite connections; thread-bound shared connection removed.
 
 ### Tooling
+- mypy ratchet: `compiler`, `parser`, `sql_ast`, `ast_validator`, `server`, `cli` and the
+  `dialects` package are now strictly type-checked (only `connectors` and `integrations` remain
+  in the baseline). Type fixes are annotation-only; no behavior change.
 - Release workflow (`.github/workflows/release.yml`): tag-triggered, dry-run by default, PyPI trusted
   publishing, npm `--provenance`, SBOMs and checksums; see `docs/RELEASING.md`.
 - CI: `pip-audit`, `pnpm audit`, dependency review, CycloneDX SBOMs, package build/`twine check`,

@@ -393,6 +393,14 @@ module = [
     "query_builder.adapters.*",
     "query_builder.ai.*",
     "query_builder.nlq.*",
+    "query_builder.compiler",
+    "query_builder.dialects",
+    "query_builder.dialects.*",
+    "query_builder.parser",
+    "query_builder.cli",
+    "query_builder.server",
+    "query_builder.ast_validator",
+    "query_builder.sql_ast",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -404,14 +412,6 @@ disallow_any_generics = true
 # delete it from both this list and docs/typing_baseline.txt.
 [[tool.mypy.overrides]]
 module = [
-    "query_builder.compiler",
-    "query_builder.dialects",
-    "query_builder.dialects.*",
-    "query_builder.parser",
-    "query_builder.cli",
-    "query_builder.server",
-    "query_builder.ast_validator",
-    "query_builder.sql_ast",
     "query_builder.integrations.*",
     "query_builder.connectors.*",
 ]

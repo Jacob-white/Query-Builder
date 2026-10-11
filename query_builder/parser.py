@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from query_builder._regex_utils import (
     strip_block_comments,
@@ -729,7 +729,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     else []
                 )
                 over_body = win_match.over.strip()
-                alias = (
+                alias: str | None = (
                     clean_identifier(win_match.alias)
                     if win_match.alias
                     else f"{func_name.lower()}_over"
@@ -767,7 +767,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                         function=func_name,
                         arguments=args,
                         partition_by=partition_by,
-                        order_by=order_by_specs,
+                        order_by=[*order_by_specs],
                         alias=alias,
                     )
                 )
@@ -952,10 +952,10 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         condition_chunks = split_where_conditions(where_content)
         # A filter's combiner is the operator joining it to the PREVIOUS filter
         # (the delimiter that followed the previous chunk); the first is 'AND'.
-        prev_delimiter = "AND"
+        prev_delimiter: Literal["AND", "OR"] = "AND"
         for chunk in condition_chunks:
             cond_str = chunk["value"].strip()
-            combiner = prev_delimiter
+            combiner: Literal["AND", "OR"] = prev_delimiter
             next_delim = str(chunk.get("delimiter") or "AND").upper()
             prev_delimiter = "OR" if next_delim == "OR" else "AND"
             if prev_delimiter == "OR":
@@ -1054,22 +1054,22 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
 
     offset_content = clause_map.get("OFFSET")
     if offset_content:
-        o_match = re.match(r"^(\d+)", offset_content)
-        if o_match:
-            offset = int(o_match.group(1))
+        off_match = re.match(r"^(\d+)", offset_content)
+        if off_match:
+            offset = int(off_match.group(1))
 
     return QuerySpec(
         table=primary_table,
         columns=columns,
-        joins=joins,
-        filters=filters,
+        joins=[*joins],
+        filters=[*filters],
         filter_join=filter_join,
-        order_by=order_by,
+        order_by=[*order_by],
         limit=limit,
         offset=offset,
         distinct=is_distinct,
-        ctes=ctes,
-        window_functions=window_functions,
+        ctes=[*ctes],
+        window_functions=[*window_functions],
     )
 
 
