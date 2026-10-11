@@ -22,17 +22,57 @@ from tests.integration.engines import (
     RO_PASSWORD,
     RO_USER,
     Engine,
+    Limitation,
     Native,
     _dbapi_native,
     _kw_postgres,
     _pg_native,
     _pg_ro,
     _ro,
+    feature_probe,
     register,
 )
 
 _PG_SLEEP = "SELECT pg_sleep(30)"
+
+
 #: two big generated relations: far longer than any test timeout, no side effects
+def _probe_statement_timeout_enforced(e: Engine) -> bool:
+    """True when ``SET statement_timeout`` really cancels a slow native query (the feature
+    WORKED); False when the engine ignores it.  Bounded: a watchdog cancels the statement
+    after 12 s so an engine that ignores the setting cannot hang the run."""
+    import threading
+    import time
+
+    import psycopg
+
+    conn = psycopg.connect(
+        host=e.host,
+        port=e.port_,
+        user=e.user_,
+        password=e.password_,
+        dbname=e.database_,
+        autocommit=True,
+    )
+    watchdog = threading.Timer(12.0, conn.cancel)
+    try:
+        cur = conn.cursor()
+        cur.execute("SET statement_timeout = '1000ms'")
+        assert e.slow_sql
+        watchdog.start()
+        started = time.perf_counter()
+        try:
+            cur.execute(e.slow_sql)
+        except Exception:  # noqa: BLE001 - cancelled by the timeout OR by our watchdog
+            pass
+        return (
+            time.perf_counter() - started
+        ) < 10.0  # cancelled well before the watchdog
+    finally:
+        watchdog.cancel()
+        conn.close()
+
+
 _GEN_SLOW = (
     "SELECT count(*) FROM generate_series(1, 100000000) a "
     "CROSS JOIN generate_series(1, 100000) b"
@@ -237,6 +277,21 @@ register(
         slow_sql=_GEN_SLOW,
         unsupported={
             "introspect_fk": "RisingWave has no foreign keys",
+            "statement_timeout": Limitation(
+                "RisingWave does not cancel this slow SELECT on statement_timeout",
+                probe=_probe_statement_timeout_enforced,
+            ),
+            "introspect_not_null": Limitation(
+                "RisingWave does not implement NOT NULL column constraints",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_nn (id INT NOT NULL)",
+                    "CREATE TABLE qbit_pr_ctl (id INT)",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_nn",
+                        "DROP TABLE IF EXISTS qbit_pr_ctl",
+                    ),
+                ),
+            ),
             "db_read_only": "no read-only role is provisioned for this engine in the harness",
         },
         service="risingwave",
@@ -277,8 +332,17 @@ register(
         database="materialize",
         connector_factory=_kw_materialize,
         native_factory=_pg_native,
-        slow_sql=_GEN_SLOW,
+        slow_sql=(
+            # Materialize folds `count(*)` over a plain cross join into a product, so join
+            # on an expression it cannot simplify
+            "SELECT count(*) FROM generate_series(1, 100000000) a "
+            "JOIN generate_series(1, 100000000) b ON a % 1000003 = b % 1000033"
+        ),
         unsupported={
+            "statement_timeout": Limitation(
+                "Materialize does not cancel this slow SELECT on statement_timeout",
+                probe=_probe_statement_timeout_enforced,
+            ),
             "introspect_pk": "Materialize tables have no primary keys",
             "introspect_fk": "Materialize has no foreign keys",
             "db_read_only": "no read-only role is provisioned for this engine in the harness",
@@ -300,12 +364,12 @@ def _seed_greptime(e: Engine) -> None:
     try:
         native.run("DROP TABLE IF EXISTS qbit_people")
         native.run(
-            'CREATE TABLE qbit_people ("id" INT, name STRING, age INT, '
+            'CREATE TABLE qbit_people ("id" INT, "name" STRING, "age" INT, '
             'ts TIMESTAMP TIME INDEX, PRIMARY KEY ("id"))'
         )
         for pid, name, age in smoke.PEOPLE:
             native.run(
-                'INSERT INTO qbit_people ("id", name, age, ts) VALUES '
+                'INSERT INTO qbit_people ("id", "name", "age", ts) VALUES '
                 f"({pid}, '{name}', {age}, {pid})"
             )
     finally:

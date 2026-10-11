@@ -112,6 +112,16 @@ class AsyncPrestoDBConnector(AsyncBaseConnector):
         self.catalog = catalog
         self.schema_name = schema_name
 
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        return await self._introspect_blocking(
+            introspect_information_schema,
+            "PrestoDB",
+            self.schema_name,
+            filter_sensitive,
+            placeholder="?",
+            pk_guess=False,
+        )
+
     async def connect(self) -> Any:
         if self._connection is not None:
             return self._connection

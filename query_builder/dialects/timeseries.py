@@ -58,6 +58,11 @@ class TDengineDialect(BaseDialect):
     placeholder: str = "?"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # taosrest rejects bound LIMIT/OFFSET ("syntax error near ? offset ?"): inline the
+        # int-coerced values.
+        return f"LIMIT {int(limit)} OFFSET {int(offset)}", []
+
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)
         parts = ident.split(".")

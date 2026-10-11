@@ -18289,7 +18289,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "cratedb",
@@ -18308,9 +18308,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -18699,15 +18699,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -18723,15 +18723,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -18747,15 +18747,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -18777,7 +18777,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "cratedb",
@@ -18796,9 +18796,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -19187,15 +19187,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -19211,15 +19211,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -19235,15 +19235,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -52026,20 +52026,23 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       10
+       10,
+       0
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       5
+       5,
+       20
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
+       0,
        0
       ]
      ]
@@ -52457,20 +52460,23 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       10
+       10,
+       0
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       5
+       5,
+       20
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
+       0,
        0
       ]
      ]
@@ -52888,20 +52894,23 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       10
+       10,
+       0
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
-       5
+       5,
+       20
       ]
      ],
      [
-      "LIMIT %s",
+      "LIMIT %s OFFSET %s",
       [
+       0,
        0
       ]
      ]
@@ -65120,25 +65129,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -65609,25 +65609,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT %s OFFSET %s",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT %s OFFSET %s",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -72215,7 +72206,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "starrocks",
@@ -72234,9 +72225,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -72625,15 +72616,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -72649,15 +72640,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -72673,15 +72664,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -74548,25 +74539,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT ? OFFSET ?",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT ? OFFSET ?",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT ? OFFSET ?",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -74982,25 +74964,16 @@
     ],
     "format_limit_offset": [
      [
-      "LIMIT ? OFFSET ?",
-      [
-       10,
-       0
-      ]
+      "LIMIT 10 OFFSET 0",
+      []
      ],
      [
-      "LIMIT ? OFFSET ?",
-      [
-       5,
-       20
-      ]
+      "LIMIT 5 OFFSET 20",
+      []
      ],
      [
-      "LIMIT ? OFFSET ?",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0 OFFSET 0",
+      []
      ]
     ],
     "format_substring_match": [

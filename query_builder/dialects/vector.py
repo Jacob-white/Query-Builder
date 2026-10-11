@@ -39,9 +39,6 @@ class PineconeDialect(BaseDialect):
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
     introspects_keys: bool = False
 
-    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"LIMIT {self.placeholder}", [limit]
-
     def inspect_tables_query(
         self, schema_name: str = "default"
     ) -> tuple[str, list[Any]]:

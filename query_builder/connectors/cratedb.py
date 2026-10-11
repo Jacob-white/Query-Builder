@@ -7,6 +7,7 @@ dual sync and async execution protocols, and Lucene-backed schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -160,6 +161,27 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
             return col_names, dict_rows, latency_ms
         finally:
             cur.close()
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = await self.connect()
+
+        def work() -> dict[str, Any]:
+            cur = conn.cursor()
+            try:
+                return introspect_cratedb(
+                    cur,
+                    schema_name=self.schema_name,
+                    filter_sensitive=filter_sensitive,
+                )
+            finally:
+                cur.close()
+
+        try:
+            return await asyncio.to_thread(work)
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect CrateDB schema '{self.schema_name}': {exc}"
+            ) from exc
 
 
 AsyncCrateConnector = AsyncCrateDBConnector

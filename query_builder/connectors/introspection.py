@@ -268,9 +268,13 @@ def introspect_information_schema(
     fk_style: str = "ansi",
     placeholder: str = "%s",
     pk_guess: bool = True,
+    pk_column_key_fallback: bool = False,
 ) -> dict[str, Any]:
     """
     Introspects standard ANSI/PostgreSQL/MySQL/MSSQL schemas via information_schema catalogs.
+
+    ``pk_column_key_fallback`` reads primary keys from ``columns.column_key = 'PRI'`` when
+    ``table_constraints`` lists none (StarRocks primary-key tables only expose them there).
 
     Primary keys come from the catalog (``table_constraints``); only when the
     engine lacks that catalog does it fall back (``pk_guess``) to treating a
@@ -315,6 +319,16 @@ def introspect_information_schema(
         with contextlib.suppress(Exception):
             cursor.execute(_sql(_PRIMARY_KEY_SQL), [schema_name])
             pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+        if pk_column_key_fallback and not pk_cols:
+            with contextlib.suppress(Exception):
+                cursor.execute(
+                    _sql(
+                        "SELECT table_name, column_name FROM information_schema.columns "
+                        "WHERE table_schema = %s AND column_key = 'PRI'"
+                    ),
+                    [schema_name],
+                )
+                pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
         if pk_cols is None and not pk_guess:
             pk_cols = set()
 
@@ -738,7 +752,8 @@ def introspect_cratedb(
                 {
                     "name": c_name,
                     "data_type": d_type,
-                    "is_nullable": is_null.upper() == "YES",
+                    # CrateDB reports a BOOLEAN here; other engines say YES/NO
+                    "is_nullable": is_null.upper() in ("YES", "TRUE"),
                     "is_primary": (
                         c_name in pk_cols.get(t_name, set())
                         if pk_known
@@ -1164,27 +1179,28 @@ def introspect_greptimedb(
     cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects GreptimeDB time-series schema using INFORMATION_SCHEMA."""
+    # GreptimeDB cannot infer the type of a server-side bound parameter ("Found type:
+    # unknown" under psycopg 3), so the schema name is inlined as an escaped literal.
+    schema_literal = "'" + str(schema_name).replace("'", "''") + "'"
     try:
         cursor.execute(
-            """
+            f"""
             SELECT table_name
             FROM information_schema.tables
-            WHERE table_schema = %s
+            WHERE table_schema = {schema_literal}
             ORDER BY table_name;
-            """,
-            [schema_name],
+            """
         )
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         cursor.execute(
-            """
+            f"""
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = %s
+            WHERE table_schema = {schema_literal}
             ORDER BY table_name, ordinal_position;
-            """,
-            [schema_name],
+            """
         )
         col_rows = cursor.fetchall()
 

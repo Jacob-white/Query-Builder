@@ -268,6 +268,24 @@ query-builder verify-connectors [--json]                # print the status table
 drivers, runs `pytest -m integration` with the required tier strict, and uploads the JSON and
 Markdown report as an artifact. It is not part of the default PR gate otherwise.
 
+## 7. Engines that could not be run locally
+
+Not exercised by a live run on the maintainer's machine; their classes stay `verified` (unit
+tests only) until someone runs them. Reasons are environmental, not connector verdicts:
+
+| Engine | Why |
+| --- | --- |
+| Teradata, SAP HANA, Sybase, Kdb+, Databricks, Athena, Neptune, Timestream, real Snowflake / Redshift / BigQuery | no local image or paid cloud service |
+| Db2, Informix, Vertica, Exasol, Doris, OceanBase, Presto | multi-GB images; not pulled (disk) |
+| Firestore, Bigtable, Spanner, Cosmos DB, Kusto emulators | images not pulled |
+| Yugabyte, Drill, Milvus, Couchbase | container never became healthy on the test machine (memory), or crashed on start |
+| Firebird | needs the `fbclient` shared library; run with `--linux` |
+| BigQuery emulator | the emulator wedged on seeding (500 on DROP of a missing table) |
+| RisingWave | 2 known failures: `SELECT DISTINCT ... ORDER BY` and a window query return different rows |
+
+Run any of them with `scripts/it_batch.py` (see section 2); a batch that hangs is stopped by
+`timeout`, and `--purge` removes only containers of the `qb-integration` compose project.
+
 ## Adding engines (families)
 
 Engines live in per-family files so several people can add engines without editing the same

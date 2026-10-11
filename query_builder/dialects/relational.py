@@ -291,6 +291,11 @@ class RisingWaveDialect(PostgresDialect):
 
     name: str = "risingwave"
 
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # RisingWave cannot prepare a bound LIMIT/OFFSET ("expected a value, found: $2"):
+        # inline the int-coerced values.
+        return f"LIMIT {int(limit)} OFFSET {int(offset)}", []
+
 
 class CrateDBDialect(BaseDialect):
     """CrateDB distributed SQL database dialect."""
@@ -299,6 +304,8 @@ class CrateDBDialect(BaseDialect):
     placeholder: str = (
         "?"  # the `crate` client binds qmark parameters; `%s` is a parse error
     )
+    like_escape_char = "\\"  # CrateDB's default LIKE escape character
+    cte_params_after_main = True  # CrateDB binds the main query's `?` before the CTE's
 
     def inspect_tables_query(self, schema_name: str = "doc") -> tuple[str, list[Any]]:
         return (

@@ -674,7 +674,14 @@ def _bq_native(e: Engine) -> Native:
     client = _bq_client(e)
 
     def run(sql: str) -> Any:
-        return list(client.query(sql).result())
+        # retry=None/timeout: the emulator answers 500 (not "not found") for DROP of a table
+        # that does not exist, and the client's default retry would spin on it for 40 minutes
+        try:
+            return list(client.query(sql, retry=None).result(retry=None, timeout=60))
+        except Exception:
+            if sql.lstrip().upper().startswith("DROP TABLE IF EXISTS"):
+                return None  # nothing to drop on a fresh emulator
+            raise
 
     return Native(run, client.close)
 
