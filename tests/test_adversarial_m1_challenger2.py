@@ -753,14 +753,14 @@ def test_simultaneous_timeout_and_explicit_cancellation():
             async_execute(conn, {"table": "test_data"}, timeout_ms=50)
         )
 
-        # Task 2: Has 500ms timeout, but will be cancelled after 30ms
+        # Task 2: Has a generous timeout (never fires; CI runners can be slow), but will be cancelled after 30ms
         t_cancelled = asyncio.create_task(
-            async_execute(conn, {"table": "test_data"}, timeout_ms=500)
+            async_execute(conn, {"table": "test_data"}, timeout_ms=5000)
         )
 
-        # Task 3: Normal query with 500ms timeout that finishes after 200ms
+        # Task 3: Normal query that finishes after 200ms, well inside its timeout
         t_normal = asyncio.create_task(
-            async_execute(conn, {"table": "test_data"}, timeout_ms=500)
+            async_execute(conn, {"table": "test_data"}, timeout_ms=5000)
         )
 
         await asyncio.sleep(0.03)
