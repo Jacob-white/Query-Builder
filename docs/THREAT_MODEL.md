@@ -106,7 +106,8 @@ connector cannot forget it; a failure fails the connection closed.
 | DuckDB | File databases opened with `read_only=True` | Enforced by the engine. **In-memory databases and caller-supplied connections cannot be switched after the fact.** |
 | PostgreSQL, CockroachDB, TimescaleDB, Neon, AlloyDB | `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`, committed | Enforced; a role with `SET default_transaction_read_only = off` rights can undo it. |
 | Redshift | Same statement | Best effort (driver/version dependent). |
-| MySQL, MariaDB, TiDB | `SET SESSION TRANSACTION READ ONLY` | Enforced for ordinary transactions; `SUPER`-class accounts can lift it. |
+| MySQL, MariaDB | `SET SESSION TRANSACTION READ ONLY` | Enforced for ordinary transactions; `SUPER`-class accounts can lift it. |
+| TiDB | none (statement is a no-op there) | **Not enforced by the engine.** TiDB only accepts `READ ONLY` as a no-op, so rely on the validator and a SELECT-only database role. |
 | ClickHouse | `readonly = 2` client setting | Enforced, the setting itself is locked. `readonly = 1` was rejected because it also forbids the connector's own `SET max_execution_time`. |
 | SQL Server | none | **No session-level read-only mode exists.** `ApplicationIntent=ReadOnly` only routes to a readable secondary and does not block writes on a primary; `pymssql` does not support it. Use a `db_datareader`-only login. |
 | SingleStore, QuestDB, Materialize, RisingWave, and all other connectors | none | No documented mechanism; `read_only_support == "none"`. Use a read-only database role. |

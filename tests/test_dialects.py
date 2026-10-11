@@ -322,7 +322,9 @@ def test_new_dialects_behavior():
     assert sr.name == "starrocks"
     assert sr.quote_identifier("users") == "`users`"
     assert sr.quote_alias("my`alias") == "`my``alias`"
-    assert sr.format_ilike("`c`") == "`c` ILIKE %s"
+    assert (
+        sr.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
+    )  # StarRocks has no ILIKE
 
     # Materialize & RisingWave
     mz = get_dialect("materialize")
@@ -339,7 +341,7 @@ def test_new_dialects_behavior():
     crate = get_dialect("cratedb")
     assert crate.name == "cratedb"
     assert get_dialect("crate").name == "cratedb"
-    assert crate.format_ilike('"c"') == '"c" ILIKE %s'
+    assert crate.format_ilike('"c"') == '"c" ILIKE ?'
 
     influx = get_dialect("influxdb")
     assert influx.name == "influxdb"
@@ -434,7 +436,9 @@ def test_new_dialects_behavior():
     assert td.quote_alias("alias`1") == "`alias``1`"
     assert td.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
     td_clause, td_params = td.format_limit_offset(10, 20)
-    assert td_clause == "LIMIT ? OFFSET ?" and td_params == [10, 20]
+    assert (
+        td_clause == "LIMIT 10 OFFSET 20" and td_params == []
+    )  # inlined: taosrest rejects bound LIMIT
     td_t_sql, td_t_params = td.inspect_tables_query("default")
     assert td_t_sql == "SHOW TABLES;" and td_t_params == []
     td_c_sql, td_c_params = td.inspect_columns_query("default", "meters")

@@ -410,7 +410,9 @@ async def drive_async(plan: Any, client: Any) -> Any:
                 result = _resolve(client, name)(**kwargs)
                 if inspect.isawaitable(result):
                     result = await result
-                if hasattr(result, "__aiter__"):  # async generator: collect it
+                # async generator: collect it (but a result that can ALSO be iterated
+                # synchronously, like Pinecone's IndexList, is left to the plan)
+                if hasattr(result, "__aiter__") and not hasattr(result, "__iter__"):
                     result = [item async for item in result]
             except Exception as exc:  # noqa: BLE001 - let the plan decide
                 request = plan.throw(exc)

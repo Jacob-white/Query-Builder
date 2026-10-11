@@ -20,6 +20,14 @@ class TiDBConnector(MySQLConnector):
     """Connector for TiDB distributed HTAP MySQL-compatible database."""
 
     dialect_name = "tidb"
+    # TiDB accepts `SET SESSION TRANSACTION READ ONLY` only as a NO-OP (and refuses it
+    # outright unless tidb_enable_noop_functions is on), so it can never be enforced from the
+    # session: rely on the validator plus a SELECT-only database role.
+    read_only_support = "none"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """No-op: TiDB has no per-session read-only mode (see ``read_only_support``)."""
+        return None
 
     def connect(self) -> Any:
         if self._connection is not None:

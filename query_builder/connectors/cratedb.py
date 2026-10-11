@@ -7,6 +7,7 @@ dual sync and async execution protocols, and Lucene-backed schema introspection.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -44,7 +45,7 @@ class CrateDBConnector(BaseConnector):
             return self._connection
 
         driver = None
-        for mod_name in ("crate.client", "psycopg2", "psycopg"):
+        for mod_name in ("crate.client",):
             try:
                 driver = __import__(mod_name, fromlist=["client"])
                 break
@@ -53,7 +54,7 @@ class CrateDBConnector(BaseConnector):
 
         if driver is None:
             raise DriverNotInstalledError(
-                "Neither 'crate' nor 'psycopg2' is installed. "
+                "'crate' is not installed (its qmark parameter style is what the CrateDB dialect emits). "
                 "Install with: pip install 'query-builder-engine[cratedb]'"
             )
 
@@ -115,7 +116,7 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
             return self._connection
 
         driver = None
-        for mod_name in ("crate.client", "psycopg2", "psycopg"):
+        for mod_name in ("crate.client",):
             try:
                 driver = __import__(mod_name, fromlist=["client"])
                 break
@@ -124,7 +125,7 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
 
         if driver is None:
             raise DriverNotInstalledError(
-                "Neither 'crate' nor 'psycopg2' is installed. "
+                "'crate' is not installed (its qmark parameter style is what the CrateDB dialect emits). "
                 "Install with: pip install 'query-builder-engine[cratedb]'"
             )
 
@@ -160,6 +161,27 @@ class AsyncCrateDBConnector(AsyncBaseConnector):
             return col_names, dict_rows, latency_ms
         finally:
             cur.close()
+
+    async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
+        conn = await self.connect()
+
+        def work() -> dict[str, Any]:
+            cur = conn.cursor()
+            try:
+                return introspect_cratedb(
+                    cur,
+                    schema_name=self.schema_name,
+                    filter_sensitive=filter_sensitive,
+                )
+            finally:
+                cur.close()
+
+        try:
+            return await asyncio.to_thread(work)
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect CrateDB schema '{self.schema_name}': {exc}"
+            ) from exc
 
 
 AsyncCrateConnector = AsyncCrateDBConnector

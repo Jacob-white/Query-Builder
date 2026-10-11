@@ -83,14 +83,23 @@ def as_connector_error(exc: Exception) -> Exception:
     """
     if isinstance(exc, _PASSTHROUGH_ERRORS):
         return exc
-    message = f"{type(exc).__name__}: {exc}"
+    try:
+        detail = str(exc)
+    except Exception:  # noqa: BLE001 - a vendor __str__ may itself fail
+        detail = repr(exc.args)
+    message = f"{type(exc).__name__}: {detail}"
     wrapped: Exception
     try:
         # Also an instance of the vendor class, so existing ``except sqlite3.Error`` /
         # ``except psycopg.Error`` handlers keep working alongside ``except ConnectorError``.
-        wrapped = _compat_class(type(exc)).__new__(_compat_class(type(exc)))
+        cls = _compat_class(type(exc))
+        wrapped = cls.__new__(cls)
+        # vendor ``__str__``/``__repr__`` may read attributes set in their ``__init__``
+        wrapped.__dict__.update(getattr(exc, "__dict__", {}))
         BaseException.__init__(wrapped, message)
-    except TypeError:
+        str(wrapped)
+        repr(wrapped)
+    except Exception:  # noqa: BLE001 - layout conflict or vendor str() needing real state
         wrapped = QueryExecutionError(message)
     wrapped.__cause__ = exc
     return wrapped

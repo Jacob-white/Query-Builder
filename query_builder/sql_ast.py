@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache, lru_cache
 
 try:
     import sqlglot
@@ -413,35 +413,62 @@ def _root_type(node: object) -> tuple[str, bool]:
 # quantifiers and an explicit `\Z` fallback so every start position matches (or fails) in a
 # single linear pass: an unterminated literal swallows the rest of the text instead of being
 # rescanned from every later quote (that backtracking was polynomial on hostile input).
-_SQ = r"'(?:[^'\\]++|\\.?|'')*+(?:'|\Z)"
-_DQ = r'"(?:[^"\\]++|\\.?|"")*+(?:"|\Z)'
+# Whether a backslash escapes the next character inside a literal is dialect specific
+# (MySQL, BigQuery, ClickHouse, Spark, ... yes; T-SQL, Postgres, SQLite, ... no, so `'\'` is a
+# complete literal there); it is taken from sqlglot's own tokenizer for the dialect.
 _BQ = r"`[^`]*+(?:`|\Z)"
 _LINE_COMMENT = r"--[^\r\n]*+"
 _BLOCK_COMMENT = r"/\*(?:[^*]++|\*(?!/))*+(?:\*/|\Z)"
-_SKIP = f"{_SQ}|{_DQ}|{_BQ}"
+
+
+def _skip_pattern(backslash: bool) -> str:
+    if backslash:
+        sq = r"'(?:[^'\\]++|\\.?|'')*+(?:'|\Z)"
+        dq = r'"(?:[^"\\]++|\\.?|"")*+(?:"|\Z)'
+    else:
+        sq = r"'(?:[^']++|'')*+(?:'|\Z)"
+        dq = r'"(?:[^"]++|"")*+(?:"|\Z)'
+    return f"{sq}|{dq}|{_BQ}"
+
+
+@cache
+def _backslash_escapes(dialect: str | None) -> bool:
+    try:
+        tokenizer = _SqlglotDialect.get_or_raise(dialect).tokenizer_class
+    except Exception:  # noqa: BLE001 - unknown dialect: the parse will fail closed anyway
+        return False
+    return "\\" in tokenizer.STRING_ESCAPES
+
 
 # Bind-parameter placeholders emitted by the compiler for DB-API drivers.  Rewritten to
 # the neutral `?` before parsing; quoted regions / comments are skipped.  Any mismatch
 # with the real lexer can only leave a placeholder untouched (parse failure -> reject)
 # or alter text inside a literal (harmless), never hide code.
-_PLACEHOLDER_RE = re.compile(
-    rf"(?P<skip>{_SKIP}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
-    r"""|(?P<ph>%\(\w+\)s|%s|(?<![\w$])\$\d+(?![\w$])|(?<![\w$])\$[A-Za-z_]\w*(?![\w$]))""",
-    re.DOTALL,
-)
+@lru_cache(maxsize=2)
+def _placeholder_re(backslash: bool) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?P<skip>{_skip_pattern(backslash)}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
+        r"""|(?P<ph>%\(\w+\)s|%s|(?<![\w$])\$\d+(?![\w$])|(?<![\w$])\$[A-Za-z_]\w*(?![\w$]))""",
+        re.DOTALL,
+    )
+
+
 # Cypher / Informix style pagination emitted by some dialects: `SKIP ? LIMIT ?`.
-_SKIP_PAGINATION_RE = re.compile(
-    rf"(?P<skip>{_SKIP}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
-    r"""|(?P<pg>\bSKIP\s+\?\s+(?:LIMIT|FIRST)\s+\?)""",
-    re.IGNORECASE | re.DOTALL,
-)
+@lru_cache(maxsize=2)
+def _skip_pagination_re(backslash: bool) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?P<skip>{_skip_pattern(backslash)}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
+        r"""|(?P<pg>\bSKIP\s+\?\s+(?:LIMIT|FIRST)\s+\?)""",
+        re.IGNORECASE | re.DOTALL,
+    )
 
 
-def _normalize_placeholders(sql: str) -> str:
+def _normalize_placeholders(sql: str, dialect: str | None = None) -> str:
+    backslash = _backslash_escapes(dialect)
     if "%" in sql or "$" in sql:
-        sql = _PLACEHOLDER_RE.sub(lambda m: m.group("skip") or "?", sql)
+        sql = _placeholder_re(backslash).sub(lambda m: m.group("skip") or "?", sql)
     if "?" in sql:
-        sql = _SKIP_PAGINATION_RE.sub(
+        sql = _skip_pagination_re(backslash).sub(
             lambda m: m.group("skip") or "LIMIT ? OFFSET ?", sql
         )
     return sql
@@ -452,18 +479,22 @@ def _normalize_placeholders(sql: str) -> str:
 # replaced by a space.  Comment recognition here is the standard `--` / non-nested
 # `/* */` one; text a nesting dialect would hide stays visible, which only makes the
 # analysis stricter (more code is inspected, or the parse fails and we fail closed).
-_COMMENT_RE = re.compile(
-    rf"(?P<skip>{_SKIP})|(?P<cm>{_LINE_COMMENT}|{_BLOCK_COMMENT})",
-    re.DOTALL,
-)
+@lru_cache(maxsize=2)
+def _comment_re(backslash: bool) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?P<skip>{_skip_pattern(backslash)})|(?P<cm>{_LINE_COMMENT}|{_BLOCK_COMMENT})",
+        re.DOTALL,
+    )
 
 
-def _strip_comments(sql: str) -> str:
-    return _COMMENT_RE.sub(lambda m: m.group("skip") or " ", sql)
+def _strip_comments(sql: str, dialect: str | None = None) -> str:
+    return _comment_re(_backslash_escapes(dialect)).sub(
+        lambda m: m.group("skip") or " ", sql
+    )
 
 
 def _parse(sql: str, dialect: str | None):
-    return sqlglot.parse(_normalize_placeholders(sql), read=dialect)
+    return sqlglot.parse(_normalize_placeholders(sql, dialect), read=dialect)
 
 
 def _analyze_one(sql: str, dialect: str | None) -> tuple[dict[str, object], str | None]:
@@ -473,7 +504,7 @@ def _analyze_one(sql: str, dialect: str | None) -> tuple[dict[str, object], str 
         except SqlglotError:
             if "--" not in sql and "/*" not in sql:
                 raise
-            statements = _parse(_strip_comments(sql), dialect)
+            statements = _parse(_strip_comments(sql, dialect), dialect)
     except RecursionError:
         return {}, "recursion limit exceeded while parsing"
     except SqlglotError as exc:
