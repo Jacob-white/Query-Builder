@@ -2947,7 +2947,7 @@ def introspect_kdb(
 
             cols: list[dict[str, Any]] = []
             if meta_res is not None:
-                rows = []
+                rows: list[Any] | tuple[Any, ...] = []
                 if isinstance(meta_res, (list, tuple)):
                     rows = meta_res
                 elif hasattr(meta_res, "pd"):
@@ -3047,7 +3047,7 @@ def introspect_clickhouse_native(
         own_cur = cur is not client_or_cursor and cur is not getattr(
             client_or_cursor, "target", None
         )
-        table_rows = []
+        table_rows: list[Any] = []
         if hasattr(cur, "execute"):
             try:
                 cur.execute(
@@ -3063,7 +3063,7 @@ def introspect_clickhouse_native(
 
         table_names = [r[0] for r in table_rows if r and r[0]]
 
-        col_rows = []
+        col_rows: list[Any] = []
         if hasattr(cur, "execute"):
             try:
                 cur.execute(
@@ -4035,7 +4035,7 @@ def introspect_kusto(
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
             cols: list[dict[str, Any]] = []
-            col_rows = []
+            col_rows: list[Any] = []
             with contextlib.suppress(Exception):
                 if hasattr(cur, "execute"):
                     cur.execute(f".show table {tbl} schema as json")
@@ -4303,7 +4303,7 @@ def introspect_timestream(
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
             cols: list[dict[str, Any]] = []
-            col_rows = []
+            col_rows: list[Any] = []
             with contextlib.suppress(Exception):
                 if hasattr(cur, "execute"):
                     cur.execute(f'DESCRIBE "{database_name}"."{tbl}"')
@@ -5490,7 +5490,7 @@ def firestore_schema_steps(
 
 def introspect_firestore(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """Introspects Firestore collections: real collection names and sampled document fields."""
-    cur = None
+    cur: Any = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)
@@ -5555,7 +5555,7 @@ def bigtable_schema_steps(
 
 def introspect_bigtable(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """Introspects Bigtable: real table ids and the cell columns present in sampled rows."""
-    cur = None
+    cur: Any = None
     own_cur = False
     try:
         cur = _unwrap_cursor(cursor)

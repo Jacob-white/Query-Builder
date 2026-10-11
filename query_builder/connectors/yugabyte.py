@@ -201,7 +201,8 @@ class AsyncYugabyteDBConnector(AsyncBaseConnector):
             ]
             latency_ms = (time.perf_counter() - start) * 1000.0
             return col_names, dict_rows, latency_ms
-        return None
+        # Unreachable for real driver connections (cursor/fetch/execute); kept as-is.
+        return None  # type: ignore[return-value]
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()

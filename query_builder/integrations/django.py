@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, cast
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.capabilities import (
@@ -44,16 +44,16 @@ try:
     DJANGO_AVAILABLE = True
 except ImportError:
     DJANGO_AVAILABLE = False
-    HttpRequest = Any  # type: ignore[misc, assignment]
-    HttpResponse = Any  # type: ignore[misc, assignment]
-    JsonResponse = Any  # type: ignore[misc, assignment]
+    HttpRequest = Any
+    HttpResponse = Any
+    JsonResponse = Any
 
-APIView = object  # type: ignore[misc, assignment]
-DRFRequest = Any  # type: ignore[misc, assignment]
-DRFResponse = Any  # type: ignore[misc, assignment]
+APIView = object
+DRFRequest = Any
+DRFResponse = Any
 
 
-def _get_drf() -> tuple[type[Exception], type[Exception], Any, Any, type[Any]]:
+def _get_drf() -> tuple[type[Exception], type[Exception], Any, Any, Any]:
     try:
         import rest_framework  # noqa: F401
         from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -83,7 +83,7 @@ except Exception:  # noqa: BLE001
 
 # Kept as a module-level alias for type hints; the real class is imported lazily by
 # `_get_ninja()` so importing this module never requires (or configures) django-ninja.
-NinjaRouter = Any  # type: ignore[misc, assignment]
+NinjaRouter = Any
 
 
 def _get_ninja() -> tuple[type[Any], type[Exception]]:
@@ -113,15 +113,17 @@ def _resolve_conn(connector: Any) -> Any:
             import asyncio
             import concurrent.futures
 
+            coro = cast("Coroutine[Any, Any, Any]", res)
+
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
             if loop and loop.is_running():
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    return pool.submit(asyncio.run, res).result()
+                    return pool.submit(asyncio.run, coro).result()
             else:
-                return asyncio.run(res)
+                return asyncio.run(coro)
         return res
     return connector
 
@@ -165,15 +167,17 @@ def _exec_conn_method(conn: Any, method_name: str, *args: Any, **kwargs: Any) ->
         import asyncio
         import concurrent.futures
 
+        coro = cast("Coroutine[Any, Any, Any]", res)
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         if loop and loop.is_running():
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, res).result()
+                return pool.submit(asyncio.run, coro).result()
         else:
-            return asyncio.run(res)
+            return asyncio.run(coro)
     return res
 
 
@@ -222,15 +226,17 @@ def _resolve_tenant_sync(
         import asyncio
         import concurrent.futures
 
+        coro = cast("Coroutine[Any, Any, Any]", res)
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         if loop and loop.is_running():
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                res = pool.submit(asyncio.run, res).result()
+                res = pool.submit(asyncio.run, coro).result()
         else:
-            res = asyncio.run(res)
+            res = asyncio.run(coro)
 
     if res is None:
         raise PermissionError(
@@ -308,7 +314,8 @@ def _get_effective_policy(
             else None,
         )
         return pol
-    return security
+    # Duck-typed policy object (neither SecurityConfig nor dict): passed through as-is.
+    return cast("SecurityPolicy | None", security)
 
 
 def create_django_urls(
@@ -601,7 +608,7 @@ def create_drf_views(
     capabilities: EngineCapabilities | dict[str, Any] | None = None,
 ) -> dict[str, type[APIView]]:
     """Generates Django REST Framework APIView classes for Query-Builder."""
-    PermissionDenied, ValidationError, _, DRFResponse, APIView = _get_drf()
+    PermissionDenied, ValidationError, _, drf_response, drf_api_view = _get_drf()
 
     policy = _get_effective_policy(security, tenant_resolver is not None)
     effective_capabilities: EngineCapabilities = (
@@ -614,20 +621,20 @@ def create_drf_views(
         )
     )
 
-    class CapabilitiesView(APIView):
+    class CapabilitiesView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
-            return DRFResponse({"capabilities": effective_capabilities.to_dict()})
+            return drf_response({"capabilities": effective_capabilities.to_dict()})
 
-    class SchemaView(APIView):
+    class SchemaView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             snapshot = _exec_conn_method(conn, "introspect_schema")
             data = _normalize_schema_snapshot(snapshot)
             data["capabilities"] = effective_capabilities.to_dict()
             data = _filter_schema_tables(data, policy)
-            return DRFResponse(data)
+            return drf_response(data)
 
-    class CompileView(APIView):
+    class CompileView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -652,7 +659,7 @@ def create_drf_views(
                 sql, params, c_sql, c_params = compiler.compile()
             except DisabledFeatureError as exc:
                 raise PermissionDenied(str(exc)) from exc
-            return DRFResponse(
+            return drf_response(
                 {
                     "sql": sql,
                     "params": params,
@@ -662,7 +669,7 @@ def create_drf_views(
                 }
             )
 
-    class ValidateView(APIView):
+    class ValidateView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             sql = request.data.get("sql")
             if not sql:
@@ -670,9 +677,9 @@ def create_drf_views(
             res = validate_sql_ast(
                 sql, allowed_schemas=request.data.get("allowed_schemas")
             )
-            return DRFResponse(res)
+            return drf_response(res)
 
-    class ExecuteView(APIView):
+    class ExecuteView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -707,7 +714,7 @@ def create_drf_views(
                     active_spec,
                     statement_timeout_ms=request.data.get("timeout_ms"),
                 )
-                return DRFResponse(res.to_dict() if hasattr(res, "to_dict") else res)
+                return drf_response(res.to_dict() if hasattr(res, "to_dict") else res)
 
             if not effective_capabilities.is_enabled("raw_sql"):
                 raise PermissionDenied(
@@ -722,7 +729,7 @@ def create_drf_views(
             cols, rows, latency = _exec_conn_method(
                 conn, "execute_raw", sql, request.data.get("params") or []
             )
-            return DRFResponse(
+            return drf_response(
                 {
                     "columns": cols,
                     "rows": rows,
@@ -733,7 +740,7 @@ def create_drf_views(
                 }
             )
 
-    class ExportView(APIView):
+    class ExportView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
         def post(self, request: DRFRequest) -> HttpResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)

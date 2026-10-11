@@ -21,6 +21,12 @@ shrink.
   file (so a finished module cannot quietly be re-added later).
 - **Third-party imports:** never ignored globally. `redis` and `yaml` (optional dependencies)
   have scoped `ignore_missing_imports` overrides; `types-PyYAML` is a dev dependency.
+  The optional vendor SDKs and frameworks that connectors and integrations import (boto3,
+  django, rest_framework, fastapi, pydantic, google.cloud, ...) have one scoped override with
+  `ignore_missing_imports`, `follow_imports = "skip"` and `follow_imports_for_stubs`, so they
+  are `Any` whether or not they (or their stub packages, e.g. `django-stubs`) are installed.
+  This keeps mypy results identical on CI (which installs only a few extras) and on a machine
+  with everything installed, and stops `unused-ignore` flapping. Add new vendor modules there.
 - **`type: ignore`:** must carry a specific error code and a reason comment.
 
 Run it locally:
@@ -39,11 +45,12 @@ Suggested order, easiest and most self-contained first:
 3. `dialects`
 4. `compiler` (large; many `Any` leaks from untyped spec dicts, consider `TypedDict`s for specs)
 5. `parser`
-6. `connectors/**` (`base` and `async_base` first, then each connector; optional vendor SDKs
-   need scoped `ignore_missing_imports` overrides or stubs)
-7. `integrations/*` (`fastapi`, `django`, ...; optional framework imports)
-8. `server`
-9. `cli` (last, it touches almost everything)
+6. `server`
+7. `cli` (last, it touches almost everything)
+
+`connectors/**` and `integrations/*` are graduated (strict). When adding a connector, put its
+optional import in a module-level `try/except ImportError` with the name typed `Any`
+(`driver: Any = None`), not a bare `x = None` / module assignment, which mypy rejects.
 
 The authoritative list is `docs/typing_baseline.txt`.
 
