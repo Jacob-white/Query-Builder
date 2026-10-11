@@ -12,7 +12,7 @@ from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.base import BaseConnector, ConnectorError
 from query_builder.dialects import BaseDialect
 
-T = TypeVar("T", bound=BaseConnector | AsyncBaseConnector)
+T = TypeVar("T", BaseConnector, AsyncBaseConnector)
 
 
 class ConnectorRegistry:

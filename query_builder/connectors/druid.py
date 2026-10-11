@@ -49,7 +49,7 @@ class DruidConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("pydruid.db", "pydruid"):
             try:
                 driver = __import__(mod_name, fromlist=["db"])
@@ -64,7 +64,7 @@ class DruidConnector(BaseConnector):
             )
 
         try:
-            connect_fn = getattr(driver, "connect", None) or getattr(
+            connect_fn: Any = getattr(driver, "connect", None) or getattr(
                 getattr(driver, "db", None), "connect", None
             )
             scheme = self.config.get("scheme", "http")

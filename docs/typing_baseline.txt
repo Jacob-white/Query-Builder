@@ -7,5 +7,3 @@ query_builder.cli
 query_builder.server
 query_builder.ast_validator
 query_builder.sql_ast
-query_builder.integrations.*
-query_builder.connectors.*

@@ -46,7 +46,7 @@ class _KustoCursorAdapter:
                 if hasattr(cur, "close"):
                     cur.close()
         elif hasattr(self.conn, "execute_query") or hasattr(self.conn, "execute"):
-            exec_fn = getattr(
+            exec_fn: Any = getattr(
                 self.conn, "execute_query", getattr(self.conn, "execute", None)
             )
             try:
@@ -134,7 +134,7 @@ class KustoConnector(BaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("azure.kusto.data", "azure.kusto.data.client"):
             try:
                 driver = __import__(mod_name, fromlist=["KustoClient"])
@@ -224,7 +224,7 @@ class AsyncKustoConnector(AsyncBaseConnector):
         if self._connection is not None:
             return self._connection
 
-        driver = None
+        driver: Any = None
         for mod_name in ("azure.kusto.data", "azure.kusto.data.client"):
             try:
                 driver = __import__(mod_name, fromlist=["KustoClient"])

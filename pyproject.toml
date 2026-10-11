@@ -362,6 +362,27 @@ show_error_codes = true
 module = ["redis", "redis.*", "yaml"]
 ignore_missing_imports = true
 
+# Optional vendor SDKs / frameworks imported by connectors and integrations. They are
+# treated as `Any` whether or not they are installed (follow_imports = "skip"), so mypy
+# results do not depend on which extras (or which third-party stub packages) the machine
+# has. Scoped to these modules only; never a global ignore_missing_imports.
+[[tool.mypy.overrides]]
+module = [
+    "boto3", "boto3.*", "botocore", "botocore.*",
+    "chdb", "chdb.*", "chromadb", "chromadb.*", "clickhouse_connect", "clickhouse_connect.*",
+    "couchbase", "couchbase.*", "databricks", "databricks.*", "datafusion", "datafusion.*",
+    "django", "django.*", "elasticsearch", "elasticsearch.*", "fastapi", "fastapi.*",
+    "firebolt", "firebolt.*", "google", "google.*", "lancedb", "lancedb.*", "ninja",
+    "ninja.*", "pinotdb", "pinotdb.*", "pyarrow", "pyarrow.*", "pyathena", "pyathena.*",
+    "pydantic", "pydantic.*", "pymongosql", "pymongosql.*", "qdrant_client",
+    "qdrant_client.*", "requests", "requests.*", "rest_framework", "rest_framework.*",
+    "snowflake", "snowflake.*", "starlette", "starlette.*", "teradatasql",
+    "teradatasql.*", "vertica_python", "vertica_python.*", "weaviate", "weaviate.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
 # --- Typing ratchet (see docs/TYPING.md) -------------------------------------
 # Graduated modules: fully strict. A module listed here must stay clean.
 [[tool.mypy.overrides]]
@@ -393,6 +414,8 @@ module = [
     "query_builder.adapters.*",
     "query_builder.ai.*",
     "query_builder.nlq.*",
+    "query_builder.integrations.*",
+    "query_builder.connectors.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -412,7 +435,5 @@ module = [
     "query_builder.server",
     "query_builder.ast_validator",
     "query_builder.sql_ast",
-    "query_builder.integrations.*",
-    "query_builder.connectors.*",
 ]
 ignore_errors = true
