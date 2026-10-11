@@ -436,7 +436,9 @@ def test_new_dialects_behavior():
     assert td.quote_alias("alias`1") == "`alias``1`"
     assert td.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(?)"
     td_clause, td_params = td.format_limit_offset(10, 20)
-    assert td_clause == "LIMIT ? OFFSET ?" and td_params == [10, 20]
+    assert (
+        td_clause == "LIMIT 10 OFFSET 20" and td_params == []
+    )  # inlined: taosrest rejects bound LIMIT
     td_t_sql, td_t_params = td.inspect_tables_query("default")
     assert td_t_sql == "SHOW TABLES;" and td_t_params == []
     td_c_sql, td_c_params = td.inspect_columns_query("default", "meters")
