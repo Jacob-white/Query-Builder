@@ -472,12 +472,6 @@ SMOKE: dict[str, Smoke] = {
         checks=_es_checks(),
         extra_seed=_seed_mongo_special,
         bad_queries=["SELEC name FROM qbit_people", "SELECT FROM WHERE"],
-        known_issues={
-            "test_query_spec_compiled_and_executed": (
-                "pymongosql rejects the compiler's table aliases and double-quoted "
-                "identifiers and SILENTLY returns no rows for the compiled SQL"
-            ),
-        },
     ),
     "redis": Smoke(
         seed=_seed_redis,

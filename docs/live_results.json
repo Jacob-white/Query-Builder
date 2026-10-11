@@ -486,7 +486,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "athena: set QB_IT_ATHENA_S3_STAGING_DIR, QB_IT_ATHENA_REGION to run this test (AWS credentials come from the standard AWS environment/profile)": 7
       },
@@ -582,7 +582,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "bigquery: set QB_IT_BIGQUERY_DATASET to run this test (also set GOOGLE_APPLICATION_CREDENTIALS (service-account JSON))": 7
       },
@@ -2335,7 +2335,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "databricks: set QB_IT_DATABRICKS_HOST, QB_IT_DATABRICKS_HTTP_PATH, QB_IT_DATABRICKS_TOKEN to run this test": 7
       },
@@ -4795,13 +4795,13 @@
         },
         "spec_compile": {
           "failed": 0,
-          "passed": 0,
+          "passed": 1,
           "skipped": {
             "declared_unverified": 0,
             "environment": 0,
             "verified_limitation": 0
           },
-          "xfailed": 1
+          "xfailed": 0
         },
         "value_safety": {
           "failed": 0,
@@ -4842,24 +4842,22 @@
       "failed": 0,
       "failures": [],
       "family_kind": "native",
-      "known_issues": [
-        "tests/integration/test_smoke.py::test_query_spec_compiled_and_executed[mongodb]: known issue, reported: pymongosql rejects the compiler's table aliases and double-quoted identifiers and SILENTLY returns no rows for the compiled SQL"
-      ],
+      "known_issues": [],
       "limitations": {
         "declared_unverified": [],
         "verified": []
       },
-      "passed": 10,
+      "passed": 11,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "mongodb: container runs without authentication": 1
       },
       "skipped": 1,
       "tier": "extended",
       "version": "MongoDB 7.0.14",
-      "xfailed": 1
+      "xfailed": 0
     },
     "mssql": {
       "categories": {
@@ -7140,7 +7138,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "redshift: set QB_IT_REDSHIFT_HOST, QB_IT_REDSHIFT_USER, QB_IT_REDSHIFT_PASSWORD, QB_IT_REDSHIFT_DATABASE to run this test": 7
       },
@@ -7650,7 +7648,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "snowflake: set QB_IT_SNOWFLAKE_ACCOUNT, QB_IT_SNOWFLAKE_USER, QB_IT_SNOWFLAKE_PASSWORD, QB_IT_SNOWFLAKE_WAREHOUSE, QB_IT_SNOWFLAKE_DATABASE to run this test": 7
       },
@@ -8646,7 +8644,7 @@
       "passed": 0,
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.13.5",
-      "run_at": "2026-10-11 18:57 UTC",
+      "run_at": "2026-10-11 22:01 UTC",
       "skip_reasons": {
         "synapse: set QB_IT_SYNAPSE_SERVER, QB_IT_SYNAPSE_USER, QB_IT_SYNAPSE_PASSWORD, QB_IT_SYNAPSE_DATABASE to run this test (Azure Synapse dedicated/serverless SQL pool via the SQL Server connector)": 7
       },
@@ -9879,5 +9877,5 @@
       "xfailed": 0
     }
   },
-  "run_at": "2026-10-11 18:57 UTC"
+  "run_at": "2026-10-11 22:01 UTC"
 }

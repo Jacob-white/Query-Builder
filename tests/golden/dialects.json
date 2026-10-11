@@ -8949,7 +8949,7 @@
     "quote_alias": [
      [
       "total",
-      "\"total\""
+      "total"
      ],
      [
       "we\"ird",
@@ -8985,15 +8985,15 @@
     "quote_identifier": [
      [
       "users",
-      "\"users\""
+      "users"
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "public.users"
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "a.b.c"
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -45289,7 +45289,7 @@
     "quote_alias": [
      [
       "total",
-      "\"total\""
+      "total"
      ],
      [
       "we\"ird",
@@ -45325,15 +45325,15 @@
     "quote_identifier": [
      [
       "users",
-      "\"users\""
+      "users"
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "public.users"
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "a.b.c"
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -45768,7 +45768,7 @@
     "quote_alias": [
      [
       "total",
-      "\"total\""
+      "total"
      ],
      [
       "we\"ird",
@@ -45804,15 +45804,15 @@
     "quote_identifier": [
      [
       "users",
-      "\"users\""
+      "users"
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "public.users"
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "a.b.c"
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",

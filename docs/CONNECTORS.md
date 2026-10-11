@@ -11,15 +11,15 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 
 | Tier | Meaning | Classes |
 | --- | --- | --- |
-| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 24 |
+| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 25 |
 | `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 31 |
 | `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 3 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 80 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 79 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 **Legend: tiers measure testing depth, not just that something passed.** A live result is attributed to a check *category*. SQL engines must cover: `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters`, `ordering`, `pagination`, `aggregates`, `joins`, `subquery_cte`, `parameter_safety`, `identifier_quoting`, `null_handling`, `write_refused`, `error_mapping`, `statement_timeout`, `async_parity`. Native (non-SQL) engines must cover: `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety`, `write_refused`, `error_mapping`, `async_parity`. `async_parity` applies only to engines with an async class. A skipped check is classified: `verified_limitation` (a probe through the native driver proved the engine rejects the feature), `declared_unverified` (a declared limitation with no probe: it blocks `certified` in a core category) or `environment` (driver/service missing). *Core coverage* is the number of applicable core categories with a pass or verified limitation.
 
-Latest recorded live run: **2026-10-11 18:57 UTC**.
+Latest recorded live run: **2026-10-11 22:01 UTC**.
 
 ### Engines in the latest live run
 
@@ -45,7 +45,7 @@ Latest recorded live run: **2026-10-11 18:57 UTC**.
 | materialize | Materialize Streaming SQL | 92 | 0 | 0 | 5 | 17/18 core categories | 3: `db_read_only`, `introspect_fk`, `introspect_pk` | 2026-10-11 01:54 UTC | Windows-11-10.0.26200-SP0 |
 | memgraph | Memgraph 2.21.0 | 9 | 0 | 0 | 7 | 5/10 core categories | 0 | 2026-10-09 19:52 UTC | Windows-11-10.0.26200-SP0 |
 | monetdb | MonetDB 11.55.7 | 96 | 0 | 0 | 0 | 18/18 core categories | 0 | 2026-10-09 19:48 UTC | Windows-11-10.0.26200-SP0 |
-| mongodb | MongoDB 7.0.14 | 10 | 0 | 1 | 1 | 9/9 core categories | 0 | 2026-10-11 18:57 UTC | Windows-11-10.0.26200-SP0 |
+| mongodb | MongoDB 7.0.14 | 11 | 0 | 0 | 1 | 9/9 core categories | 0 | 2026-10-11 22:01 UTC | Windows-11-10.0.26200-SP0 |
 | mssql | Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)   | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:57 UTC | Windows-11-10.0.26200-SP0 |
 | mysql | 8.4.2 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
 | neo4j | Neo4j 5.24.1 | 15 | 0 | 0 | 1 | 10/10 core categories | 1: `spec_compile` | 2026-10-09 19:01 UTC | Windows-11-10.0.26200-SP0 |
@@ -152,7 +152,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncMilvusConnector` | async | verified | `[milvus]` | - | - | - | `async_milvus`, `async_pymilvus`, `async_zilliz` |
 | `MonetDBConnector` | sync | certified | `[monetdb]` | monetdb (96 pass, 0 skip) | 18/18 core categories | 0 | `monet`, `monetdb` |
 | `AsyncMonetDBConnector` | async | certified | `[monetdb]` | monetdb (96 pass, 0 skip) | 18/18 core categories | 0 | `async_monet`, `async_monetdb` |
-| `MongoDBAtlasSQLConnector` | sync | verified | `[mongodb]` | mongodb (10 pass, 1 known, 1 skip) | 9/9 core categories | 0 | `mongo`, `atlas_sql`, `mongodb` |
+| `MongoDBAtlasSQLConnector` | sync | certified | `[mongodb]` | mongodb (11 pass, 1 skip) | 9/9 core categories | 0 | `mongo`, `atlas_sql`, `mongodb` |
 | `MSSQLConnector` | sync | certified | `[mssql]` | mssql (92 pass, 0 skip) | 17/17 core categories | 0 | `mssql`, `sqlserver` |
 | `MySQLConnector` | sync | certified | `[mysql]` | mariadb (92 pass, 0 skip) | 17/17 core categories | 0 | `mysql`, `mariadb` |
 | `Neo4jConnector` | sync | certified | `[neo4j]` | neo4j (15 pass, 1 skip) | 10/10 core categories | 1: `spec_compile` | `neo4j`, `cypher`, `neo4j_sql` |
