@@ -13,7 +13,9 @@ services:
   yugabyte:
     image: yugabytedb/yugabyte:2024.2.3.0-b116
     profiles: ["pgwire"]
-    command: ["bin/yugabyted", "start", "--background=false", "--advertise_address=0.0.0.0"]
+    # advertise the container IP: with 0.0.0.0 YSQL binds to 127.0.0.1 only, so neither the
+    # healthcheck (by hostname) nor the published port can reach it
+    command: ["bash", "-c", "exec bin/yugabyted start --background=false --advertise_address=$$(hostname -i)"]
     ports: ["127.0.0.1:${QB_IT_PORT_YUGABYTE:-40100}:5433"]
     volumes: ["qb_it_yugabyte:/root/var"]
     healthcheck:

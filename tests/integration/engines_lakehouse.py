@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from tests.integration import dataset
-from tests.integration.engines import Engine, Native, register
+from tests.integration.engines import Engine, Limitation, Native, register
 
 # Presto/Drill: no constraints, VARCHAR strings; same DDL shape as Trino.
 dataset.FAMILIES.setdefault("presto", dataset.FAMILIES["trino"])
@@ -149,6 +149,16 @@ class DrillEngine(Engine):
                 pass
 
 
+def _probe_drill_unknown_column_errors(e: Engine) -> bool:
+    """True when Drill REJECTS a query over a column that does not exist (it does not:
+    schema-on-read makes the column NULL)."""
+    try:
+        _drill_rest(e, f"SELECT nosuchcolumn FROM {DRILL_WS}.`{dataset.T_EMP}`")
+    except Exception:  # noqa: BLE001
+        return True
+    return False
+
+
 def _kw_drill(e: Engine, o: dict[str, Any]) -> dict[str, Any]:
     return {"host": e.host, "port": e.port_, "schema_name": DRILL_WS}
 
@@ -180,6 +190,10 @@ register(
             "introspect_not_null": "Drill file tables (parquet via CTAS) have no NOT NULL constraints",
             "case_sensitive_identifiers": "Drill identifiers are case-insensitive",
             "db_read_only": "Drill has no read-only login without authentication set up",
+            "unknown_column_error": Limitation(
+                "Drill reads schema on demand: an unknown column is NULL, not an error",
+                probe=_probe_drill_unknown_column_errors,
+            ),
         },
     )
 )

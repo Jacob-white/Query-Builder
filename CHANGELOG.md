@@ -66,6 +66,18 @@
 - `docs/THREAT_MODEL.md` documents guarantees, non-guarantees and how to run the fuzz suites.
 
 ### Fixed (defects found by running the live suite against real engines)
+- **Bigtable:** `connect()` passed `app_profile_id` to `Client.instance()`, which has no such
+  parameter, so every real connection failed; the profile is now bound per table. Compiled specs also
+  read `cf.name` as table `cf`, column `name` (every value came back NULL); the dialect now keeps the
+  `family.qualifier` as one column (`BaseDialect.dotted_column_names`) and emits no table alias.
+- **DataFusion:** SQL/planning errors surfaced as a raw `ValueError`; they now map to
+  `QueryExecutionError`.
+- **Live suite:** newly run against real engines: DataFusion, Polars, LanceDB, fakesnow, generic
+  SQLite/DuckDB, Spanner, Drill, Milvus, YugabyteDB, Firestore, Bigtable, Cosmos DB. Fixed three
+  broken compose definitions (Drill healthcheck used absent `curl`; Milvus lacked its embedded-etcd
+  config; Yugabyte bound YSQL to loopback; Bigtable/Cosmos healthchecks used `/dev/tcp` under `sh`).
+  Engine traits are declared as probe-verified limitations (Drill returns NULL for unknown columns;
+  the Yugabyte test container uses trust auth).
 - **MongoDB (pymongosql):** compiled specs silently returned no rows because the driver cannot
   resolve `alias.column` references or double-quoted identifiers (and keeps quotes in result column
   names). The MongoDB dialect now emits bare identifiers, bare aliases and an un-aliased `FROM`

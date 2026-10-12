@@ -36,6 +36,25 @@ from tests.integration.engines import (
 _PG_SLEEP = "SELECT pg_sleep(30)"
 
 
+def _probe_password_enforced(e: Engine) -> bool:
+    """True when the server REJECTS a wrong password (the feature WORKED); False when the
+    login is accepted anyway, i.e. the container runs with trust authentication."""
+    import psycopg
+
+    try:
+        psycopg.connect(
+            host=e.host,
+            port=e.port_,
+            user=e.user_,
+            password="definitely-not-the-password",
+            dbname=e.database_,
+            connect_timeout=10,
+        ).close()
+    except psycopg.OperationalError:
+        return True
+    return False
+
+
 #: two big generated relations: far longer than any test timeout, no side effects
 def _probe_statement_timeout_enforced(e: Engine) -> bool:
     """True when ``SET statement_timeout`` really cancels a slow native query (the feature
@@ -117,6 +136,12 @@ register(
         slow_sql=_PG_SLEEP,
         service="yugabyte",
         container_port=5433,
+        unsupported={
+            "password_auth": Limitation(
+                "the yugabyted test container runs YSQL with trust authentication",
+                probe=_probe_password_enforced,
+            ),
+        },
     )
 )
 
