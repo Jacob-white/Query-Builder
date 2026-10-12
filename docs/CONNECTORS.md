@@ -12,14 +12,14 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 | Tier | Meaning | Classes |
 | --- | --- | --- |
 | `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 30 |
-| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 49 |
+| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 51 |
 | `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 11 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 48 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 46 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 **Legend: tiers measure testing depth, not just that something passed.** A live result is attributed to a check *category*. SQL engines must cover: `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters`, `ordering`, `pagination`, `aggregates`, `joins`, `subquery_cte`, `parameter_safety`, `identifier_quoting`, `null_handling`, `write_refused`, `error_mapping`, `statement_timeout`, `async_parity`. Native (non-SQL) engines must cover: `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety`, `write_refused`, `error_mapping`, `async_parity`. `async_parity` applies only to engines with an async class. A skipped check is classified: `verified_limitation` (a probe through the native driver proved the engine rejects the feature), `declared_unverified` (a declared limitation with no probe: it blocks `certified` in a core category) or `environment` (driver/service missing). *Core coverage* is the number of applicable core categories with a pass or verified limitation.
 
-Latest recorded live run: **2026-10-12 15:15 UTC**.
+Latest recorded live run: **2026-10-12 17:53 UTC**.
 
 ### Engines in the latest live run
 
@@ -40,6 +40,7 @@ Latest recorded live run: **2026-10-12 15:15 UTC**.
 | datafusion | Apache Arrow DataFusion | 86 | 0 | 0 | 6 | 15/17 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | 2026-10-11 23:31 UTC | Windows-11-10.0.26200-SP0 |
 | db2 | DB2 v12.1.1.0 | 95 | 0 | 0 | 1 | 18/18 core categories | 1: `db_read_only` | 2026-10-12 13:08 UTC | Linux-6.6.87.2-microsoft-sta |
 | derby | Apache Derby | 91 | 0 | 0 | 7 | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `statement_timeout`, `window` | 2026-10-12 15:15 UTC | Linux-6.6.87.2-microsoft-sta |
+| doris | Apache Doris 5.7.99 | 96 | 0 | 0 | 1 | 18/18 core categories | 1: `introspect_fk` | 2026-10-12 17:53 UTC | Windows-11-10.0.26200-SP0 |
 | drill | Apache Drill 1.22.0 | 91 | 0 | 0 | 6 | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk` | 2026-10-11 23:43 UTC | Windows-11-10.0.26200-SP0 |
 | duckdb | v1.5.6 | 91 | 0 | 0 | 3 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
 | dynamodb | Amazon DynamoDB PartiQL | 5 | 0 | 0 | 7 | 4/9 core categories | 0 | 2026-10-09 19:57 UTC | Windows-11-10.0.26200-SP0 |
@@ -124,8 +125,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `AsyncDB2Connector` | async | basic | `[db2]` | db2 (95 pass, 1 skip) | 18/18 core categories | 1: `db_read_only` | `async_db2`, `async_ibm_db2` |
 | `DerbyConnector` | sync | basic | `[derby]` | derby (91 pass, 7 skip) | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `statement_timeout`, `window` | `derby`, `apache_derby` |
 | `AsyncDerbyConnector` | async | basic | `[derby]` | derby (91 pass, 7 skip) | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `statement_timeout`, `window` | `async_derby`, `async_apache_derby` |
-| `DorisConnector` | sync | verified | `[doris]` | - | - | - | `doris`, `apache_doris`, `pydoris` |
-| `AsyncDorisConnector` | async | verified | `[doris]` | - | - | - | `async_doris`, `async_apache_doris` |
+| `DorisConnector` | sync | basic | `[doris]` | doris (96 pass, 1 skip) | 18/18 core categories | 1: `introspect_fk` | `doris`, `apache_doris`, `pydoris` |
+| `AsyncDorisConnector` | async | basic | `[doris]` | doris (96 pass, 1 skip) | 18/18 core categories | 1: `introspect_fk` | `async_doris`, `async_apache_doris` |
 | `DremioConnector` | sync | verified | `[dremio]` | - | - | - | `dremio` |
 | `DrillConnector` | sync | basic | `[drill]` | drill (91 pass, 6 skip) | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk` | `drill`, `apache_drill`, `pydrill` |
 | `AsyncDrillConnector` | async | basic | `[drill]` | drill (91 pass, 6 skip) | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk` | `async_drill`, `async_apache_drill` |

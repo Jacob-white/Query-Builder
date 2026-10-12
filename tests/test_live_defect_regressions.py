@@ -600,3 +600,17 @@ def test_derby_foreign_keys_only_use_jdbc_metadata_for_a_real_jdbc_cursor() -> N
 
     # a mock (or any non-JayDeBeApi cursor) must fall back to the SQL path, not loop
     assert _derby_jdbc_foreign_keys(MagicMock(), "APP", ["t"]) is None
+
+
+def test_doris_has_no_ilike_and_declares_the_mysql_like_escape() -> None:
+    """Doris has no ILIKE operator (ParseException); its sibling StarRocks already knew."""
+    sql, params, *_ = QueryCompiler(
+        {
+            "table": "qbit_employees",
+            "columns": ["id"],
+            "filters": [{"column": "name", "op": "ilike", "value": "a%"}],
+        },
+        dialect=get_dialect("doris"),
+    ).compile()
+    assert "ILIKE" not in sql and "LOWER(`t1`.`name`) LIKE LOWER(%s)" in sql
+    assert get_dialect("doris").escape_like("5%") == "5\\%"

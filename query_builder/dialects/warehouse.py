@@ -323,6 +323,8 @@ class DorisDialect(BaseDialect):
 
     name: str = "doris"
     placeholder: str = "%s"
+    ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"  # no ILIKE operator
+    like_escape_char = "\\"  # MySQL-compatible default LIKE escape
 
     def quote_identifier(self, ident: str) -> str:
         _validate_identifier(ident)

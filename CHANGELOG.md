@@ -149,6 +149,11 @@
     Derby has no `WITH` (CTE) support; both that and its upper-case folding of unquoted names are
     declared limitations backed by probes.
 
+- **Doris (first live run)**: the dialect emitted `ILIKE`, which Doris does not have, so every
+  substring filter (`contains`, `starts_with`, `ilike`, ...) failed with a parse error; it now uses
+  `LOWER(x) LIKE LOWER(?)` with the MySQL `\` escape, like StarRocks. Doris column names must be
+  ASCII, declared as a limitation with a probe (the harness uses an ASCII stand-in column).
+
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
   change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and

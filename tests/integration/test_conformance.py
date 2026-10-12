@@ -82,7 +82,8 @@ def test_introspection_finds_seeded_columns(conn: Any, engine: Engine) -> None:
     cols = {c["name"].lower() for c in tables[ds.T_EMP.lower()]["columns"]}
     assert cols == {"id", "name", "dept_id", "salary", "age", "email"}
     res_cols = {c["name"].lower() for c in tables[ds.T_RES.lower()]["columns"]}
-    assert {"select", "group", "order", "mixedcase", ds.UNICODE_COL} <= res_cols
+    uni = ds.unicode_col(engine.family)
+    assert {"select", "group", "order", "mixedcase", uni} <= res_cols
     nullable = {
         c["name"].lower(): c["is_nullable"] for c in tables[ds.T_EMP.lower()]["columns"]
     }

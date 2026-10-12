@@ -484,9 +484,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "athena: set QB_IT_ATHENA_S3_STAGING_DIR, QB_IT_ATHENA_REGION to run this test (AWS credentials come from the standard AWS environment/profile)": 7
       },
@@ -580,9 +580,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "bigquery: set QB_IT_BIGQUERY_DATASET to run this test (also set GOOGLE_APPLICATION_CREDENTIALS (service-account JSON))": 7
       },
@@ -2917,9 +2917,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "databricks: set QB_IT_DATABRICKS_HOST, QB_IT_DATABRICKS_HTTP_PATH, QB_IT_DATABRICKS_TOKEN to run this test": 7
       },
@@ -3695,6 +3695,266 @@
       "skipped": 7,
       "tier": "embedded",
       "version": "Apache Derby",
+      "xfailed": 0
+    },
+    "doris": {
+      "categories": {
+        "aggregates": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "filters": {
+          "failed": 0,
+          "passed": 30,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "identifier_quoting": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_columns": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_pk_fk": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect_tables": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "joins": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "limitation_probe": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "null_handling": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 3,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "parameter_safety": {
+          "failed": 0,
+          "passed": 17,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_projection": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "statement_timeout": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "subquery_cte": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "window": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 13,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.doris.DorisConnector",
+        "query_builder.connectors.doris.AsyncDorisConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect_tables",
+        "introspect_columns",
+        "introspect_pk_fk",
+        "read_projection",
+        "filters",
+        "ordering",
+        "pagination",
+        "aggregates",
+        "joins",
+        "subquery_cte",
+        "parameter_safety",
+        "identifier_quoting",
+        "null_handling",
+        "write_refused",
+        "error_mapping",
+        "statement_timeout",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "sql",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [
+          "introspect_fk"
+        ],
+        "verified": []
+      },
+      "passed": 96,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
+      "skip_reasons": {
+        "[limitation:introspect_fk] doris: introspect_fk unsupported - Doris has no foreign keys": 1
+      },
+      "skipped": 1,
+      "tier": "extended",
+      "version": "Apache Doris 5.7.99",
       "xfailed": 0
     },
     "drill": {
@@ -10744,9 +11004,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "redshift: set QB_IT_REDSHIFT_HOST, QB_IT_REDSHIFT_USER, QB_IT_REDSHIFT_PASSWORD, QB_IT_REDSHIFT_DATABASE to run this test": 7
       },
@@ -11254,9 +11514,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "snowflake: set QB_IT_SNOWFLAKE_ACCOUNT, QB_IT_SNOWFLAKE_USER, QB_IT_SNOWFLAKE_PASSWORD, QB_IT_SNOWFLAKE_WAREHOUSE, QB_IT_SNOWFLAKE_DATABASE to run this test": 7
       },
@@ -12648,9 +12908,9 @@
         "verified": []
       },
       "passed": 0,
-      "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
-      "python": "3.12.15",
-      "run_at": "2026-10-12 14:59 UTC",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:53 UTC",
       "skip_reasons": {
         "synapse: set QB_IT_SYNAPSE_SERVER, QB_IT_SYNAPSE_USER, QB_IT_SYNAPSE_PASSWORD, QB_IT_SYNAPSE_DATABASE to run this test (Azure Synapse dedicated/serverless SQL pool via the SQL Server connector)": 7
       },
@@ -14379,5 +14639,5 @@
       "xfailed": 0
     }
   },
-  "run_at": "2026-10-12 15:15 UTC"
+  "run_at": "2026-10-12 17:53 UTC"
 }

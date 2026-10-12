@@ -62,6 +62,7 @@ class Ddl:
     not_null: str = " NOT NULL"
     drop: str = "DROP TABLE IF EXISTS {t}"
     pk_inline: bool = True  # PRIMARY KEY (id) clause inside CREATE
+    unicode_idents: bool = True  # False: the engine only accepts ASCII column names
 
 
 FAMILIES: dict[str, Ddl] = {
@@ -99,6 +100,11 @@ FAMILIES: dict[str, Ddl] = {
         int_t="INTEGER", str_t="VARCHAR", nstr_t="VARCHAR", pk=False, fk=False
     ),
 }
+
+
+def unicode_col(family: str) -> str:
+    """The non-ASCII column name, or an ASCII stand-in for engines that cannot store it."""
+    return UNICODE_COL if FAMILIES[family].unicode_idents else "unicode_col"
 
 
 def _lit(value: Any, d: Ddl) -> str:
@@ -144,7 +150,7 @@ def schema_statements(family: str) -> list[str]:
         f"  {q('group')} {d.str_t}{d.not_null},\n"
         f"  {q('order')} {d.int_t}{d.not_null},\n"
         f"  {q('MixedCase')} {d.str_t}{d.not_null},\n"
-        f"  {q(UNICODE_COL)} {d.str_t}{d.not_null}{pk}\n){d.table_suffix}"
+        f"  {q(unicode_col(family))} {d.str_t}{d.not_null}{pk}\n){d.table_suffix}"
     )
     stmts.append(
         f"CREATE TABLE {q(T_MIXED)} (\n  id {d.int_t}{d.not_null},\n"
@@ -162,7 +168,8 @@ def schema_statements(family: str) -> list[str]:
             f"VALUES ({vals})"
         )
     cols = ", ".join(
-        q(c) for c in ("id", "select", "group", "order", "MixedCase", UNICODE_COL)
+        q(c)
+        for c in ("id", "select", "group", "order", "MixedCase", unicode_col(family))
     )
     for row in RESERVED:
         vals = ", ".join(_lit(v, d) for v in row)
