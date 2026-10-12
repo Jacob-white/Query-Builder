@@ -1170,7 +1170,8 @@ class QueryCompiler:
         """Resolves a column reference to (alias, col_name, quoted_column_ref)."""
         if not isinstance(col_ref, str) or not col_ref.strip():
             raise CompilationError(f"Invalid column reference: '{col_ref}'")
-        if "." in col_ref:
+        dotted = self.dialect.dotted_column_names
+        if "." in col_ref and not dotted:
             parts = col_ref.rsplit(".", 1)
             tbl = parts[0]
             col = parts[1]
@@ -1178,7 +1179,7 @@ class QueryCompiler:
             tbl = default_table
             col = col_ref
 
-        clean_col = col.split(".")[-1]
+        clean_col = col if dotted else col.split(".")[-1]
         if clean_col != "*" and not IDENTIFIER_REGEX.match(clean_col):
             raise CompilationError(f"Invalid column identifier name: '{col}'")
 

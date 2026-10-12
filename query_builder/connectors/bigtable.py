@@ -290,7 +290,12 @@ def _open(
     client_cls = getattr(driver, "Client", driver)
     client = client_cls(project=project_id, admin=admin, **config)
     if instance_id and hasattr(client, "instance"):
-        return client.instance(instance_id, app_profile_id=app_profile_id)
+        # `Client.instance()` takes no app profile: it is a per-table setting
+        # (`Instance.table(table_id, app_profile_id=...)`), so bind it there.
+        instance = client.instance(instance_id)
+        if app_profile_id:
+            instance.table = partial(instance.table, app_profile_id=app_profile_id)
+        return instance
     return client
 
 

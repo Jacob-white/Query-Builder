@@ -491,6 +491,13 @@ class BigtableDialect(BaseDialect):
     placeholder: str = "%s"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
     introspects_keys: bool = False
+    # columns are `family.qualifier` (one identifier) and there are no joins or aliases
+    supports_table_aliases: bool = False
+    dotted_column_names: bool = True
+
+    def quote_identifier(self, ident: str) -> str:
+        _validate_identifier(ident)
+        return f'"{ident}"'
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return f"LIMIT {self.placeholder}", [limit]

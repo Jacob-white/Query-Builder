@@ -239,3 +239,59 @@ def test_other_dialects_keep_table_aliases() -> None:
         {"table": "p", "columns": ["name"]}, dialect=get_dialect("postgres")
     ).compile()[0]
     assert '"t1"."name"' in sql and 'FROM "p" "t1"' in sql
+
+
+# ------------------------------------------- Bigtable: app profile is per table
+def test_bigtable_binds_app_profile_to_tables_not_to_client_instance() -> None:
+    """`Client.instance()` has no `app_profile_id` parameter (real signature mirrored here)."""
+    from query_builder.connectors.bigtable import _open
+
+    class _Instance:
+        def __init__(self) -> None:
+            self.tables: list[tuple[str, str | None]] = []
+
+        def table(
+            self,
+            table_id: str,
+            mutation_timeout: float | None = None,
+            app_profile_id: str | None = None,
+        ) -> str:
+            self.tables.append((table_id, app_profile_id))
+            return table_id
+
+    class _Client:
+        def __init__(self, project: str | None = None, admin: bool = False) -> None:
+            self.made = _Instance()
+
+        def instance(
+            self,
+            instance_id: str,
+            display_name: str | None = None,
+            instance_type: int | None = None,
+            labels: dict[str, str] | None = None,
+        ) -> _Instance:
+            return self.made
+
+    driver = MagicMock(Client=_Client)
+    inst = _open(driver, "p", "i", "profile-1", False, {})
+    inst.table("t")
+    assert inst.tables == [("t", "profile-1")]
+    plain = _open(driver, "p", "i", None, False, {})
+    plain.table("t2")
+    assert plain.tables[-1] == ("t2", None)
+
+
+def test_bigtable_keeps_family_qualifier_as_one_column() -> None:
+    """`cf.name` is a column family + qualifier, not table `cf` column `name`."""
+    sql = QueryCompiler(
+        {
+            "table": "qbit_people",
+            "columns": [{"column": "cf.name", "alias": "name"}],
+            "filters": [{"column": "cf.age", "op": "gt", "value": 1}],
+            "order_by": [{"column": "cf.age", "direction": "asc"}],
+        },
+        dialect=get_dialect("bigtable"),
+    ).compile()[0]
+    assert sql.startswith('SELECT "cf.name" AS "name"\nFROM "qbit_people"\n')
+    assert 'WHERE ("cf.age" > %s)' in sql and 'ORDER BY "cf.age" ASC' in sql
+    assert "t1" not in sql and "t2" not in sql

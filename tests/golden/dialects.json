@@ -11641,11 +11641,11 @@
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "\"public.users\""
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "\"a.b.c\""
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -28922,11 +28922,11 @@
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "\"public.users\""
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "\"a.b.c\""
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -29787,11 +29787,11 @@
      ],
      [
       "public.users",
-      "\"public\".\"users\""
+      "\"public.users\""
      ],
      [
       "a.b.c",
-      "\"a\".\"b\".\"c\""
+      "\"a.b.c\""
      ],
      [
       "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
