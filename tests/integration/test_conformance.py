@@ -263,6 +263,7 @@ def test_statement_timeout_cancels_slow_query(conn: Any, engine: Engine) -> None
 def test_wrong_password_error_never_leaks_the_password(engine: Engine) -> None:
     if engine.embedded or not engine.password_:
         pytest.skip(f"{engine.name}: no password-based authentication")
+    need(engine, "password_auth")
     bad = engine.make_connector(password=WRONG_PASSWORD)
     with pytest.raises(Exception) as err:  # noqa: PT011
         bad.connect()
@@ -308,6 +309,8 @@ def test_bad_native_sql_maps_to_the_connector_error_family(
 ) -> None:
     """A database error must surface as the library's error family, never a raw driver
     exception (``psycopg.Error``, ``sqlite3.OperationalError``, ...)."""
+    if "nosuchcolumn" in sql:
+        need(engine, "unknown_column_error")
     with pytest.raises(Exception) as err:  # noqa: PT011
         conn.execute(sql=sql, validate_ast=False)
     assert_mapped_error(err.value)

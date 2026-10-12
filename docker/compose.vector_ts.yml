@@ -52,7 +52,7 @@ services:
       ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
       COMMON_STORAGETYPE: local
     ports: ["127.0.0.1:${QB_IT_PORT_MILVUS:-44530}:19530"]
-    volumes: ["qb_it_milvus:/var/lib/milvus"]
+    volumes: ["qb_it_milvus:/var/lib/milvus", "./milvus_embed_etcd.yaml:/milvus/configs/embedEtcd.yaml:ro"]
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9091/healthz"]
       interval: 5s

@@ -21,6 +21,7 @@ from query_builder.connectors.base import (
     ConnectionFailedError,
     DriverNotInstalledError,
     IntrospectionError,
+    QueryExecutionError,
 )
 from query_builder.middleware import (
     LifecycleInterceptor,
@@ -83,7 +84,12 @@ class _DataFusionCursorAdapter:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
         sub_sql = _substitute_params(sql, params)
-        batches = self.ctx.sql(sub_sql).collect()
+        try:
+            batches = self.ctx.sql(sub_sql).collect()
+        except ValueError as exc:
+            # DataFusion reports planning/SQL errors as a bare ValueError, which the base
+            # layer treats as a caller argument error and passes through unmapped.
+            raise QueryExecutionError(f"{type(exc).__name__}: {exc}") from exc
         if batches:
             first_batch = batches[0]
             if isinstance(first_batch, list):

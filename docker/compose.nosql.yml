@@ -103,7 +103,7 @@ services:
     command: ["gcloud", "beta", "emulators", "bigtable", "start", "--host-port=0.0.0.0:8086"]
     ports: ["127.0.0.1:${QB_IT_PORT_BIGTABLE:-43086}:8086"]
     healthcheck:
-      test: ["CMD-SHELL", "(exec 3<>/dev/tcp/127.0.0.1/8086)"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8086"]
       interval: 4s
       timeout: 4s
       retries: 40
@@ -126,7 +126,7 @@ services:
       ENABLE_TELEMETRY: "false"
     ports: ["127.0.0.1:${QB_IT_PORT_COSMOSDB:-43081}:8081"]
     healthcheck:
-      test: ["CMD-SHELL", "(exec 3<>/dev/tcp/127.0.0.1/8081)"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
       interval: 5s
       timeout: 5s
       retries: 60

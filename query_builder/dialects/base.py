@@ -61,6 +61,9 @@ class BaseDialect:
     #: (MongoDB via pymongosql, which silently returns no rows): the compiler then emits bare
     #: column names and an un-aliased FROM, and refuses joins, which need aliases
     supports_table_aliases: bool = True
+    #: True when a dotted column name is ONE column, not ``table.column`` (Bigtable's
+    #: ``family.qualifier``): the compiler then keeps the whole name as the column
+    dotted_column_names: bool = False
     # LIKE wildcard handling for the contains/starts_with/ends_with operators.
     # ``None`` (default): the bound value is passed through unchanged, so a user
     # value containing ``%`` or ``_`` acts as a wildcard. Dialects verified live

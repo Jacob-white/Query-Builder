@@ -1,0 +1,7 @@
+# Embedded etcd settings for the single-node Milvus used by the live suite. Milvus' own
+# standalone_embed.sh generates this file; the image does not ship it.
+listen-client-urls: http://0.0.0.0:2379
+advertise-client-urls: http://0.0.0.0:2379
+quota-backend-bytes: 4294967296
+auto-compaction-mode: revision
+auto-compaction-retention: '1000'
