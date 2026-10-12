@@ -1512,6 +1512,172 @@
       "version": "chDB 4.4.0 (ClickHouse 26.9.2.1)",
       "xfailed": 0
     },
+    "chroma": {
+      "categories": {
+        "async_parity": {
+          "failed": 0,
+          "passed": 4,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "connect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "error_mapping": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "introspect": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "ordering": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "pagination": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_basic": {
+          "failed": 0,
+          "passed": 1,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "read_filtered": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "secrets": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "spec_compile": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "value_safety": {
+          "failed": 0,
+          "passed": 0,
+          "skipped": {
+            "declared_unverified": 1,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        },
+        "write_refused": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": {
+            "declared_unverified": 0,
+            "environment": 0,
+            "verified_limitation": 0
+          },
+          "xfailed": 0
+        }
+      },
+      "connectors": [
+        "query_builder.connectors.chroma.ChromaConnector",
+        "query_builder.connectors.chroma.AsyncChromaConnector"
+      ],
+      "core": [
+        "connect",
+        "introspect",
+        "read_basic",
+        "read_filtered",
+        "ordering",
+        "pagination",
+        "value_safety",
+        "write_refused",
+        "error_mapping",
+        "async_parity"
+      ],
+      "emulated": false,
+      "failed": 0,
+      "failures": [],
+      "family_kind": "native",
+      "known_issues": [],
+      "limitations": {
+        "declared_unverified": [],
+        "verified": []
+      },
+      "passed": 9,
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.5",
+      "run_at": "2026-10-12 17:55 UTC",
+      "skip_reasons": {
+        "chroma: container runs without authentication": 1,
+        "chroma: no SQL compiler path (native query language)": 1,
+        "chroma: no bad_queries defined in Smoke (UNTESTED error mapping)": 1,
+        "chroma: no ordering check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "chroma: no pagination check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "chroma: no read_filtered check defined in Smoke and no limitation declared (UNTESTED)": 1,
+        "chroma: no value_safety check defined in Smoke and no limitation declared (UNTESTED)": 1
+      },
+      "skipped": 7,
+      "tier": "embedded",
+      "version": "ChromaDB 1.5.9",
+      "xfailed": 0
+    },
     "clickhouse": {
       "categories": {
         "aggregates": {
@@ -14639,5 +14805,5 @@
       "xfailed": 0
     }
   },
-  "run_at": "2026-10-12 17:53 UTC"
+  "run_at": "2026-10-12 17:55 UTC"
 }
