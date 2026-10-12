@@ -3679,6 +3679,39 @@ def introspect_h2(
                 cur.close()
 
 
+def _derby_jdbc_foreign_keys(
+    cursor: Any, schema: str, tables: list[str]
+) -> list[tuple[str, str, str, str]] | None:
+    """Foreign keys through ``DatabaseMetaData.getImportedKeys`` when running over JayDeBeApi.
+
+    Derby's SQL catalogs only expose a key's index descriptor (no column names), so the
+    column pairs cannot be read with SQL. Returns ``None`` for any other cursor.
+    """
+    raw = getattr(cursor, "_cursor", cursor)  # unwrap the label-reporting proxy
+    if not type(raw).__module__.startswith("jaydebeapi"):
+        return None
+    jconn = getattr(getattr(raw, "_connection", None), "jconn", None)
+    if jconn is None:
+        return None
+    meta = jconn.getMetaData()
+    found: list[tuple[str, str, str, str]] = []
+    for table in tables:
+        rs = meta.getImportedKeys(None, schema, str(table))
+        try:
+            while rs.next():
+                found.append(
+                    (
+                        str(rs.getString("FKTABLE_NAME")),
+                        str(rs.getString("FKCOLUMN_NAME")),
+                        str(rs.getString("PKTABLE_NAME")),
+                        str(rs.getString("PKCOLUMN_NAME")),
+                    )
+                )
+        finally:
+            rs.close()
+    return found
+
+
 def introspect_derby(
     cursor: Any, schema_name: str = "APP", filter_sensitive: bool = True
 ) -> dict[str, Any]:
@@ -3694,7 +3727,7 @@ def introspect_derby(
             FROM SYS.SYSTABLES t
             JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
             WHERE s.SCHEMANAME = ? AND t.TABLETYPE = 'T'
-            ORDER BY t.TABLENAME;
+            ORDER BY t.TABLENAME
             """,
             [schema_name.upper()],
         )
@@ -3708,7 +3741,7 @@ def introspect_derby(
             JOIN SYS.SYSTABLES t ON c.REFERENCEID = t.TABLEID
             JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
             WHERE s.SCHEMANAME = ?
-            ORDER BY t.TABLENAME, c.COLUMNNUMBER;
+            ORDER BY t.TABLENAME, c.COLUMNNUMBER
             """,
             [schema_name.upper()],
         )
@@ -3722,7 +3755,7 @@ def introspect_derby(
                 FROM SYS.SYSCONSTRAINTS c
                 JOIN SYS.SYSTABLES t ON c.TABLEID = t.TABLEID
                 JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
-                WHERE c.TYPE = 'P' AND s.SCHEMANAME = ?;
+                WHERE c.TYPE = 'P' AND s.SCHEMANAME = ?
                 """,
                 [schema_name.upper()],
             )
@@ -3735,44 +3768,66 @@ def introspect_derby(
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
         with contextlib.suppress(Exception):
-            cur.execute(
-                """
-                SELECT t.TABLENAME AS src_table, c.CONSTRAINTNAME AS src_column,
-                       rt.TABLENAME AS tgt_table, rc.CONSTRAINTNAME AS tgt_column
-                FROM SYS.SYSCONSTRAINTS c
-                JOIN SYS.SYSTABLES t ON c.TABLEID = t.TABLEID
-                JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
-                JOIN SYS.SYSKEYS k ON c.CONSTRAINTID = k.CONSTRAINTID
-                JOIN SYS.SYSCONSTRAINTS rc ON k.CONGLOMERATEID = rc.CONSTRAINTID
-                JOIN SYS.SYSTABLES rt ON rc.TABLEID = rt.TABLEID
-                WHERE c.TYPE = 'F' AND s.SCHEMANAME = ?;
-                """,
-                [schema_name.upper()],
+            jdbc_fks = _derby_jdbc_foreign_keys(
+                cur, schema_name.upper(), list(table_names)
             )
-            for fkr in cur.fetchall() or []:
-                if fkr and len(fkr) >= 4:
-                    src_tbl, src_col, tgt_tbl, tgt_col = (
-                        str(fkr[0]).lower(),
-                        str(fkr[1]).lower(),
-                        str(fkr[2]).lower(),
-                        str(fkr[3]).lower(),
-                    )
+            if jdbc_fks is not None:
+                for src_tbl, src_col, tgt_tbl, tgt_col in jdbc_fks:
                     foreign_keys.append(
                         {
-                            "table": src_tbl,
-                            "column": src_col,
-                            "foreign_table": tgt_tbl,
-                            "foreign_column": tgt_col,
+                            "table": src_tbl.lower(),
+                            "column": src_col.lower(),
+                            "foreign_table": tgt_tbl.lower(),
+                            "foreign_column": tgt_col.lower(),
                         }
                     )
                     relationships.append(
                         {
-                            "source_table": src_tbl,
-                            "source_column": src_col,
-                            "target_table": tgt_tbl,
-                            "target_column": tgt_col,
+                            "source_table": src_tbl.lower(),
+                            "source_column": src_col.lower(),
+                            "target_table": tgt_tbl.lower(),
+                            "target_column": tgt_col.lower(),
                         }
                     )
+            else:
+                cur.execute(
+                    """
+                SELECT t.TABLENAME AS src_table, c.CONSTRAINTNAME AS src_column,
+                           rt.TABLENAME AS tgt_table, rc.CONSTRAINTNAME AS tgt_column
+                    FROM SYS.SYSCONSTRAINTS c
+                    JOIN SYS.SYSTABLES t ON c.TABLEID = t.TABLEID
+                    JOIN SYS.SYSSCHEMAS s ON t.SCHEMAID = s.SCHEMAID
+                    JOIN SYS.SYSKEYS k ON c.CONSTRAINTID = k.CONSTRAINTID
+                    JOIN SYS.SYSCONSTRAINTS rc ON k.CONGLOMERATEID = rc.CONSTRAINTID
+                    JOIN SYS.SYSTABLES rt ON rc.TABLEID = rt.TABLEID
+                    WHERE c.TYPE = 'F' AND s.SCHEMANAME = ?
+                    """,
+                    [schema_name.upper()],
+                )
+                for fkr in cur.fetchall() or []:
+                    if fkr and len(fkr) >= 4:
+                        src_tbl, src_col, tgt_tbl, tgt_col = (
+                            str(fkr[0]).lower(),
+                            str(fkr[1]).lower(),
+                            str(fkr[2]).lower(),
+                            str(fkr[3]).lower(),
+                        )
+                        foreign_keys.append(
+                            {
+                                "table": src_tbl,
+                                "column": src_col,
+                                "foreign_table": tgt_tbl,
+                                "foreign_column": tgt_col,
+                            }
+                        )
+                        relationships.append(
+                            {
+                                "source_table": src_tbl,
+                                "source_column": src_col,
+                                "target_table": tgt_tbl,
+                                "target_column": tgt_col,
+                            }
+                        )
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:

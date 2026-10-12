@@ -140,6 +140,15 @@
     mis-ordered around a CTE), typed `HAVING` markers, LIKE `ESCAPE`, a statement timeout, and the
     validator now reads `SELECT SKIP n FIRST m DISTINCT`.
 
+- **chDB, H2, Derby (first live runs)**:
+  - H2/Derby over JayDeBeApi returned the underlying column name instead of the `AS` alias
+    (`name` for `t2.name AS dept`); the cursor now reports JDBC column labels.
+  - Derby: the connection test and introspection sent a trailing `;` (a syntax error), `AVG` over an
+    INTEGER was integer division (now cast to `DOUBLE`), and foreign keys are read through
+    `DatabaseMetaData.getImportedKeys` because Derby's SQL catalog has no key column names.
+    Derby has no `WITH` (CTE) support; both that and its upper-case folding of unquoted names are
+    declared limitations backed by probes.
+
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
   change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and

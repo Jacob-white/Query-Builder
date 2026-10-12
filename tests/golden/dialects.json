@@ -1831,7 +1831,7 @@
   },
   "apache_derby": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
     "like_escape_char": "\\",
     "like_escape_clause": true,
@@ -21596,7 +21596,7 @@
   },
   "derby": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
     "like_escape_char": "\\",
     "like_escape_clause": true,

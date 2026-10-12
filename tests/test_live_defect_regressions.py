@@ -553,3 +553,50 @@ def test_informix_dsn_gets_delimident_unless_set_by_the_caller() -> None:
     )
     assert _with_delimident({"dsn": "X=1;DELIMIDENT=n"})["dsn"] == "X=1;DELIMIDENT=n"
     assert _with_delimident({"host": "h"}) == {"host": "h"}
+
+
+def test_jdbc_cursor_reports_aliases_not_underlying_column_names() -> None:
+    """JayDeBeApi names columns via getColumnName (`name`), losing the `AS dept` alias."""
+    from query_builder.connectors.jdbc_cursor import label_columns
+
+    class _Meta:
+        def getColumnCount(self) -> int:
+            return 2
+
+        def getColumnLabel(self, i: int) -> str:
+            return ("id", "dept")[i - 1]
+
+    class _Cur:
+        __module__ = "jaydebeapi"  # only real JayDeBeApi cursors are wrapped
+        _meta = _Meta()
+        description = [("id", 4, None), ("name", 12, None)]
+
+        def fetchall(self) -> list[Any]:
+            return [(1, "Eng")]
+
+    cur = label_columns(_Cur())
+    assert [d[0] for d in cur.description] == ["id", "dept"]
+    assert cur.description[1][1] == 12 and cur.fetchall() == [(1, "Eng")]
+    plain = object()
+    assert label_columns(plain) is plain  # non-JDBC cursors pass through untouched
+
+
+def test_derby_averages_as_double_and_runs_semicolon_free_sql() -> None:
+    sql, *_ = QueryCompiler(
+        {"table": "t", "columns": [{"column": "salary", "agg": "avg", "alias": "m"}]},
+        dialect=get_dialect("derby"),
+    ).compile()
+    assert 'AVG(CAST("t1"."salary" AS DOUBLE))' in sql
+
+    import inspect
+
+    import query_builder.connectors.derby as derby
+
+    assert "SYSDUMMY1;" not in inspect.getsource(derby)  # Derby rejects a trailing ;
+
+
+def test_derby_foreign_keys_only_use_jdbc_metadata_for_a_real_jdbc_cursor() -> None:
+    from query_builder.connectors.introspection import _derby_jdbc_foreign_keys
+
+    # a mock (or any non-JayDeBeApi cursor) must fall back to the SQL path, not loop
+    assert _derby_jdbc_foreign_keys(MagicMock(), "APP", ["t"]) is None

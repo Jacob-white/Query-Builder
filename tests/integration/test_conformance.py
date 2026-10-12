@@ -173,6 +173,7 @@ def test_injection_looking_values_are_data(
 
 @cat("parameter_safety")
 def test_raw_sql_parameter_binding(conn: Any, engine: Engine) -> None:
+    need(engine, "raw_unquoted_identifiers")
     ph = conn.dialect.placeholder
     sql = f"SELECT id FROM {ds.T_EMP} WHERE name = {ph} ORDER BY id"
     assert cs.norm_rows(conn.execute(sql=sql, params=["Alice"])["rows"]) == [{"id": 1}]

@@ -19,6 +19,7 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_derby
+from query_builder.connectors.jdbc_cursor import label_columns
 from query_builder.connectors.registry import register_connector
 
 
@@ -151,7 +152,7 @@ class DerbyConnector(BaseConnector):
 
         conn = self.connect()
         if hasattr(conn, "cursor"):
-            cur = conn.cursor()
+            cur = label_columns(conn.cursor())
             try:
                 yield cur
             finally:
@@ -167,7 +168,7 @@ class DerbyConnector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         with self.get_cursor() as cur:
-            cur.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1;")
+            cur.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
             cur.fetchone()
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
@@ -241,7 +242,7 @@ class AsyncDerbyConnector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         if hasattr(conn, "cursor"):
-            cur = conn.cursor()
+            cur = label_columns(conn.cursor())
         else:
             cur = _DerbyCursorAdapter(conn)
 
@@ -262,7 +263,7 @@ class AsyncDerbyConnector(AsyncBaseConnector):
 
     async def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
-        await self.execute_raw("SELECT 1 FROM SYSIBM.SYSDUMMY1;")
+        await self.execute_raw("SELECT 1 FROM SYSIBM.SYSDUMMY1")
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
             "status": "healthy",
@@ -274,7 +275,11 @@ class AsyncDerbyConnector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _DerbyCursorAdapter(conn)
+        cur = (
+            label_columns(conn.cursor())
+            if hasattr(conn, "cursor")
+            else _DerbyCursorAdapter(conn)
+        )
         try:
             return introspect_derby(
                 cur,
