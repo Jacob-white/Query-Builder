@@ -38,6 +38,7 @@ from query_builder.security import (
     apply_column_masking,
     calculate_ast_complexity,
     check_cartesian_products,
+    collect_target_config,
     scrub_secrets,
     validate_network_target,
 )
@@ -186,24 +187,7 @@ class AsyncBaseConnector(ABC):
             elif "QB_SECURITY_PROFILE" not in os.environ:
                 net_cfg.enforce_tls = False
 
-        target_config = dict(self.config) if self.config else {}
-        for attr in (
-            "host",
-            "hostname",
-            "port",
-            "endpoint",
-            "url",
-            "uri",
-            "address",
-            "server",
-            "contact_points",
-            "connection_string",
-            "dsn",
-            "flight_endpoint",
-        ):
-            val = getattr(self, attr, None)
-            if val is not None and attr not in target_config:
-                target_config[attr] = val
+        target_config = collect_target_config(self)
 
         validate_network_target(
             config=target_config,

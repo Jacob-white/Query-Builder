@@ -553,3 +553,82 @@ def test_informix_dsn_gets_delimident_unless_set_by_the_caller() -> None:
     )
     assert _with_delimident({"dsn": "X=1;DELIMIDENT=n"})["dsn"] == "X=1;DELIMIDENT=n"
     assert _with_delimident({"host": "h"}) == {"host": "h"}
+
+
+def test_jdbc_cursor_reports_aliases_not_underlying_column_names() -> None:
+    """JayDeBeApi names columns via getColumnName (`name`), losing the `AS dept` alias."""
+    from query_builder.connectors.jdbc_cursor import label_columns
+
+    class _Meta:
+        def getColumnCount(self) -> int:
+            return 2
+
+        def getColumnLabel(self, i: int) -> str:
+            return ("id", "dept")[i - 1]
+
+    class _Cur:
+        __module__ = "jaydebeapi"  # only real JayDeBeApi cursors are wrapped
+        _meta = _Meta()
+        description = [("id", 4, None), ("name", 12, None)]
+
+        def fetchall(self) -> list[Any]:
+            return [(1, "Eng")]
+
+    cur = label_columns(_Cur())
+    assert [d[0] for d in cur.description] == ["id", "dept"]
+    assert cur.description[1][1] == 12 and cur.fetchall() == [(1, "Eng")]
+    plain = object()
+    assert label_columns(plain) is plain  # non-JDBC cursors pass through untouched
+
+
+def test_derby_averages_as_double_and_runs_semicolon_free_sql() -> None:
+    sql, *_ = QueryCompiler(
+        {"table": "t", "columns": [{"column": "salary", "agg": "avg", "alias": "m"}]},
+        dialect=get_dialect("derby"),
+    ).compile()
+    assert 'AVG(CAST("t1"."salary" AS DOUBLE))' in sql
+
+    import inspect
+
+    import query_builder.connectors.derby as derby
+
+    assert "SYSDUMMY1;" not in inspect.getsource(derby)  # Derby rejects a trailing ;
+
+
+def test_derby_foreign_keys_only_use_jdbc_metadata_for_a_real_jdbc_cursor() -> None:
+    from query_builder.connectors.introspection import _derby_jdbc_foreign_keys
+
+    # a mock (or any non-JayDeBeApi cursor) must fall back to the SQL path, not loop
+    assert _derby_jdbc_foreign_keys(MagicMock(), "APP", ["t"]) is None
+
+
+def test_doris_has_no_ilike_and_declares_the_mysql_like_escape() -> None:
+    """Doris has no ILIKE operator (ParseException); its sibling StarRocks already knew."""
+    sql, params, *_ = QueryCompiler(
+        {
+            "table": "qbit_employees",
+            "columns": ["id"],
+            "filters": [{"column": "name", "op": "ilike", "value": "a%"}],
+        },
+        dialect=get_dialect("doris"),
+    ).compile()
+    assert "ILIKE" not in sql and "LOWER(`t1`.`name`) LIKE LOWER(%s)" in sql
+    assert get_dialect("doris").escape_like("5%") == "5\\%"
+
+
+def test_oceanbase_introspection_reads_foreign_keys_the_mysql_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MySQL mode has no constraint_column_usage, so the ANSI FK query returned nothing."""
+    import query_builder.connectors.oceanbase as ob
+
+    seen: dict[str, Any] = {}
+
+    def _fake(cursor: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"tables": {}}
+
+    monkeypatch.setattr(ob, "introspect_information_schema", _fake)
+    conn = ob.OceanBaseConnector(database="qb_it", cursor=MagicMock())
+    conn.introspect_schema()
+    assert seen["fk_style"] == "mysql" and seen["schema_name"] == "qb_it"

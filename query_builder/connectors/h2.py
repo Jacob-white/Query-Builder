@@ -19,6 +19,7 @@ from query_builder.connectors.base import (
     IntrospectionError,
 )
 from query_builder.connectors.introspection import introspect_h2
+from query_builder.connectors.jdbc_cursor import label_columns
 from query_builder.connectors.registry import register_connector
 
 
@@ -151,7 +152,7 @@ class H2Connector(BaseConnector):
 
         conn = self.connect()
         if hasattr(conn, "cursor"):
-            cur = conn.cursor()
+            cur = label_columns(conn.cursor())
             try:
                 yield cur
             finally:
@@ -167,7 +168,7 @@ class H2Connector(BaseConnector):
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
         with self.get_cursor() as cur:
-            cur.execute("SELECT 1;")
+            cur.execute("SELECT 1")
             cur.fetchone()
         latency_ms = (time.perf_counter() - start) * 1000.0
         return {
@@ -241,7 +242,7 @@ class AsyncH2Connector(AsyncBaseConnector):
         conn = await self.connect()
         start = time.perf_counter()
         if hasattr(conn, "cursor"):
-            cur = conn.cursor()
+            cur = label_columns(conn.cursor())
         else:
             cur = _H2CursorAdapter(conn)
 
@@ -274,7 +275,11 @@ class AsyncH2Connector(AsyncBaseConnector):
 
     async def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         conn = await self.connect()
-        cur = conn.cursor() if hasattr(conn, "cursor") else _H2CursorAdapter(conn)
+        cur = (
+            label_columns(conn.cursor())
+            if hasattr(conn, "cursor")
+            else _H2CursorAdapter(conn)
+        )
         try:
             return introspect_h2(
                 cur,

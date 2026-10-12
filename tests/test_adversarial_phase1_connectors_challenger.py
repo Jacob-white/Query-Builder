@@ -618,8 +618,8 @@ def test_async_connector_introspection_failure_cleanup(connector_cls):
     [
         (FirebirdConnector, "SELECT 1 FROM RDB$DATABASE;"),
         (MonetDBConnector, "SELECT 1;"),
-        (H2Connector, "SELECT 1;"),
-        (DerbyConnector, "SELECT 1 FROM SYSIBM.SYSDUMMY1;"),
+        (H2Connector, "SELECT 1"),
+        (DerbyConnector, "SELECT 1 FROM SYSIBM.SYSDUMMY1"),
         (SybaseConnector, "SELECT 1;"),
         (InformixConnector, "SELECT 1 FROM systables WHERE tabid = 1;"),
     ],
