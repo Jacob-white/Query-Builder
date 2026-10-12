@@ -441,6 +441,7 @@ add(
         },
         _ids(1, 2, 7),
         group="cte",
+        requires=("cte",),
     )
 )
 add(

@@ -125,6 +125,8 @@ class OceanBaseConnector(BaseConnector):
                     cur,
                     schema_name=self.database,
                     filter_sensitive=filter_sensitive,
+                    # MySQL mode has no constraint_column_usage (the ANSI FK query)
+                    fk_style="mysql",
                 )
             except Exception as exc:
                 raise IntrospectionError(

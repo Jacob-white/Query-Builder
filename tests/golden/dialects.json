@@ -1831,7 +1831,7 @@
   },
   "apache_derby": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
     "like_escape_char": "\\",
     "like_escape_clause": true,
@@ -2321,7 +2321,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "doris",
@@ -2340,9 +2340,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -2352,9 +2352,9 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_like": [
      "\"t\".\"c\" LIKE %s",
@@ -2385,9 +2385,9 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_text_search": [
      "1.0",
@@ -2717,15 +2717,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -2741,15 +2741,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -2765,15 +2765,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -21596,7 +21596,7 @@
   },
   "derby": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
     "like_escape_char": "\\",
     "like_escape_clause": true,
@@ -22086,7 +22086,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "doris",
@@ -22105,9 +22105,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -22117,9 +22117,9 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_like": [
      "\"t\".\"c\" LIKE %s",
@@ -22150,9 +22150,9 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_text_search": [
      "1.0",
@@ -22482,15 +22482,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -22506,15 +22506,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -22530,15 +22530,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -58350,7 +58350,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "doris",
@@ -58369,9 +58369,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -58381,9 +58381,9 @@
      ""
     ],
     "format_ilike": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_like": [
      "\"t\".\"c\" LIKE %s",
@@ -58414,9 +58414,9 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
+     "LOWER(t.c) LIKE LOWER(%s)",
+     "LOWER(col) LIKE LOWER(%s)"
     ],
     "format_text_search": [
      "1.0",
@@ -58746,15 +58746,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -58770,15 +58770,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -58794,15 +58794,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",

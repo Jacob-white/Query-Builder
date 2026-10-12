@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from tests.integration import dataset
-from tests.integration.engines import Engine, Native, register
+from tests.integration.engines import Engine, Limitation, Native, register
 
 _SCRATCH = Path(tempfile.gettempdir()) / "qb_integration"
 
@@ -724,6 +724,14 @@ register(
             "db_read_only": "no separate read-only login is provisioned for embedded Derby",
             "case_sensitive_identifiers": "not exercised for Derby",
             "window": "Derby supports only ROW_NUMBER(); no aggregate window functions",
+            "cte": Limitation(
+                "Derby has no WITH / common table expressions",
+                probe="WITH x AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) SELECT * FROM x",
+            ),
+            "raw_unquoted_identifiers": Limitation(
+                "Derby folds an unquoted name to upper case but the dataset is quoted lower case",
+                probe=f"SELECT id FROM {dataset.T_EMP}",
+            ),
         },
     )
 )

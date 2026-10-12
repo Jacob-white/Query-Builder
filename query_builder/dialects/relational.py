@@ -692,6 +692,8 @@ class DerbyDialect(BaseDialect):
     placeholder: str = "?"
     like_escape_char = "\\"  # Derby has no default LIKE escape: declare it
     like_escape_clause = True
+    # AVG over an INTEGER column is integer division in Derby.
+    avg_template = "AVG(CAST({} AS DOUBLE))"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:

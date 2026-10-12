@@ -82,7 +82,8 @@ def test_introspection_finds_seeded_columns(conn: Any, engine: Engine) -> None:
     cols = {c["name"].lower() for c in tables[ds.T_EMP.lower()]["columns"]}
     assert cols == {"id", "name", "dept_id", "salary", "age", "email"}
     res_cols = {c["name"].lower() for c in tables[ds.T_RES.lower()]["columns"]}
-    assert {"select", "group", "order", "mixedcase", ds.UNICODE_COL} <= res_cols
+    uni = ds.unicode_col(engine.family)
+    assert {"select", "group", "order", "mixedcase", uni} <= res_cols
     nullable = {
         c["name"].lower(): c["is_nullable"] for c in tables[ds.T_EMP.lower()]["columns"]
     }
@@ -173,6 +174,7 @@ def test_injection_looking_values_are_data(
 
 @cat("parameter_safety")
 def test_raw_sql_parameter_binding(conn: Any, engine: Engine) -> None:
+    need(engine, "raw_unquoted_identifiers")
     ph = conn.dialect.placeholder
     sql = f"SELECT id FROM {ds.T_EMP} WHERE name = {ph} ORDER BY id"
     assert cs.norm_rows(conn.execute(sql=sql, params=["Alice"])["rows"]) == [{"id": 1}]

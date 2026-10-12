@@ -559,7 +559,11 @@ dataset.FAMILIES["starrocks"] = dataset.Ddl(
     quote="`", pk=False, fk=False, table_suffix=_OLAP_SUFFIX.format(model="PRIMARY")
 )
 dataset.FAMILIES["doris"] = dataset.Ddl(
-    quote="`", pk=False, fk=False, table_suffix=_OLAP_SUFFIX.format(model="UNIQUE")
+    quote="`",
+    pk=False,
+    fk=False,
+    table_suffix=_OLAP_SUFFIX.format(model="UNIQUE"),
+    unicode_idents=False,
 )
 
 register(
@@ -620,7 +624,17 @@ register(
             "SELECT count(*) FROM numbers('number' = '100000000') a "
             "CROSS JOIN numbers('number' = '100000') b"
         ),
-        unsupported={"introspect_fk": "Doris has no foreign keys"},
+        unsupported={
+            "introspect_fk": "Doris has no foreign keys",
+            "unicode_identifiers": Limitation(
+                "Doris column names must match an ASCII-only pattern",
+                probe=(
+                    "CREATE TABLE qbit_unicode_probe (id INT, `ünï` INT) "
+                    "DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    "PROPERTIES ('replication_num' = '1')"
+                ),
+            ),
+        },
         service="doris",
         container_port=9030,
     )

@@ -54,6 +54,18 @@
   cloud-metadata address was **allowed** under the default policy. `HOSTNAME`/`HOST`/`SERVER`/
   `ADDRESS`/`Data Source` and `PORT` are now extracted and validated.
 
+- **The network-egress check missed most connection-string shapes** (found by probing all 138
+  connectors with the cloud-metadata address): 26 of 37 formats let it through under the default
+  policy - libpq `host=... port=...`, JDBC URLs, Oracle `//host` and TNS descriptors, comma host
+  lists, `user:pw@host`, `host:port` or a URL inside `host`, multi-host URLs, and the keys `hosts`,
+  `servers`, `nodes`, `connstr`, `gateway_url`, `base_url`, `supabase_url`, `bootstrap_servers`,
+  `conninfo`, `jdbc_url`, ... One shared parser (`extract_address_targets`) now reads every
+  address-like config key **and** the address attributes a connector keeps outside its config
+  (`collect_target_config`, used by the sync and async bases). Multi-host URLs (replica sets) were
+  previously rejected with a port error and are now validated host by host. Strict TLS profiles
+  now also reject `http://` under the newly checked keys (e.g. `base_url`), as they already did for
+  `url`. Addresses the first pass already validates are not resolved a second time.
+
 ### Security (structural validation, DB-side enforcement, SSRF pinning)
 - New sqlglot **structural layer** (`query_builder/sql_ast.py`): `validate_sql_ast(..., dialect=None)`
   now requires BOTH the legacy lexer layer and an AST allowlist (one statement, read-only query
@@ -140,6 +152,25 @@
     mis-ordered around a CTE), typed `HAVING` markers, LIKE `ESCAPE`, a statement timeout, and the
     validator now reads `SELECT SKIP n FIRST m DISTINCT`.
 
+- **chDB, H2, Derby (first live runs)**:
+  - H2/Derby over JayDeBeApi returned the underlying column name instead of the `AS` alias
+    (`name` for `t2.name AS dept`); the cursor now reports JDBC column labels.
+  - Derby: the connection test and introspection sent a trailing `;` (a syntax error), `AVG` over an
+    INTEGER was integer division (now cast to `DOUBLE`), and foreign keys are read through
+    `DatabaseMetaData.getImportedKeys` because Derby's SQL catalog has no key column names.
+    Derby has no `WITH` (CTE) support; both that and its upper-case folding of unquoted names are
+    declared limitations backed by probes.
+
+- **Doris (first live run)**: the dialect emitted `ILIKE`, which Doris does not have, so every
+  substring filter (`contains`, `starts_with`, `ilike`, ...) failed with a parse error; it now uses
+  `LOWER(x) LIKE LOWER(?)` with the MySQL `\` escape, like StarRocks. Doris column names must be
+  ASCII, declared as a limitation with a probe (the harness uses an ASCII stand-in column).
+
+- **OceanBase (first live run)**: foreign-key introspection returned nothing because the connector
+  used the ANSI query (it needs `constraint_column_usage`, which MySQL mode lacks) and swallowed the
+  error; it now uses the MySQL-style query. The test container's healthcheck called the `mysql`
+  client, which the image does not ship (it has `obclient`), so it could never become healthy.
+
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
   change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and
