@@ -537,6 +537,212 @@ def _parse_keyvalue_dsn(raw: str) -> tuple[str, int | None] | None:
     return host_value.strip(), port
 
 
+#: Config keys / attribute names that carry a network address (``host``, ``db_host``,
+#: ``gateway_url``, ``hosts``, ``bootstrap_servers``, ``connstr``, ``conninfo``, ...).
+_ADDRESS_KEY_RE = re.compile(
+    r"(?:^|_)(?:host|hosts|hostname|hostaddr|server|servers|address|addresses|addr|"
+    r"endpoint|endpoints|url|urls|uri|uris|dsn|connstr|connection_string|conninfo|"
+    r"node|nodes|broker|brokers|contact_points|seeds)$"
+)
+_KV_HOST_KEYS = frozenset(
+    {"host", "hostname", "hostaddr", "server", "address", "addr", "data source"}
+)
+_INSECURE_SCHEMES = ("http", "ws", "ftp", "telnet")
+_SCHEME_PREFIX_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.\-]*:)*$")
+_TNS_HOST_RE = re.compile(r"\(\s*host\s*=\s*([^)\s]+)\s*\)", re.IGNORECASE)
+
+
+def is_address_key(name: str) -> bool:
+    """True when a config key / attribute name looks like it carries a network address."""
+    return bool(_ADDRESS_KEY_RE.search(name.lower()))
+
+
+def _split_hostport(token: str) -> tuple[str, int | None] | None:
+    """``host``, ``host:port``, ``[v6]`` or ``[v6]:port`` -> ``(host, port)``; else ``None``."""
+    token = token.strip()
+    if not token or token.startswith(("/", ".", "~")) or "\\" in token:
+        return None  # a unix socket or file path, not a network address
+    if token.startswith("["):
+        end = token.find("]")
+        if end == -1:
+            return None
+        rest = token[end + 1 :]
+        port = int(rest[1:]) if rest.startswith(":") and rest[1:].isdigit() else None
+        return token[1:end], port
+    if token.count(":") == 1:
+        host, _, port_text = token.partition(":")
+        return (host, int(port_text) if port_text.isdigit() else None) if host else None
+    return token, None
+
+
+def _authority_targets(authority: str) -> list[tuple[str, int | None]]:
+    """Targets of ``[user[:pw]@]host[:port][,host[:port]...]`` (userinfo is dropped)."""
+    if "@" in authority:
+        authority = authority.rsplit("@", 1)[1]
+    found = [_split_hostport(part) for part in authority.split(",")]
+    return [t for t in found if t is not None]
+
+
+def _keyvalue_targets(raw: str) -> list[tuple[str, int | None]] | None:
+    """Targets of a ``KEY=value`` list separated by ``;`` (ODBC, Db2) or blanks (libpq).
+
+    ``None`` when ``raw`` is not such a list. A host value may be a comma list
+    (``host=a,b port=1,2``) and may carry a ``tcp:`` prefix or a ``,port`` suffix.
+    """
+    if "=" not in raw or "://" in raw:
+        return None
+    parts = raw.split(";") if ";" in raw else raw.split()
+    pairs: dict[str, str] = {}
+    for part in parts:
+        key, sep, value = part.partition("=")
+        if sep and key.strip():
+            pairs.setdefault(key.strip().lower(), value.strip().strip("'\""))
+    if not pairs:
+        return None
+    out: list[tuple[str, int | None]] = []
+    port_text = pairs.get("port", "")
+    for key in _KV_HOST_KEYS:
+        found_value = pairs.get(key)
+        if not found_value:
+            continue
+        value = (
+            found_value[4:] if found_value.lower().startswith("tcp:") else found_value
+        )
+        if "," in value and key in ("server", "data source", "address", "addr"):
+            value, _, port_text = value.partition(",")  # ``Server=tcp:host,1433``
+        for token in value.split(","):
+            target = _split_hostport(token)
+            if target is None:
+                continue
+            host, inline_port = target
+            first_port = port_text.split(",")[0].strip()
+            out.append(
+                (
+                    host,
+                    inline_port or (int(first_port) if first_port.isdigit() else None),
+                )
+            )
+    return out
+
+
+def extract_address_targets(raw: str) -> list[tuple[str, int | None]]:
+    """Every ``(host, port)`` a connection string / URL / address list may connect to.
+
+    Understands URLs (also ``jdbc:vendor://...``, multi-host ``a:1,b:2``, userinfo),
+    ``KEY=value`` DSNs, Oracle ``//host:port/svc`` and TNS descriptors, ``user@host:port/db``
+    and plain comma lists. Unix sockets and file paths yield nothing.
+    """
+    raw = raw.strip()
+    if not raw:
+        return []
+    if "(" in raw and _TNS_HOST_RE.search(raw):
+        return [(h, None) for h in _TNS_HOST_RE.findall(raw)]
+    kv = _keyvalue_targets(raw)
+    if kv is not None:
+        return kv
+    marker = raw.find("//")
+    if marker != -1 and _SCHEME_PREFIX_RE.match(raw[:marker]):
+        authority = re.split(r"[/?#;]", raw[marker + 2 :], maxsplit=1)[0]
+        return _authority_targets(authority)
+    if raw.startswith(("/", ".", "~")):
+        return []
+    return _authority_targets(raw.split("/", 1)[0])
+
+
+def _address_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [item for item in value if isinstance(item, str)]
+    return []
+
+
+def collect_target_config(owner: Any) -> dict[str, Any]:
+    """``owner.config`` plus every address-like attribute the connector stored on itself
+    (``gateway_url``, ``supabase_url``, ``servers``, ...), for the network-egress check."""
+    config = getattr(owner, "config", None)
+    target = dict(config) if config else {}
+    for name in ("port", "flight_endpoint", "connection_string", "dsn", "server"):
+        value = getattr(owner, name, None)
+        if value is not None and name not in target:
+            target[name] = value
+    for name, value in vars(owner).items():
+        if (
+            not name.startswith("_")
+            and name not in target
+            and is_address_key(name)
+            and _address_strings(value)
+        ):
+            target[name] = value
+    return target
+
+
+#: Keys whose value the first pass of ``validate_network_target`` already treats as a URL
+#: (single-host ``scheme://`` form) ...
+_FIRST_PASS_URL_KEYS = frozenset(
+    {"url", "uri", "connection_string", "dsn", "endpoint", "flight_endpoint"}
+)
+#: ... and keys it already treats as a plain host name.
+_FIRST_PASS_HOST_KEYS = _FIRST_PASS_URL_KEYS | frozenset(
+    {"host", "hostname", "address", "server", "contact_points"}
+)
+
+
+def _first_pass_covers(
+    key: str, raw: str, targets: list[tuple[str, int | None]]
+) -> bool:
+    """True when the first pass already validates ``raw`` exactly (so a second pass would
+    only add a DNS lookup, and another chance for a rebinding answer)."""
+    raw = raw.strip()
+    if "://" in raw:
+        return (
+            key in _FIRST_PASS_URL_KEYS
+            and len(targets) <= 1
+            and not raw.lower().startswith("jdbc:")
+        )
+    return (
+        key in _FIRST_PASS_HOST_KEYS and len(targets) == 1 and targets[0] == (raw, None)
+    )
+
+
+def _validate_address_keys(
+    config: dict[str, Any], network_config: Any, already: set[tuple[str, int | None]]
+) -> None:
+    """Validate every address found under any address-like config key.
+
+    This is what catches ``host="a,169.254.169.254"``, ``host="169.254.169.254:80"``,
+    libpq ``host=... port=...``, JDBC / Oracle / TNS strings and driver-specific keys
+    (``hosts``, ``servers``, ``connstr``, ``gateway_url``, ...) that name no host in the
+    shapes the first pass understands.
+    """
+    for key, value in config.items():
+        if not isinstance(key, str) or not is_address_key(key):
+            continue
+        for raw in _address_strings(value):
+            targets = extract_address_targets(raw)
+            if _first_pass_covers(key, raw, targets):
+                continue  # resolved (and pinned) once already: no second DNS lookup
+            for host, port in targets:
+                if (host, port) in already:
+                    continue
+                already.add((host, port))
+                validate_network_target(
+                    host=host, port=port, network_config=network_config
+                )
+            if "://" in raw:
+                if "," in raw.split("://", 1)[1].split("/", 1)[0]:
+                    # a multi-host URL cannot be url-split; apply the TLS-scheme rule here
+                    scheme = raw.split("://", 1)[0].lower()
+                    if network_config.enforce_tls and scheme in _INSECURE_SCHEMES:
+                        raise SecurityError(
+                            f"TLS is enforced but URL uses insecure scheme: '{scheme}'"
+                        )
+                else:
+                    parsed = urllib.parse.urlsplit(raw)
+                    if parsed.scheme and parsed.hostname:  # keep the TLS-scheme rule
+                        validate_network_target(url=raw, network_config=network_config)
+
+
 def validate_network_target(
     host: str | None = None,
     port: int | None = None,
@@ -634,6 +840,8 @@ def validate_network_target(
                     port = kv_port
                 continue
             if "://" in raw_str:
+                if "," in raw_str.split("://", 1)[1].split("/", 1)[0]:
+                    continue  # multi-host (replica set): validated host by host below
                 if url is None:
                     url = raw_str
                 elif raw_str != url:
@@ -688,6 +896,8 @@ def validate_network_target(
                     port=pt_port,
                     network_config=network_config,
                 )
+
+        _validate_address_keys(config, network_config, set())
 
     parsed_url = None
     if url:

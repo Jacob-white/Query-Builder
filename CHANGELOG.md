@@ -54,6 +54,18 @@
   cloud-metadata address was **allowed** under the default policy. `HOSTNAME`/`HOST`/`SERVER`/
   `ADDRESS`/`Data Source` and `PORT` are now extracted and validated.
 
+- **The network-egress check missed most connection-string shapes** (found by probing all 138
+  connectors with the cloud-metadata address): 26 of 37 formats let it through under the default
+  policy - libpq `host=... port=...`, JDBC URLs, Oracle `//host` and TNS descriptors, comma host
+  lists, `user:pw@host`, `host:port` or a URL inside `host`, multi-host URLs, and the keys `hosts`,
+  `servers`, `nodes`, `connstr`, `gateway_url`, `base_url`, `supabase_url`, `bootstrap_servers`,
+  `conninfo`, `jdbc_url`, ... One shared parser (`extract_address_targets`) now reads every
+  address-like config key **and** the address attributes a connector keeps outside its config
+  (`collect_target_config`, used by the sync and async bases). Multi-host URLs (replica sets) were
+  previously rejected with a port error and are now validated host by host. Strict TLS profiles
+  now also reject `http://` under the newly checked keys (e.g. `base_url`), as they already did for
+  `url`. Addresses the first pass already validates are not resolved a second time.
+
 ### Security (structural validation, DB-side enforcement, SSRF pinning)
 - New sqlglot **structural layer** (`query_builder/sql_ast.py`): `validate_sql_ast(..., dialect=None)`
   now requires BOTH the legacy lexer layer and an AST allowlist (one statement, read-only query
