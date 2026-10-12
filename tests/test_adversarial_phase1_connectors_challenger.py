@@ -452,7 +452,8 @@ def test_dialect_pagination_boundary_values(dialect_name, cls):
     elif dialect_name in ("derby", "sybase", "firebird"):
         assert clause == "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" and params == [0, 0]
     elif dialect_name == "informix":
-        assert clause == "SKIP %s FIRST %s" and params == [0, 0]
+        # inlined: the driver mis-orders bound SKIP/FIRST markers around a CTE's own
+        assert clause == "SKIP 0 FIRST 0" and params == []
 
     # Boundary 2: limit=1000000, offset=5000000
     clause, params = dialect.format_limit_offset(limit=1000000, offset=5000000)
@@ -466,7 +467,7 @@ def test_dialect_pagination_boundary_values(dialect_name, cls):
             1000000,
         ]
     elif dialect_name == "informix":
-        assert clause == "SKIP %s FIRST %s" and params == [5000000, 1000000]
+        assert clause == "SKIP 5000000 FIRST 1000000" and params == []
 
 
 @pytest.mark.parametrize(

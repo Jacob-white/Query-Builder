@@ -587,7 +587,7 @@ def test_adversarial_pagination_mssql_and_informix():
     assert "ORDER BY [t1].[item_id] ASC" in sql_ms_o
     assert params_ms_o == [40, 20]
 
-    # 3. Informix prefix pagination: parameters order is [offset, limit, *filters]
+    # 3. Informix prefix pagination is inlined, so only the filter values are bound
     informix_spec = {
         "table": "inventory",
         "columns": ["inventory.item_id", "inventory.quantity"],
@@ -602,10 +602,10 @@ def test_adversarial_pagination_mssql_and_informix():
         informix_spec, dialect="informix"
     ).compile()
     assert (
-        'SELECT SKIP %s FIRST %s "t1"."item_id" AS "inventory.item_id", "t1"."quantity" AS "inventory.quantity"'
+        'SELECT SKIP 30 FIRST 15 "t1"."item_id" AS "inventory.item_id", "t1"."quantity" AS "inventory.quantity"'
         in sql_inf
     )
-    assert params_inf == [30, 15, "W1", 0]
+    assert params_inf == ["W1", 0]
 
 
 # =====================================================================

@@ -138,6 +138,14 @@ class PrestoDialect(TrinoDialect):
 
     name: str = "presto"
 
+    def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
+        # PrestoDB cannot bind LIMIT/OFFSET (``mismatched input '?'``): inline the
+        # int-coerced values. OFFSET is disabled unless the server sets
+        # ``offset-clause-enabled``, so only emit it when a real offset is asked for.
+        if int(offset) > 0:
+            return f"OFFSET {int(offset)} LIMIT {int(limit)}", []
+        return f"LIMIT {int(limit)}", []
+
 
 class DatabricksDialect(BaseDialect):
     """Databricks and Apache Spark SQL dialect using backtick quoting."""

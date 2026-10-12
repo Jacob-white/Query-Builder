@@ -261,7 +261,7 @@ def test_like_escape_edge_cases():
     assert pg.escape_like(12) == "12"
     assert get_dialect("mssql").escape_like("[x]") == "\\[x]"
     # dialects not verified live keep the previous pass-through behaviour
-    passthrough = get_dialect("db2")
+    passthrough = get_dialect("teradata")
     assert passthrough.escape_like("50%") == "50%"
     assert "ESCAPE" not in passthrough.format_substring_match('"c"')
     # Oracle was verified live and now escapes with an explicit ESCAPE clause

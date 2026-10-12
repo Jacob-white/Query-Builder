@@ -138,6 +138,10 @@ class BaseDialect:
         """Formats a case-sensitive string matching expression."""
         return f"{col_ref} LIKE {self.placeholder}"
 
+    def format_having_placeholder(self, value: Any) -> str:
+        """Bind marker for a HAVING comparison value (some engines cannot infer its type)."""
+        return self.placeholder
+
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         """Formats LIMIT and OFFSET clause with bind parameters."""
         return f"LIMIT {self.placeholder} OFFSET {self.placeholder}", [limit, offset]

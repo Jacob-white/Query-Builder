@@ -15,7 +15,7 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
-from query_builder.connectors.introspection import introspect_information_schema
+from query_builder.connectors.introspection import introspect_vertica
 from query_builder.connectors.registry import register_connector
 
 
@@ -91,7 +91,7 @@ class VerticaConnector(BaseConnector):
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:
             try:
-                return introspect_information_schema(
+                return introspect_vertica(
                     cur,
                     schema_name=self.schema_name,
                     filter_sensitive=filter_sensitive,

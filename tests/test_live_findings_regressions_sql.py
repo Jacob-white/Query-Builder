@@ -115,11 +115,18 @@ def test_trino_family_catalog_queries_use_qmark_and_no_semicolon():
         assert "%s" not in sql and not sql.rstrip().endswith(";")
     assert snap["tables"]["t"]["columns"][0]["is_primary"] is False  # no id-guess
 
-    for cls in (TrinoConnector, PrestoDBConnector):
+    # PrestoDB has no version(); it reads the node version from system.runtime.nodes.
+    for cls, version_sql in (
+        (TrinoConnector, "SELECT version()"),
+        (
+            PrestoDBConnector,
+            "SELECT node_version FROM system.runtime.nodes LIMIT 1",
+        ),
+    ):
         c = MagicMock()
         c.fetchone.return_value = ("1",)
         cls(cursor=c).test_connection()
-        assert c.execute.call_args_list[-1].args[0] == "SELECT version()"
+        assert c.execute.call_args_list[-1].args[0] == version_sql
 
 
 def test_trino_and_presto_introspection_pass_qmark_placeholder():

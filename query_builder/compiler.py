@@ -2281,7 +2281,7 @@ class QueryCompiler:
             if op not in OPERATOR_MAP:
                 continue
             self.having_clauses.append(
-                f"{agg_expr} {self._sql_op(op)} {self.dialect.placeholder}"
+                f"{agg_expr} {self._sql_op(op)} {self.dialect.format_having_placeholder(val)}"
             )
             self.params.append(val)
 
