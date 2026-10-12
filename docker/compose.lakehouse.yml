@@ -30,6 +30,11 @@ services:
   presto:
     profiles: [lakehouse]
     image: prestodb/presto:0.293
+    # OFFSET is disabled by default on PrestoDB; the conformance suite pages with it.
+    entrypoint:
+      - sh
+      - -c
+      - echo offset-clause-enabled=true >> /opt/presto-server/etc/config.properties && exec /opt/entrypoint.sh
     ports: ["127.0.0.1:${QB_IT_PORT_PRESTO:-42080}:8080"]
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]

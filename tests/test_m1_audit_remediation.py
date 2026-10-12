@@ -423,9 +423,9 @@ def test_compiler_dialects_and_having():
     sql_inf, params_inf, _, _ = QueryCompiler(
         informix_spec, dialect="informix"
     ).compile()
-    assert 'SELECT SKIP %s FIRST %s "t1"."id" AS "users.id"' in sql_inf
-    # Informix parameters order: offset, limit, where_params
-    assert params_inf == [5, 10, True]
+    assert 'SELECT SKIP 5 FIRST 10 "t1"."id" AS "users.id"' in sql_inf
+    # Informix pagination is inlined, so only the where parameters are bound
+    assert params_inf == [True]
 
     # HAVING COUNT(*)
     having_spec = {
@@ -622,7 +622,7 @@ def test_informix_full_clauses():
         "offset": 5,
     }
     sql, _, _, _ = QueryCompiler(spec, dialect="informix").compile()
-    assert "SELECT SKIP %s FIRST %s" in sql
+    assert "SELECT SKIP 5 FIRST 10" in sql
     assert "LEFT JOIN" in sql
     assert "WHERE" in sql
     assert "GROUP BY" in sql
@@ -803,5 +803,5 @@ def test_coverage_100_percent_closure():
     sql_inf_no_join, _, _, _ = QueryCompiler(
         {"table": "users", "limit": 10}, dialect="informix"
     ).compile()
-    assert "SELECT SKIP %s FIRST %s" in sql_inf_no_join
+    assert "SELECT SKIP 0 FIRST 10" in sql_inf_no_join
     assert "JOIN" not in sql_inf_no_join

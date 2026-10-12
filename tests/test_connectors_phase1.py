@@ -244,16 +244,16 @@ def test_informix_dialect():
     d = get_dialect("informix")
     assert isinstance(d, InformixDialect)
     assert d.name == "informix"
-    assert d.placeholder == "%s"
+    assert d.placeholder == "?"
     assert get_dialect("ibm_informix").name == "informix"
 
-    assert d.format_ilike('"name"') == 'LOWER("name") LIKE LOWER(%s)'
+    assert d.format_ilike('"name"') == 'LOWER("name") LIKE LOWER(?)'
     assert d.quote_identifier("users") == '"users"'
 
     c, p = d.format_limit_offset(10, 20)
-    assert c == "SKIP %s FIRST %s" and p == [20, 10]
+    assert c == "SKIP 20 FIRST 10" and p == []
     c, p = d.format_limit_offset(10, 0)
-    assert c == "SKIP %s FIRST %s" and p == [0, 10]
+    assert c == "SKIP 0 FIRST 10" and p == []
 
     q, p = d.inspect_tables_query("informix")
     assert "systables" in q and p == ["informix"]
@@ -1768,22 +1768,26 @@ def test_introspect_informix_deep():
     # 2. columns
     # 3. primary keys
     # 4. foreign keys
+    # 3. primary/foreign key constraints (index part numbers), 4. references
     cur.fetchall.side_effect = [
         [("LOGS",), ("PASSWORDS",), (None,)],
         [
-            ("LOGS", "ID", 258, 4),  # 258 & 256 != 0 -> NOT NULL
-            ("LOGS", "MSG", 13, 255),  # 13 & 256 == 0 -> nullable
-            ("LOGS", "USER_ID", 2, 4),
-            ("PASSWORDS", "ID", 258, 4),
+            ("LOGS", "ID", 258, 4, 1, 100),  # 258 & 256 != 0 -> NOT NULL
+            ("LOGS", "MSG", 13, 255, 2, 100),  # 13 & 256 == 0 -> nullable
+            ("LOGS", "USER_ID", 2, 4, 3, 100),
+            ("PASSWORDS", "ID", 258, 4, 1, 101),
+            ("USERS", "ID", 258, 4, 1, 102),  # referenced table
             (None,),  # malformed
         ],
         [
-            ("LOGS", "ID"),
-            (None,),  # malformed pkr
+            ("LOGS", 100, "P", 1, 1) + (0,) * 15,
+            ("USERS", 102, "P", 2, 1) + (0,) * 15,
+            ("LOGS", 100, "R", 3, 3) + (0,) * 15,
+            (None,),  # malformed key row
         ],
         [
-            ("LOGS", "USER_ID", "USERS", "ID"),
-            (None,),  # malformed fkr
+            (3, 2),
+            (None,),  # malformed reference
         ],
     ]
 

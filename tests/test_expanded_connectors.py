@@ -1011,9 +1011,12 @@ def test_vertica_connector_lifecycle():
     assert info["engine_version"] == "Vertica Columnar Analytical Database"
 
     # introspect_schema
+    # v_catalog: tables, primary keys, columns, foreign keys (Vertica has no
+    # information_schema)
     mock_cur.fetchall.side_effect = [
         [("sales_fact",)],
-        [("sales_fact", "sale_id", "int", "NO")],
+        [("sales_fact", "sale_id")],
+        [("sales_fact", "sale_id", "int", False)],
         [],
     ]
     schema = conn.introspect_schema()

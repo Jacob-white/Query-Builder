@@ -340,6 +340,8 @@ class VerticaDialect(BaseDialect):
 
     name: str = "vertica"
     placeholder: str = "%s"
+    like_escape_char = "\\"
+    like_escape_clause = True
 
 
 class SAPHANADialect(BaseDialect):
@@ -438,6 +440,11 @@ class DB2Dialect(BaseDialect):
     name: str = "db2"
     placeholder: str = "?"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    # Db2 has no default LIKE escape character, so a literal % or _ needs a declared one.
+    like_escape_char = "\\"
+    like_escape_clause = True
+    # AVG over an INTEGER column is integer division in Db2 (88, not 88.125).
+    avg_template = "AVG(CAST({} AS DOUBLE))"
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
         return (
@@ -812,12 +819,27 @@ class InformixDialect(BaseDialect):
     """IBM Informix Dynamic Server dialect using double-quote escaping and SKIP/FIRST pagination."""
 
     name: str = "informix"
-    placeholder: str = "%s"
+    placeholder: str = "?"
     pagination_placement: str = "prefix"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
+    # Informix has no default LIKE escape for a bound pattern; declare one.
+    like_escape_char = "\\"
+    like_escape_clause = True
 
     def format_limit_offset(self, limit: int, offset: int) -> tuple[str, list[int]]:
-        return f"SKIP {self.placeholder} FIRST {self.placeholder}", [offset, limit]
+        # Inlined (int-coerced): with a CTE the driver bound ``SKIP ? FIRST ?`` ahead of the
+        # CTE's own parameters, silently dropping its filters.
+        return f"SKIP {int(offset)} FIRST {int(limit)}", []
+
+    def format_having_placeholder(self, value: Any) -> str:
+        # ``SUM(x) > ?`` fails to bind (CLI0143E invalid precision): type the marker.
+        if isinstance(value, bool):
+            return self.placeholder
+        if isinstance(value, int):
+            return f"CAST({self.placeholder} AS BIGINT)"
+        if isinstance(value, float):
+            return f"CAST({self.placeholder} AS FLOAT)"
+        return self.placeholder
 
     def inspect_tables_query(
         self, schema_name: str = "informix"

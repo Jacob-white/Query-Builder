@@ -18,8 +18,22 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
+from query_builder.connectors.ibm_timeout import apply_prepared_query_timeout
 from query_builder.connectors.introspection import introspect_informix
 from query_builder.connectors.registry import register_connector
+
+
+def _with_delimident(config: dict[str, Any]) -> dict[str, Any]:
+    """Return ``config`` with ``DELIMIDENT=y`` on a ``KEY=value;`` DSN.
+
+    Informix reads a double-quoted token as a string literal unless DELIMIDENT is set, so
+    every identifier the compiler quotes (``"table"``, ``"select"``) is a syntax error
+    (SQLCODE -201). An explicit ``DELIMIDENT=...`` from the caller is left alone.
+    """
+    dsn = config.get("dsn")
+    if not isinstance(dsn, str) or "delimident=" in dsn.lower():
+        return config
+    return {**config, "dsn": dsn.rstrip().rstrip(";") + ";DELIMIDENT=y;"}
 
 
 class _InformixCursorAdapter:
@@ -118,7 +132,7 @@ class InformixConnector(BaseConnector):
             )
 
         try:
-            self._connection = driver.connect(**self.config)
+            self._connection = driver.connect(**_with_delimident(self.config))
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(
@@ -145,6 +159,9 @@ class InformixConnector(BaseConnector):
                 yield adapter
             finally:
                 adapter.close()
+
+    def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        apply_prepared_query_timeout(cursor, timeout_ms)
 
     def test_connection(self) -> dict[str, Any]:
         start = time.perf_counter()
@@ -211,7 +228,7 @@ class AsyncInformixConnector(AsyncBaseConnector):
             )
 
         try:
-            self._connection = driver.connect(**self.config)
+            self._connection = driver.connect(**_with_delimident(self.config))
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(

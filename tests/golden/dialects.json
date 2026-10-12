@@ -21108,10 +21108,10 @@
   },
   "db2": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
-    "like_escape_clause": false,
+    "like_escape_char": "\\",
+    "like_escape_clause": true,
     "like_special_chars": "%_",
     "name": "db2",
     "neq_operator": "!=",
@@ -21129,9 +21129,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -21174,9 +21174,9 @@
      ]
     ],
     "format_substring_match": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(?)",
-     "LOWER(t.c) LIKE LOWER(?)",
-     "LOWER(col) LIKE LOWER(?)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(t.c) LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(col) LIKE LOWER(?) ESCAPE '\\'"
     ],
     "format_text_search": [
      "1.0",
@@ -21520,15 +21520,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -21544,15 +21544,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -21568,15 +21568,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -33164,10 +33164,10 @@
   },
   "ibm_db2": {
    "attrs": {
-    "avg_template": "AVG({})",
+    "avg_template": "AVG(CAST({} AS DOUBLE))",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
-    "like_escape_clause": false,
+    "like_escape_char": "\\",
+    "like_escape_clause": true,
     "like_special_chars": "%_",
     "name": "db2",
     "neq_operator": "!=",
@@ -33185,9 +33185,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -33230,9 +33230,9 @@
      ]
     ],
     "format_substring_match": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(?)",
-     "LOWER(t.c) LIKE LOWER(?)",
-     "LOWER(col) LIKE LOWER(?)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(t.c) LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(col) LIKE LOWER(?) ESCAPE '\\'"
     ],
     "format_text_search": [
      "1.0",
@@ -33576,15 +33576,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -33600,15 +33600,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -33624,15 +33624,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -33654,13 +33654,13 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
-    "like_escape_clause": false,
+    "like_escape_char": "\\",
+    "like_escape_clause": true,
     "like_special_chars": "%_",
     "name": "informix",
     "neq_operator": "!=",
     "pagination_placement": "prefix",
-    "placeholder": "%s",
+    "placeholder": "?",
     "requires_order_by_for_pagination": false,
     "subquery_alias_keyword": "AS ",
     "supports_cte": true,
@@ -33673,9 +33673,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -33685,46 +33685,37 @@
      ""
     ],
     "format_ilike": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
-     "LOWER(t.c) LIKE LOWER(%s)",
-     "LOWER(col) LIKE LOWER(%s)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?)",
+     "LOWER(t.c) LIKE LOWER(?)",
+     "LOWER(col) LIKE LOWER(?)"
     ],
     "format_like": [
-     "\"t\".\"c\" LIKE %s",
-     "t.c LIKE %s",
-     "col LIKE %s"
+     "\"t\".\"c\" LIKE ?",
+     "t.c LIKE ?",
+     "col LIKE ?"
     ],
     "format_limit_offset": [
      [
-      "SKIP %s FIRST %s",
-      [
-       0,
-       10
-      ]
+      "SKIP 0 FIRST 10",
+      []
      ],
      [
-      "SKIP %s FIRST %s",
-      [
-       20,
-       5
-      ]
+      "SKIP 20 FIRST 5",
+      []
      ],
      [
-      "SKIP %s FIRST %s",
-      [
-       0,
-       0
-      ]
+      "SKIP 0 FIRST 0",
+      []
      ]
     ],
     "format_substring_match": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
-     "LOWER(t.c) LIKE LOWER(%s)",
-     "LOWER(col) LIKE LOWER(%s)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(t.c) LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(col) LIKE LOWER(?) ESCAPE '\\'"
     ],
     "format_text_search": [
      "1.0",
-     "((CASE WHEN a LIKE %s THEN 1.0 ELSE 0.0 END))",
+     "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END) + (CASE WHEN b LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN t.c LIKE $1 THEN 1.0 ELSE 0.0 END))"
     ],
@@ -33732,75 +33723,75 @@
      [
       "\"t\".\"c\"",
       "cosine",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "l2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "euclidean",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "dot_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "inner_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "other",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "L2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "t.c",
       "cosine",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "l2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "euclidean",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "dot_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "inner_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "other",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "L2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ]
     ],
-    "format_vector_distance_default": "COSINE_DISTANCE(c, %s)",
+    "format_vector_distance_default": "COSINE_DISTANCE(c, ?)",
     "format_vector_param": [
      "[0.1, 0.2]",
      "[]",
@@ -33808,13 +33799,13 @@
     ],
     "inspect_columns": [
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s AND t.tabname = %s ORDER BY c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? AND t.tabname = ? ORDER BY c.colno;",
       [
        "sch",
        "tbl"
@@ -33822,20 +33813,20 @@
      ]
     ],
     "inspect_columns_default": [
-     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
      [
       "public"
      ]
     ],
     "inspect_columns_query": [
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s AND t.tabname = %s ORDER BY c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? AND t.tabname = ? ORDER BY c.colno;",
       [
        "sch",
        "tbl"
@@ -33843,20 +33834,20 @@
      ]
     ],
     "inspect_columns_query_default": [
-     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
      [
       "informix"
      ]
     ],
     "inspect_foreign_keys": [
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -33864,20 +33855,20 @@
      ]
     ],
     "inspect_foreign_keys_default": [
-     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
      [
       "public"
      ]
     ],
     "inspect_foreign_keys_query": [
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -33885,20 +33876,20 @@
      ]
     ],
     "inspect_foreign_keys_query_default": [
-     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
      [
       "informix"
      ]
     ],
     "inspect_primary_keys": [
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -33906,20 +33897,20 @@
      ]
     ],
     "inspect_primary_keys_default": [
-     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys_query": [
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -33927,47 +33918,47 @@
      ]
     ],
     "inspect_primary_keys_query_default": [
-     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
      [
       "informix"
      ]
     ],
     "inspect_tables": [
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "public"
       ]
      ],
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_default": [
-     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
      [
       "public"
      ]
     ],
     "inspect_tables_query": [
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "public"
       ]
      ],
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_query_default": [
-     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
      [
       "informix"
      ]
@@ -34064,15 +34055,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -34088,15 +34079,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -34112,15 +34103,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -35986,13 +35977,13 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
-    "like_escape_clause": false,
+    "like_escape_char": "\\",
+    "like_escape_clause": true,
     "like_special_chars": "%_",
     "name": "informix",
     "neq_operator": "!=",
     "pagination_placement": "prefix",
-    "placeholder": "%s",
+    "placeholder": "?",
     "requires_order_by_for_pagination": false,
     "subquery_alias_keyword": "AS ",
     "supports_cte": true,
@@ -36005,9 +35996,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -36017,46 +36008,37 @@
      ""
     ],
     "format_ilike": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
-     "LOWER(t.c) LIKE LOWER(%s)",
-     "LOWER(col) LIKE LOWER(%s)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?)",
+     "LOWER(t.c) LIKE LOWER(?)",
+     "LOWER(col) LIKE LOWER(?)"
     ],
     "format_like": [
-     "\"t\".\"c\" LIKE %s",
-     "t.c LIKE %s",
-     "col LIKE %s"
+     "\"t\".\"c\" LIKE ?",
+     "t.c LIKE ?",
+     "col LIKE ?"
     ],
     "format_limit_offset": [
      [
-      "SKIP %s FIRST %s",
-      [
-       0,
-       10
-      ]
+      "SKIP 0 FIRST 10",
+      []
      ],
      [
-      "SKIP %s FIRST %s",
-      [
-       20,
-       5
-      ]
+      "SKIP 20 FIRST 5",
+      []
      ],
      [
-      "SKIP %s FIRST %s",
-      [
-       0,
-       0
-      ]
+      "SKIP 0 FIRST 0",
+      []
      ]
     ],
     "format_substring_match": [
-     "LOWER(\"t\".\"c\") LIKE LOWER(%s)",
-     "LOWER(t.c) LIKE LOWER(%s)",
-     "LOWER(col) LIKE LOWER(%s)"
+     "LOWER(\"t\".\"c\") LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(t.c) LIKE LOWER(?) ESCAPE '\\'",
+     "LOWER(col) LIKE LOWER(?) ESCAPE '\\'"
     ],
     "format_text_search": [
      "1.0",
-     "((CASE WHEN a LIKE %s THEN 1.0 ELSE 0.0 END))",
+     "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN a LIKE ? THEN 1.0 ELSE 0.0 END) + (CASE WHEN b LIKE ? THEN 1.0 ELSE 0.0 END))",
      "((CASE WHEN t.c LIKE $1 THEN 1.0 ELSE 0.0 END))"
     ],
@@ -36064,75 +36046,75 @@
      [
       "\"t\".\"c\"",
       "cosine",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "l2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "euclidean",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "dot_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "inner_product",
-      "INNER_PRODUCT(\"t\".\"c\", %s)"
+      "INNER_PRODUCT(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "other",
-      "COSINE_DISTANCE(\"t\".\"c\", %s)"
+      "COSINE_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "\"t\".\"c\"",
       "L2",
-      "L2_DISTANCE(\"t\".\"c\", %s)"
+      "L2_DISTANCE(\"t\".\"c\", ?)"
      ],
      [
       "t.c",
       "cosine",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "l2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "euclidean",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "dot_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "inner_product",
-      "INNER_PRODUCT(t.c, %s)"
+      "INNER_PRODUCT(t.c, ?)"
      ],
      [
       "t.c",
       "other",
-      "COSINE_DISTANCE(t.c, %s)"
+      "COSINE_DISTANCE(t.c, ?)"
      ],
      [
       "t.c",
       "L2",
-      "L2_DISTANCE(t.c, %s)"
+      "L2_DISTANCE(t.c, ?)"
      ]
     ],
-    "format_vector_distance_default": "COSINE_DISTANCE(c, %s)",
+    "format_vector_distance_default": "COSINE_DISTANCE(c, ?)",
     "format_vector_param": [
      "[0.1, 0.2]",
      "[]",
@@ -36140,13 +36122,13 @@
     ],
     "inspect_columns": [
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s AND t.tabname = %s ORDER BY c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? AND t.tabname = ? ORDER BY c.colno;",
       [
        "sch",
        "tbl"
@@ -36154,20 +36136,20 @@
      ]
     ],
     "inspect_columns_default": [
-     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
      [
       "public"
      ]
     ],
     "inspect_columns_query": [
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s AND t.tabname = %s ORDER BY c.colno;",
+      "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? AND t.tabname = ? ORDER BY c.colno;",
       [
        "sch",
        "tbl"
@@ -36175,20 +36157,20 @@
      ]
     ],
     "inspect_columns_query_default": [
-     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = %s ORDER BY t.tabname, c.colno;",
+     "SELECT t.tabname, c.colname, c.coltype, c.collength FROM syscolumns c JOIN systables t ON c.tabid = t.tabid WHERE t.tabtype = 'T' AND t.owner = ? ORDER BY t.tabname, c.colno;",
      [
       "informix"
      ]
     ],
     "inspect_foreign_keys": [
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -36196,20 +36178,20 @@
      ]
     ],
     "inspect_foreign_keys_default": [
-     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
      [
       "public"
      ]
     ],
     "inspect_foreign_keys_query": [
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -36217,20 +36199,20 @@
      ]
     ],
     "inspect_foreign_keys_query_default": [
-     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = %s;",
+     "SELECT t.tabname AS src_table, c.constrname AS src_column, pt.tabname AS tgt_table, pc.constrname AS tgt_column FROM sysreferences r JOIN sysconstraints c ON r.constrid = c.constrid JOIN systables t ON c.tabid = t.tabid JOIN sysconstraints pc ON r.primaryid = pc.constrid JOIN systables pt ON pc.tabid = pt.tabid WHERE t.owner = ?;",
      [
       "informix"
      ]
     ],
     "inspect_primary_keys": [
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -36238,20 +36220,20 @@
      ]
     ],
     "inspect_primary_keys_default": [
-     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
      [
       "public"
      ]
     ],
     "inspect_primary_keys_query": [
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
       [
        "public"
       ]
      ],
      [
-      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s AND t.tabname = %s;",
+      "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ? AND t.tabname = ?;",
       [
        "sch",
        "tbl"
@@ -36259,47 +36241,47 @@
      ]
     ],
     "inspect_primary_keys_query_default": [
-     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = %s;",
+     "SELECT t.tabname, c.constrname FROM sysconstraints c JOIN systables t ON c.tabid = t.tabid WHERE c.constrtype = 'P' AND t.owner = ?;",
      [
       "informix"
      ]
     ],
     "inspect_tables": [
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "public"
       ]
      ],
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_default": [
-     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
      [
       "public"
      ]
     ],
     "inspect_tables_query": [
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "public"
       ]
      ],
      [
-      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+      "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
       [
        "sch"
       ]
      ]
     ],
     "inspect_tables_query_default": [
-     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = %s ORDER BY tabname;",
+     "SELECT tabname FROM systables WHERE tabtype = 'T' AND owner = ? ORDER BY tabname;",
      [
       "informix"
      ]
@@ -36396,15 +36378,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -36420,15 +36402,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -36444,15 +36426,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -55280,25 +55262,16 @@
     ],
     "format_limit_offset": [
      [
-      "OFFSET ? LIMIT ?",
-      [
-       0,
-       10
-      ]
+      "LIMIT 10",
+      []
      ],
      [
-      "OFFSET ? LIMIT ?",
-      [
-       20,
-       5
-      ]
+      "OFFSET 20 LIMIT 5",
+      []
      ],
      [
-      "OFFSET ? LIMIT ?",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -55769,25 +55742,16 @@
     ],
     "format_limit_offset": [
      [
-      "OFFSET ? LIMIT ?",
-      [
-       0,
-       10
-      ]
+      "LIMIT 10",
+      []
      ],
      [
-      "OFFSET ? LIMIT ?",
-      [
-       20,
-       5
-      ]
+      "OFFSET 20 LIMIT 5",
+      []
      ],
      [
-      "OFFSET ? LIMIT ?",
-      [
-       0,
-       0
-      ]
+      "LIMIT 0",
+      []
      ]
     ],
     "format_substring_match": [
@@ -78221,8 +78185,8 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
-    "like_escape_clause": false,
+    "like_escape_char": "\\",
+    "like_escape_clause": true,
     "like_special_chars": "%_",
     "name": "vertica",
     "neq_operator": "!=",
@@ -78240,9 +78204,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -78285,9 +78249,9 @@
      ]
     ],
     "format_substring_match": [
-     "\"t\".\"c\" ILIKE %s",
-     "t.c ILIKE %s",
-     "col ILIKE %s"
+     "\"t\".\"c\" ILIKE %s ESCAPE '\\'",
+     "t.c ILIKE %s ESCAPE '\\'",
+     "col ILIKE %s ESCAPE '\\'"
     ],
     "format_text_search": [
      "1.0",
@@ -78631,15 +78595,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -78655,15 +78619,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -78679,15 +78643,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",

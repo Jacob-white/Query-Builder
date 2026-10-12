@@ -295,3 +295,261 @@ def test_bigtable_keeps_family_qualifier_as_one_column() -> None:
     assert sql.startswith('SELECT "cf.name" AS "name"\nFROM "qbit_people"\n')
     assert 'WHERE ("cf.age" > %s)' in sql and 'ORDER BY "cf.age" ASC' in sql
     assert "t1" not in sql and "t2" not in sql
+
+
+def test_presto_inlines_limit_and_offset_because_it_cannot_bind_them() -> None:
+    """PrestoDB rejects `LIMIT ?` (mismatched input '?'); values are int-inlined."""
+    presto = get_dialect("presto")
+    assert presto.format_limit_offset(10, 20) == ("OFFSET 20 LIMIT 10", [])
+    # OFFSET is off by default on PrestoDB, so a zero offset must not emit it.
+    assert presto.format_limit_offset(10, 0) == ("LIMIT 10", [])
+    sql, *rest = QueryCompiler(
+        {"table": "qbit_employees", "columns": ["id"], "limit": 5},
+        dialect=presto,
+    ).compile()
+    assert sql.rstrip().endswith("LIMIT 5")
+    assert rest[0] == []
+
+
+def test_presto_test_connection_survives_missing_version_function(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PrestoDB has no version(); a failed version lookup must not fail the test."""
+    from query_builder.connectors.base import BaseConnector
+    from query_builder.connectors.prestodb import PrestoDBConnector
+
+    class _Cur:
+        def __enter__(self) -> _Cur:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+        def execute(self, sql: str) -> None:
+            assert "version()" not in sql
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(BaseConnector, "test_connection", lambda self: {"ok": True})
+    conn = PrestoDBConnector.__new__(PrestoDBConnector)
+    monkeypatch.setattr(conn, "get_cursor", lambda: _Cur(), raising=False)
+    assert conn.test_connection() == {"ok": True}
+
+
+def test_vertica_escapes_like_wildcards_with_an_explicit_escape_clause() -> None:
+    """A literal % or _ in a contains filter must not act as a wildcard."""
+    sql, params, *_ = QueryCompiler(
+        {
+            "table": "qbit_employees",
+            "columns": ["id"],
+            "filters": [{"column": "name", "op": "contains", "value": "50%"}],
+        },
+        dialect=get_dialect("vertica"),
+    ).compile()
+    assert "ESCAPE '\\'" in sql
+    assert params[0] == "%50\\%%"
+
+
+def test_vertica_introspection_reads_v_catalog_not_information_schema() -> None:
+    """Vertica has no information_schema; tables/columns/keys come from v_catalog."""
+    from query_builder.connectors.introspection import introspect_vertica
+
+    class _Cur:
+        def __init__(self) -> None:
+            self.seen: list[str] = []
+            self._rows: list[tuple[Any, ...]] = []
+
+        def execute(self, sql: str, params: Any = None) -> None:
+            self.seen.append(sql)
+            assert "information_schema" not in sql
+            if "v_catalog.tables" in sql:
+                self._rows = [("emp",), ("dept",)]
+            elif "primary_keys" in sql:
+                self._rows = [("emp", "id"), ("dept", "id")]
+            elif "v_catalog.columns" in sql:
+                self._rows = [
+                    ("emp", "id", "int", False),
+                    ("emp", "dept_id", "int", True),
+                    ("dept", "id", "int", False),
+                ]
+            else:
+                self._rows = [("emp", "dept_id", "dept", "id")]
+
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return self._rows
+
+    out = introspect_vertica(_Cur(), "public", filter_sensitive=False)
+    emp = {c["name"]: c for c in out["tables"]["emp"]["columns"]}
+    assert emp["id"]["is_primary"] is True and emp["id"]["is_nullable"] is False
+    assert emp["dept_id"]["is_nullable"] is True
+    assert out["foreign_keys"][0]["foreign_table"] == "dept"
+
+
+def test_keyvalue_dsn_host_is_extracted_not_treated_as_a_hostname() -> None:
+    """Db2/ODBC-style `KEY=value;` DSNs carry HOSTNAME/PORT; the whole string is not a host."""
+    from query_builder.security import _parse_keyvalue_dsn
+
+    dsn = "DATABASE=qbit;HOSTNAME=db2;PORT=50000;PROTOCOL=TCPIP;UID=u;PWD=p;"
+    assert _parse_keyvalue_dsn(dsn) == ("db2", 50000)
+    assert _parse_keyvalue_dsn("Driver={x};Server=tcp:h.example.com,1433") == (
+        "h.example.com",
+        1433,
+    )
+    assert _parse_keyvalue_dsn("localhost:5432") is None
+    assert _parse_keyvalue_dsn("postgres://h/db") is None
+
+
+def test_keyvalue_dsn_to_cloud_metadata_is_still_blocked() -> None:
+    from query_builder.config import NetworkSecurityConfig
+    from query_builder.connectors.base import SecurityError
+    from query_builder.security import validate_network_target
+
+    cfg = NetworkSecurityConfig(allow_private_networks=True, enforce_tls=False)
+    with pytest.raises(SecurityError):
+        validate_network_target(
+            config={"dsn": "DATABASE=x;HOSTNAME=169.254.169.254;PORT=50000;"},
+            network_config=cfg,
+        )
+    validate_network_target(
+        config={"dsn": "DATABASE=x;HOSTNAME=127.0.0.1;PORT=50000;"},
+        network_config=cfg,
+    )
+
+
+def test_db2_dialect_avoids_integer_average_and_declares_like_escape() -> None:
+    """Db2 averages INTEGER columns with integer division and has no default LIKE escape."""
+    sql, params, *_ = QueryCompiler(
+        {
+            "table": "qbit_employees",
+            "columns": [{"column": "salary", "agg": "avg", "alias": "mean"}],
+            "filters": [{"column": "name", "op": "contains", "value": "5_"}],
+        },
+        dialect=get_dialect("db2"),
+    ).compile()
+    assert 'AVG(CAST("t1"."salary" AS DOUBLE))' in sql
+    assert "ESCAPE '\\'" in sql
+    assert params[0] == "%5\\_%"
+
+
+def test_db2_introspection_uses_primary_key_constraints_and_splits_fk_columns() -> None:
+    """KEYCOLUSE lists FK columns too, and REFERENCES pads/joins column names."""
+    from query_builder.connectors.introspection import introspect_db2
+
+    class _Cur:
+        def __init__(self) -> None:
+            self.sql = ""
+            self.rows: list[tuple[Any, ...]] = []
+
+        def execute(self, sql: str, params: Any = None) -> None:
+            self.sql = sql
+            if "SYSCAT.TABLES" in sql:
+                self.rows = [("EMP",), ("DEPT",)]
+            elif "SYSCAT.COLUMNS" in sql:
+                self.rows = [
+                    ("EMP", "ID", "INTEGER", "N"),
+                    ("EMP", "DEPT_ID", "INTEGER", "Y"),
+                    ("DEPT", "ID", "INTEGER", "N"),
+                ]
+            elif "KEYCOLUSE" in sql:
+                assert "TABCONST" in sql and "'P'" in sql
+                self.rows = [("EMP", "ID"), ("DEPT", "ID")]
+            else:
+                self.rows = [
+                    ("EMP", " DEPT_ID            ", "DEPT", " ID                 ")
+                ]
+
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            return self.rows
+
+    out = introspect_db2(_Cur(), "DB2INST1", filter_sensitive=False)
+    assert out["foreign_keys"] == [
+        {
+            "table": "emp",
+            "column": "dept_id",
+            "foreign_table": "dept",
+            "foreign_column": "id",
+        }
+    ]
+    emp = {c["name"]: c for c in out["tables"]["emp"]["columns"]}
+    assert emp["dept_id"]["is_primary"] is False and emp["id"]["is_primary"] is True
+
+
+def test_db2_statement_timeout_is_set_on_the_prepared_statement() -> None:
+    """The CLI query timeout only works per prepared statement, not per connection."""
+    import sys
+    import types
+
+    from query_builder.connectors.db2 import DB2Connector
+
+    calls: list[Any] = []
+    fake = types.SimpleNamespace(
+        SQL_ATTR_QUERY_TIMEOUT=0,
+        set_option=lambda handle, opts, kind: calls.append((handle, opts, kind)),
+    )
+
+    class _Cur:
+        stmt_handler = "stmt"
+
+        def __init__(self) -> None:
+            self.log: list[Any] = []
+
+        def prepare(self, op: Any) -> None:
+            self.log.append(("prepare", op))
+
+        def execute(self, op: Any = None, params: Any = None) -> None:
+            self.log.append(("execute", op, params))
+
+    cur = _Cur()
+    sys.modules["ibm_db"] = fake  # type: ignore[assignment]  # test double
+    try:
+        DB2Connector.__new__(DB2Connector).apply_statement_timeout(cur, 1500)
+        cur.execute("SELECT 1", [1])
+    finally:
+        del sys.modules["ibm_db"]
+    assert cur.log == [("prepare", "SELECT 1"), ("execute", None, [1])]
+    assert calls == [("stmt", {0: 1}, 0)]
+
+
+def test_informix_dialect_uses_qmark_inlined_pagination_and_typed_having() -> None:
+    """ibm_db binds `?`; SKIP/FIRST is inlined; `SUM(x) > ?` needs a typed marker."""
+    sql, params, *_ = QueryCompiler(
+        {
+            "table": "qbit_employees",
+            "columns": [
+                "dept_id",
+                {"column": "salary", "agg": "sum", "alias": "total"},
+            ],
+            "having": [{"column": "salary", "agg": "sum", "op": "gt", "value": 150}],
+            "filters": [{"column": "name", "op": "contains", "value": "5_"}],
+            "limit": 5,
+            "offset": 2,
+        },
+        dialect=get_dialect("informix"),
+    ).compile()
+    assert sql.startswith("SELECT SKIP 2 FIRST 5 ")
+    assert 'HAVING SUM("t1"."salary") > CAST(? AS BIGINT)' in sql
+    assert "ESCAPE '\\'" in sql
+    assert params == ["%5\\_%", 150]
+
+
+def test_validator_reads_informix_skip_first_before_distinct() -> None:
+    """`SELECT SKIP n FIRST m DISTINCT ...` must parse (pagination moves to the end)."""
+    from query_builder.sql_ast import _normalize_placeholders
+
+    got = _normalize_placeholders(
+        'SELECT SKIP 0 FIRST 50 DISTINCT "dept_id" FROM "t" ORDER BY "dept_id"',
+        "informix",
+    )
+    assert got.endswith("LIMIT 50 OFFSET 0") and "SKIP" not in got
+    quoted = "SELECT 'SKIP 1 FIRST 2' FROM t"
+    assert _normalize_placeholders(quoted, "informix") == quoted
+
+
+def test_informix_dsn_gets_delimident_unless_set_by_the_caller() -> None:
+    """Without DELIMIDENT=y Informix reads "identifier" as a string (SQLCODE -201)."""
+    from query_builder.connectors.informix import _with_delimident
+
+    assert _with_delimident({"dsn": "DATABASE=a;HOSTNAME=h;"})["dsn"].endswith(
+        "DELIMIDENT=y;"
+    )
+    assert _with_delimident({"dsn": "X=1;DELIMIDENT=n"})["dsn"] == "X=1;DELIMIDENT=n"
+    assert _with_delimident({"host": "h"}) == {"host": "h"}

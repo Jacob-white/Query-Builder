@@ -424,6 +424,96 @@ def introspect_information_schema(
         ) from exc
 
 
+def introspect_vertica(
+    cursor: Any, schema_name: str = "public", filter_sensitive: bool = True
+) -> dict[str, Any]:
+    """Introspects Vertica through ``v_catalog`` (it has no ``information_schema``)."""
+    try:
+        cursor.execute(
+            "SELECT table_name FROM v_catalog.tables WHERE table_schema = %s "
+            "ORDER BY table_name",
+            [schema_name],
+        )
+        table_names = [str(r[0]) for r in cursor.fetchall() if r and r[0]]
+
+        pk_cols: set[tuple[str, str]] = set()
+        cursor.execute(
+            "SELECT table_name, column_name FROM v_catalog.primary_keys "
+            "WHERE table_schema = %s",
+            [schema_name],
+        )
+        pk_cols = {(str(r[0]), str(r[1])) for r in cursor.fetchall()}
+
+        cursor.execute(
+            "SELECT table_name, column_name, data_type, is_nullable "
+            "FROM v_catalog.columns WHERE table_schema = %s "
+            "ORDER BY table_name, ordinal_position",
+            [schema_name],
+        )
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        for r in cursor.fetchall():
+            t_name, c_name = str(r[0]), str(r[1])
+            table_cols_map.setdefault(t_name, []).append(
+                {
+                    "name": c_name,
+                    "data_type": str(r[2]),
+                    "is_nullable": bool(r[3]),
+                    "is_primary": (t_name, c_name) in pk_cols,
+                    "comment": None,
+                }
+            )
+
+        foreign_keys: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        cursor.execute(
+            "SELECT table_name, column_name, reference_table_name, "
+            "reference_column_name FROM v_catalog.foreign_keys "
+            "WHERE table_schema = %s",
+            [schema_name],
+        )
+        for fk_row in cursor.fetchall():
+            src_tbl, src_col, tgt_tbl, tgt_col = (str(v) for v in fk_row[:4])
+            foreign_keys.append(
+                {
+                    "table": src_tbl,
+                    "column": src_col,
+                    "foreign_table": tgt_tbl,
+                    "foreign_column": tgt_col,
+                }
+            )
+            relationships.append(
+                {
+                    "source_table": src_tbl,
+                    "source_column": src_col,
+                    "target_table": tgt_tbl,
+                    "target_column": tgt_col,
+                }
+            )
+
+        tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            cols = table_cols_map.get(tbl, [])
+            tables[tbl] = {
+                "name": tbl,
+                "columns": cols,
+                "has_user_id": any(col["name"] == "user_id" for col in cols),
+                "user_col": "user_id",
+                "comment": None,
+            }
+        return normalize_schema_snapshot(
+            {
+                "tables": tables,
+                "foreign_keys": foreign_keys,
+                "relationships": relationships,
+            },
+            filter_sensitive=filter_sensitive,
+        )
+    except Exception as exc:
+        raise IntrospectionError(
+            f"Failed to introspect Vertica v_catalog for '{schema_name}': {exc}"
+        ) from exc
+
+
 def introspect_clickhouse(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
@@ -1771,9 +1861,13 @@ def introspect_db2(
         with contextlib.suppress(Exception):
             cursor.execute(
                 """
-                SELECT TABNAME, COLNAME
-                FROM SYSCAT.KEYCOLUSE
-                WHERE TABSCHEMA = ?;
+                SELECT k.TABNAME, k.COLNAME
+                FROM SYSCAT.KEYCOLUSE k
+                JOIN SYSCAT.TABCONST c
+                  ON c.CONSTNAME = k.CONSTNAME
+                 AND c.TABSCHEMA = k.TABSCHEMA
+                 AND c.TABNAME = k.TABNAME
+                WHERE k.TABSCHEMA = ? AND c.TYPE = 'P';
                 """,
                 [schema_name.upper()],
             )
@@ -1794,28 +1888,31 @@ def introspect_db2(
                 [schema_name.upper()],
             )
             for fkr in cursor.fetchall():
-                src_tbl, src_col, tgt_tbl, tgt_col = (
-                    str(fkr[0]).lower(),
-                    str(fkr[1]).lower(),
-                    str(fkr[2]).lower(),
-                    str(fkr[3]).lower(),
-                )
-                foreign_keys.append(
-                    {
-                        "table": src_tbl,
-                        "column": src_col,
-                        "foreign_table": tgt_tbl,
-                        "foreign_column": tgt_col,
-                    }
-                )
-                relationships.append(
-                    {
-                        "source_table": src_tbl,
-                        "source_column": src_col,
-                        "target_table": tgt_tbl,
-                        "target_column": tgt_col,
-                    }
-                )
+                # SYSCAT stores the column lists as blank-padded, blank-separated
+                # CHAR values (' dept_id            '): split them per column.
+                src_tbl = str(fkr[0]).strip().lower()
+                tgt_tbl = str(fkr[2]).strip().lower()
+                for src_col, tgt_col in zip(
+                    str(fkr[1]).lower().split(),
+                    str(fkr[3]).lower().split(),
+                    strict=False,
+                ):
+                    foreign_keys.append(
+                        {
+                            "table": src_tbl,
+                            "column": src_col,
+                            "foreign_table": tgt_tbl,
+                            "foreign_column": tgt_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": src_tbl,
+                            "source_column": src_col,
+                            "target_table": tgt_tbl,
+                            "target_column": tgt_col,
+                        }
+                    )
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
         for r in col_rows:
@@ -3883,7 +3980,7 @@ def introspect_informix(
             """
             SELECT tabname
             FROM systables
-            WHERE tabtype = 'T' AND owner = %s
+            WHERE tabtype = 'T' AND owner = ?
             ORDER BY tabname;
             """,
             [schema_name],
@@ -3893,70 +3990,77 @@ def introspect_informix(
 
         cur.execute(
             """
-            SELECT t.tabname, c.colname, c.coltype, c.collength
+            SELECT t.tabname, c.colname, c.coltype, c.collength, c.colno, t.tabid
             FROM syscolumns c
             JOIN systables t ON c.tabid = t.tabid
-            WHERE t.tabtype = 'T' AND t.owner = %s
+            WHERE t.tabtype = 'T' AND t.owner = ?
             ORDER BY t.tabname, c.colno;
             """,
             [schema_name],
         )
         col_rows = cur.fetchall() or []
 
+        # Informix keeps key columns as column numbers (part1..part16) of the index that
+        # backs each constraint, so resolve them back to names through syscolumns.
+        colname_by_no: dict[tuple[int, int], str] = {}
+        for r in col_rows:
+            if r and len(r) >= 6:
+                colname_by_no[(int(r[5]), int(r[4]))] = str(r[1]).lower()
         pk_cols_map: dict[str, set[str]] = {}
-        with contextlib.suppress(Exception):
-            cur.execute(
-                """
-                SELECT t.tabname, c.constrname
-                FROM sysconstraints c
-                JOIN systables t ON c.tabid = t.tabid
-                WHERE c.constrtype = 'P' AND t.owner = %s;
-                """,
-                [schema_name],
-            )
-            for pkr in cur.fetchall() or []:
-                if pkr and len(pkr) >= 2:
-                    pk_cols_map.setdefault(str(pkr[0]).lower(), set()).add(
-                        str(pkr[1]).lower()
-                    )
-
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
         with contextlib.suppress(Exception):
+            parts = ", ".join(f"i.part{n}" for n in range(1, 17))
             cur.execute(
-                """
-                SELECT t.tabname AS src_table, c.constrname AS src_column,
-                       pt.tabname AS tgt_table, pc.constrname AS tgt_column
-                FROM sysreferences r
-                JOIN sysconstraints c ON r.constrid = c.constrid
-                JOIN systables t ON c.tabid = t.tabid
-                JOIN sysconstraints pc ON r.primaryid = pc.constrid
-                JOIN systables pt ON pc.tabid = pt.tabid
-                WHERE t.owner = %s;
+                f"""
+                SELECT t.tabname, t.tabid, k.constrtype, k.constrid, {parts}
+                FROM sysconstraints k
+                JOIN systables t ON k.tabid = t.tabid
+                JOIN sysindexes i ON i.idxname = k.idxname AND i.tabid = k.tabid
+                WHERE t.owner = ? AND k.constrtype IN ('P', 'R');
                 """,
                 [schema_name],
             )
-            for fkr in cur.fetchall() or []:
-                if fkr and len(fkr) >= 4:
-                    src_tbl, src_col, tgt_tbl, tgt_col = (
-                        str(fkr[0]).lower(),
-                        str(fkr[1]).lower(),
-                        str(fkr[2]).lower(),
-                        str(fkr[3]).lower(),
-                    )
+            keys: dict[int, tuple[str, str, list[str]]] = {}
+            for kr in cur.fetchall() or []:
+                if not kr or len(kr) < 5 or kr[1] is None or kr[3] is None:
+                    continue
+                tabid = int(kr[1])
+                key_cols = [
+                    colname_by_no[(tabid, abs(int(n)))]
+                    for n in kr[4:]
+                    if n and (tabid, abs(int(n))) in colname_by_no
+                ]
+                keys[int(kr[3])] = (
+                    str(kr[0]).strip().lower(),
+                    str(kr[2]).strip(),
+                    key_cols,
+                )
+            for tab, ctype, key_names in keys.values():
+                if ctype == "P":
+                    pk_cols_map.setdefault(tab, set()).update(key_names)
+            cur.execute("SELECT constrid, primary FROM sysreferences;")
+            for rr in cur.fetchall() or []:
+                if not rr or len(rr) < 2 or rr[0] is None or rr[1] is None:
+                    continue
+                src = keys.get(int(rr[0]))
+                tgt = keys.get(int(rr[1]))
+                if not src or not tgt:
+                    continue
+                for src_col, tgt_col in zip(src[2], tgt[2], strict=False):
                     foreign_keys.append(
                         {
-                            "table": src_tbl,
+                            "table": src[0],
                             "column": src_col,
-                            "foreign_table": tgt_tbl,
+                            "foreign_table": tgt[0],
                             "foreign_column": tgt_col,
                         }
                     )
                     relationships.append(
                         {
-                            "source_table": src_tbl,
+                            "source_table": src[0],
                             "source_column": src_col,
-                            "target_table": tgt_tbl,
+                            "target_table": tgt[0],
                             "target_column": tgt_col,
                         }
                     )

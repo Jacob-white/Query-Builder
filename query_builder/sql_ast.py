@@ -464,7 +464,7 @@ def _placeholder_re(backslash: bool) -> re.Pattern[str]:
 def _skip_pagination_re(backslash: bool) -> re.Pattern[str]:
     return re.compile(
         rf"(?P<skip>{_skip_pattern(backslash)}|{_LINE_COMMENT}|{_BLOCK_COMMENT})"
-        r"""|(?P<pg>\bSKIP\s+\?\s+(?:LIMIT|FIRST)\s+\?)""",
+        r"""|(?P<pg>\bSKIP\s+(?P<off>\?|\d+)\s+(?:LIMIT|FIRST)\s+(?P<lim>\?|\d+))""",
         re.IGNORECASE | re.DOTALL,
     )
 
@@ -473,10 +473,25 @@ def _normalize_placeholders(sql: str, dialect: str | None = None) -> str:
     backslash = _backslash_escapes(dialect)
     if "%" in sql or "$" in sql:
         sql = _placeholder_re(backslash).sub(lambda m: m.group("skip") or "?", sql)
-    if "?" in sql:
-        sql = _skip_pagination_re(backslash).sub(
-            lambda m: m.group("skip") or "LIMIT ? OFFSET ?", sql
-        )
+    if "?" in sql or "skip" in sql.lower():
+        found: list[tuple[str, str]] = []
+
+        def _take(m: re.Match[str]) -> str:
+            if m.group("skip"):
+                return m.group("skip")
+            found.append((m.group("off"), m.group("lim")))
+            return ""
+
+        stripped = _skip_pagination_re(backslash).sub(_take, sql)
+        if len(found) == 1:
+            # `SELECT SKIP n FIRST m DISTINCT ...` is not a shape any parser reads: move
+            # the pagination to the end, where the standard form puts it.
+            off, lim = found[0]
+            sql = f"{stripped.rstrip().rstrip(';')} LIMIT {lim} OFFSET {off}"
+        elif found:
+            sql = _skip_pagination_re(backslash).sub(
+                lambda m: m.group("skip") or "LIMIT ? OFFSET ?", sql
+            )
     return sql
 
 
