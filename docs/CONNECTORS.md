@@ -12,14 +12,14 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 | Tier | Meaning | Classes |
 | --- | --- | --- |
 | `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 30 |
-| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 53 |
+| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 54 |
 | `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 11 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 44 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 43 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 **Legend: tiers measure testing depth, not just that something passed.** A live result is attributed to a check *category*. SQL engines must cover: `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters`, `ordering`, `pagination`, `aggregates`, `joins`, `subquery_cte`, `parameter_safety`, `identifier_quoting`, `null_handling`, `write_refused`, `error_mapping`, `statement_timeout`, `async_parity`. Native (non-SQL) engines must cover: `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety`, `write_refused`, `error_mapping`, `async_parity`. `async_parity` applies only to engines with an async class. A skipped check is classified: `verified_limitation` (a probe through the native driver proved the engine rejects the feature), `declared_unverified` (a declared limitation with no probe: it blocks `certified` in a core category) or `environment` (driver/service missing). *Core coverage* is the number of applicable core categories with a pass or verified limitation.
 
-Latest recorded live run: **2026-10-12 17:55 UTC**.
+Latest recorded live run: **2026-10-12 18:25 UTC**.
 
 ### Engines in the latest live run
 
@@ -65,6 +65,7 @@ Latest recorded live run: **2026-10-12 17:55 UTC**.
 | mssql | Microsoft SQL Server 2022 (RTM-CU14) (KB5038325) - 16.0.4135.4 (X64)   | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:57 UTC | Windows-11-10.0.26200-SP0 |
 | mysql | 8.4.2 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
 | neo4j | Neo4j 5.24.1 | 15 | 0 | 0 | 1 | 10/10 core categories | 1: `spec_compile` | 2026-10-09 19:01 UTC | Windows-11-10.0.26200-SP0 |
+| oceanbase | OceanBase Enterprise Distributed Database | 91 | 0 | 0 | 1 | 17/17 core categories | 1: `case_sensitive_identifiers` | 2026-10-12 18:25 UTC | Windows-11-10.0.26200-SP0 |
 | opensearch | OpenSearch 2.17.0 | 15 | 0 | 0 | 1 | 10/10 core categories | 0 | 2026-10-09 19:22 UTC | Windows-11-10.0.26200-SP0 |
 | oracle | Oracle Database 23.26.3.0.0 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 19:50 UTC | Windows-11-10.0.26200-SP0 |
 | pinecone | Pinecone | 20 | 0 | 0 | 6 | 9/10 core categories | 0 | 2026-10-11 01:58 UTC | Windows-11-10.0.26200-SP0 |
@@ -182,7 +183,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `NeonConnector` | sync | verified | `[neon]` | - | - | - | `neon` |
 | `NeptuneConnector` | sync | verified | `[neptune]` | - | - | - | `neptune`, `amazon_neptune`, `aws_neptune`, `neptune_gremlin`, `neptune_sparql` |
 | `AsyncNeptuneConnector` | async | verified | `[neptune]` | - | - | - | `async_neptune`, `async_amazon_neptune`, `async_aws_neptune` |
-| `OceanBaseConnector` | sync | verified | `[oceanbase]` | - | - | - | `oceanbase` |
+| `OceanBaseConnector` | sync | basic | `[oceanbase]` | oceanbase (91 pass, 1 skip) | 17/17 core categories | 1: `case_sensitive_identifiers` | `oceanbase` |
 | `OpenSearchConnector` | sync | certified | `[opensearch]` | opensearch (15 pass, 1 skip) | 10/10 core categories | 0 | `opensearch`, `opensearch_connector`, `opensearch_sql` |
 | `AsyncOpenSearchConnector` | async | certified | `[opensearch]` | opensearch (15 pass, 1 skip) | 10/10 core categories | 0 | `async_opensearch`, `async_opensearch_sql` |
 | `OracleConnector` | sync | certified | `[oracle]` | oracle (92 pass, 0 skip) | 17/17 core categories | 0 | `oracle` |

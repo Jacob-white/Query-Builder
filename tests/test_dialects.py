@@ -593,7 +593,8 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert get_dialect("pydoris").name == "doris"
     assert doris.quote_identifier("db.tbl") == "`db`.`tbl`"
     assert doris.quote_alias("col`alias") == "`col``alias`"
-    assert doris.format_ilike("`c`") == "`c` ILIKE %s"
+    # Doris has no ILIKE operator (verified live): fold both sides instead
+    assert doris.format_ilike("`c`") == "LOWER(`c`) LIKE LOWER(%s)"
     t_sql, t_params = doris.inspect_tables_query("test_db")
     assert "information_schema.tables" in t_sql and t_params == ["test_db"]
     c_sql, c_params = doris.inspect_columns_query("test_db", "test_tbl")

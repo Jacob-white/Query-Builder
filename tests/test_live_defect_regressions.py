@@ -614,3 +614,21 @@ def test_doris_has_no_ilike_and_declares_the_mysql_like_escape() -> None:
     ).compile()
     assert "ILIKE" not in sql and "LOWER(`t1`.`name`) LIKE LOWER(%s)" in sql
     assert get_dialect("doris").escape_like("5%") == "5\\%"
+
+
+def test_oceanbase_introspection_reads_foreign_keys_the_mysql_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MySQL mode has no constraint_column_usage, so the ANSI FK query returned nothing."""
+    import query_builder.connectors.oceanbase as ob
+
+    seen: dict[str, Any] = {}
+
+    def _fake(cursor: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"tables": {}}
+
+    monkeypatch.setattr(ob, "introspect_information_schema", _fake)
+    conn = ob.OceanBaseConnector(database="qb_it", cursor=MagicMock())
+    conn.introspect_schema()
+    assert seen["fk_style"] == "mysql" and seen["schema_name"] == "qb_it"

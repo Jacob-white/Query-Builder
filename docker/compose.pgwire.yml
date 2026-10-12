@@ -161,7 +161,8 @@ services:
     ports: ["127.0.0.1:${QB_IT_PORT_OCEANBASE:-40960}:2881"]
     volumes: ["qb_it_oceanbase:/root/ob"]
     healthcheck:
-      test: ["CMD-SHELL", "mysql -h127.0.0.1 -P2881 -uroot@test -e 'select 1' >/dev/null 2>&1"]
+      # the image ships obclient, not the mysql client
+      test: ["CMD-SHELL", "obclient -h127.0.0.1 -P2881 -uroot@test -e 'select 1' >/dev/null 2>&1"]
       interval: 15s
       timeout: 10s
       retries: 60

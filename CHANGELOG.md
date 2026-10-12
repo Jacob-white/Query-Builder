@@ -154,6 +154,11 @@
   `LOWER(x) LIKE LOWER(?)` with the MySQL `\` escape, like StarRocks. Doris column names must be
   ASCII, declared as a limitation with a probe (the harness uses an ASCII stand-in column).
 
+- **OceanBase (first live run)**: foreign-key introspection returned nothing because the connector
+  used the ANSI query (it needs `constraint_column_usage`, which MySQL mode lacks) and swallowed the
+  error; it now uses the MySQL-style query. The test container's healthcheck called the `mysql`
+  client, which the image does not ship (it has `obclient`), so it could never become healthy.
+
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
   change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and
