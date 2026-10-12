@@ -11,13 +11,16 @@ Containers: ``docker/compose.lakehouse.yml`` (profile ``lakehouse``). Run ONE en
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from tests.integration import dataset
 from tests.integration.engines import Engine, Limitation, Native, register
 
 # Presto/Drill: no constraints, VARCHAR strings; same DDL shape as Trino.
-dataset.FAMILIES.setdefault("presto", dataset.FAMILIES["trino"])
+dataset.FAMILIES.setdefault(
+    "presto", dataclasses.replace(dataset.FAMILIES["trino"], not_null="")
+)
 dataset.FAMILIES.setdefault("drill", dataset.FAMILIES["trino"])
 
 
@@ -65,6 +68,7 @@ register(
         container_port=8080,
         unsupported={
             "introspect_pk": "Presto memory catalog has no primary keys",
+            "introspect_not_null": "Presto memory catalog rejects NOT NULL columns",
             "introspect_fk": "Presto memory catalog has no foreign keys",
             "case_sensitive_identifiers": "Presto folds identifiers to lower case",
             "statement_timeout": "Presto timeouts are session properties, not applied",

@@ -48,6 +48,12 @@
 - Per-filter `combiner` values are whitelisted to `AND`/`OR` in the TypeScript compiler and
   parser as well as the Python compiler.
 
+### Security (key=value DSN egress check)
+- **Key=value DSNs bypassed the network-egress check**: `validate_network_target` read a Db2/ODBC
+  style `DATABASE=x;HOSTNAME=169.254.169.254;PORT=50000;` string as a single hostname, so the
+  cloud-metadata address was **allowed** under the default policy. `HOSTNAME`/`HOST`/`SERVER`/
+  `ADDRESS`/`Data Source` and `PORT` are now extracted and validated.
+
 ### Security (structural validation, DB-side enforcement, SSRF pinning)
 - New sqlglot **structural layer** (`query_builder/sql_ast.py`): `validate_sql_ast(..., dialect=None)`
   now requires BOTH the legacy lexer layer and an AST allowlist (one statement, read-only query
@@ -121,6 +127,19 @@
   runs after the safety checks). The strict-xfail known issue for it is removed. The separate
   known issue (pymongosql rejecting compiler table aliases / double-quoted identifiers) remains.
 
+- **Presto, Vertica, Db2, Informix (first live runs)**:
+  - Presto: `LIMIT ?`/`OFFSET ?` cannot be bound and `OFFSET 0` is rejected, so values are inlined
+    and a zero offset is omitted; `test_connection` no longer calls the missing `version()`.
+  - Vertica: introspection reads `v_catalog` (there is no `information_schema`); `ILIKE` declares
+    an `ESCAPE` so a literal `%`/`_` is not a wildcard.
+  - Db2: primary keys no longer include foreign-key columns, FK column lists are split and trimmed,
+    `AVG` is cast to `DOUBLE` (it was integer division), LIKE declares `ESCAPE`, and the statement
+    timeout now works (it must be set on the prepared statement).
+  - Informix: `?` placeholders (not `%s`), `DELIMIDENT=y` added to the DSN so quoted identifiers
+    work, real PK/FK columns from `sysindexes`, `SKIP`/`FIRST` inlined (bound markers were
+    mis-ordered around a CTE), typed `HAVING` markers, LIKE `ESCAPE`, a statement timeout, and the
+    validator now reads `SELECT SKIP n FIRST m DISTINCT`.
+
 ### Changed
 - `compiler.py`, `cli.py`, `server.py` and `dialects.py` were restructured without behaviour
   change (golden snapshots written before the refactor pin SQL, CLI output, HTTP responses and

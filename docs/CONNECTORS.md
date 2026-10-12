@@ -11,15 +11,15 @@ Tiers are computed from evidence (see `docs/TESTING_LIVE.md`), never claimed:
 
 | Tier | Meaning | Classes |
 | --- | --- | --- |
-| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 27 |
-| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 39 |
+| `certified` | A real engine ran the live suite through this class with zero failures AND every applicable core category (see legend) has a pass or a probe-verified limitation, with no unverified skip in a core category. | 30 |
+| `basic` | A real engine passed live tests with zero failures, but the depth bar is not met (shallow coverage, unverified skips, or an old report without category evidence). | 43 |
 | `emulated` | The live conformance suite passed against a vendor/community EMULATOR of the service, not the real service (e.g. Firestore, Bigtable, Spanner, BigQuery, DynamoDB-local). | 11 |
-| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 61 |
+| `verified` | No live run; the class is exercised by unit tests and the registry matrix tests, all against mocks. | 54 |
 | `experimental` | Neither live nor unit-test evidence. | 0 |
 
 **Legend: tiers measure testing depth, not just that something passed.** A live result is attributed to a check *category*. SQL engines must cover: `connect`, `introspect_tables`, `introspect_columns`, `introspect_pk_fk`, `read_projection`, `filters`, `ordering`, `pagination`, `aggregates`, `joins`, `subquery_cte`, `parameter_safety`, `identifier_quoting`, `null_handling`, `write_refused`, `error_mapping`, `statement_timeout`, `async_parity`. Native (non-SQL) engines must cover: `connect`, `introspect`, `read_basic`, `read_filtered`, `ordering`, `pagination`, `value_safety`, `write_refused`, `error_mapping`, `async_parity`. `async_parity` applies only to engines with an async class. A skipped check is classified: `verified_limitation` (a probe through the native driver proved the engine rejects the feature), `declared_unverified` (a declared limitation with no probe: it blocks `certified` in a core category) or `environment` (driver/service missing). *Core coverage* is the number of applicable core categories with a pass or verified limitation.
 
-Latest recorded live run: **2026-10-12 00:16 UTC**.
+Latest recorded live run: **2026-10-12 14:59 UTC**.
 
 ### Engines in the latest live run
 
@@ -37,6 +37,7 @@ Latest recorded live run: **2026-10-12 00:16 UTC**.
 | couchbase | ? | 0 | 12 | 0 | 0 | 0/9 core categories | 0 | 2026-10-09 19:56 UTC | Windows-11-10.0.26200-SP0 |
 | cratedb | CrateDB Distributed Database | 94 | 0 | 0 | 2 | 18/18 core categories | 1: `introspect_fk` | 2026-10-11 01:59 UTC | Windows-11-10.0.26200-SP0 |
 | datafusion | Apache Arrow DataFusion | 86 | 0 | 0 | 6 | 15/17 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | 2026-10-11 23:31 UTC | Windows-11-10.0.26200-SP0 |
+| db2 | DB2 v12.1.1.0 | 95 | 0 | 0 | 1 | 18/18 core categories | 1: `db_read_only` | 2026-10-12 13:08 UTC | Linux-6.6.87.2-microsoft-sta |
 | drill | Apache Drill 1.22.0 | 91 | 0 | 0 | 6 | 17/18 core categories | 4: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk` | 2026-10-11 23:43 UTC | Windows-11-10.0.26200-SP0 |
 | duckdb | v1.5.6 | 91 | 0 | 0 | 3 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
 | dynamodb | Amazon DynamoDB PartiQL | 5 | 0 | 0 | 7 | 4/9 core categories | 0 | 2026-10-09 19:57 UTC | Windows-11-10.0.26200-SP0 |
@@ -48,6 +49,7 @@ Latest recorded live run: **2026-10-12 00:16 UTC**.
 | generic_sqlite | 3.49.1 | 89 | 0 | 0 | 3 | 16/17 core categories | 2: `case_sensitive_identifiers`, `statement_timeout` | 2026-10-11 23:31 UTC | Windows-11-10.0.26200-SP0 |
 | greptimedb | GreptimeDB | 11 | 0 | 0 | 5 | 5/10 core categories | 0 | 2026-10-11 01:55 UTC | Windows-11-10.0.26200-SP0 |
 | influxdb | InfluxDB 3.5.0 | 6 | 0 | 0 | 6 | 4/9 core categories | 0 | 2026-10-09 20:02 UTC | Windows-11-10.0.26200-SP0 |
+| informix | IBM Informix | 96 | 0 | 0 | 0 | 18/18 core categories | 0 | 2026-10-12 14:59 UTC | Linux-6.6.87.2-microsoft-sta |
 | lancedb | LanceDB 0.40.0 | 9 | 0 | 0 | 7 | 5/10 core categories | 0 | 2026-10-11 23:31 UTC | Windows-11-10.0.26200-SP0 |
 | mariadb | 11.4.3-MariaDB-ubu2404 | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:50 UTC | Windows-11-10.0.26200-SP0 |
 | materialize | Materialize Streaming SQL | 92 | 0 | 0 | 5 | 17/18 core categories | 3: `db_read_only`, `introspect_fk`, `introspect_pk` | 2026-10-11 01:54 UTC | Windows-11-10.0.26200-SP0 |
@@ -63,6 +65,7 @@ Latest recorded live run: **2026-10-12 00:16 UTC**.
 | pinecone | Pinecone | 20 | 0 | 0 | 6 | 9/10 core categories | 0 | 2026-10-11 01:58 UTC | Windows-11-10.0.26200-SP0 |
 | polars | Polars 2.0.0 | 86 | 0 | 0 | 6 | 15/17 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | 2026-10-11 23:31 UTC | Windows-11-10.0.26200-SP0 |
 | postgres | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
+| presto | 0.293-2f48ff6 | 90 | 0 | 0 | 6 | 16/18 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | 2026-10-12 12:32 UTC | Windows-11-10.0.26200-SP0 |
 | prometheus | Prometheus 2.55.1 | 9 | 0 | 0 | 7 | 5/10 core categories | 0 | 2026-10-10 23:42 UTC | Windows-11-10.0.26200-SP0 |
 | qdrant | Qdrant 1.16.3 | 20 | 0 | 0 | 6 | 9/10 core categories | 0 | 2026-10-09 19:57 UTC | Windows-11-10.0.26200-SP0 |
 | questdb | QuestDB | 91 | 0 | 0 | 9 | 16/17 core categories | 2: `db_read_only`, `statement_timeout` | 2026-10-09 18:57 UTC | Windows-11-10.0.26200-SP0 |
@@ -78,6 +81,7 @@ Latest recorded live run: **2026-10-12 00:16 UTC**.
 | tidb | TiDB HTAP | 91 | 0 | 0 | 1 | 17/17 core categories | 1: `case_sensitive_identifiers` | 2026-10-10 23:40 UTC | Windows-11-10.0.26200-SP0 |
 | timescale | PostgreSQL 16.4 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2. | 92 | 0 | 0 | 0 | 17/17 core categories | 0 | 2026-10-09 18:51 UTC | Windows-11-10.0.26200-SP0 |
 | trino | 455 | 90 | 0 | 0 | 5 | 17/17 core categories | 1: `db_read_only` | 2026-10-09 19:29 UTC | Windows-11-10.0.26200-SP0 |
+| vertica | Vertica Columnar Analytical Database | 91 | 0 | 0 | 1 | 17/17 core categories | 0 | 2026-10-12 12:36 UTC | Windows-11-10.0.26200-SP0 |
 | victoriametrics | VictoriaMetrics 2.24.0 | 9 | 0 | 0 | 7 | 5/10 core categories | 0 | 2026-10-09 20:01 UTC | Windows-11-10.0.26200-SP0 |
 | weaviate | Weaviate 1.28.2 | 20 | 0 | 0 | 6 | 9/10 core categories | 0 | 2026-10-09 19:58 UTC | Windows-11-10.0.26200-SP0 |
 | yugabyte | YugabyteDB PostgreSQL 11.2-YB-2024.2.3.0-b0 on x86_64-pc-linux-gnu, co | 96 | 0 | 0 | 1 | 18/18 core categories | 0 | 2026-10-12 00:07 UTC | Windows-11-10.0.26200-SP0 |
@@ -113,8 +117,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `D1Connector` | sync | verified | `[d1]` | - | - | - | `d1`, `cloudflare_d1` |
 | `DatabricksConnector` | sync | verified | `[databricks]` | databricks (0 pass, 7 skip) | 0/17 core categories | 0 | `spark`, `databricks` |
 | `DataFusionConnector` | sync | basic | `[datafusion]` | datafusion (86 pass, 6 skip) | 15/17 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | `datafusion` |
-| `DB2Connector` | sync | verified | `[db2]` | - | - | - | `db2`, `ibm_db2` |
-| `AsyncDB2Connector` | async | verified | `[db2]` | - | - | - | `async_db2`, `async_ibm_db2` |
+| `DB2Connector` | sync | basic | `[db2]` | db2 (95 pass, 1 skip) | 18/18 core categories | 1: `db_read_only` | `db2`, `ibm_db2` |
+| `AsyncDB2Connector` | async | basic | `[db2]` | db2 (95 pass, 1 skip) | 18/18 core categories | 1: `db_read_only` | `async_db2`, `async_ibm_db2` |
 | `DerbyConnector` | sync | verified | `[derby]` | - | - | - | `derby`, `apache_derby` |
 | `AsyncDerbyConnector` | async | verified | `[derby]` | - | - | - | `async_derby`, `async_apache_derby` |
 | `DorisConnector` | sync | verified | `[doris]` | - | - | - | `doris`, `apache_doris`, `pydoris` |
@@ -145,8 +149,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `ImpalaConnector` | sync | verified | `[impala]` | - | - | - | `impala`, `apache_impala`, `impyla` |
 | `AsyncImpalaConnector` | async | verified | `[impala]` | - | - | - | `async_impala`, `async_apache_impala` |
 | `InfluxDBConnector` | sync | basic | `[influxdb]` | influxdb (6 pass, 6 skip) | 4/9 core categories | 0 | `iox`, `influx`, `influxdb` |
-| `InformixConnector` | sync | verified | `[informix]` | - | - | - | `informix`, `ibm_informix` |
-| `AsyncInformixConnector` | async | verified | `[informix]` | - | - | - | `async_informix`, `async_ibm_informix` |
+| `InformixConnector` | sync | certified | `[informix]` | informix (96 pass, 0 skip) | 18/18 core categories | 0 | `informix`, `ibm_informix` |
+| `AsyncInformixConnector` | async | certified | `[informix]` | informix (96 pass, 0 skip) | 18/18 core categories | 0 | `async_informix`, `async_ibm_informix` |
 | `KdbConnector` | sync | verified | `[kdb]` | - | - | - | `q`, `kdb`, `kdb+`, `pykx` |
 | `AsyncKdbConnector` | async | verified | `[kdb]` | - | - | - | `async_kdb`, `async_kdb+`, `async_pykx` |
 | `KsqlDBConnector` | sync | verified | `[ksqldb]` | - | - | - | `ksql`, `ksqldb` |
@@ -182,8 +186,8 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `PinotConnector` | sync | verified | `[pinot]` | - | - | - | `pinot`, `apache_pinot` |
 | `PolarsConnector` | sync | basic | `[polars]` | polars (86 pass, 6 skip) | 15/17 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | `polars` |
 | `PostgresConnector` | sync | certified | `[postgres]` | postgres (92 pass, 0 skip) | 17/17 core categories | 0 | `postgres`, `postgresql` |
-| `PrestoDBConnector` | sync | verified | `[prestodb]` | - | - | - | `presto`, `prestodb` |
-| `AsyncPrestoDBConnector` | async | verified | `[prestodb]` | - | - | - | `async_presto`, `async_prestodb` |
+| `PrestoDBConnector` | sync | basic | `[prestodb]` | presto (90 pass, 6 skip) | 16/18 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | `presto`, `prestodb` |
+| `AsyncPrestoDBConnector` | async | basic | `[prestodb]` | presto (90 pass, 6 skip) | 16/18 core categories | 5: `case_sensitive_identifiers`, `db_read_only`, `introspect_fk`, `introspect_pk`, `statement_timeout` | `async_presto`, `async_prestodb` |
 | `PrometheusConnector` | sync | basic | `[prometheus]` | prometheus (9 pass, 7 skip) | 5/10 core categories | 0 | `prom`, `prometheus`, `promql` |
 | `AsyncPrometheusConnector` | async | basic | `[prometheus]` | prometheus (9 pass, 7 skip) | 5/10 core categories | 0 | `async_prom`, `async_prometheus`, `async_promql` |
 | `PulsarSQLConnector` | sync | verified | `[pulsar]` | - | - | - | `pulsar`, `apache_pulsar`, `pulsar_sql` |
@@ -219,7 +223,7 @@ Selected but not exercised in that run (engine unreachable, driver missing or cr
 | `TimestreamConnector` | sync | verified | `[timestream]` | - | - | - | `timestream`, `aws_timestream` |
 | `AsyncTimestreamConnector` | async | verified | `[timestream]` | - | - | - | `async_timestream`, `async_aws_timestream` |
 | `TrinoConnector` | sync | basic | `[trino]` | trino (90 pass, 5 skip) | 17/17 core categories | 1: `db_read_only` | `trino` |
-| `VerticaConnector` | sync | verified | `[vertica]` | - | - | - | `vertica` |
+| `VerticaConnector` | sync | certified | `[vertica]` | vertica (91 pass, 1 skip) | 17/17 core categories | 0 | `vertica` |
 | `VictoriaMetricsConnector` | sync | basic | `[victoriametrics]` | victoriametrics (9 pass, 7 skip) | 5/10 core categories | 0 | `vm`, `metricsql`, `victoria_metrics`, `victoriametrics` |
 | `AsyncVictoriaMetricsConnector` | async | basic | `[victoriametrics]` | victoriametrics (9 pass, 7 skip) | 5/10 core categories | 0 | `async_vm`, `async_metricsql`, `async_victoria_metrics`, `async_victoriametrics` |
 | `WeaviateConnector` | sync | basic | `[weaviate]` | weaviate (20 pass, 6 skip) | 9/10 core categories | 0 | `weaviate`, `weaviate_db`, `weaviate_vector` |

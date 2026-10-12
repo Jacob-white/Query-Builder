@@ -22,6 +22,7 @@ from query_builder.connectors.base import (
     DriverNotInstalledError,
     IntrospectionError,
 )
+from query_builder.connectors.ibm_timeout import apply_prepared_query_timeout
 from query_builder.connectors.introspection import introspect_db2
 from query_builder.connectors.registry import register_connector
 
@@ -106,6 +107,9 @@ class DB2Connector(BaseConnector):
             "schema_name": self.schema_name,
             "latency_ms": round(latency_ms, 2),
         }
+
+    def apply_statement_timeout(self, cursor: Any, timeout_ms: int) -> None:
+        apply_prepared_query_timeout(cursor, timeout_ms)
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         with self.get_cursor() as cur:

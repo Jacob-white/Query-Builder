@@ -436,9 +436,13 @@ register(
         connector_factory=_kw_vertica,
         native_factory=_vertica_native,
         ro_native=_vertica_ro,
+        # v_catalog.columns is empty in a fresh database, so a cross join of it is
+        # instant; a generated time series is slow regardless of data.
         slow_sql=(
-            "SELECT COUNT(*) FROM v_catalog.columns a CROSS JOIN v_catalog.columns b "
-            "CROSS JOIN v_catalog.columns c"
+            "SELECT COUNT(*) FROM (SELECT slice_time FROM (SELECT "
+            "'2000-01-01 00:00:00'::TIMESTAMP AS ts UNION ALL SELECT "
+            "'2300-01-01 00:00:00'::TIMESTAMP) t TIMESERIES slice_time AS "
+            "'1 millisecond' OVER (ORDER BY ts)) x"
         ),
         service="vertica",
         container_port=5433,
@@ -456,10 +460,12 @@ def _ibm_dsn(
     )
 
 
-def _ibm_native(e: Engine, database: str) -> Native:
+def _ibm_native(e: Engine, database: str, extra: str = "") -> Native:
     import ibm_db_dbi
 
-    conn = ibm_db_dbi.connect(_ibm_dsn(e, e.user_, e.password_, database), "", "")
+    conn = ibm_db_dbi.connect(
+        _ibm_dsn(e, e.user_, e.password_, database, extra), "", ""
+    )
     conn.set_autocommit(True)
     return _dbapi_native(conn, commit=False)
 
@@ -515,7 +521,8 @@ ds.FAMILIES["informix"] = ds.Ddl(drop="DROP TABLE IF EXISTS {t}")
 
 
 def _informix_native(e: Engine) -> Native:
-    return _ibm_native(e, e.database_)
+    # seeding quotes identifiers, which Informix only accepts with DELIMIDENT=y
+    return _ibm_native(e, e.database_, "DELIMIDENT=y;")
 
 
 def _kw_informix(e: Engine, o: dict[str, Any]) -> dict[str, Any]:

@@ -501,6 +501,42 @@ def _validate_host_target(
         # Graceful offline fallback for unresolvable test or mock hostnames
 
 
+_DSN_HOST_KEYS = ("hostname", "host", "server", "address", "addr", "data source")
+_DSN_PORT_KEYS = ("port",)
+
+
+def _parse_keyvalue_dsn(raw: str) -> tuple[str, int | None] | None:
+    """Host/port of a ``KEY=value;KEY=value`` DSN (Db2, ODBC, ...), else ``None``.
+
+    Such a string is not a ``host:port`` pair, so it must not be validated as one.
+    ``None`` is returned for anything that is not a key/value list or names no host."""
+    if "=" not in raw or "://" in raw:
+        return None
+    pairs: dict[str, str] = {}
+    for part in raw.split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip():
+            pairs.setdefault(key.strip().lower(), value.strip())
+    host_value = next((pairs[k] for k in _DSN_HOST_KEYS if pairs.get(k)), None)
+    if host_value is None:
+        return None
+    port: int | None = None
+    port_text = next((pairs[k] for k in _DSN_PORT_KEYS if pairs.get(k)), None)
+    # ``Server=tcp:host,1433`` / ``host:1433`` carry the port in the host value.
+    if host_value.lower().startswith("tcp:"):
+        host_value = host_value[4:]
+    if "," in host_value:
+        host_value, _, port_text = host_value.partition(",")
+    elif host_value.count(":") == 1:
+        host_value, _, port_text = host_value.partition(":")
+    if port_text:
+        try:
+            port = int(port_text.strip())
+        except ValueError:
+            port = None
+    return host_value.strip(), port
+
+
 def validate_network_target(
     host: str | None = None,
     port: int | None = None,
@@ -583,6 +619,20 @@ def validate_network_target(
                     candidate_urls.append(val_str)
 
         for raw_str in candidate_urls:
+            kv_target = _parse_keyvalue_dsn(raw_str)
+            if kv_target is not None:
+                kv_host, kv_port = kv_target
+                if host is None:
+                    host = kv_host
+                elif kv_host != host:
+                    validate_network_target(
+                        host=kv_host,
+                        port=kv_port or port,
+                        network_config=network_config,
+                    )
+                if port is None and kv_port is not None:
+                    port = kv_port
+                continue
             if "://" in raw_str:
                 if url is None:
                     url = raw_str

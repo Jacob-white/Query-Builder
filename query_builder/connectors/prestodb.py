@@ -69,11 +69,16 @@ class PrestoDBConnector(BaseConnector):
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()
-        with self.get_cursor() as cur:
-            cur.execute("SELECT version()")
-            row = cur.fetchone()
-            if row:
-                info["engine_version"] = row[0]
+        # PrestoDB has no version(); the coordinator reports it in the nodes table.
+        # Informational only, so a failure here must not fail the connection test.
+        try:
+            with self.get_cursor() as cur:
+                cur.execute("SELECT node_version FROM system.runtime.nodes LIMIT 1")
+                row = cur.fetchone()
+                if row:
+                    info["engine_version"] = row[0]
+        except Exception:  # noqa: S110  # informational only, see above
+            pass
         return info
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
