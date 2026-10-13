@@ -7,7 +7,7 @@ presets, and validation exceptions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import Any
 
@@ -188,3 +188,34 @@ class EngineCapabilities:
             calculated_fields=FeatureTier.STANDARD,
             schema_tools=FeatureTier.STANDARD,
         )
+
+
+#: Capability names a client may be told about: the engine's own feature flags.
+_KNOWN_FEATURES: tuple[str, ...] = tuple(
+    f.name for f in fields(EngineCapabilities) if f.name != "custom_overrides"
+)
+
+
+def disabled_feature_message(
+    exc: DisabledFeatureError, capabilities: EngineCapabilities | None = None
+) -> str:
+    """The text a client may see for a disabled feature.
+
+    Built from the feature name **only when it is one the engine defines** (its flags, plus the
+    integrator's ``custom_overrides`` of ``capabilities``), never from the exception's own string.
+    The wording is identical to the exception's default message, but a name that is not on that
+    list (or a custom message) cannot put arbitrary text in front of a client; the full exception
+    stays available server-side as ``__cause__``. Integrations (FastAPI, Django) use this instead
+    of ``str(exc)``.
+    """
+    allowed = list(_KNOWN_FEATURES)
+    if capabilities is not None:
+        allowed.extend(capabilities.custom_overrides)
+    for name in allowed:
+        if name == exc.feature_name:
+            return (
+                f"Feature '{name}' is disabled in the active engine capabilities. "
+                f"Enable '{name}' in EngineCapabilities or select a capability preset "
+                "that permits it."
+            )
+    return "A feature used by this query is disabled in the active engine capabilities."

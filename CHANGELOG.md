@@ -73,6 +73,14 @@
 - **Start-up security notice** for `serve` and `mcp` (stderr): no authentication, where the connection settings and tenant
   come from, and whether the network policy is permissive. `--no-security-notice` silences it. `mcp` gains `--profile`.
 
+### Security (CodeQL py/stack-trace-exposure, alert 93)
+- A disabled-feature refusal reaches API clients as text built from the engine's own feature names, not from the
+  exception's string. `DisabledFeatureError` is raised in one place with a fixed template, so no stack trace or internal
+  detail could reach a client today (and the wording clients see is unchanged); this makes it structurally true: the new
+  `capabilities.disabled_feature_message()` accepts a feature name only if the engine defines it (or the integrator listed
+  it in `custom_overrides`), so a future raise site that passes dynamic text or a custom `message` cannot expose it. Used
+  by the FastAPI, Django, DRF and Ninja integrations at all seven places that previously returned `str(exc)`.
+
 ### Security (connect-time egress guard, found by auditing what happens after validation)
 - **DNS rebinding and redirects were not covered after validation.** Under a strict profile the Redis
   connector passed validation against a public IP, then its driver re-resolved the name and connected to
