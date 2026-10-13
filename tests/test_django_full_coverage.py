@@ -1093,3 +1093,36 @@ def test_django_views_do_not_echo_unexpected_error_text(sqlite_conn):
     assert resp.status_code == 400
     assert leaky not in resp.content.decode()
     assert "Execution failed" in resp.content.decode()
+
+
+def test_django_401_does_not_echo_os_permission_error_text(sqlite_conn):
+    """An OS PermissionError from a driver (its text holds a path) must not reach the client."""
+    leaky = "[Errno 13] Permission denied: '/srv/secret/app.db'"
+    rf = RequestFactory()
+    urls = create_django_urls(
+        sqlite_conn,
+        security={"allowed_tables": ["users"], "enforce_tenant_isolation": False},
+    )
+    url_map = {u.name: u.callback for u in urls}
+
+    def post(name, body):
+        req = rf.post("/x/", data=json.dumps(body), content_type="application/json")
+        return url_map[name](req)
+
+    with patch.object(sqlite_conn, "execute_raw", side_effect=PermissionError(leaky)):
+        for name in ("query-builder-execute", "query-builder-export"):
+            resp = post(name, {"sql": "SELECT id FROM users"})
+            assert resp.status_code == 401, name
+            assert "/srv" not in resp.content.decode(), name
+            assert "Unauthorized." in resp.content.decode(), name
+
+    # Control: a deliberate tenant-resolution refusal keeps its own wording.
+    urls = create_django_urls(
+        sqlite_conn,
+        security={"allowed_tables": ["users"], "enforce_tenant_isolation": False},
+        tenant_resolver=lambda request: None,
+    )
+    url_map = {u.name: u.callback for u in urls}
+    resp = post("query-builder-execute", {"spec": {"table": "users"}})
+    assert resp.status_code == 401
+    assert "TenantContext could not be resolved" in resp.content.decode()

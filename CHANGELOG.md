@@ -85,6 +85,13 @@
   Not changed (documented): resource-exhaustion functions (`zeroblob`, `generate_series`), which need
   the database's own limits and timeouts, and catalog views, which are governed by the restricted-table list.
 
+### Security (CodeQL py/stack-trace-exposure, alerts 94-96)
+- The Django views answered `401` with `str(exc)` for any `PermissionError`, including the OS's own
+  (`[Errno 13] Permission denied: '<path>'` from a driver opening an unreadable file), which put a server
+  path in the response. Tenant-resolution refusals now use a dedicated `TenantResolutionError`
+  (a `PermissionError` subclass, so existing handlers still catch it) and keep their wording; any other
+  `PermissionError` gets `"Unauthorized."` with the same `401`.
+
 ### Security (CodeQL py/stack-trace-exposure, alert 93)
 - A disabled-feature refusal reaches API clients as text built from the engine's own feature names, not from the
   exception's string. `DisabledFeatureError` is raised in one place with a fixed template, so no stack trace or internal
