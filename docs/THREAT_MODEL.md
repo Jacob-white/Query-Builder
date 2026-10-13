@@ -130,13 +130,32 @@ the PostgreSQL family connects with libpq's `hostaddr` set to the validated addr
 name stays for TLS verification), so no second DNS lookup happens. Resolution goes through one
 injectable resolver (`set_dns_resolver`) so rebinding sequences are testable.
 
-*Limits:* pinning is only possible where the driver accepts a numeric address next to the host
-name. **Not pinned** (validated, but the driver resolves again): URL/DSN-based drivers, HTTP
-clients (ClickHouse HTTP, Elasticsearch, NLQ providers), MySQL/MSSQL/Oracle/other drivers, and
-all async connectors. For those the rebinding window remains; mitigate with an egress firewall
-or a pinned internal resolver. Unresolvable names pass validation by default so the driver can
-fail on its own; set `network.fail_closed_on_dns_error = True` to reject them (which closes the
+*Limits of pinning:* pinning is only possible where the driver accepts a numeric address next to
+the host name. **Not pinned** (validated, but the driver resolves again): URL/DSN-based drivers,
+HTTP clients (ClickHouse HTTP, Elasticsearch, NLQ providers), MySQL/MSSQL/Oracle/other drivers,
+and all async connectors. Unresolvable names pass validation by default so the driver can fail
+on its own; set `network.fail_closed_on_dns_error = True` to reject them (which closes the
 "NXDOMAIN now, private address later" variant for pinned drivers).
+
+**Connect-time egress guard** (`egress_guard.py`, `network.connect_time_guard`, default on). The
+rebinding window above (and redirects, which no resolver sees) is closed for every driver that
+connects through Python's `socket` by checking the *real destination IP of each `socket.connect`*
+against the same policy while a connector runs `connect`, `execute`, `execute_raw`,
+`introspect_schema` or `test_connection`. A name passed to `connect` is resolved once, every
+answer is checked and the connection goes to the checked address. The check is per thread / asyncio
+task (a `ContextVar`), follows `asyncio.to_thread`, and hooks the Windows proactor loop.
+Hostname allow-lists cannot apply to an IP, so with one configured the private-range rule is
+relaxed while the credential-endpoint rule stays absolute. Verified by `tests/test_egress_guard.py`
+(each blocked scenario has a control run without the guard, and the suite is mutation-tested) and
+`tests/test_redirect_hardening.py`.
+
+*Residual risk (guard):* it cannot see drivers that connect in C without Python's `socket` (libpq,
+`mysqlclient`, `ibm_db`, ODBC, `oracledb` thick mode), event loops that bypass `socket.connect`
+(`uvloop`), or background threads a driver starts itself; for those the rebinding window remains.
+Also outside it: server-side fetches triggered by SQL and `HTTP_PROXY`/`HTTPS_PROXY` (traffic goes
+to the proxy). Mitigate at the network - an egress firewall or `NetworkPolicy` denying
+`169.254.169.254` and the other credential endpoints, IMDSv2 with hop limit 1, an egress
+allow-list, or a pinned internal resolver.
 
 ## 4. Explicit non-guarantees and known limits
 

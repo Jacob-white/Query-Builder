@@ -21,6 +21,14 @@ from query_builder.connectors.base import (
 from query_builder.connectors.introspection import introspect_information_schema
 from query_builder.connectors.registry import register_connector
 
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None  # urllib then raises HTTPError for the 3xx instead of following it
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
 _PLACEHOLDER = re.compile(r"%s")
 
 
@@ -197,11 +205,17 @@ class InfluxDBConnector(BaseConnector):
     def _server_version(self) -> str:
         """Server version from the ``/ping`` response header (falls back to the product name)."""
         base = self.host if "//" in self.host else f"http://{self.host}"
-        try:
-            with urllib.request.urlopen(base.rstrip("/") + "/ping", timeout=5) as res:  # noqa: S310
-                version = res.headers.get("x-influxdb-version")
-        except Exception:  # noqa: BLE001 - version is informational
-            version = None
+        version = None
+        # http(s) only (urlopen also speaks file: and ftp:) and no redirects (they would be
+        # followed to an address the network-egress check never saw)
+        if base.lower().startswith(("http://", "https://")):
+            try:
+                with _NO_REDIRECT_OPENER.open(
+                    base.rstrip("/") + "/ping", timeout=5
+                ) as res:
+                    version = res.headers.get("x-influxdb-version")
+            except Exception:  # noqa: BLE001 - version is informational
+                version = None
         return f"InfluxDB {version}" if version else "InfluxDB 3.0 / IOx SQL Engine"
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
