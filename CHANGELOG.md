@@ -73,6 +73,14 @@
 - **Start-up security notice** for `serve` and `mcp` (stderr): no authentication, where the connection settings and tenant
   come from, and whether the network policy is permissive. `--no-security-notice` silences it. `mcp` gains `--profile`.
 
+### Security (database-side read-only session: Vertica)
+- The Vertica connector now sets `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on every
+  connection when `enforce_read_only_session` is on (the default), and declares
+  `read_only_support = "enforced"`. Probed and tested on a real Vertica 9.2: INSERT, UPDATE, DELETE,
+  TRUNCATE, DROP and CREATE are refused by the engine, SELECT works, a COMMIT does not lift it, and the
+  same statements succeed with enforcement off (control). A `SUPER`-class role can still change session
+  settings, so a read-only database role remains the strongest guarantee.
+
 ### Security (SQL validator: more functions denied)
 - Probing the validator with dialect-specific queries found functions it still accepted that read server
   files, reach other systems or change state from inside a `SELECT`. Now rejected: DuckDB `glob`, `getenv`,

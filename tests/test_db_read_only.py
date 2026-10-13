@@ -176,6 +176,16 @@ def test_mysql_issues_session_transaction_read_only() -> None:
     assert _executed(conn) == ["SET SESSION TRANSACTION READ ONLY"]
 
 
+def test_vertica_issues_session_characteristics_read_only() -> None:
+    from query_builder.connectors.vertica import VerticaConnector
+
+    conn = MagicMock()
+    c = VerticaConnector(connection=conn, host="8.8.8.8", security=_sec())
+    c.connect()
+    assert c.read_only_support == "enforced"
+    assert _executed(conn) == ["SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"]
+
+
 def test_clickhouse_sets_readonly_client_setting() -> None:
     client = MagicMock()
     ClickHouseConnector(connection=client, security=_sec()).connect()

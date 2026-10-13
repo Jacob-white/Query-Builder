@@ -118,6 +118,7 @@ connector cannot forget it; a failure fails the connection closed.
 | Redshift | Same statement | Best effort (driver/version dependent). |
 | MySQL, MariaDB | `SET SESSION TRANSACTION READ ONLY` | Enforced for ordinary transactions; `SUPER`-class accounts can lift it. |
 | TiDB | none (statement is a no-op there) | **Not enforced by the engine.** TiDB only accepts `READ ONLY` as a no-op, so rely on the validator and a SELECT-only database role. |
+| Vertica | `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` | Enforced (engine error 2448 on INSERT, UPDATE, DELETE, TRUNCATE, DROP and CREATE; survives a COMMIT). Verified live on Vertica 9.2 in `tests/integration/test_readonly_vertica.py`, with a control showing the same writes succeed without the setting. |
 | ClickHouse | `readonly = 2` client setting | Enforced, the setting itself is locked. `readonly = 1` was rejected because it also forbids the connector's own `SET max_execution_time`. |
 | SQL Server | none | **No session-level read-only mode exists.** `ApplicationIntent=ReadOnly` only routes to a readable secondary and does not block writes on a primary; `pymssql` does not support it. Use a `db_datareader`-only login. |
 | SingleStore, QuestDB, Materialize, RisingWave, and all other connectors | none | No documented mechanism; `read_only_support == "none"`. Use a read-only database role. |
