@@ -476,7 +476,7 @@ Standard JSON-RPC 2.0 stdio server providing AI agents with:
 6. `query_builder_execute`: Compiles and executes queries against configured connector.
 7. `query_builder_join_path`: Discovers optimal multi-hop relational join paths.
 
-> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set `QB_SECURITY_PROFILE=production` (or `strict`) and add network egress controls. See [SECURITY.md section 3.2](../SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
+> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set a profile (`QB_SECURITY_PROFILE=production` or `strict`, or `--profile`), add network egress controls and, for `serve`, use **`serve --secure`** so the server rather than the client chooses tenant, policy and connection. See [SECURITY.md section 3.2](../SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
 
 ### CLI Subcommands (`query-builder <command>`)
 - `compile`: Compiles declarative spec JSON file to parameterized SQL.
@@ -485,9 +485,9 @@ Standard JSON-RPC 2.0 stdio server providing AI agents with:
 - `introspect`: Reverse-engineers database schema metadata and foreign key relationships.
 - `export-schema` (alias: `export`): Converts schema snapshot into Prisma, Drizzle, or SQLAlchemy definitions.
 - `join-path` (alias: `join`): Discovers shortest relational join path between tables via BFS graph solver.
-- `serve`: Launches zero-dependency HTTP REST API microservice server with Swagger UI.
+- `serve`: Launches zero-dependency HTTP REST API microservice server with Swagger UI. Options: `--host`, `--port`, `--profile {development,production,strict}` (applied to connectors too), `--no-security-notice`, and **secure mode**: `--secure` (the server, not the client, chooses tenant, policy and connection; implies `--profile production`), `--tenant-header NAME` (default `X-Tenant-ID`; only safe behind a proxy that authenticates and sets it), `--connections FILE` (JSON `{id: {connector, config, dialect?}}` registered at start-up), `--default-connection ID` and `--allow-origin ORIGIN` (repeatable). See [SECURE_DEPLOYMENT.md](SECURE_DEPLOYMENT.md).
 - `schema`: Inspects schema catalog structure and prints ASCII relationship trees.
-- `mcp`: Launches the Model Context Protocol (MCP) JSON-RPC 2.0 stdio server.
+- `mcp`: Launches the Model Context Protocol (MCP) JSON-RPC 2.0 stdio server. Options: `--profile {development,production,strict}`, `--no-security-notice` (the notice goes to stderr; stdout is the protocol).
 - `init`: Scaffolds a turnkey Query-Builder starter project (`fullstack`, `fastapi`, `minimal`).
 - `doctor`: Diagnoses environment dependencies and installed connector drivers.
 

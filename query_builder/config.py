@@ -613,6 +613,11 @@ def load_security_config_from_env(
 # ---------------------------------------------------------------------------
 
 _GLOBAL_CONFIG: SecurityConfig | None = None
+#: True once the application itself configured security (``configure_security`` /
+#: ``configure_query_builder``), as opposed to the configuration being loaded lazily from the
+#: environment. Connectors honour an explicit configuration instead of applying the permissive
+#: "nothing configured" defaults (see ``effective_network_config``).
+_GLOBAL_CONFIG_EXPLICIT: bool = False
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -639,7 +644,7 @@ def configure_security(
     Thread-safe. Accepts either a full SecurityConfig instance or keyword overrides
     targeting sub-configs or specific security properties.
     """
-    global _GLOBAL_CONFIG
+    global _GLOBAL_CONFIG, _GLOBAL_CONFIG_EXPLICIT
     with _CONFIG_LOCK:
         if config is not None:
             base = config.copy()
@@ -705,7 +710,14 @@ def configure_security(
                 raise ValueError(f"Unknown security configuration override: '{key}'")
 
         _GLOBAL_CONFIG = base
+        _GLOBAL_CONFIG_EXPLICIT = True
         return _GLOBAL_CONFIG
+
+
+def security_explicitly_configured() -> bool:
+    """True when the application called ``configure_security`` / ``configure_query_builder``."""
+    with _CONFIG_LOCK:
+        return _GLOBAL_CONFIG_EXPLICIT
 
 
 def reset_security_config() -> None:
@@ -715,9 +727,10 @@ def reset_security_config() -> None:
     Thread-safe. The next get_security_config() call will re-initialize
     from environment variables or production defaults.
     """
-    global _GLOBAL_CONFIG
+    global _GLOBAL_CONFIG, _GLOBAL_CONFIG_EXPLICIT
     with _CONFIG_LOCK:
         _GLOBAL_CONFIG = None
+        _GLOBAL_CONFIG_EXPLICIT = False
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +897,7 @@ def reset_query_builder_config() -> None:
 
 
 __all__ = [
+    "security_explicitly_configured",
     "DEFAULT_SENSITIVE_COLUMN_PATTERNS",
     "DEFAULT_SENSITIVE_KEY_PATTERNS",
     "VALID_MASKING_STRATEGIES",

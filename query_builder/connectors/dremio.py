@@ -8,17 +8,16 @@ and schema introspection for Dremio lakehouse datasets.
 from __future__ import annotations
 
 import contextlib
-import copy
-import os
 from collections.abc import Iterator
 from typing import Any
 
-from query_builder.config import SecurityConfig, get_security_config
+from query_builder.config import SecurityConfig
 from query_builder.connectors.base import (
     BaseConnector,
     ConnectionFailedError,
     DriverNotInstalledError,
     IntrospectionError,
+    effective_network_config,
 )
 from query_builder.connectors.introspection import introspect_information_schema
 from query_builder.security import validate_network_target
@@ -131,33 +130,9 @@ class DremioConnector(BaseConnector):
     def _validate_network_target(
         self, security_config: SecurityConfig | None = None
     ) -> None:
-        sec = (
-            security_config or getattr(self, "security", None) or get_security_config()
-        )
-        if not sec or not sec.network:
+        net_cfg = effective_network_config(self, security_config)
+        if net_cfg is None:
             return
-
-        net_cfg = sec.network
-        if not self._explicit_security:
-            net_cfg = copy.copy(net_cfg)
-            if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.allow_private_networks = _parse_bool(
-                    os.environ["QB_ALLOW_PRIVATE_NETWORKS"],
-                    "QB_ALLOW_PRIVATE_NETWORKS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.allow_private_networks = True
-            if "QB_ENFORCE_TLS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.enforce_tls = _parse_bool(
-                    os.environ["QB_ENFORCE_TLS"],
-                    "QB_ENFORCE_TLS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.enforce_tls = False
 
         if self.flight_endpoint:
             validate_network_target(
