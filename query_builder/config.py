@@ -54,6 +54,10 @@ class NetworkSecurityConfig:
     #: Reject hostnames that do not resolve instead of letting the driver resolve
     #: (and possibly get a different, private answer) later.
     fail_closed_on_dns_error: bool = False
+    #: Check the real destination IP of every socket connection a connector makes against
+    #: this policy (closes DNS rebinding and redirect-to-internal-address after validation).
+    #: See ``query_builder.egress_guard`` for what it does and does not cover.
+    connect_time_guard: bool = True
 
     def __post_init__(self) -> None:
         if (

@@ -19,13 +19,28 @@ Query-Builder is open-source software owned and maintained by **HobbyHabbit LLC*
 
 ---
 
-## 🏛️ Architectural Specifications & Roadmaps
+## 🤝 Contributing & Integrating
 
-- **[Project Overview & Architectural Blueprint](../PROJECT.md)** — High-level engine architecture, data flows, AST compilation pipeline, and dialect support matrix.
-- **[Database Connectors Blueprint](../MISSING_CONNECTORS_PLAN.md)** — Specifications and roadmap for the database connectors across relational, lakehouse, cloud warehouse, and document engines. The real, generated inventory (138 connector classes: 89 sync + 49 async, reachable through 306 registered names including aliases) and how each one is verified live in **[CONNECTORS.md](CONNECTORS.md)**.
-- **[Live Engine Testing](TESTING_LIVE.md)** — How to run the opt-in live conformance suite against real engines (Docker Compose, env vars, cloud credentials) and how verification tiers are computed.
-- **[Test Infrastructure & Quality Invariants](../TEST_INFRA.md)** — Zero-suppression test execution rules, resource-throttled Vitest/pytest patterns, and verification standards.
-- **[Test Readiness & Verification Certification](../TEST_READY.md)** — Verification records certifying 100.0% statement, branch, function, and line coverage.
+- **[AGENTS.md](../AGENTS.md)** — Start here if you are an AI coding agent (or a new contributor in a hurry): layout, commands, the rules that are not optional, and the things that bite.
+- **[Adding a Connector](ADDING_A_CONNECTOR.md)** — Step by step: the class, what the base class does for you, introspection, every file to wire it into, tests, running it against the real engine, and a definition of done.
+- **[Dialect Guide](DIALECT_GUIDE.md)** — What each dialect setting does, how to add a dialect, golden snapshots, and a catalogue of engine quirks found by live runs with the fix for each.
+- **[Secure Deployment](SECURE_DEPLOYMENT.md)** — What you must set yourself before exposing the library, the HTTP server or the MCP server; what each entry point trusts; how to verify what is enforced.
+- **[Live Engine Testing](TESTING_LIVE.md)** — How to run the opt-in conformance suite against real engines (Docker Compose, env vars, cloud credentials), practical pitfalls, and how verification tiers are earned.
+- **[Typing](TYPING.md)** — The mypy ratchet: every module is strict; rules for `type: ignore`.
+- **[Releasing](RELEASING.md)** — How a release is cut.
+
+---
+
+## 🏛️ Architecture, Threat Model & Generated Status
+
+- **[Threat Model](THREAT_MODEL.md)** — What is guaranteed per layer, residual risks, and explicit non-guarantees.
+- **[Connector Status](CONNECTORS.md)** — Generated inventory of every connector class (138: 89 sync + 49 async, 306 registered names) and how each is verified (`certified`, `basic`, `emulated`, `verified`).
+
+### Historical records (not current; kept for context)
+
+- **[Project Overview](../PROJECT.md)** — Planning record of the security-framework milestones.
+- **[Database Connectors Blueprint](../MISSING_CONNECTORS_PLAN.md)** — Connector-gap analysis and plan from an earlier milestone. Today's inventory is [CONNECTORS.md](CONNECTORS.md).
+- **[Test Infrastructure Notes](../TEST_INFRA.md)** and **[Test Readiness Report](../TEST_READY.md)** — Earlier milestone records; the coverage targets in them are not what CI enforces (see [CONTRIBUTING](../CONTRIBUTING.md)).
 
 ---
 

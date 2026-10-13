@@ -935,7 +935,10 @@ def test_requests_fallback_has_a_base_url() -> None:
         client.get("/api/v1/labels", params=[("a", "b")])
         client.close()
     session.get.assert_called_once_with(
-        "http://prom:9090/api/v1/labels", params=[("a", "b")], timeout=3
+        "http://prom:9090/api/v1/labels",
+        params=[("a", "b")],
+        timeout=3,
+        allow_redirects=False,  # a redirect would bypass the network-egress check
     )
 
 
@@ -1091,12 +1094,17 @@ def test_influxdb_version_from_ping_header() -> None:
     res = MagicMock()
     res.__enter__.return_value = res
     res.headers = {"x-influxdb-version": "3.5.0"}
-    with patch("urllib.request.urlopen", return_value=res):
+    with patch(
+        "query_builder.connectors.influxdb._NO_REDIRECT_OPENER.open", return_value=res
+    ):
         assert (
             InfluxDBConnector(host="127.0.0.1:8181")._server_version()
             == "InfluxDB 3.5.0"
         )
-    with patch("urllib.request.urlopen", side_effect=OSError("down")):
+    with patch(
+        "query_builder.connectors.influxdb._NO_REDIRECT_OPENER.open",
+        side_effect=OSError("down"),
+    ):
         assert "InfluxDB" in InfluxDBConnector(host="http://h")._server_version()
 
 

@@ -48,6 +48,33 @@
 - Per-filter `combiner` values are whitelisted to `AND`/`OR` in the TypeScript compiler and
   parser as well as the Python compiler.
 
+### Security (connect-time egress guard, found by auditing what happens after validation)
+- **DNS rebinding and redirects were not covered after validation.** Under a strict profile the Redis
+  connector passed validation against a public IP, then its driver re-resolved the name and connected to
+  `169.254.169.254`; only PostgreSQL pinned the validated address. A 302 to an internal address was followed
+  by the Prometheus/VictoriaMetrics adapter (`requests`), Cloudflare D1 (`requests`, with the SQL body) and
+  the InfluxDB version probe (`urllib`). New `query_builder.egress_guard` checks the real destination IP of
+  every `socket.connect` a connector makes inside `connect` / `execute` / `execute_raw` /
+  `introspect_schema` / `test_connection` (sync and async, per thread and asyncio task, Windows proactor
+  loop included) against the same policy. A name passed to `connect` is resolved once and connected by the
+  checked address. On by default; `network.connect_time_guard = False` disables it. It cannot see drivers
+  that connect in C without Python's `socket` (libpq, mysqlclient, ibm_db, ODBC), `uvloop`, or threads a
+  driver starts itself - see SECURITY.md and docs/THREAT_MODEL.md for the limits and the network-level
+  controls that cover them.
+- The Prometheus/VictoriaMetrics requests adapter and Cloudflare D1 no longer follow redirects (a 3xx is
+  reported); the InfluxDB version probe follows none and speaks only `http(s)` (`urlopen` also accepted
+  `file:` and `ftp:`).
+- **Documented the permissive default network policy** (SECURITY.md 3.2 and section 5, THREAT_MODEL.md 3.6 and 4,
+  README, quickstart, API reference): a connector created without `security=` while `QB_SECURITY_PROFILE` is
+  unset allows private/internal addresses and does not enforce TLS, so `serve`, `mcp` and the CLI - which pass no
+  `security=` - only block the credential endpoints by default. Deployments that accept connection settings from
+  users or agents must set a `production`/`strict` profile and add network-level egress controls. The
+  `QB_ALLOW_PRIVATE_NETWORKS` / `QB_ENFORCE_TLS` table rows previously claimed the opposite defaults.
+- The always-forbidden credential endpoints now also include AWS ECS/Fargate (`169.254.170.2`) and EKS Pod
+  Identity (`169.254.170.23`, `fd00:ec2::23`), Azure WireServer (`168.63.129.16`), Alibaba Cloud
+  (`100.100.100.200`) and the legacy Oracle Cloud endpoint (`192.0.0.192`); they were reachable under the
+  default policy.
+
 ### Security (key=value DSN egress check)
 - **Key=value DSNs bypassed the network-egress check**: `validate_network_target` read a Db2/ODBC
   style `DATABASE=x;HOSTNAME=169.254.169.254;PORT=50000;` string as a single hostname, so the

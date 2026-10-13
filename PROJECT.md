@@ -1,5 +1,7 @@
 # Project: Query-Builder Security Framework Expansion
 
+> **Historical document - not current.** A planning record of the security-framework milestones. It is kept as a record of that work. Figures, status labels and machine paths in it are not current guarantees. For today's facts see [CONTRIBUTING.md](CONTRIBUTING.md) (enforced coverage floors), [docs/CONNECTORS.md](docs/CONNECTORS.md) (connector status, generated from evidence) and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) (what is and is not guaranteed).
+
 ## Architecture
 Query-Builder is expanding with a comprehensive, modular, and developer-configurable Security Framework providing layered configuration models, pre-built environment profiles, zero-trust defaults, and automated secret scrubbing across all database connectors.
 

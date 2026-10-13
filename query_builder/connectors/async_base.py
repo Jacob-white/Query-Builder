@@ -9,9 +9,8 @@ lifecycle middleware pipeline execution, and security governance boundaries.
 from __future__ import annotations
 
 import asyncio
-import copy
 import functools
-import os
+import inspect
 import re
 import time
 import types
@@ -22,11 +21,14 @@ from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig, get_security_config
 from query_builder.connectors.base import (
+    _EGRESS_GUARDED_METHODS,
     ConnectionFailedError,
     IntrospectionError,
     as_connector_error,
+    effective_network_config,
 )
 from query_builder.dialects import BaseDialect, get_dialect
+from query_builder.egress_guard import egress_guard
 from query_builder.middleware import (
     LifecycleInterceptor,
     MiddlewarePipeline,
@@ -43,6 +45,19 @@ from query_builder.security import (
     validate_network_target,
 )
 from query_builder.telemetry import TelemetryCollector
+
+
+def _egress_guarded(fn: Any) -> Any:
+    if getattr(fn, "_egress_guarded", False):
+        return fn
+
+    @functools.wraps(fn)
+    async def guarded(self: Any, *args: Any, **kw: Any) -> Any:
+        with egress_guard(self._network_policy_config()):
+            return await fn(self, *args, **kw)
+
+    guarded._egress_guarded = True  # type: ignore[attr-defined]
+    return guarded
 
 
 class AsyncBaseConnector(ABC):
@@ -86,8 +101,9 @@ class AsyncBaseConnector(ABC):
                 ) -> Any:
                     self._validate_network_target()
                     try:
-                        conn = await orig_connect(self, *args, **kw)
-                        await self._ensure_read_only(conn)
+                        with egress_guard(self._network_policy_config()):
+                            conn = await orig_connect(self, *args, **kw)
+                            await self._ensure_read_only(conn)
                         return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
@@ -99,6 +115,12 @@ class AsyncBaseConnector(ABC):
 
                 wrapped_async_connect._security_wrapped = True  # type: ignore[attr-defined]
                 cls.connect = wrapped_async_connect  # type: ignore[method-assign]  # intentional wrap
+        for name in _EGRESS_GUARDED_METHODS:
+            fn = cls.__dict__.get(name)
+            if inspect.iscoroutinefunction(fn) and not getattr(
+                fn, "_egress_guarded", False
+            ):
+                setattr(cls, name, _egress_guarded(fn))
 
     def __init__(
         self,
@@ -156,36 +178,16 @@ class AsyncBaseConnector(ABC):
         )
         return f"{self.__class__.__name__}(dialect={self.dialect_name}, config={safe_config})"
 
+    def _network_policy_config(self) -> Any:
+        """The network policy the egress guard enforces for this connector (or ``None``)."""
+        return effective_network_config(self)
+
     def _validate_network_target(
         self, security_config: SecurityConfig | None = None
     ) -> None:
-        sec = (
-            security_config or getattr(self, "security", None) or get_security_config()
-        )
-        if not sec or not sec.network:
+        net_cfg = effective_network_config(self, security_config)
+        if net_cfg is None:
             return
-
-        net_cfg = sec.network
-        if not self._explicit_security:
-            net_cfg = copy.copy(net_cfg)
-            if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.allow_private_networks = _parse_bool(
-                    os.environ["QB_ALLOW_PRIVATE_NETWORKS"],
-                    "QB_ALLOW_PRIVATE_NETWORKS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.allow_private_networks = True
-            if "QB_ENFORCE_TLS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.enforce_tls = _parse_bool(
-                    os.environ["QB_ENFORCE_TLS"],
-                    "QB_ENFORCE_TLS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.enforce_tls = False
 
         target_config = collect_target_config(self)
 
@@ -706,3 +708,9 @@ class AsyncBaseConnector(ABC):
             if scrubbed_exc is exc:
                 raise
             raise scrubbed_exc from None
+
+
+for _name in _EGRESS_GUARDED_METHODS:
+    _fn = AsyncBaseConnector.__dict__.get(_name)
+    if inspect.iscoroutinefunction(_fn):
+        setattr(AsyncBaseConnector, _name, _egress_guarded(_fn))

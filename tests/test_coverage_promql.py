@@ -153,7 +153,10 @@ def test_requests_base_get_and_close() -> None:
     assert base.base_url == "http://h:9090" and session.verify is False
     base.get("/api/v1/query", params=[("query", "up")])
     session.get.assert_called_once_with(
-        "http://h:9090/api/v1/query", params=[("query", "up")], timeout=5
+        "http://h:9090/api/v1/query",
+        params=[("query", "up")],
+        timeout=5,
+        allow_redirects=False,
     )
     base.close()
     session.close.assert_called_once()

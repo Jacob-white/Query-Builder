@@ -1,5 +1,7 @@
 # Query-Builder Test Readiness & Full-Stack Verification Report
 
+> **Historical document - not current.** A point-in-time verification report (dated 2026-10-03). It is kept as a record of that work. Figures, status labels and machine paths in it are not current guarantees. For today's facts see [CONTRIBUTING.md](CONTRIBUTING.md) (enforced coverage floors), [docs/CONNECTORS.md](docs/CONNECTORS.md) (connector status, generated from evidence) and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) (what is and is not guaranteed). The "100%" coverage figures and "approved" status below were a snapshot; CI enforces the floors in CONTRIBUTING.md, not 100%.
+
 **Status:** APPROVED & TEST-READY  
 **Milestone:** M4 (Full-Stack E2E Verification & Final Assurance)  
 **Date:** 2026-10-03  

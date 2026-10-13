@@ -190,10 +190,20 @@ def resolve_ownership_predicate(
 # SSRF & Network Target Validation
 # ---------------------------------------------------------------------------
 
+#: Endpoints that hand out instance / task credentials. Blocked whatever the policy, and
+#: whether written as an IP or reached through an IPv6 form that embeds the IPv4 address.
 CLOUD_METADATA_IPS: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = {
-    ipaddress.ip_address("169.254.169.254"),
-    ipaddress.ip_address("169.254.169.253"),
-    ipaddress.ip_address("fd00:ec2::254"),
+    ipaddress.ip_address(
+        "169.254.169.254"
+    ),  # AWS / GCP / Azure / DigitalOcean / OCI IMDS
+    ipaddress.ip_address("169.254.169.253"),  # AWS DNS
+    ipaddress.ip_address("fd00:ec2::254"),  # AWS IMDS over IPv6
+    ipaddress.ip_address("169.254.170.2"),  # AWS ECS / Fargate task credentials
+    ipaddress.ip_address("169.254.170.23"),  # AWS EKS Pod Identity Agent
+    ipaddress.ip_address("fd00:ec2::23"),  # AWS EKS Pod Identity Agent (IPv6)
+    ipaddress.ip_address("168.63.129.16"),  # Azure WireServer
+    ipaddress.ip_address("100.100.100.200"),  # Alibaba Cloud metadata
+    ipaddress.ip_address("192.0.0.192"),  # Oracle Cloud (legacy) metadata
 }
 
 CLOUD_METADATA_HOSTNAMES: set[str] = {

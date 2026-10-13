@@ -23,6 +23,7 @@ from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig, get_security_config
 from query_builder.dialects import BaseDialect, get_dialect
+from query_builder.egress_guard import egress_guard
 from query_builder.exceptions import QueryBuilderError
 from query_builder.executor import execute_cursor_query
 from query_builder.middleware import (
@@ -123,6 +124,58 @@ def raise_mapped(exc: Exception) -> NoReturn:
     raise mapped from exc
 
 
+def effective_network_config(
+    owner: Any, security_config: SecurityConfig | None = None
+) -> Any:
+    """The ``NetworkSecurityConfig`` that applies to ``owner`` (env overrides folded in), or
+    ``None`` when security is disabled. Shared by the sync and async connector bases."""
+    sec = security_config or getattr(owner, "security", None) or get_security_config()
+    if not sec or not sec.network:
+        return None
+    net_cfg = sec.network
+    if not getattr(owner, "_explicit_security", False):
+        net_cfg = copy.copy(net_cfg)
+        if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
+            from query_builder.config import _parse_bool
+
+            net_cfg.allow_private_networks = _parse_bool(
+                os.environ["QB_ALLOW_PRIVATE_NETWORKS"], "QB_ALLOW_PRIVATE_NETWORKS"
+            )
+        elif "QB_SECURITY_PROFILE" not in os.environ:
+            net_cfg.allow_private_networks = True
+        if "QB_ENFORCE_TLS" in os.environ:
+            from query_builder.config import _parse_bool
+
+            net_cfg.enforce_tls = _parse_bool(
+                os.environ["QB_ENFORCE_TLS"], "QB_ENFORCE_TLS"
+            )
+        elif "QB_SECURITY_PROFILE" not in os.environ:
+            net_cfg.enforce_tls = False
+    return net_cfg
+
+
+#: Connector entry points that can open a connection; each runs under the egress guard.
+_EGRESS_GUARDED_METHODS = (
+    "execute",
+    "execute_raw",
+    "introspect_schema",
+    "test_connection",
+)
+
+
+def _egress_guarded(fn: Any) -> Any:
+    if getattr(fn, "_egress_guarded", False):
+        return fn
+
+    @functools.wraps(fn)
+    def guarded(self: Any, *args: Any, **kw: Any) -> Any:
+        with egress_guard(self._network_policy_config()):
+            return fn(self, *args, **kw)
+
+    guarded._egress_guarded = True  # type: ignore[attr-defined]
+    return guarded
+
+
 class BaseConnector(ABC):
     """
     Abstract base database connector providing standardized query compilation,
@@ -166,8 +219,9 @@ class BaseConnector(ABC):
                     self._validate_network_target()
                     self._pin_network_target()
                     try:
-                        conn = orig_connect(self, *args, **kw)
-                        self._ensure_read_only(conn)
+                        with egress_guard(self._network_policy_config()):
+                            conn = orig_connect(self, *args, **kw)
+                            self._ensure_read_only(conn)
                         return conn
                     except Exception as exc:
                         scrubbed = self._scrub_exception(exc)
@@ -179,6 +233,10 @@ class BaseConnector(ABC):
 
                 wrapped_connect._security_wrapped = True  # type: ignore[attr-defined]
                 cls.connect = wrapped_connect  # type: ignore[method-assign]  # intentional wrap
+        for name in _EGRESS_GUARDED_METHODS:
+            fn = cls.__dict__.get(name)
+            if callable(fn) and not getattr(fn, "_egress_guarded", False):
+                setattr(cls, name, _egress_guarded(fn))
 
     def __init__(
         self,
@@ -297,36 +355,16 @@ class BaseConnector(ABC):
             cfg[address_key] = target.pinned_address
         return cfg
 
+    def _network_policy_config(self) -> Any:
+        """The network policy the egress guard enforces for this connector (or ``None``)."""
+        return effective_network_config(self)
+
     def _network_context(
         self, security_config: SecurityConfig | None
     ) -> tuple[Any, dict[str, Any]] | None:
-        sec = (
-            security_config or getattr(self, "security", None) or get_security_config()
-        )
-        if not sec or not sec.network:
+        net_cfg = effective_network_config(self, security_config)
+        if net_cfg is None:
             return None
-
-        net_cfg = sec.network
-        if not self._explicit_security:
-            net_cfg = copy.copy(net_cfg)
-            if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.allow_private_networks = _parse_bool(
-                    os.environ["QB_ALLOW_PRIVATE_NETWORKS"],
-                    "QB_ALLOW_PRIVATE_NETWORKS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.allow_private_networks = True
-            if "QB_ENFORCE_TLS" in os.environ:
-                from query_builder.config import _parse_bool
-
-                net_cfg.enforce_tls = _parse_bool(
-                    os.environ["QB_ENFORCE_TLS"],
-                    "QB_ENFORCE_TLS",
-                )
-            elif "QB_SECURITY_PROFILE" not in os.environ:
-                net_cfg.enforce_tls = False
 
         target_config = collect_target_config(self)
 
@@ -895,3 +933,9 @@ class BaseConnector(ABC):
         if table_name is not None:
             return [fk for fk in fks if fk.get("table") == table_name]
         return fks
+
+
+for _name in _EGRESS_GUARDED_METHODS:
+    _fn = BaseConnector.__dict__.get(_name)
+    if callable(_fn):
+        setattr(BaseConnector, _name, _egress_guarded(_fn))
