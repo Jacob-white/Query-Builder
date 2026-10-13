@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Breaking
+- **`query-builder serve` now starts in secure mode.** The server, not the client, chooses the tenant,
+  the policy and the connection; it refuses a client-supplied `tenant_id` / `policy` / `config`, raw SQL
+  and every endpoint outside a small allow-list, fails closed (401) when no tenant resolves, applies the
+  `production` security profile, and sends no wildcard CORS header. A bare `serve` registers no database
+  (pass `--connections FILE`) and says so at start-up. To keep the old open behaviour for local
+  development pass **`--insecure`** (it prints the security notice, and refuses the secure-only
+  `--connections` / `--allow-origin`). `--secure` is still accepted and does nothing extra. The library
+  function `create_server()` is unchanged: without `security=` it still trusts the request, as documented
+  in `docs/SECURE_DEPLOYMENT.md`.
 - **Python 3.11+ required** (was declared 3.9+, but the package already imports `typing.Self`
   and uses runtime `X | Y` unions, so 3.9/3.10 never worked). Classifiers, README badge, ruff
   target and `query-builder doctor` now agree.

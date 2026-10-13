@@ -91,10 +91,10 @@ garbage never returns another tenant's rows on a real SQLite database.
 the trusted/operator surfaces listed in `tests/test_policy_architecture.py::LEDGER` as
 `no-tenant-context` (CLI, MCP tool server, AI agent tooling, `ConnectionPool` raw execution);
 they must sit behind your own authentication and must not be exposed to tenants. The HTTP server
-(`server.py`) is classified `policy`. In its default mode it applies the policy **only when the request
+(`server.py`) is classified `policy`. With `serve --insecure`, or `create_server()` called without `security=`, it applies the policy **only when the request
 carries `tenant_id` or `policy`**, both supplied by the caller: a request with neither returns every
 tenant's rows even with `enforce_tenant_isolation` on (verified), so it needs an authenticating gateway
-that sets them. **Secure mode** (`serve --secure`, `create_server(security=ServerSecurity(...))`,
+that sets them. **Secure mode** (`serve`, the default since 2.0; `create_server(security=ServerSecurity(...))`,
 `server_security.py`) removes that trust: it enforces, in one place before any handler runs, a small
 endpoint allow-list, no client-supplied `tenant_id` / `policy` / `config`, no raw SQL, a tenant from the
 operator's resolver (fail closed with 401 when none resolves) and one rewrite of the spec with the

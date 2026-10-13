@@ -15,7 +15,8 @@ browser, an AI agent):
 - [ ] restrict targets: `QB_ALLOW_PRIVATE_NETWORKS=true` only if you need internal databases, together
       with `QB_ALLOWED_HOSTNAMES=<exact hosts>`
 - [ ] connect with a **read-only database role**; do not rely on the session setting alone
-- [ ] run `query-builder serve --secure` (or `create_server(security=...)`) so the **server** chooses
+- [ ] run `query-builder serve` (secure mode is the default; never pass `--insecure`) or call
+      `create_server(security=...)`, so the **server** chooses
       tenant, policy and connection, and put your **own authentication** in front of it and of
       `query-builder mcp` (section 4)
 - [ ] add **network-level egress controls** (section 6)
@@ -63,14 +64,14 @@ private networks lets a caller reach **any** internal host.
 | Entry point | The caller controls | Authentication | Tenant isolation |
 | :--- | :--- | :--- | :--- |
 | **Library** (you call it) | what your code passes | yours | `TenantContext` you bind |
-| **`query-builder serve`**, default mode | the **connector and its connection settings** (`config`), the **`tenant_id`**, the security **`policy`**, the spec and SQL: all taken from the request body | **none built in** | applied to a spec **only if the request carries `tenant_id` or `policy`**; raw SQL is never isolated |
-| **`query-builder serve --secure`** | only the query spec; the tenant comes from **your resolver**, the policy and the connection from the **operator** | your resolver (a header set by your proxy, or a token verifier) | enforced for every spec; **fails closed** (401) when no tenant resolves; raw SQL refused |
+| **`query-builder serve --insecure`** (and `create_server()` without `security=`) | the **connector and its connection settings** (`config`), the **`tenant_id`**, the security **`policy`**, the spec and SQL: all taken from the request body | **none built in** | applied to a spec **only if the request carries `tenant_id` or `policy`**; raw SQL is never isolated |
+| **`query-builder serve`** (secure mode, the default since 2.0) | only the query spec; the tenant comes from **your resolver**, the policy and the connection from the **operator** | your resolver (a header set by your proxy, or a token verifier) | enforced for every spec; **fails closed** (401) when no tenant resolves; raw SQL refused |
 | **`query-builder mcp`** (AI agents) | the connector name and its settings, from the tool call | none built in | none (no tenant context) |
 | **CLI** | the flags and config the operator types | the operator | none |
 
-### Default mode
+### Insecure mode (`--insecure`)
 
-The server trusts the request. This was verified end to end (production profile,
+This is what `serve` did before 2.0, and what `create_server()` does when you pass no `security=`. The server trusts the request. This was verified end to end (production profile,
 `QB_ENFORCE_TENANT_ISOLATION=true`, real rows): a request with `tenant_id: "acme"` returned only the `acme`
 rows, and the **same request with no `tenant_id` returned every tenant's rows**. Any caller can also name
 another tenant. When a request does carry a tenant, it is applied on every endpoint that returns rows
@@ -81,7 +82,7 @@ The server prints a start-up notice (to stderr) saying so; silence it with `--no
 
 ### Secure mode
 
-`serve --secure` (or `create_server(security=ServerSecurity(...))`) makes the **server**, not the client,
+`serve` (secure mode is its default since 2.0; `--secure` is still accepted) or `create_server(security=ServerSecurity(...))` makes the **server**, not the client,
 choose the tenant, the policy and the connection. It is enforced in one place, before any route handler
 runs, so no endpoint can be forgotten:
 
@@ -106,7 +107,7 @@ runs, so no endpoint can be forgotten:
   a pool registered by the operator; a `connection_id` the client sends is ignored. Clients cannot create
   connections. One server serves one connection; run one server per database.
 - **CORS:** no `Access-Control-Allow-Origin` header unless origins are listed (`--allow-origin`); never `*`.
-- `--secure` also applies the `production` security profile unless you pass `--profile` or set
+- Secure mode also applies the `production` security profile unless you pass `--profile` or set
   `QB_SECURITY_PROFILE`, so connectors are not left on the permissive default.
 
 Start it with a connections file (the operator registers the connections; clients cannot):
@@ -117,7 +118,7 @@ cat > connections.json <<'EOF'
              "config": {"host": "db.internal.example", "database": "app", "user": "reader"}}}
 EOF
 export QB_ALLOW_PRIVATE_NETWORKS=true QB_ALLOWED_HOSTNAMES=db.internal.example
-query-builder serve --secure --connections connections.json --tenant-header X-Tenant-ID
+query-builder serve --connections connections.json --tenant-header X-Tenant-ID
 ```
 
 The CLI takes the tenant from a header. **That is only safe behind a reverse proxy that authenticates the

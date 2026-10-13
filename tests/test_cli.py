@@ -101,7 +101,7 @@ def test_cli_serve_argument_parsing(capsys):
     with patch(
         "query_builder.server.create_server", return_value=mock_server
     ) as mock_create:
-        ret = main(["serve", "--host", "0.0.0.0", "--port", "9000"])
+        ret = main(["serve", "--insecure", "--host", "0.0.0.0", "--port", "9000"])
         assert ret == 0
         mock_create.assert_called_once_with(host="0.0.0.0", port=9000)
         mock_server.serve_forever.assert_called_once()
@@ -170,7 +170,7 @@ def test_cli_serve_with_profile(capsys):
         ) as mock_create,
         patch("query_builder.config.configure_query_builder") as mock_configure,
     ):
-        ret = main(["serve", "--profile", "development"])
+        ret = main(["serve", "--insecure", "--profile", "development"])
         assert ret == 0
         mock_configure.assert_called_once_with(profile="development")
         mock_create.assert_called_once_with(host="127.0.0.1", port=8000)
