@@ -157,8 +157,21 @@ to the proxy). Mitigate at the network - an egress firewall or `NetworkPolicy` d
 `169.254.169.254` and the other credential endpoints, IMDSv2 with hop limit 1, an egress
 allow-list, or a pinned internal resolver.
 
+**Default policy.** The configuration default is the `production` profile, but a connector created
+without an explicit `security=` and without `QB_SECURITY_PROFILE` allows private networks and does
+not enforce TLS (`effective_network_config`). By default, then, only the credential endpoints are
+blocked and internal services are reachable, so a user-supplied host, a rebound DNS answer or a
+redirect aimed at them is not stopped. `server.py`, `mcp_server.py` and the CLI pass no `security=`;
+a deployment that accepts connection settings from users or agents must set
+`QB_SECURITY_PROFILE=production|strict` (or pass a `SecurityConfig`) and add network-level egress
+controls. A request-supplied `security` value is rejected, never honoured.
+
 ## 4. Explicit non-guarantees and known limits
 
+* **The default network policy is permissive.** Without `security=` or `QB_SECURITY_PROFILE`, private
+  and internal addresses are reachable and TLS is not enforced (section 3.6, "Default policy").
+  Anything that takes connection settings from untrusted input (`serve`, `mcp`, a custom endpoint)
+  must opt into a strict profile and add network-level egress controls.
 * **Dialect coverage.** About 90 dialect names are accepted; sqlglot models roughly 30 engines.
   The rest are mapped to the closest family or analysed under every fallback dialect.
   Engine-specific syntax outside both models is rejected (fail closed) rather than trusted, which

@@ -96,8 +96,20 @@ Query-Builder protects against the primary attack vectors targeting dynamic quer
 - **System Schema Isolation**: Queries referencing administrative or credential schemas (`pg_catalog`, `information_schema`, `sqlite_master`, `mysql.user`, `sys.*`) are blocked unless explicitly allowed.
 
 ### 3.2. Network Egress & SSRF Protection (`query_builder/security.py`)
+
+> **Default network policy - read this before exposing a server.**
+> The *configuration* default is the `production` profile (private networks blocked, TLS enforced). But a connector created **without an explicit `security=` argument while `QB_SECURITY_PROFILE` is not set** applies a more permissive default: it **allows private and internal addresses** (loopback, RFC 1918, link-local, CGNAT, IPv6 ULA) and **does not enforce TLS**, so databases on your own network work out of the box.
+>
+> What that means: by default the network-egress check and the connect-time egress guard block only the **cloud credential endpoints** (`169.254.169.254` and the others listed below). **Internal services stay reachable**, so a user-supplied host, a DNS-rebinding answer or a redirect aimed at them is **not** stopped.
+>
+> `query-builder serve`, the MCP server and the CLI create connectors from request-, tool- or flag-supplied settings and pass no `security=`, so they get this default. If connection settings can come from end users or an AI agent, **set `QB_SECURITY_PROFILE=production` (or `strict`) in the process environment**, or pass an explicit `SecurityConfig` when you create connectors, and add network-level egress controls (see the last bullet below). Under `production` / `strict` private networks are blocked and TLS is enforced (the `development` profile is as permissive as the unset default); to reach an internal database on purpose, opt in explicitly with `allow_private_networks=True` and restrict the targets with `allowed_hostnames`. A request cannot weaken the policy by sending its own `security` value (it is rejected).
+>
+> The environment variables are read once, lazily, the first time the configuration is needed and then cached: set them before the process starts, not after the first connector has been created. Each setting is independent (for example `QB_ALLOW_PRIVATE_NETWORKS=false` on its own does not turn TLS enforcement on).
+>
+> To check what applies to a given connector, call `effective_network_config(connector)` (in `query_builder.connectors.base`): it returns the policy that connector will actually enforce.
+
 - **Target Host Validation**: `validate_network_target()` validates all connector target hostnames and IPs prior to socket creation.
-- **Private Subnet & Loopback Blocking**: Automatically blocks RFC1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopbacks (`127.0.0.0/8`, `::1`), and IPv6 unique-local addresses unless `allow_private_networks=True`.
+- **Private Subnet & Loopback Blocking**: Automatically blocks RFC1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopbacks (`127.0.0.0/8`, `::1`), and IPv6 unique-local addresses unless `allow_private_networks=True`. **This is the effective default only when a profile is selected** (`QB_SECURITY_PROFILE`) or an explicit `security=` is passed; with neither, connectors allow private networks - see the default-policy note above.
 - **Cloud Metadata Service Blockade**: Unconditionally blocks requests targeting cloud metadata IPs (`169.254.169.254`) and hostnames (`metadata.google.internal`, `instance-data`).
 - **Bracketed Host Normalization**: Strips bracketed host literals (e.g. `[169.254.169.254]` or `[::1]`) so attackers cannot bypass pre-DNS CIDR filters.
 - **Every address shape is read**: URLs (including `jdbc:` and multi-host replica-set URLs), `KEY=value` DSNs (libpq, ODBC, Db2), Oracle `//host` and TNS descriptors, `user:pw@host`, comma host lists and driver-specific keys (`hosts`, `servers`, `connstr`, `gateway_url`, ...) are parsed by one shared parser (`extract_address_targets`), and the address attributes a connector keeps outside its config are included.
@@ -171,11 +183,11 @@ In containerized environments (Docker, Kubernetes, AWS ECS), security settings c
 
 | Environment Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `QB_SECURITY_PROFILE` | `str` | `production` | Active profile: `development`, `production`, or `strict` |
-| `QB_ALLOW_PRIVATE_NETWORKS` | `bool` | `false` | Set `true` to allow connecting to `localhost` or private RFC1918 IPs |
+| `QB_SECURITY_PROFILE` | `str` | `production` | Active profile: `development`, `production`, or `strict`. This is the default of the *config object*; a connector created without `security=` while this is **unset** relaxes private networks and TLS (section 3.2). |
+| `QB_ALLOW_PRIVATE_NETWORKS` | `bool` | unset | `true` / `false`. **Unset means private networks are allowed** unless `QB_SECURITY_PROFILE` is set; set `false` to forbid `localhost` and private RFC1918 IPs |
 | `QB_ALLOWED_HOSTS` | `list[str]` | `None` | Comma-separated list of allowed hostnames (supports `*.domain.com`) |
 | `QB_BLOCKED_HOSTS` | `list[str]` | `169.254.169.254` | Comma-separated list of blocked hostnames or IPs |
-| `QB_ENFORCE_TLS` | `bool` | `true` | Enforce encrypted transport across database drivers |
+| `QB_ENFORCE_TLS` | `bool` | unset | `true` / `false`. **Unset means TLS is not enforced** unless `QB_SECURITY_PROFILE` is set (then `production` / `strict` enforce it); set `true` to enforce encrypted transport across database drivers |
 | `QB_VERIFY_SSL_CERTS` | `bool` | `true` | Verify TLS/SSL certificates against trusted CA roots |
 | `QB_ENFORCE_READ_ONLY` | `bool` | `true` | Lock database sessions into read-only transaction mode |
 | `QB_STATEMENT_TIMEOUT_MS` | `int` | `5000` | Query execution timeout in milliseconds |
@@ -235,6 +247,8 @@ When embedding Query-Builder into web applications (e.g. Django, FastAPI, Flask,
    For mission-critical multi-tenant databases, pair Query-Builder's application-level predicate injection with PostgreSQL Row-Level Security (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`) as defense-in-depth.
 5. **Keep Dependencies Updated**:
    Regularly update Query-Builder, driver packages, and `sqlparse` to maintain protection against evolving AST injection and parser edge cases.
+5. **Set a security profile for anything that accepts connection settings from users or agents**:
+   Run `query-builder serve` / `query-builder mcp` / your own endpoint with `QB_SECURITY_PROFILE=production` (or `strict`), or pass an explicit `SecurityConfig`. The unset default allows internal networks and does not enforce TLS (section 3.2). Also add network-level egress controls - a firewall or Kubernetes `NetworkPolicy` denying `169.254.169.254` and the other credential endpoints, IMDSv2 with a hop limit of 1, an egress allow-list - because the in-process checks do not cover every driver (section 3.2 and `docs/THREAT_MODEL.md` section 3.6).
 
 ---
 

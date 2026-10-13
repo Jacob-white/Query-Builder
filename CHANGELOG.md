@@ -64,6 +64,12 @@
 - The Prometheus/VictoriaMetrics requests adapter and Cloudflare D1 no longer follow redirects (a 3xx is
   reported); the InfluxDB version probe follows none and speaks only `http(s)` (`urlopen` also accepted
   `file:` and `ftp:`).
+- **Documented the permissive default network policy** (SECURITY.md 3.2 and section 5, THREAT_MODEL.md 3.6 and 4,
+  README, quickstart, API reference): a connector created without `security=` while `QB_SECURITY_PROFILE` is
+  unset allows private/internal addresses and does not enforce TLS, so `serve`, `mcp` and the CLI - which pass no
+  `security=` - only block the credential endpoints by default. Deployments that accept connection settings from
+  users or agents must set a `production`/`strict` profile and add network-level egress controls. The
+  `QB_ALLOW_PRIVATE_NETWORKS` / `QB_ENFORCE_TLS` table rows previously claimed the opposite defaults.
 - The always-forbidden credential endpoints now also include AWS ECS/Fargate (`169.254.170.2`) and EKS Pod
   Identity (`169.254.170.23`, `fd00:ec2::23`), Azure WireServer (`168.63.129.16`), Alibaba Cloud
   (`100.100.100.200`) and the legacy Oracle Cloud endpoint (`192.0.0.192`); they were reachable under the
