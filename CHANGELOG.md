@@ -48,6 +48,31 @@
 - Per-filter `combiner` values are whitelisted to `AND`/`OR` in the TypeScript compiler and
   parser as well as the Python compiler.
 
+### Security (HTTP server tenant isolation, explicit security configuration)
+- **Opt-in secure mode for the HTTP server** (`query-builder serve --secure`, `create_server(security=ServerSecurity(...))`,
+  new `query_builder/server_security.py`). By default the server trusts the request: connection settings (`config`),
+  `tenant_id` and `policy` come from the body, there is no authentication, and isolation applies only when a request
+  carries a tenant - verified on real data: a request with no `tenant_id` returned every tenant's rows even with
+  `QB_ENFORCE_TENANT_ISOLATION=true`. Secure mode enforces, in one place before any handler runs: a small endpoint
+  allow-list (compile, validate, execute, explain, health, docs); no client-supplied `tenant_id` / `policy` / `config`
+  (refused with 403, not ignored); no raw SQL; the tenant from the operator's resolver (401 when none resolves, a
+  crashing resolver also fails closed); the spec rewritten once with the resolved tenant and a server-side policy;
+  the operator's connection only; no wildcard CORS. New flags: `--secure`, `--tenant-header`, `--connections`,
+  `--default-connection`, `--allow-origin`. Default behaviour is unchanged. 76 tests; the checker was mutation-tested
+  (19 deliberate breakages, all caught).
+- **Fixed: the tenant was silently ignored on some paths.** With a `tenant_id` in the request, `execute` on a registered
+  `connection_id` (the pooled path), `/api/v1/export` and `/api/v1/export/stream` returned the other tenant's rows. The
+  tenant policy is now applied on every endpoint that returns rows (one shared helper). Raw SQL is still never rewritten.
+- **Changed (security): an explicit security configuration is honoured by connectors.** The permissive "nothing
+  configured" defaults (private networks allowed, TLS not enforced) used to apply even when the application had chosen a
+  policy: `serve --profile production`, `configure_query_builder(profile=...)` and `configure_security(...)` left
+  connectors permissive; only the `QB_SECURITY_PROFILE` variable and a per-connector `security=` were honoured. They now
+  are (`security_explicitly_configured()`; `reset_security_config()` clears it). **Behaviour change:** an application that
+  configured a strict profile in code and connects to private addresses will now be refused, as it asked to be; allow
+  them explicitly (`allow_private_networks=True` with `allowed_hostnames`). The full test suite needed no changes.
+- **Start-up security notice** for `serve` and `mcp` (stderr): no authentication, where the connection settings and tenant
+  come from, and whether the network policy is permissive. `--no-security-notice` silences it. `mcp` gains `--profile`.
+
 ### Security (connect-time egress guard, found by auditing what happens after validation)
 - **DNS rebinding and redirects were not covered after validation.** Under a strict profile the Redis
   connector passed validation against a public IP, then its driver re-resolved the name and connected to

@@ -91,9 +91,16 @@ garbage never returns another tenant's rows on a real SQLite database.
 the trusted/operator surfaces listed in `tests/test_policy_architecture.py::LEDGER` as
 `no-tenant-context` (CLI, MCP tool server, AI agent tooling, `ConnectionPool` raw execution);
 they must sit behind your own authentication and must not be exposed to tenants. The HTTP server
-(`server.py`) is classified `policy` but applies the policy **only when the request carries `tenant_id`
-or `policy`**, both supplied by the caller: a request with neither returns every tenant's rows even with
-`enforce_tenant_isolation` on (verified), so it too needs an authenticating gateway that sets them. Raw SQL sent
+(`server.py`) is classified `policy`. In its default mode it applies the policy **only when the request
+carries `tenant_id` or `policy`**, both supplied by the caller: a request with neither returns every
+tenant's rows even with `enforce_tenant_isolation` on (verified), so it needs an authenticating gateway
+that sets them. **Secure mode** (`serve --secure`, `create_server(security=ServerSecurity(...))`,
+`server_security.py`) removes that trust: it enforces, in one place before any handler runs, a small
+endpoint allow-list, no client-supplied `tenant_id` / `policy` / `config`, no raw SQL, a tenant from the
+operator's resolver (fail closed with 401 when none resolves) and one rewrite of the spec with the
+resolved tenant. Verified in `tests/test_server_secure_mode.py` against real rows, including `OR`
+filters, a CTE and a filter naming the other tenant. It still trusts whatever the resolver returns (a
+header is only as trustworthy as the proxy that sets it) and serves one connection per server. Raw SQL sent
 by a tenant (`sql=`) is *validated*, but it is **not** rewritten to add tenant predicates: use
 specs, or a database role with row-level security, for tenant isolation of raw SQL.
 
