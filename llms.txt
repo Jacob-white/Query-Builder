@@ -1,0 +1,33 @@
+# Query-Builder
+
+> A Python library that compiles a JSON query spec into parameterised SQL for ~140 database connector classes, validates raw SQL (AST safety), enforces a security policy (tenant isolation, column masking, network egress) and exposes it as a library, an HTTP server, an MCP server and a CLI. A React package provides a visual query builder. Python 3.11+, MIT licence.
+
+Read this before integrating or changing it:
+
+- Defaults are permissive. A connector created without an explicit `security=` while `QB_SECURITY_PROFILE` is unset allows private/internal network addresses and does not enforce TLS; only cloud credential endpoints (such as 169.254.169.254) are always blocked. Anything that takes connection settings, tenant ids or SQL from untrusted input (users, a browser, an AI agent) must set `QB_SECURITY_PROFILE=production` (or `strict`) before the process starts, restrict targets with `QB_ALLOWED_HOSTNAMES`, and add network-level egress controls.
+- `query-builder serve` and `query-builder mcp` have no authentication of their own. The HTTP server takes the connection settings, `tenant_id` and `policy` from the request body and applies tenant isolation only when the request carries `tenant_id` or `policy`; put an authenticating gateway in front that sets them.
+- Environment variables that are not in the generated table in SECURITY.md section 4.2 are ignored without an error (for example `QB_ALLOWED_HOSTS` does nothing; the real name is `QB_ALLOWED_HOSTNAMES`). Variables are read once and cached.
+- Do not trust numbers or status claims in the historical documents (TEST_READY.md, TEST_INFRA.md, PROJECT.md, MISSING_CONNECTORS_PLAN.md); connector status is generated in docs/CONNECTORS.md.
+
+## Integrating
+
+- [Quickstart](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/quickstart.md): Python backend, query compilation, security governance, React studio
+- [API reference](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/api_reference.md): public Python and TypeScript APIs, CLI commands, MCP tools
+- [Secure deployment](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/SECURE_DEPLOYMENT.md): what to configure before exposing the library, the HTTP server or the MCP server; what each entry point trusts; how to verify what is enforced
+- [Security policy](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/SECURITY.md): defence in depth, security profiles, every `QB_*` environment variable with per-profile defaults
+- [Threat model](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/THREAT_MODEL.md): what each layer guarantees, residual risks and explicit non-guarantees
+- [Connector status](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/CONNECTORS.md): every connector class and how each is verified (generated from evidence)
+
+## Contributing
+
+- [AGENTS.md](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/AGENTS.md): layout, commands, non-optional rules and gotchas for AI coding agents
+- [Contributing](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/CONTRIBUTING.md): setup, coding standards, commit and changelog policy
+- [Adding a connector](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/ADDING_A_CONNECTOR.md): the class, the files to wire it into, tests, live verification, definition of done
+- [Dialect guide](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/DIALECT_GUIDE.md): dialect settings and a catalogue of engine quirks with their fixes
+- [Live engine testing](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/TESTING_LIVE.md): running the suite against real engines, and practical pitfalls
+
+## Optional
+
+- [Changelog](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/CHANGELOG.md)
+- [Typing policy](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/TYPING.md)
+- [Releasing](https://raw.githubusercontent.com/Jacob-white/Query-Builder/main/docs/RELEASING.md)

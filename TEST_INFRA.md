@@ -1,10 +1,12 @@
 # E2E Test Infra: Query-Builder
 
+> **Historical document - not current.** Test-infrastructure notes from an earlier milestone. It is kept as a record of that work. Figures, status labels and machine paths in it are not current guarantees. For today's facts see [CONTRIBUTING.md](CONTRIBUTING.md) (enforced coverage floors), [docs/CONNECTORS.md](docs/CONNECTORS.md) (connector status, generated from evidence) and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) (what is and is not guaranteed). In particular the "100% coverage" targets below are not what CI enforces.
+
 ## Test Philosophy
 - Requirement-driven, opaque-box and contract testing.
 - Methodology: Category-Partition + Boundary Value Analysis + Pairwise Combinatorial + Real-World Workload Testing.
 - Strict constraint adherence: Sequential execution only (never run pytest and vitest concurrently); vitest worker limit capped at 2 (`VITEST_MAX_WORKERS=2`).
-- 100% statement, function, and branch coverage for both Python and React codebases.
+- Coverage floors enforced in CI: Python 99% (`fail_under` in `pyproject.toml`); React 99% statements / 96% branches / 99% functions / 99% lines (`packages/react/vitest.config.ts`).
 - Zero linting/formatting/type errors (`ruff check`, `ruff format --check`, `tsc`).
 
 ## Feature Inventory
@@ -47,6 +49,6 @@
 | 5 | Keyboard-only user navigates visual canvas, opens template modal, selects template, navigates results grid, and dismisses modals with Escape | Keyboard Nav, ARIA attributes, Focus Trapping | E2E React A11y |
 
 ## Coverage Thresholds
-- Python: 100% statement, 100% branch coverage (`pytest --cov=query_builder --cov-branch`).
-- React: 100% statement, branch, function, and line coverage (`vitest run --coverage`).
+- Python: floor 99% (`pytest --cov --cov-report=term-missing:skip-covered`; branch coverage on).
+- React: floors 99% statements / 96% branches / 99% functions / 99% lines (`pnpm run test:coverage`).
 - Zero linting or formatting errors across all source files.

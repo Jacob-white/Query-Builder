@@ -10,6 +10,18 @@ Thanks for helping. This repository contains three things that are developed and
 
 Security issues: do **not** open a public issue; follow [SECURITY.md](SECURITY.md).
 
+## Guides
+
+- [AGENTS.md](AGENTS.md): the short version for AI coding agents and anyone in a hurry (layout, commands, rules, gotchas).
+- [docs/ADDING_A_CONNECTOR.md](docs/ADDING_A_CONNECTOR.md) and [docs/DIALECT_GUIDE.md](docs/DIALECT_GUIDE.md): adding an engine, with a definition of done and a catalogue of quirks real engines have shown.
+- [docs/TESTING_LIVE.md](docs/TESTING_LIVE.md): running the suite against real engines.
+- [docs/SECURE_DEPLOYMENT.md](docs/SECURE_DEPLOYMENT.md): what integrators must configure; read it before touching defaults or the server.
+
+Some files are **generated** and must not be edited by hand: `docs/CONNECTORS.md` and
+`docs/live_results.json` (`python scripts/gen_connector_status.py`), the environment-variable table in
+`SECURITY.md` (`python scripts/gen_security_env_table.py`, enforced by a test) and `tests/golden/*.json`
+(regenerate, then review every changed entry).
+
 ## Setup
 
 ### Python
@@ -74,7 +86,10 @@ databases and run it, and [docs/CONNECTORS.md](docs/CONNECTORS.md) for connector
     `packages/react/tests/regex_linear_*.test.ts`) for every new regex that handles user input.
 - **Security-sensitive code** (validator, policy, tenant isolation, SSRF checks, connectors): add
   adversarial tests, never loosen a check to make a test pass, and keep errors free of raw driver or
-  parser text.
+  parser text. For new security code also write a
+  *control*: the same scenario without your change must fail, so a passing test proves the code and not
+  a broken scenario (see `tests/test_egress_guard.py`). Run what you document: a documented setting the
+  code does not read is a silent no-op.
 - **Dependencies**: runtime dependencies of the Python core must stay minimal (`sqlparse` today);
   new drivers go in an optional extra named after the connector. The React package has no runtime
   dependencies beyond its `react` peer. Anything new is audited in CI (`pip-audit`, `pnpm audit`).

@@ -127,7 +127,7 @@ Query-Builder protects against the primary attack vectors targeting dynamic quer
 - **Cartesian Product Prevention**: Detects and rejects disconnected tables or accidental `CROSS JOIN` operations.
 
 ### 3.4. Fail-Closed Tenant Isolation (`query_builder/policy.py`)
-- **Fail-Closed Execution**: If tenant isolation is enabled and no valid `TenantContext` is provided, execution halts immediately with `SecurityError`.
+- **Fail-Closed Execution**: `apply_security_policy` raises `SecurityError` when tenant isolation is enabled and no valid `TenantContext` is provided. This holds wherever the policy layer is *called*. The built-in HTTP server (`query-builder serve`) calls it only when the request itself carries `tenant_id` or `policy`, and takes both from the request body, so a request that omits them is **not** isolated and a caller can name any tenant (verified against real data with `QB_ENFORCE_TENANT_ISOLATION=true`). Put an authenticating gateway in front that sets `tenant_id` and `policy` from the verified identity - see [docs/SECURE_DEPLOYMENT.md](docs/SECURE_DEPLOYMENT.md) section 4.
 - **Relational Ownership Chains**: Recursively walks foreign-key relationship graphs using `_build_chain_exists()` to verify ownership of child and junction records.
 - **Cyclic Traversal & Depth Limits**: Halts execution if ownership graph traversal exceeds depth 10 or encounters cyclic relationships.
 
@@ -181,25 +181,43 @@ configure_security(SecurityProfile.strict())
 
 In containerized environments (Docker, Kubernetes, AWS ECS), security settings can be tuned via environment variables without modifying source code:
 
-| Environment Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `QB_SECURITY_PROFILE` | `str` | `production` | Active profile: `development`, `production`, or `strict`. This is the default of the *config object*; a connector created without `security=` while this is **unset** relaxes private networks and TLS (section 3.2). |
-| `QB_ALLOW_PRIVATE_NETWORKS` | `bool` | unset | `true` / `false`. **Unset means private networks are allowed** unless `QB_SECURITY_PROFILE` is set; set `false` to forbid `localhost` and private RFC1918 IPs |
-| `QB_ALLOWED_HOSTS` | `list[str]` | `None` | Comma-separated list of allowed hostnames (supports `*.domain.com`) |
-| `QB_BLOCKED_HOSTS` | `list[str]` | `169.254.169.254` | Comma-separated list of blocked hostnames or IPs |
-| `QB_ENFORCE_TLS` | `bool` | unset | `true` / `false`. **Unset means TLS is not enforced** unless `QB_SECURITY_PROFILE` is set (then `production` / `strict` enforce it); set `true` to enforce encrypted transport across database drivers |
-| `QB_VERIFY_SSL_CERTS` | `bool` | `true` | Verify TLS/SSL certificates against trusted CA roots |
-| `QB_ENFORCE_READ_ONLY` | `bool` | `true` | Lock database sessions into read-only transaction mode |
-| `QB_STATEMENT_TIMEOUT_MS` | `int` | `5000` | Query execution timeout in milliseconds |
-| `QB_MAX_ROWS_LIMIT` | `int` | `1000` | Hard server-side pagination ceiling |
-| `QB_MAX_JOIN_DEPTH` | `int` | `5` | Maximum number of relational joins per query |
-| `QB_MAX_AST_COMPLEXITY` | `int` | `50` | Maximum AST complexity score allowed |
-| `QB_VALIDATE_AST` | `bool` | `true` | Enforce AST syntax tree safety validation |
-| `QB_ALLOW_SYSTEM_CATALOGS` | `bool` | `false` | Permit access to administrative catalog schemas |
-| `QB_ENFORCE_TENANT_ISOLATION`| `bool` | `true` | Enforce fail-closed tenant predicate injection |
-| `QB_MASK_SENSITIVE_COLUMNS` | `bool` | `true` | Mask credentials/PII during introspection & preview |
-| `QB_MASKING_STRATEGY` | `str` | `redact` | Masking mode: `redact`, `hash`, or `partial` |
-| `QB_ENABLE_AUDIT_LOG` | `bool` | `true` | Emit structured audit events |
+The table below is **generated from `query_builder/config.py`** (`python scripts/gen_security_env_table.py`; a test fails if it drifts), so the names and the per-profile defaults are exactly what the code reads. **A variable that is not in this table is ignored without any error.** In particular, names that earlier versions of this document listed - `QB_ALLOWED_HOSTS`, `QB_BLOCKED_HOSTS`, `QB_MAX_AST_COMPLEXITY`, `QB_MASK_SENSITIVE_COLUMNS` and `QB_ENABLE_AUDIT_LOG` - were never read: setting them has no effect (use `QB_ALLOWED_HOSTNAMES`, `QB_BLOCKED_HOSTNAMES`, `QB_MAX_COMPLEXITY_SCORE`, `QB_SENSITIVE_COLUMN_PATTERNS` / `QB_MASK_CREDENTIALS` and `QB_EMIT_AUDIT_EVENTS`). Variables are read once, when the configuration is first needed, and then cached: set them before the process starts, and confirm what a connector will enforce with `effective_network_config(connector)`.
+
+<!-- BEGIN:security-env-table -->
+| Variable | Type | `development` | `production` | `strict` | Effect |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `QB_SECURITY_PROFILE` | str | | | | Base profile: `development`, `production` or `strict` (the config object defaults to `production`; see the default-policy note in 3.2 for connectors) |
+| `QB_ALLOW_PRIVATE_NETWORKS` | bool | `true` | `false` | `false` | Allow loopback, RFC 1918 and other internal targets (cloud credential endpoints are always blocked). Unset is *not* the same as `false` for connectors - see 3.2 |
+| `QB_ENFORCE_TLS` | bool | `false` | `true` | `true` | Reject insecure URL schemes (`http`, `ws`, `ftp`, ...) and disabled TLS/SSL settings. Unset is *not* the same as `true` for connectors - see 3.2 |
+| `QB_VERIFY_SSL_CERTS` | bool | `false` | `true` | `true` | Verify TLS certificates against trusted CA roots |
+| `QB_CA_BUNDLE_PATH` | str | unset | unset | unset | Path to a CA bundle (must exist) |
+| `QB_SOCKET_TIMEOUT_SECONDS` | float | `30.0` | `10.0` | `5.0` | Socket / connect timeout in seconds (> 0) |
+| `QB_ALLOWED_HOSTNAMES` | list | `[]` | `[]` | `[]` | Comma-separated allow-list of target hostnames or IPs (supports `*.domain.com`). Empty means no allow-list. **Not** `QB_ALLOWED_HOSTS` |
+| `QB_BLOCKED_HOSTNAMES` | list | `[]` | `[]` | `[]` | Comma-separated extra blocked hostnames or IPs (supports `*.domain.com`). **Not** `QB_BLOCKED_HOSTS` |
+| `QB_ENFORCE_READ_ONLY` | bool | `false` | `true` | `true` | Put database sessions into read-only mode where the engine supports it |
+| `QB_STATEMENT_TIMEOUT_MS` | int | `30000` | `5000` | `2000` | Statement timeout in milliseconds (>= 0) |
+| `QB_MAX_ROWS_LIMIT` | int | `5000` | `1000` | `250` | Hard row ceiling per query (> 0) |
+| `QB_MAX_JOIN_DEPTH` | int | `10` | `5` | `3` | Maximum joins per query (>= 0) |
+| `QB_MAX_COMPLEXITY_SCORE` | int | `500` | `100` | `50` | Maximum AST complexity score (> 0). **Not** `QB_MAX_AST_COMPLEXITY` |
+| `QB_PREVENT_CARTESIAN_PRODUCTS` | bool | `false` | `true` | `true` | Reject joins without a join condition |
+| `QB_ENABLE_CACHE` | bool | `false` | `false` | `false` | Enable the query-result cache |
+| `QB_DEFAULT_TTL_SECONDS` | int | `300` | `300` | `300` | Default cache entry lifetime in seconds (>= 0) |
+| `QB_MAX_CACHE_ENTRIES` | int | `1000` | `1000` | `1000` | Maximum cache entries (> 0) |
+| `QB_VALIDATE_AST` | bool | `true` | `true` | `true` | Enforce AST safety validation of SQL |
+| `QB_ALLOWED_STATEMENTS` | list | `SELECT,EXPLAIN,SHOW,DESCRIBE` | `SELECT` | `SELECT` | Comma-separated statement types the validator accepts (cannot be empty) |
+| `QB_ALLOW_SYSTEM_CATALOGS` | bool | `true` | `false` | `false` | Permit access to administrative catalog schemas |
+| `QB_FILTER_SQL_COMMENTS` | bool | `false` | `true` | `true` | Filter SQL comments in submitted SQL |
+| `QB_ALLOW_CTE` | bool | `true` | `true` | `true` | Permit `WITH` clauses |
+| `QB_ALLOW_RECURSIVE_CTE` | bool | `true` | `false` | `false` | Permit `WITH RECURSIVE` |
+| `QB_ENFORCE_TENANT_ISOLATION` | bool | `false` | `true` | `true` | Fail-closed tenant predicate injection |
+| `QB_TENANT_COLUMN` | str | `tenant_id` | `tenant_id` | `tenant_id` | Column holding the tenant id (cannot be empty) |
+| `QB_MASKING_STRATEGY` | str | `redact` | `redact` | `hash` | Masking mode: `redact`, `hash` or `partial` |
+| `QB_SENSITIVE_COLUMN_PATTERNS` | list | built-in | built-in | built-in | Comma-separated regexes naming sensitive columns (built-in password/secret/token patterns by default) |
+| `QB_MASK_CREDENTIALS` | bool | `true` | `true` | `true` | Mask credentials in `repr` / logs |
+| `QB_REDACT_PARAMETERS` | bool | `false` | `false` | `true` | Redact bound parameter values in logs / audit events |
+| `QB_EMIT_AUDIT_EVENTS` | bool | `false` | `true` | `true` | Emit structured audit events |
+| `QB_SENSITIVE_KEY_PATTERNS` | list | built-in | built-in | built-in | Comma-separated regexes naming sensitive config keys to scrub |
+<!-- END:security-env-table -->
 
 ---
 

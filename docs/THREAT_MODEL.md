@@ -90,7 +90,10 @@ garbage never returns another tenant's rows on a real SQLite database.
 *Does not guarantee:* isolation on entry points that never call the policy. Today these are
 the trusted/operator surfaces listed in `tests/test_policy_architecture.py::LEDGER` as
 `no-tenant-context` (CLI, MCP tool server, AI agent tooling, `ConnectionPool` raw execution);
-they must sit behind your own authentication and must not be exposed to tenants. Raw SQL sent
+they must sit behind your own authentication and must not be exposed to tenants. The HTTP server
+(`server.py`) is classified `policy` but applies the policy **only when the request carries `tenant_id`
+or `policy`**, both supplied by the caller: a request with neither returns every tenant's rows even with
+`enforce_tenant_isolation` on (verified), so it too needs an authenticating gateway that sets them. Raw SQL sent
 by a tenant (`sql=`) is *validated*, but it is **not** rewritten to add tenant predicates: use
 specs, or a database role with row-level security, for tenant isolation of raw SQL.
 
