@@ -25,6 +25,7 @@ from query_builder.ast_validator import validate_sql_ast
 from query_builder.capabilities import (
     DisabledFeatureError,
     EngineCapabilities,
+    disabled_feature_message,
 )
 from query_builder.compiler import QueryCompiler
 from query_builder.config import SecurityConfig
@@ -422,7 +423,12 @@ def create_django_urls(
             )
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except (SecurityError, DisabledFeatureError) as exc:
+        except DisabledFeatureError as exc:
+            return JsonResponse(
+                {"error": disabled_feature_message(exc, effective_capabilities)},
+                status=403,
+            )
+        except SecurityError as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
             return JsonResponse(
@@ -529,7 +535,12 @@ def create_django_urls(
             )
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except (SecurityError, DisabledFeatureError) as exc:
+        except DisabledFeatureError as exc:
+            return JsonResponse(
+                {"error": disabled_feature_message(exc, effective_capabilities)},
+                status=403,
+            )
+        except SecurityError as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
             return JsonResponse(
@@ -582,7 +593,12 @@ def create_django_urls(
             return resp
         except PermissionError as exc:
             return JsonResponse({"error": str(exc)}, status=401)
-        except (SecurityError, DisabledFeatureError) as exc:
+        except DisabledFeatureError as exc:
+            return JsonResponse(
+                {"error": disabled_feature_message(exc, effective_capabilities)},
+                status=403,
+            )
+        except SecurityError as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
             return JsonResponse(
@@ -658,7 +674,9 @@ def create_drf_views(
                 )
                 sql, params, c_sql, c_params = compiler.compile()
             except DisabledFeatureError as exc:
-                raise PermissionDenied(str(exc)) from exc
+                raise PermissionDenied(
+                    disabled_feature_message(exc, effective_capabilities)
+                ) from exc
             return drf_response(
                 {
                     "sql": sql,
@@ -864,7 +882,9 @@ def create_ninja_router(
             )
             sql, params, c_sql, c_params = compiler.compile()
         except DisabledFeatureError as exc:
-            raise HttpError(403, str(exc)) from exc
+            raise HttpError(
+                403, disabled_feature_message(exc, effective_capabilities)
+            ) from exc
         return {
             "sql": sql,
             "params": params,
