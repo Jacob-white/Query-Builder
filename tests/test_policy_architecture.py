@@ -119,6 +119,9 @@ POLICY_KNOB_MODULES = {
     "config.py",
     "middleware.py",
     "policy.py",
+    # reads enforce_tenant_isolation to fail closed (401) when no tenant resolves; the predicate
+    # itself is injected by policy.apply_security_policy, never built here
+    "server_security.py",
     "integrations/django.py",
     "integrations/fastapi.py",
 }

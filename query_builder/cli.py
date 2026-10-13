@@ -311,6 +311,47 @@ def _add_serve_parser(subparsers: Subparsers) -> None:
         default=None,
         help="Active security profile preset (development, production, strict).",
     )
+    serve_p.add_argument(
+        "--secure",
+        action="store_true",
+        help=(
+            "Secure mode: the server, not the client, chooses tenant, policy and connection "
+            "(see docs/SECURE_DEPLOYMENT.md). Implies --profile production unless one is given."
+        ),
+    )
+    serve_p.add_argument(
+        "--tenant-header",
+        default="X-Tenant-ID",
+        help=(
+            "Secure mode: header that carries the tenant id. ONLY safe behind a reverse proxy that "
+            "authenticates the caller and sets/overwrites it (default: X-Tenant-ID)."
+        ),
+    )
+    serve_p.add_argument(
+        "--connections",
+        metavar="FILE",
+        help=(
+            "Secure mode: JSON file {id: {connector, config, dialect?}} of the connections to "
+            "register at start-up. Clients cannot create connections in secure mode."
+        ),
+    )
+    serve_p.add_argument(
+        "--default-connection",
+        default="default",
+        help="Secure mode: connection id used for every request (default: 'default').",
+    )
+    serve_p.add_argument(
+        "--allow-origin",
+        action="append",
+        default=[],
+        metavar="ORIGIN",
+        help="Secure mode: browser origin allowed to call the server (repeatable). Default: none.",
+    )
+    serve_p.add_argument(
+        "--no-security-notice",
+        action="store_true",
+        help="Do not print the start-up security notice.",
+    )
 
 
 def _add_schema_parser(subparsers: Subparsers) -> None:
@@ -348,9 +389,20 @@ def _add_schema_parser(subparsers: Subparsers) -> None:
 
 
 def _add_mcp_parser(subparsers: Subparsers) -> None:
-    subparsers.add_parser(
+    mcp_p = subparsers.add_parser(
         "mcp",
         help="Run the Query-Builder Model Context Protocol (MCP) server over standard I/O.",
+    )
+    mcp_p.add_argument(
+        "--profile",
+        choices=["development", "production", "strict"],
+        default=None,
+        help="Active security profile preset (development, production, strict).",
+    )
+    mcp_p.add_argument(
+        "--no-security-notice",
+        action="store_true",
+        help="Do not print the start-up security notice (to stderr).",
     )
 
 
@@ -940,26 +992,94 @@ def _cmd_schema(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # mcp / serve
 # ---------------------------------------------------------------------------
+def _print_notice(lines: list[str]) -> None:
+    for line in lines:
+        sys.stderr.write(line + "\n")
+    sys.stderr.flush()
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     from query_builder.mcp_server import McpServer
+    from query_builder.server_security import insecure_mode_notice
+
+    if getattr(args, "profile", None):
+        from query_builder.config import configure_query_builder
+
+        configure_query_builder(profile=args.profile)
+    if not getattr(args, "no_security_notice", False):
+        _print_notice(insecure_mode_notice("mcp"))
 
     server = McpServer()
     server.run_stdio()
     return 0
 
 
+def _secure_server_options(args: argparse.Namespace) -> dict[str, Any]:
+    """``create_server`` keyword arguments for ``serve --secure`` (registers the connections)."""
+    import json
+
+    from query_builder.pool import get_connection_pool_manager
+    from query_builder.server import register_connection
+    from query_builder.server_security import ServerSecurity, header_tenant_resolver
+
+    manager = get_connection_pool_manager()
+    if args.connections:
+        with open(args.connections, encoding="utf-8") as fh:
+            declared = json.load(fh)
+        if not isinstance(declared, dict):
+            raise ValueError(
+                "--connections must be a JSON object {id: {connector, config}}"
+            )
+        for connection_id, spec in declared.items():
+            register_connection(
+                manager,
+                str(connection_id),
+                str(spec["connector"]),
+                dict(spec.get("config", {})),
+                dialect=spec.get("dialect"),
+            )
+    return {
+        "connection_pool_manager": manager,
+        "security": ServerSecurity(
+            tenant_resolver=header_tenant_resolver(args.tenant_header),
+            default_connection_id=args.default_connection,
+            cors_origins=tuple(args.allow_origin),
+        ),
+    }
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
+    import os
+
     from query_builder.config import configure_query_builder
     from query_builder.server import create_server
+    from query_builder.server_security import insecure_mode_notice
 
-    if getattr(args, "profile", None):
-        configure_query_builder(profile=args.profile)
+    profile = getattr(args, "profile", None)
+    secure = bool(getattr(args, "secure", False))
+    if secure and not profile and "QB_SECURITY_PROFILE" not in os.environ:
+        profile = (
+            "production"  # secure mode must not run with the permissive default policy
+        )
+    if profile:
+        configure_query_builder(profile=profile)
 
-    server = create_server(host=args.host, port=args.port)
+    if secure:
+        server = create_server(
+            host=args.host, port=args.port, **_secure_server_options(args)
+        )
+    else:
+        server = create_server(host=args.host, port=args.port)
+    if not getattr(args, "no_security_notice", False):
+        _print_notice(insecure_mode_notice("serve", secure=secure))
     actual_port = server.server_address[1]
     sys.stdout.write(
         f"Query Builder server listening on http://{args.host}:{actual_port} (Docs: http://{args.host}:{actual_port}/docs)\n"
     )
+    if secure:
+        sys.stdout.write(
+            f"Secure mode: tenant from header {args.tenant_header!r}, connection {args.default_connection!r}\n"
+        )
     sys.stdout.flush()
     try:
         server.serve_forever()
