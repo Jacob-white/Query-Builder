@@ -21,7 +21,11 @@ from typing import Any, NoReturn, Self, cast
 
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import CompilationError, QueryCompiler
-from query_builder.config import SecurityConfig, get_security_config
+from query_builder.config import (
+    SecurityConfig,
+    get_security_config,
+    security_explicitly_configured,
+)
 from query_builder.dialects import BaseDialect, get_dialect
 from query_builder.egress_guard import egress_guard
 from query_builder.exceptions import QueryBuilderError
@@ -133,7 +137,11 @@ def effective_network_config(
     if not sec or not sec.network:
         return None
     net_cfg = sec.network
-    if not getattr(owner, "_explicit_security", False):
+    # The permissive "nothing configured" defaults apply only when neither the connector nor the
+    # application (configure_security / configure_query_builder / --profile) chose a policy.
+    if not getattr(owner, "_explicit_security", False) and not (
+        security_explicitly_configured()
+    ):
         net_cfg = copy.copy(net_cfg)
         if "QB_ALLOW_PRIVATE_NETWORKS" in os.environ:
             from query_builder.config import _parse_bool

@@ -33,6 +33,11 @@ from query_builder.pool import (
     mask_credentials,
 )
 from query_builder.security import SecurityError
+from query_builder.server_security import (
+    SecureRequestError,
+    ServerSecurity,
+    secure_request,
+)
 from query_builder.telemetry import TelemetryCollector
 from query_builder.templates import TemplateError, TemplateStore
 
@@ -230,6 +235,26 @@ def serve_swagger_ui_html() -> str:
 """
 
 
+def _policy_spec(body: dict[str, Any], spec: Any, schema: Any = None) -> Any:
+    """``spec`` with the request's tenant context and policy applied.
+
+    Unchanged when the request carries neither ``tenant_id`` nor ``policy``. Both come from the
+    REQUEST: this server does not authenticate callers, so a caller can omit them or name any
+    tenant (see docs/SECURE_DEPLOYMENT.md).
+    """
+    tenant_id = body.get("tenant_id")
+    policy = body.get("policy")
+    if not (tenant_id or policy is not None):
+        return spec
+    ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
+    return apply_security_policy(
+        spec,
+        schema=schema,
+        context=ctx,
+        policy=SecurityPolicy(**policy) if isinstance(policy, dict) else policy,
+    )
+
+
 def _get_health(h: QueryBuilderHandler, req: Request) -> None:
     """GET /health."""
     h.send_json_response(
@@ -317,19 +342,9 @@ def _post_compile(h: QueryBuilderHandler, req: Request) -> None:
 
     schema = body.get("schema")
     dialect = body.get("dialect", "postgres")
-    tenant_id = body.get("tenant_id")
-    policy = body.get("policy")
 
     try:
-        active_spec = spec
-        if tenant_id or policy is not None:
-            ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
-            active_spec = apply_security_policy(
-                spec,
-                schema=schema,
-                context=ctx,
-                policy=SecurityPolicy(**policy) if isinstance(policy, dict) else policy,
-            )
+        active_spec = _policy_spec(body, spec, schema)
 
         compiler = QueryCompiler(active_spec, schema=schema, dialect=dialect)
         main_sql, params, count_sql, count_params = compiler.compile()
@@ -385,7 +400,6 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
     connection_id = body.get("connection_id")
     config = body.get("config", {})
     tenant_id = body.get("tenant_id")
-    policy = body.get("policy")
     timeout_ms = body.get("timeout_ms")
     use_cache = body.get("use_cache", False)
     cache_ttl = body.get("cache_ttl")
@@ -426,7 +440,7 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
         # If connection_id is provided and registered in connection_pool_manager
         if connection_id and h.connection_pool_manager.has_pool(connection_id):
             result_data = h.connection_pool_manager.execute_query(
-                sql_or_spec=spec if spec is not None else sql,
+                sql_or_spec=_policy_spec(body, spec) if spec is not None else sql,
                 connection_id=connection_id,
                 params=body.get("params"),
                 timeout_ms=timeout_ms,
@@ -443,16 +457,7 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
             )
 
             if spec is not None:
-                active_spec = spec
-                if tenant_id or policy is not None:
-                    ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
-                    active_spec = apply_security_policy(
-                        spec,
-                        context=ctx,
-                        policy=SecurityPolicy(**policy)
-                        if isinstance(policy, dict)
-                        else policy,
-                    )
+                active_spec = _policy_spec(body, spec)
                 token.throw_if_cancelled()
                 result_data = conn.execute(active_spec, statement_timeout_ms=timeout_ms)
                 token.throw_if_cancelled()
@@ -510,6 +515,34 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
         h.connection_pool_manager.unregister_execution(eid)
 
 
+def register_connection(
+    manager: ConnectionPoolManager,
+    connection_id: str,
+    connector_name: str,
+    config: dict[str, Any],
+    *,
+    dialect: str | None = None,
+    max_size: int = 10,
+    min_size: int = 0,
+    timeout: float = 30.0,
+    metadata: dict[str, Any] | None = None,
+) -> ConnectionPool:
+    """Register a pooled connection under ``connection_id`` (what ``POST /api/v1/connections``
+    does). Operators use it to set up the connections secure mode serves."""
+    meta = dict(metadata or {})
+    meta["connector"] = connector_name
+    meta["dialect"] = dialect or meta.get("dialect") or connector_name
+
+    def factory() -> Any:
+        return get_connector(connector_name, **config).connect()
+
+    pool = ConnectionPool(
+        factory=factory, max_size=max_size, min_size=min_size, timeout=timeout
+    )
+    manager.register_pool(connection_id, pool, metadata=meta)
+    return pool
+
+
 def _post_connections(h: QueryBuilderHandler, req: Request) -> None:
     """POST /api/v1/connections."""
     body = req.body
@@ -530,20 +563,17 @@ def _post_connections(h: QueryBuilderHandler, req: Request) -> None:
     metadata["dialect"] = body.get("dialect", connector_name)
 
     try:
-
-        def factory() -> Any:
-            c = get_connector(
-                connector_name, **(config if isinstance(config, dict) else {})
-            )
-            return c.connect()
-
-        pool = ConnectionPool(
-            factory=factory,
+        register_connection(
+            h.connection_pool_manager,
+            conn_id,
+            connector_name,
+            config if isinstance(config, dict) else {},
+            dialect=metadata["dialect"],
             max_size=int(max_size),
             min_size=int(min_size),
             timeout=float(timeout),
+            metadata=metadata,
         )
-        h.connection_pool_manager.register_pool(conn_id, pool, metadata=metadata)
         h.send_json_response(
             {
                 "status": "registered",
@@ -603,8 +633,6 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
     sql = body.get("sql")
     connector_name = body.get("connector", "sqlite")
     config = body.get("config", {})
-    tenant_id = body.get("tenant_id")
-    policy = body.get("policy")
     timeout_ms = body.get("timeout_ms")
     batch_size = int(body.get("batch_size", 250))
     if batch_size <= 0:
@@ -624,16 +652,7 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
             **(config if isinstance(config, dict) else {}),
         )
         if spec is not None:
-            active_spec = spec
-            if tenant_id or policy is not None:
-                ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
-                active_spec = apply_security_policy(
-                    spec,
-                    context=ctx,
-                    policy=SecurityPolicy(**policy)
-                    if isinstance(policy, dict)
-                    else policy,
-                )
+            active_spec = _policy_spec(body, spec)
             result_data = conn.execute(active_spec, statement_timeout_ms=timeout_ms)
         else:
             params = body.get("params", [])
@@ -772,7 +791,7 @@ def _post_export(h: QueryBuilderHandler, req: Request) -> None:
                 connector_name,
                 **(config if isinstance(config, dict) else {}),
             )
-            res = conn.execute(body["spec"])
+            res = conn.execute(_policy_spec(body, body["spec"]))
             export_data = {
                 "rows": res.get("rows", []),
                 "columns": res.get("columns", []),
@@ -804,7 +823,7 @@ def _post_export_stream(h: QueryBuilderHandler, req: Request) -> None:
                 connector_name,
                 **(config if isinstance(config, dict) else {}),
             )
-            res = conn.execute(body["spec"])
+            res = conn.execute(_policy_spec(body, body["spec"]))
             export_data = {
                 "rows": res.get("rows", []),
                 "columns": res.get("columns", []),
@@ -1210,12 +1229,23 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
     connection_pool: ConnectionPool | None = None
     connection_pool_manager: ConnectionPoolManager = get_connection_pool_manager()
     nlq_service: NlqService = NlqService()
+    #: secure mode settings (``None`` = the default, request-trusting mode)
+    server_security: ServerSecurity | None = None
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress default stderr HTTP request logging for test cleanliness."""
 
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        secure = self.server_security
+        if secure is not None:
+            # secure mode: no wildcard; only listed origins may call from a browser
+            origin = secure.cors_origin_for(self.headers.get("Origin"))
+            if origin is None:
+                return
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
@@ -1293,6 +1323,21 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
         else:
             query = urllib.parse.parse_qs(parsed.query)
 
+        secure = self.server_security
+        if secure is not None:
+            try:
+                body = secure_request(
+                    secure,
+                    method,
+                    path,
+                    dict(self.headers.items()),
+                    body,
+                    self.connection_pool_manager.has_pool,
+                )
+            except SecureRequestError as exc:
+                self.send_error_response(exc.message, code=exc.code, status=exc.status)
+                return
+
         route = find_route(method, path)
         if route is None:
             self.send_error_response(
@@ -1319,8 +1364,13 @@ def create_server(
     pool: ConnectionPool | None = None,
     connection_pool_manager: ConnectionPoolManager | None = None,
     nlq_service: NlqService | None = None,
+    security: ServerSecurity | None = None,
 ) -> ThreadingHTTPServer:
-    """Creates and returns configured ThreadingHTTPServer instance."""
+    """Creates and returns configured ThreadingHTTPServer instance.
+
+    ``security`` turns on secure mode (see ``query_builder.server_security``): the server, not
+    the client, chooses tenant, policy and connection. Without it the server trusts the request.
+    """
     collector = (
         telemetry_collector if telemetry_collector is not None else TelemetryCollector()
     )
@@ -1335,6 +1385,7 @@ def create_server(
         mgr.register_pool("default", pool)
 
     class BoundQueryBuilderHandler(QueryBuilderHandler):
+        server_security = security
         telemetry_collector = collector
         template_store = store
         connection_pool = pool
