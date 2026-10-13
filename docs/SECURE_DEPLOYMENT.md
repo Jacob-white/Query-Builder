@@ -113,7 +113,8 @@ from query_builder.connectors.base import effective_network_config
 from query_builder.connectors.registry import get_connector
 from query_builder.security import validate_network_target
 
-connector = get_connector("postgres", host="db.internal.example")  # your real connector and settings
+# use your real connector and settings
+connector = get_connector("postgres", host="db.internal.example")
 policy = effective_network_config(connector)
 print("private networks allowed:", policy.allow_private_networks)
 print("TLS enforced:            ", policy.enforce_tls)

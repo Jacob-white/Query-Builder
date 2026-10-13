@@ -46,7 +46,8 @@ class AcmeConnector(BaseConnector):
     ) -> None:
         super().__init__(connection=connection, cursor=cursor, **config)
         self.host, self.port, self.database = host, port, database
-        self.config.setdefault("host", host)  # keep the address where the egress checks look
+        # keep the address where the egress checks look
+        self.config.setdefault("host", host)
         self.config.setdefault("port", port)
         self.config.setdefault("user", user)
         self.config.setdefault("password", password)
@@ -61,7 +62,9 @@ class AcmeConnector(BaseConnector):
                 "'acme-driver' is not installed. Install with: pip install 'query-builder-engine[acme]'"
             ) from err
         try:
-            self._connection = acme_driver.connect(database=self.database, **self.config)
+            self._connection = acme_driver.connect(
+                database=self.database, **self.config
+            )
         except Exception as exc:
             raise ConnectionFailedError(f"Failed to connect to Acme DB: {exc}") from exc
         return self._connection
@@ -73,7 +76,9 @@ class AcmeConnector(BaseConnector):
                     cur, schema_name=self.database, filter_sensitive=filter_sensitive
                 )
             except Exception as exc:
-                raise IntrospectionError(f"Failed to introspect Acme DB: {exc}") from exc
+                raise IntrospectionError(
+                    f"Failed to introspect Acme DB: {exc}"
+                ) from exc
 ```
 
 Also consider, in this order of importance:
