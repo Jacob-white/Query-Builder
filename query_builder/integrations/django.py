@@ -213,6 +213,17 @@ def _normalize_schema_snapshot(snapshot: Any) -> dict[str, Any]:
         return {"tables": {}}
 
 
+class TenantResolutionError(PermissionError):
+    """Raised when the request's tenant cannot be resolved (a deliberate 401)."""
+
+
+def _unauthorized_message(exc: PermissionError) -> str:
+    """Client text for a 401: our own wording, never an OS error's text (it can hold a path)."""
+    if isinstance(exc, TenantResolutionError):
+        return str(exc)
+    return "Unauthorized."
+
+
 def _resolve_tenant_sync(
     request: Any,
     tenant_resolver: Callable[[Any], TenantContext | dict[str, Any] | str | None]
@@ -240,7 +251,7 @@ def _resolve_tenant_sync(
             res = asyncio.run(coro)
 
     if res is None:
-        raise PermissionError(
+        raise TenantResolutionError(
             "Unauthorized: TenantContext could not be resolved from request."
         )
 
@@ -261,12 +272,12 @@ def _resolve_tenant_sync(
             attributes=attrs,
         )
     else:
-        raise PermissionError(
+        raise TenantResolutionError(
             f"Unauthorized: Invalid tenant context type '{type(res).__name__}'."
         )
 
     if not ctx.tenant_id or not str(ctx.tenant_id).strip():
-        raise PermissionError(
+        raise TenantResolutionError(
             "Unauthorized: Resolved TenantContext contains empty tenant_id."
         )
 
@@ -422,7 +433,7 @@ def create_django_urls(
                 }
             )
         except PermissionError as exc:
-            return JsonResponse({"error": str(exc)}, status=401)
+            return JsonResponse({"error": _unauthorized_message(exc)}, status=401)
         except DisabledFeatureError as exc:
             return JsonResponse(
                 {"error": disabled_feature_message(exc, effective_capabilities)},
@@ -534,7 +545,7 @@ def create_django_urls(
                 }
             )
         except PermissionError as exc:
-            return JsonResponse({"error": str(exc)}, status=401)
+            return JsonResponse({"error": _unauthorized_message(exc)}, status=401)
         except DisabledFeatureError as exc:
             return JsonResponse(
                 {"error": disabled_feature_message(exc, effective_capabilities)},
@@ -592,7 +603,7 @@ def create_django_urls(
             resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
             return resp
         except PermissionError as exc:
-            return JsonResponse({"error": str(exc)}, status=401)
+            return JsonResponse({"error": _unauthorized_message(exc)}, status=401)
         except DisabledFeatureError as exc:
             return JsonResponse(
                 {"error": disabled_feature_message(exc, effective_capabilities)},
