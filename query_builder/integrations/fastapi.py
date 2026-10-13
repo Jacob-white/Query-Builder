@@ -46,6 +46,7 @@ from query_builder.ast_validator import validate_sql_ast
 from query_builder.capabilities import (
     DisabledFeatureError,
     EngineCapabilities,
+    disabled_feature_message,
 )
 from query_builder.compiler import CompilationError, QueryCompiler
 from query_builder.config import SecurityConfig
@@ -407,7 +408,12 @@ def create_query_builder_router(
             }
         except HTTPException:
             raise
-        except (SecurityError, DisabledFeatureError) as exc:
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
+        except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (CompilationError, Exception) as exc:
             raise HTTPException(
@@ -540,7 +546,12 @@ def create_query_builder_router(
             }
         except HTTPException:
             raise
-        except (SecurityError, DisabledFeatureError) as exc:
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
+        except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(
