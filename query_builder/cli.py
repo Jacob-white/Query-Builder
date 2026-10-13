@@ -311,12 +311,23 @@ def _add_serve_parser(subparsers: Subparsers) -> None:
         default=None,
         help="Active security profile preset (development, production, strict).",
     )
-    serve_p.add_argument(
+    mode = serve_p.add_mutually_exclusive_group()
+    mode.add_argument(
         "--secure",
         action="store_true",
         help=(
-            "Secure mode: the server, not the client, chooses tenant, policy and connection "
-            "(see docs/SECURE_DEPLOYMENT.md). Implies --profile production unless one is given."
+            "Secure mode (the default since 2.0; accepted for compatibility): the server, not the "
+            "client, chooses tenant, policy and connection (see docs/SECURE_DEPLOYMENT.md). "
+            "Implies --profile production unless one is given."
+        ),
+    )
+    mode.add_argument(
+        "--insecure",
+        action="store_true",
+        help=(
+            "Open mode (the behaviour before 2.0): the request body chooses the connection "
+            "settings, tenant and policy, and there is no authentication. For local development "
+            "only; never expose it to a network you do not control."
         ),
     )
     serve_p.add_argument(
@@ -1056,7 +1067,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     from query_builder.server_security import insecure_mode_notice
 
     profile = getattr(args, "profile", None)
-    secure = bool(getattr(args, "secure", False))
+    secure = not getattr(args, "insecure", False)
+    if not secure and (args.connections or args.allow_origin):
+        sys.stderr.write(
+            "query-builder serve: --connections and --allow-origin only apply to secure mode; "
+            "drop --insecure to use them.\n"
+        )
+        return 2
     if secure and not profile and "QB_SECURITY_PROFILE" not in os.environ:
         profile = (
             "production"  # secure mode must not run with the permissive default policy
@@ -1072,6 +1089,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         server = create_server(host=args.host, port=args.port)
     if not getattr(args, "no_security_notice", False):
         _print_notice(insecure_mode_notice("serve", secure=secure))
+        if secure and not args.connections:
+            _print_notice(
+                [
+                    "query-builder serve: no --connections file, so no database is registered:",
+                    "  execute/explain answer UNKNOWN_CONNECTION; compile and validate still work.",
+                    "  (use --insecure only for local development)",
+                ]
+            )
     actual_port = server.server_address[1]
     sys.stdout.write(
         f"Query Builder server listening on http://{args.host}:{actual_port} (Docs: http://{args.host}:{actual_port}/docs)\n"

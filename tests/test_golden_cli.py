@@ -916,7 +916,9 @@ def test_serve_dispatch(
     monkeypatch.setattr(
         config_mod, "configure_query_builder", lambda **kw: events.append(("cfg", kw))
     )
-    rc = main(["serve", "--host", "0.0.0.0", "-p", "9", "--profile", "strict"])
+    rc = main(
+        ["serve", "--insecure", "--host", "0.0.0.0", "-p", "9", "--profile", "strict"]
+    )
     out = capsys.readouterr().out
     assert rc == 0
     assert events[0] == ("cfg", {"profile": "strict"})
@@ -948,7 +950,7 @@ def test_serve_defaults_without_profile(
     monkeypatch.setattr(
         config_mod, "configure_query_builder", lambda **kw: seen.append("cfg")
     )
-    assert main(["serve"]) == 0
+    assert main(["serve", "--insecure"]) == 0
     assert seen == [("127.0.0.1", 8000)]
     assert "http://127.0.0.1:8000" in capsys.readouterr().out
 
