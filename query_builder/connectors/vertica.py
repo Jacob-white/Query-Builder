@@ -24,6 +24,17 @@ class VerticaConnector(BaseConnector):
     """Connector for Vertica columnar analytical data warehouse."""
 
     dialect_name = "vertica"
+    read_only_support = "enforced"
+
+    def apply_read_only(self, connection: Any) -> None:
+        """``SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`` (engine error 2448 on writes)."""
+        cur = connection.cursor()
+        try:
+            cur.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+        finally:
+            close = getattr(cur, "close", None)
+            if close is not None:
+                close()
 
     def __init__(
         self,
