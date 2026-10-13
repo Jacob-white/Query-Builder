@@ -117,7 +117,7 @@ def test_cli_serve_keyboard_interrupt(capsys):
     mock_server.serve_forever.side_effect = KeyboardInterrupt
 
     with patch("query_builder.server.create_server", return_value=mock_server):
-        ret = main(["serve"])
+        ret = main(["serve", "--insecure"])
         assert ret == 0
         mock_server.server_close.assert_called_once()
         captured = capsys.readouterr()
