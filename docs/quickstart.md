@@ -361,11 +361,15 @@ query-builder init my-app --template fullstack
 # Check system health & optional driver packages
 query-builder doctor
 
-# Start native HTTP microservice server
-query-builder serve --host 127.0.0.1 --port 8000
+# Start the HTTP microservice. Secure mode is the default: the server, not the client, chooses
+# connection, tenant and policy (see docs/SECURE_DEPLOYMENT.md)
+query-builder serve --connections connections.json
+
+# Local development only: the request body chooses the connection settings, tenant and policy
+query-builder serve --insecure --host 127.0.0.1 --port 8000
 ```
 
-> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set a profile (`QB_SECURITY_PROFILE=production` or `strict`, or `--profile`), add network egress controls and, for `serve`, use **`serve --secure`** so the server rather than the client chooses tenant, policy and connection. See [SECURITY.md section 3.2](../SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
+> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set a profile (`QB_SECURITY_PROFILE=production` or `strict`, or `--profile`), add network egress controls and, for `serve`, keep the default **secure mode** of `serve` (the server rather than the client chooses tenant, policy and connection; `--insecure` turns that off, for local development only). See [SECURITY.md section 3.2](../SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
 
 ---
 

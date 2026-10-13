@@ -51,19 +51,59 @@ def _serve(
     return create, configure, capsys.readouterr()
 
 
-def test_default_serve_prints_the_notice_and_keeps_its_exact_call(capsys) -> None:  # type: ignore[no-untyped-def]
+def test_bare_serve_is_secure_by_default(capsys) -> None:  # type: ignore[no-untyped-def]
     create, configure, out = _serve([], capsys)
-    create.assert_called_once_with(
-        host="127.0.0.1", port=8000
-    )  # unchanged for everyone
+    configure.assert_called_once_with(profile="production")
+    create.assert_called_once_with(host="127.0.0.1", port=8000, security="S")
+    assert "SECURITY NOTICE" not in out.err
+    assert "Secure mode: tenant from header 'X-Tenant-ID'" in out.out
+
+
+def test_bare_serve_says_when_no_connection_is_registered(capsys) -> None:  # type: ignore[no-untyped-def]
+    _, _, out = _serve([], capsys)
+    assert "no --connections file" in out.err and "UNKNOWN_CONNECTION" in out.err
+
+
+def test_insecure_serve_keeps_the_old_exact_call_and_prints_the_notice(capsys) -> None:  # type: ignore[no-untyped-def]
+    # Control for the default above: the opt-out is the behaviour before 2.0, unchanged.
+    create, configure, out = _serve(["--insecure"], capsys)
+    create.assert_called_once_with(host="127.0.0.1", port=8000)
     configure.assert_not_called()
-    assert "SECURITY NOTICE" in out.err and "no authentication" in out.err
-    assert "--secure" in out.err and "SECURE_DEPLOYMENT.md" in out.err
+    assert (
+        "SECURITY NOTICE (--insecure mode)" in out.err
+        and "no authentication" in out.err
+    )
+    assert "drop --insecure" in out.err and "SECURE_DEPLOYMENT.md" in out.err
+    assert "no --connections file" not in out.err
+
+
+def test_secure_and_insecure_cannot_be_combined(capsys) -> None:  # type: ignore[no-untyped-def]
+    with pytest.raises(SystemExit) as exc:
+        main(["serve", "--secure", "--insecure"])
+    assert exc.value.code == 2
+    assert "not allowed with" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "extra", [["--connections", "c.json"], ["--allow-origin", "https://app.example"]]
+)
+def test_secure_only_options_are_refused_with_insecure(extra, capsys) -> None:  # type: ignore[no-untyped-def]
+    with patch("query_builder.server.create_server") as create:
+        assert main(["serve", "--insecure", *extra]) == 2
+    create.assert_not_called()
+    assert "only apply to secure mode" in capsys.readouterr().err
+
+
+def test_explicit_secure_flag_still_works(capsys) -> None:  # type: ignore[no-untyped-def]
+    create, _, _ = _serve(["--secure"], capsys)
+    create.assert_called_once_with(host="127.0.0.1", port=8000, security="S")
 
 
 def test_the_notice_can_be_silenced(capsys) -> None:  # type: ignore[no-untyped-def]
-    _, _, out = _serve(["--no-security-notice"], capsys)
+    _, _, out = _serve(["--insecure", "--no-security-notice"], capsys)
     assert "SECURITY NOTICE" not in out.err
+    _, _, out = _serve(["--no-security-notice"], capsys)
+    assert "no --connections file" not in out.err
 
 
 def test_secure_serve_defaults_to_the_production_profile_and_passes_the_security(

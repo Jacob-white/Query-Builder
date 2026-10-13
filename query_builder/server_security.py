@@ -225,13 +225,14 @@ def insecure_mode_notice(entry: str, secure: bool = False) -> list[str]:
 
     from query_builder.connectors.base import effective_network_config
 
-    lines = [f"query-builder {entry}: SECURITY NOTICE (default mode)"]
+    mode = "--insecure mode" if entry == "serve" else "default mode"
+    lines = [f"query-builder {entry}: SECURITY NOTICE ({mode})"]
     if entry == "serve":
         lines += [
             "  - no authentication: connection settings (`config`), `tenant_id` and `policy` are taken",
             "    from the request body, and tenant isolation applies only if a request carries them",
-            "  - run `query-builder serve --secure ...` (or create_server(security=ServerSecurity(...)))",
-            "    to have the server, not the client, choose tenant, policy and connection",
+            "  - drop --insecure (secure mode is the default) to have the server, not the client,",
+            "    choose tenant, policy and connection",
         ]
     else:
         lines += [

@@ -543,7 +543,7 @@ def test_the_secure_endpoints_are_a_small_fixed_set() -> None:
 # ------------------------------------------------------------------ the notice
 def test_the_default_mode_notice_says_what_is_unprotected() -> None:
     text = "\n".join(insecure_mode_notice("serve"))
-    assert "no authentication" in text and "tenant_id" in text and "--secure" in text
+    assert "no authentication" in text and "tenant_id" in text and "--insecure" in text
     assert "SECURE_DEPLOYMENT.md" in text
 
 
