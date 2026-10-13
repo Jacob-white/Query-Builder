@@ -36,7 +36,20 @@ class _D1Cursor:
             ) from err
 
         payload = {"sql": sql, "params": params or []}
-        resp = requests.post(self.url, json=payload, headers=self.headers, timeout=10)
+        # never follow a redirect: it would send the SQL (and be followed to an address the
+        # network-egress check never saw)
+        resp = requests.post(
+            self.url,
+            json=payload,
+            headers=self.headers,
+            timeout=10,
+            allow_redirects=False,
+        )
+        if 300 <= resp.status_code < 400:
+            raise RuntimeError(
+                f"Cloudflare D1 request was redirected (HTTP {resp.status_code}); "
+                "redirects are not followed"
+            )
         resp.raise_for_status()
         data = resp.json()
         if not data.get("success"):

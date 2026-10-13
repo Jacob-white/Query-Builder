@@ -476,6 +476,8 @@ Standard JSON-RPC 2.0 stdio server providing AI agents with:
 6. `query_builder_execute`: Compiles and executes queries against configured connector.
 7. `query_builder_join_path`: Discovers optimal multi-hop relational join paths.
 
+> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set `QB_SECURITY_PROFILE=production` (or `strict`) and add network egress controls. See [SECURITY.md section 3.2](../SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
+
 ### CLI Subcommands (`query-builder <command>`)
 - `compile`: Compiles declarative spec JSON file to parameterized SQL.
 - `validate`: AST safety check for raw SQL strings or JSON query spec files.

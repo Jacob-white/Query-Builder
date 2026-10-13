@@ -116,8 +116,13 @@ class RequestsBase:
             setattr(self.session, key, value)
 
     def get(self, path: str, params: Any = None) -> Any:
+        # A redirect would be followed AFTER the target passed the network-egress check, to an
+        # address nobody validated (``302 Location: http://169.254.169.254/``): never follow.
         return self.session.get(
-            self.base_url + path, params=params, timeout=self.timeout
+            self.base_url + path,
+            params=params,
+            timeout=self.timeout,
+            allow_redirects=False,
         )
 
     def close(self) -> None:
@@ -130,6 +135,11 @@ def _check(res: Any, path: str) -> Any:
     except ValueError:
         body = None
     status = getattr(res, "status_code", 200)
+    if 300 <= status < 400:
+        raise PromQLRequestError(
+            f"HTTP {status} from {path}: redirects are not followed (they bypass the "
+            "network-egress check); point the connector at the final URL"
+        )
     if status >= 400:
         detail = ""
         if isinstance(body, dict):

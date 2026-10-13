@@ -90,7 +90,10 @@ garbage never returns another tenant's rows on a real SQLite database.
 *Does not guarantee:* isolation on entry points that never call the policy. Today these are
 the trusted/operator surfaces listed in `tests/test_policy_architecture.py::LEDGER` as
 `no-tenant-context` (CLI, MCP tool server, AI agent tooling, `ConnectionPool` raw execution);
-they must sit behind your own authentication and must not be exposed to tenants. Raw SQL sent
+they must sit behind your own authentication and must not be exposed to tenants. The HTTP server
+(`server.py`) is classified `policy` but applies the policy **only when the request carries `tenant_id`
+or `policy`**, both supplied by the caller: a request with neither returns every tenant's rows even with
+`enforce_tenant_isolation` on (verified), so it too needs an authenticating gateway that sets them. Raw SQL sent
 by a tenant (`sql=`) is *validated*, but it is **not** rewritten to add tenant predicates: use
 specs, or a database role with row-level security, for tenant isolation of raw SQL.
 
@@ -130,16 +133,48 @@ the PostgreSQL family connects with libpq's `hostaddr` set to the validated addr
 name stays for TLS verification), so no second DNS lookup happens. Resolution goes through one
 injectable resolver (`set_dns_resolver`) so rebinding sequences are testable.
 
-*Limits:* pinning is only possible where the driver accepts a numeric address next to the host
-name. **Not pinned** (validated, but the driver resolves again): URL/DSN-based drivers, HTTP
-clients (ClickHouse HTTP, Elasticsearch, NLQ providers), MySQL/MSSQL/Oracle/other drivers, and
-all async connectors. For those the rebinding window remains; mitigate with an egress firewall
-or a pinned internal resolver. Unresolvable names pass validation by default so the driver can
-fail on its own; set `network.fail_closed_on_dns_error = True` to reject them (which closes the
+*Limits of pinning:* pinning is only possible where the driver accepts a numeric address next to
+the host name. **Not pinned** (validated, but the driver resolves again): URL/DSN-based drivers,
+HTTP clients (ClickHouse HTTP, Elasticsearch, NLQ providers), MySQL/MSSQL/Oracle/other drivers,
+and all async connectors. Unresolvable names pass validation by default so the driver can fail
+on its own; set `network.fail_closed_on_dns_error = True` to reject them (which closes the
 "NXDOMAIN now, private address later" variant for pinned drivers).
+
+**Connect-time egress guard** (`egress_guard.py`, `network.connect_time_guard`, default on). The
+rebinding window above (and redirects, which no resolver sees) is closed for every driver that
+connects through Python's `socket` by checking the *real destination IP of each `socket.connect`*
+against the same policy while a connector runs `connect`, `execute`, `execute_raw`,
+`introspect_schema` or `test_connection`. A name passed to `connect` is resolved once, every
+answer is checked and the connection goes to the checked address. The check is per thread / asyncio
+task (a `ContextVar`), follows `asyncio.to_thread`, and hooks the Windows proactor loop.
+Hostname allow-lists cannot apply to an IP, so with one configured the private-range rule is
+relaxed while the credential-endpoint rule stays absolute. Verified by `tests/test_egress_guard.py`
+(each blocked scenario has a control run without the guard, and the suite is mutation-tested) and
+`tests/test_redirect_hardening.py`.
+
+*Residual risk (guard):* it cannot see drivers that connect in C without Python's `socket` (libpq,
+`mysqlclient`, `ibm_db`, ODBC, `oracledb` thick mode), event loops that bypass `socket.connect`
+(`uvloop`), or background threads a driver starts itself; for those the rebinding window remains.
+Also outside it: server-side fetches triggered by SQL and `HTTP_PROXY`/`HTTPS_PROXY` (traffic goes
+to the proxy). Mitigate at the network - an egress firewall or `NetworkPolicy` denying
+`169.254.169.254` and the other credential endpoints, IMDSv2 with hop limit 1, an egress
+allow-list, or a pinned internal resolver.
+
+**Default policy.** The configuration default is the `production` profile, but a connector created
+without an explicit `security=` and without `QB_SECURITY_PROFILE` allows private networks and does
+not enforce TLS (`effective_network_config`). By default, then, only the credential endpoints are
+blocked and internal services are reachable, so a user-supplied host, a rebound DNS answer or a
+redirect aimed at them is not stopped. `server.py`, `mcp_server.py` and the CLI pass no `security=`;
+a deployment that accepts connection settings from users or agents must set
+`QB_SECURITY_PROFILE=production|strict` (or pass a `SecurityConfig`) and add network-level egress
+controls. A request-supplied `security` value is rejected, never honoured.
 
 ## 4. Explicit non-guarantees and known limits
 
+* **The default network policy is permissive.** Without `security=` or `QB_SECURITY_PROFILE`, private
+  and internal addresses are reachable and TLS is not enforced (section 3.6, "Default policy").
+  Anything that takes connection settings from untrusted input (`serve`, `mcp`, a custom endpoint)
+  must opt into a strict profile and add network-level egress controls.
 * **Dialect coverage.** About 90 dialect names are accepted; sqlglot models roughly 30 engines.
   The rest are mapped to the closest family or analysed under every fallback dialect.
   Engine-specific syntax outside both models is rejected (fail closed) rather than trusted, which

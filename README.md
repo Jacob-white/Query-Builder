@@ -17,6 +17,8 @@ A turnkey, developer-first **declarative SQL compiler, AST safety validator, ent
 - **[Complete API Reference](docs/api_reference.md)** — Exhaustive reference for all Python and TypeScript public APIs.
 - **[Full-Stack Starter Template](examples/fullstack_starter/README.md)** — Standalone runnable project (FastAPI + React 18 + Vite + SQLite).
 - **[Security Policy & Sandboxing Guide](SECURITY.md)** — Vulnerability reporting, zero-trust query isolation, AST validation, and defense-in-depth architecture.
+- **[Secure Deployment](docs/SECURE_DEPLOYMENT.md)** — **Read before exposing the library, `query-builder serve` or the MCP server**: the permissive defaults, what each entry point trusts, and how to verify what is enforced.
+- **[Contributing](CONTRIBUTING.md)**, **[AGENTS.md](AGENTS.md)** (for AI coding agents), **[Adding a Connector](docs/ADDING_A_CONNECTOR.md)** and the **[Dialect Guide](docs/DIALECT_GUIDE.md)** — how to work on the codebase.
 - **[Documentation Index & Specifications](docs/README.md)** — Master index for all guides, API specs, connector roadmaps, and testing invariants.
 - **[Connector Status](docs/CONNECTORS.md)** — The generated inventory of every connector class (138: 89 sync + 49 async, 306 registered names) with how each is verified (`certified` = passed the live conformance suite against the real engine, `verified` = unit tests only, `experimental`). See [Live Engine Testing](docs/TESTING_LIVE.md).
 
@@ -341,6 +343,8 @@ query-builder doctor
 # Start built-in REST microservice with interactive Swagger UI
 query-builder serve --host 127.0.0.1 --port 8000
 ```
+
+> **Security default to know about:** with no `QB_SECURITY_PROFILE` set and no explicit `security=`, connectors **allow private/internal network addresses and do not enforce TLS**; only cloud credential endpoints (such as `169.254.169.254`) are always blocked. `query-builder serve`, `query-builder mcp` and the CLI build connectors from user- or agent-supplied settings with no `security=`, so before exposing them to anyone you do not fully trust, set `QB_SECURITY_PROFILE=production` (or `strict`) and add network egress controls. See [SECURITY.md section 3.2](SECURITY.md#32-network-egress--ssrf-protection-query_buildersecuritypy) for what applies.
 
 ---
 

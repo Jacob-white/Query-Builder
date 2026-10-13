@@ -318,3 +318,31 @@ module:
 - **Evidence:** record reports with `python scripts/gen_connector_status.py --record-live <reports...>`.
   Only classes that actually passed against a real engine become `certified`. An engine that
   merely speaks another engine's wire protocol is NOT evidence for a different class.
+
+### Pitfalls
+
+Each of these cost real time on engines already run; see also [ADDING_A_CONNECTOR.md](ADDING_A_CONNECTOR.md).
+
+- **A healthcheck that can never pass** looks like "the engine will not start". Use a binary the image
+  really has: the OceanBase image ships `obclient` (not `mysql`); some images have no `curl`; `/dev/tcp`
+  needs `bash`, not `sh`/`CMD-SHELL`. Check by running the command inside the container.
+- **Slow first boot.** OceanBase and Db2 take minutes to initialise; the batch waits for health, so a
+  long wait is normal. If it ends "did not become healthy", start the service by hand with
+  `docker compose -p qb-integration -f <file> --profile <p> up -d <service>`, read its log and run the
+  healthcheck command manually before touching code.
+- **Image pulls fail intermittently** with a DNS error against the registry CDN. Retry
+  `docker pull <image>` a few times, then rerun the batch.
+- **Skips are not passes.** A run that reports `3 passed, 165 skipped` usually means a driver is missing
+  (Windows cannot load `ibm_db`; `pymysql` not installed). Install the driver into a scratch directory
+  (`pip install --target <dir>`, add it to `PYTHONPATH`, `;`-separated on Windows) or use `--linux`.
+- **Git Bash rewrites container paths** (`/src` becomes `C:/Program Files/Git/src`): export
+  `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"` for `--linux` runs.
+- **A hung run.** A connector with no statement timeout runs a deliberately slow query forever. Cap a
+  manual run with `timeout`, and stop only your own runner container.
+- **Seeding failures are usually the dataset, not the connector**: no `NOT NULL`, ASCII-only column names,
+  different quoting. Give the engine its own DDL family (`tests/integration/dataset.py`) and declare the
+  limitation with a probe.
+- **Resources.** Heavy engines need several GB free; one engine at a time. Free memory before starting
+  rather than overriding the gate.
+- **Debug on a live container.** Bring the service up with compose (project `qb-integration`), run the
+  failing SQL with the native driver, then reproduce in a regression test. Tear down with `down -v`.

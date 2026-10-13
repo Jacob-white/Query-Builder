@@ -1,4 +1,6 @@
 # Query-Builder Ecosystem Gap Audit & Universal Missing Connectors Blueprint
+
+> **Historical document - not current.** A connector-gap analysis and plan from an earlier milestone. It is kept as a record of that work. Figures, status labels and machine paths in it are not current guarantees. For today's facts see [CONTRIBUTING.md](CONTRIBUTING.md) (enforced coverage floors), [docs/CONNECTORS.md](docs/CONNECTORS.md) (connector status, generated from evidence) and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) (what is and is not guaranteed). Today's connector inventory and verification status is `docs/CONNECTORS.md`.
 **Document Status**: Authoritative Engineering Specification & Support Blueprint  
 **Target Publication**: `MISSING_CONNECTORS_PLAN.md`  
 **Author**: teamwork_preview_explorer  
