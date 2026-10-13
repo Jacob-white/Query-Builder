@@ -604,6 +604,15 @@ _DENIED_FUNCTIONS = frozenset(
         "QUERY",
         "QUERY_TABLE",
         "SNIFF_CSV",
+        "GLOB",  # lists server files
+        "GETENV",  # reads the server's environment (credentials)
+        "DUCKDB_SECRETS",
+        "WHICH_SECRET",
+        "SQLITE_SCAN",  # attach-style scanners reach other databases and files
+        "POSTGRES_SCAN",
+        "MYSQL_SCAN",
+        "ICEBERG_SCAN",
+        "DELTA_SCAN",
         # ClickHouse table functions
         "FILE",
         "URL",
@@ -617,6 +626,30 @@ _DENIED_FUNCTIONS = frozenset(
         "EXECUTABLE",
         "MYSQL",
         "POSTGRESQL",
+        "SQLITE",
+        "MONGODB",
+        "REDIS",
+        "GCS",
+        "ICEBERG",
+        "DELTALAKE",
+        "HUDI",
+        "AZUREBLOBSTORAGE",
+        "CLUSTERALLREPLICAS",
+        "URLCLUSTER",
+        "FILECLUSTER",
+        # BigQuery: runs SQL in another database
+        "EXTERNAL_QUERY",
+        # SQL Server: read server files / audit logs
+        "FN_XE_FILE_TARGET_READ_FILE",
+        "FN_GET_AUDIT_FILE",
+        "FN_TRACE_GETTABLE",
+        # Side effects that a SELECT can still trigger
+        "NEXTVAL",
+        "SETVAL",
+        "PG_NOTIFY",
+        "PG_SWITCH_WAL",
+        "GET_LOCK",
+        "RELEASE_LOCK",
         # Snowflake: resolves a table from a string
         "IDENTIFIER",
     }
@@ -638,6 +671,11 @@ _DENIED_FUNCTION_PREFIXES = (
     "READ_NDJSON",
     "READ_TEXT",
     "READ_BLOB",
+    "READ_XLSX",
+    "ST_READ",
+    "PG_ADVISORY_",
+    "PG_LOGICAL_",
+    "PG_BACKUP_",
     "PARQUET_",
     "PRAGMA_",
     "SYSTEM$",

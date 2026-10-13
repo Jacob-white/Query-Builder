@@ -73,6 +73,18 @@
 - **Start-up security notice** for `serve` and `mcp` (stderr): no authentication, where the connection settings and tenant
   come from, and whether the network policy is permissive. `--no-security-notice` silences it. `mcp` gains `--profile`.
 
+### Security (SQL validator: more functions denied)
+- Probing the validator with dialect-specific queries found functions it still accepted that read server
+  files, reach other systems or change state from inside a `SELECT`. Now rejected: DuckDB `glob`, `getenv`,
+  `duckdb_secrets`, `which_secret`, `sqlite_scan` / `postgres_scan` / `mysql_scan` / `iceberg_scan` /
+  `delta_scan`, `st_read*`, `read_xlsx`; ClickHouse `mongodb`, `redis`, `gcs`, `azureBlobStorage`,
+  `deltaLake`, `iceberg`, `hudi`, `sqlite`, `urlCluster`, `fileCluster`, `clusterAllReplicas`; BigQuery
+  `EXTERNAL_QUERY`; SQL Server `fn_xe_file_target_read_file`, `fn_get_audit_file`, `fn_trace_gettable`;
+  PostgreSQL `nextval`, `setval`, `pg_notify`, `pg_advisory_*`, `pg_logical_*`, `pg_backup_*`,
+  `pg_switch_wal`; MySQL `GET_LOCK`, `RELEASE_LOCK`. A column or alias that shares a name still works.
+  Not changed (documented): resource-exhaustion functions (`zeroblob`, `generate_series`), which need
+  the database's own limits and timeouts, and catalog views, which are governed by the restricted-table list.
+
 ### Security (CodeQL py/stack-trace-exposure, alert 93)
 - A disabled-feature refusal reaches API clients as text built from the engine's own feature names, not from the
   exception's string. `DisabledFeatureError` is raised in one place with a fixed template, so no stack trace or internal
