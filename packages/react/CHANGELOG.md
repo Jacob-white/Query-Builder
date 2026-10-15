@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Query UI helpers (new, pure, no React)
+- New exports for building a query UI on top of the package, extracted from a host application's Query Builder page and
+  tested on their own (`src/utils/queryHelpers`):
+  - **Filter kinds:** `columnKind(dataType)`, `operatorsFor(kind)`, `operatorHelp(kind, op)`, `coerceValue(kind, op, raw)`
+    (a value to send or an error message), `describeFilter(filter, kind)` and `prettyDate`. Plain-language operator labels,
+    one-sentence help per operator, and value checks for numbers, dates, UUIDs, lists and ranges.
+  - **Filters on aggregated values (HAVING):** `havingTargets`, `havingKind`, `havingForSpec`, `parseHaving`,
+    `describeHaving`. `havingForSpec` keeps only filters whose aggregate is still in the spec's columns.
+  - **Join proof:** `directLinks`, `linkedTables`, `isProvenJoin`, `describeLink`: which joins a declared foreign key backs.
+  - **Summaries and columns:** `columnsSummary`, `joinsSummary`, `sortsSummary`, `conditionsSummary`, `windowSummary`,
+    `subqueriesSummary`, `aggregatesFor(dataType)` (only the aggregates that fit a type), `typeLookup`, `columnsOf`.
+  - **SQL file:** `sqlFilename(table)` and `sqlFileText(sql, table)` for a `.sql` download of the runnable statement from the
+    Python `QueryCompiler.compile_runnable()`.
+- The helper's value type is exported as `ConditionValue` (`FilterValue` is already the package's filter value type).
+
 ### Packaging
 - `dist/` contains only the Vite bundles (`.mjs`/`.cjs`, chunks under `dist/chunks/`) and type
   declarations; `tsc` runs with `emitDeclarationOnly` and the output directory is emptied on every build.
