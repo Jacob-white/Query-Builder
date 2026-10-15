@@ -32,6 +32,30 @@ MAX_JOINS = 20
 MAX_FILTERS = 50
 MAX_HAVING = 20
 MAX_ORDER_BY = 20
+#: Longest text ``QueryCompiler.compile_search`` accepts.
+MAX_SEARCH_TERM = 200
+
+#: The type a value is cast to before it is searched as text, per dialect. A dialect not listed has no search.
+SEARCH_CAST_TYPES: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "postgres",
+            "postgresql",
+            "sqlite",
+            "duckdb",
+            "cockroach",
+            "cockroachdb",
+            "alloydb",
+            "redshift",
+        ),
+        "TEXT",
+    ),
+    **dict.fromkeys(
+        ("mysql", "mariadb", "tidb", "singlestore", "doris", "starrocks", "oceanbase"),
+        "CHAR",
+    ),
+}
+
 MAX_IN_VALUES = 1000
 
 ALLOWED_SPEC_KEYS = {
@@ -1045,6 +1069,10 @@ class QueryCompiler:
         self.join_clauses: list[str] = []
 
         self.has_aggregation = False
+        #: Output labels of SELECT items that are not grouping columns (aggregates), which ORDER BY may name directly.
+        self._aggregate_labels: set[str] = set()
+        #: True while ``compile_search`` builds the whole result, to be filtered and then paged by the wrapper.
+        self._unpaged = False
         self._ownership_alias_counter = AliasCounter()
 
         # Per-compile state shared between the clause steps of ``compile``.
@@ -1397,6 +1425,75 @@ class QueryCompiler:
 
         return main_sql, main_params, count_sql, count_params
 
+    def compile_runnable(self, context: dict[str, Any] | None = None) -> str | None:
+        """The main query with its values written in as SQL literals, to paste into a SQL window; None if it cannot be.
+
+        The bound form from ``compile`` is what should be executed. This is the copy for people (see ``runnable``):
+        None for a dialect whose placeholders are not positional, or if the placeholders and values do not line up.
+        """
+        from query_builder.runnable import BACKSLASH_ESCAPE_DIALECTS, inline_params
+
+        sql, params, _, _ = self.compile(context)
+        return inline_params(
+            sql,
+            params,
+            placeholder=self.dialect.placeholder,
+            backslash_escapes=self.dialect.name in BACKSLASH_ESCAPE_DIALECTS,
+        )
+
+    def compile_search(
+        self, term: str, context: dict[str, Any] | None = None
+    ) -> tuple[str, list[Any], str, list[Any]]:
+        """Like ``compile``, but keep only the rows where some output column contains ``term`` (case-insensitive).
+
+        The whole result is built without its LIMIT/OFFSET and wrapped, ``SELECT * FROM (<query>) AS qb_rows WHERE
+        CAST(col AS TEXT) ILIKE ? ESCAPE '!' OR ...``, and the spec's limit and offset then page the matching rows. So the
+        search covers every row of the result, not just one page, and the count query counts the matches. ``term`` is a
+        bound parameter with its LIKE wildcards escaped, so ``%`` and ``_`` match themselves. Every column name comes from
+        the compiler's own output labels and is quoted.
+
+        Raises CompilationError for an empty or over-long term, a query that selects ``*`` (no named columns to search),
+        or a dialect without a text cast.
+        """
+        text = term.strip()
+        if not text:
+            raise CompilationError("Search text must not be empty.")
+        if len(text) > MAX_SEARCH_TERM:
+            raise CompilationError(
+                f"Search text must be at most {MAX_SEARCH_TERM} characters."
+            )
+        cast_type = SEARCH_CAST_TYPES.get(self.dialect.name)
+        if cast_type is None:
+            raise CompilationError(
+                f"Row search is not supported for the '{self.dialect.name}' dialect."
+            )
+        limit, offset = self._resolve_limit_offset()
+        self._unpaged = True
+        inner_sql, inner_params, _, _ = self.compile(context)
+        names = self.select_column_names
+        if not names or "*" in names:
+            raise CompilationError(
+                "Row search needs named columns; a query that selects * has none to search."
+            )
+        pattern = (
+            "%" + text.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        )
+        matches = " OR ".join(
+            f"{self.dialect.format_ilike(f'CAST({self.dialect.quote_alias(name)} AS {cast_type})')} ESCAPE '!'"
+            for name in names
+        )
+        search_params = [pattern] * len(names)
+        where = f"WHERE {matches}"
+        page_sql, page_params = self.dialect.format_limit_offset(limit, offset)
+        main_sql = f"SELECT * FROM ({inner_sql}) AS qb_rows {where} {page_sql}"
+        count_sql = f"SELECT COUNT(*) FROM ({inner_sql}) AS qb_rows {where}"
+        return (
+            main_sql,
+            [*inner_params, *search_params, *page_params],
+            count_sql,
+            [*inner_params, *search_params],
+        )
+
     # ---- small shared helpers ---------------------------------------
     def _sub_compile(
         self, sub_spec: Any, *, inner: bool = True, as_dict: bool = True
@@ -1669,6 +1766,8 @@ class QueryCompiler:
         self.select_column_names.append(label)
         if group_by is not None:
             self.group_by_items.append(group_by)
+        elif aliased:
+            self._aggregate_labels.add(label)
 
     def _compile_projections(self) -> None:
         for col_item in self._projection_specs():
@@ -2304,6 +2403,17 @@ class QueryCompiler:
                 or ord_item.get("table")
                 or self._clean_base
             )
+            if (
+                col_ref in self._aggregate_labels
+                and not ord_item.get("tablePrefix")
+                and not ord_item.get("table_prefix")
+                and not ord_item.get("table")
+            ):
+                # An aggregate has no column to qualify: ORDER BY names its output label (a count, a total).
+                self.order_by_items.append(
+                    f"{self.dialect.quote_alias(col_ref)} {direction}"
+                )
+                continue
             _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
             quoted_ref = self._distinct_order_ref(quoted_ref)
             self.order_by_items.append(f"{quoted_ref} {direction}")
@@ -2429,7 +2539,7 @@ class QueryCompiler:
 
     def _build_pagination(self) -> tuple[str, list[Any]]:
         limit, offset = self._resolve_limit_offset()
-        if self._unpaginated_nested():
+        if self._unpaginated_nested() or self._unpaged:
             return "", []
         limit_offset_str, limit_params = self.dialect.format_limit_offset(limit, offset)
         return limit_offset_str, limit_params

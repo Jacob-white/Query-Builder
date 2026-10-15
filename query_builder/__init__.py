@@ -569,6 +569,7 @@ from query_builder.pool import (
     mask_credentials,
     reset_connection_pool_manager,
 )
+from query_builder.runnable import inline_params, sql_literal
 from query_builder.schema import (
     explore_schema,
     format_schema_tree,
@@ -1157,6 +1158,8 @@ __all__ = [
     "set_global_cache",
     "to_drizzle_schema",
     "to_prisma_schema",
+    "inline_params",
+    "sql_literal",
     "to_sqlalchemy_models",
     "unregister_connector",
     "unregister_dialect",

@@ -11,6 +11,7 @@ export * from "./utils/compiler";
 export * from "./utils/schemaUtils";
 export * from "./utils/sqlParser";
 export * from "./utils/vectorUtils";
+export * from "./utils/queryHelpers";
 export * from "./utils/featureUtils";
 export * from "./adapters";
 

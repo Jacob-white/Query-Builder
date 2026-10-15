@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+- **`QueryCompiler.compile_runnable()`** (and the public `inline_params` / `sql_literal`): the main query with its values
+  written in as SQL literals, to show a person or download as a `.sql` file and paste into a SQL window. The bound form
+  from `compile()` is still what executes. Placeholders inside quotes, comments and quoted identifiers are left alone,
+  quotes in values are doubled, backslashes are doubled only for dialects that treat them as an escape, and a dialect with
+  non-positional placeholders (or placeholders and values that do not line up) gives `None`. Verified by running the
+  rendered SQL on SQLite and comparing its rows with the bound query's.
+- **`QueryCompiler.compile_search(term)`**: keep only the rows where some output column contains `term`
+  (case-insensitive) across *all* rows of the result, then page the matches with the spec's `limit` / `offset`. The text
+  is a bound parameter with its LIKE wildcards escaped; the wrapper passes the AST validator. PostgreSQL family, SQLite,
+  DuckDB, Redshift and the MySQL family.
+- **React helpers** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`): pure filter-kind, HAVING,
+  join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page.
+
+### Fixed
+- **Sorting by a count or total** (`order_by` naming an aggregate's label) now compiles to `ORDER BY "label"`. It
+  compiled to `ORDER BY "t1"."label"` before, a column that does not exist, so the query passed validation and failed in
+  the database.
+
 ### Breaking
 - **`query-builder serve` now starts in secure mode.** The server, not the client, chooses the tenant,
   the policy and the connection; it refuses a client-supplied `tenant_id` / `policy` / `config`, raw SQL
@@ -235,19 +254,32 @@
   runs after the safety checks). The strict-xfail known issue for it is removed. The separate
   known issue (pymongosql rejecting compiler table aliases / double-quoted identifiers) remains.
 
-- **Presto, Vertica, Db2, Informix (first live runs)**:
-  - Presto: `LIMIT ?`/`OFFSET ?` cannot be bound and `OFFSET 0` is rejected, so values are inlined
-    and a zero offset is omitted; `test_connection` no longer calls the missing `version()`.
-  - Vertica: introspection reads `v_catalog` (there is no `information_schema`); `ILIKE` declares
-    an `ESCAPE` so a literal `%`/`_` is not a wildcard.
-  - Db2: primary keys no longer include foreign-key columns, FK column lists are split and trimmed,
-    `AVG` is cast to `DOUBLE` (it was integer division), LIKE declares `ESCAPE`, and the statement
-    timeout now works (it must be set on the prepared statement).
-  - Informix: `?` placeholders (not `%s`), `DELIMIDENT=y` added to the DSN so quoted identifiers
-    work, real PK/FK columns from `sysindexes`, `SKIP`/`FIRST` inlined (bound markers were
-    mis-ordered around a CTE), typed `HAVING` markers, LIKE `ESCAPE`, a statement timeout, and the
-    validator now reads `SELECT SKIP n FIRST m DISTINCT`.
-
+- **Presto, Vertica, Db2, Informix (first live runs)**:
+
+  - Presto: `LIMIT ?`/`OFFSET ?` cannot be bound and `OFFSET 0` is rejected, so values are inlined
+
+    and a zero offset is omitted; `test_connection` no longer calls the missing `version()`.
+
+  - Vertica: introspection reads `v_catalog` (there is no `information_schema`); `ILIKE` declares
+
+    an `ESCAPE` so a literal `%`/`_` is not a wildcard.
+
+  - Db2: primary keys no longer include foreign-key columns, FK column lists are split and trimmed,
+
+    `AVG` is cast to `DOUBLE` (it was integer division), LIKE declares `ESCAPE`, and the statement
+
+    timeout now works (it must be set on the prepared statement).
+
+  - Informix: `?` placeholders (not `%s`), `DELIMIDENT=y` added to the DSN so quoted identifiers
+
+    work, real PK/FK columns from `sysindexes`, `SKIP`/`FIRST` inlined (bound markers were
+
+    mis-ordered around a CTE), typed `HAVING` markers, LIKE `ESCAPE`, a statement timeout, and the
+
+    validator now reads `SELECT SKIP n FIRST m DISTINCT`.
+
+
+
 - **chDB, H2, Derby (first live runs)**:
   - H2/Derby over JayDeBeApi returned the underlying column name instead of the `AS` alias
     (`name` for `t2.name AS dept`); the cursor now reports JDBC column labels.
