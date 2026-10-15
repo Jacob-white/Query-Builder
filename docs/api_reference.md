@@ -355,6 +355,28 @@ class QueryCompiler:
 
 **Returns**: `(main_sql, main_params, count_sql, count_params)`
 
+#### `compile_runnable(context=None) -> str | None`
+The main query with its values written in as SQL literals, to show a person or save as a `.sql` file and paste into a
+SQL window. **Execute the bound form from `compile()`; this copy is for people.** It is `None` for a dialect whose
+placeholders are not positional (`$param`, `@param`) or if the placeholders and values do not line up, never a guess.
+The helpers are public too: `query_builder.inline_params(sql, params, placeholder="%s", backslash_escapes=False)` and
+`query_builder.sql_literal(value)`. A placeholder inside a quoted identifier, string or comment is left alone, quotes in
+values are doubled, and a backslash is doubled only for dialects that treat it as an escape
+(`query_builder.runnable.BACKSLASH_ESCAPE_DIALECTS`).
+
+#### `compile_search(term, context=None) -> tuple[str, list, str, list]`
+Like `compile()`, but keeps only the rows where some output column contains `term` (case-insensitive), across **all** rows
+of the result: the query is built without its LIMIT/OFFSET, wrapped in
+`SELECT * FROM (...) AS qb_rows WHERE CAST(col AS TEXT) ILIKE ? ESCAPE '!' OR ...`, and the spec's `limit` / `offset` then
+page the matches. The count query counts the matches. `term` is a bound parameter (at most 200 characters) with `%`, `_`
+and `!` escaped, so they match themselves. Raises `CompilationError` for an empty or over-long term, a query that selects
+`*`, or a dialect without a text cast (supported: PostgreSQL family, SQLite, DuckDB, Redshift, and the MySQL family).
+
+#### Sorting by a count or total
+`order_by` may name the label of an aggregated column (`{"column": "n"}` where `n` is the alias of a `count`, or the
+default `sum_<column>` label). It compiles to `ORDER BY "n"`. Before, it compiled to `ORDER BY "t1"."n"`, which no database
+accepts. A name with a `tablePrefix` still means that table's column.
+
 ### Custom Filter Operators
 - `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
 - `unregister_filter_operator(name: str) -> None`
@@ -698,6 +720,21 @@ Container-scoped CSS custom properties:
 - `--qb-color-text`: Primary text.
 - `--qb-color-text-muted`: Subdued label text.
 - `--qb-radius-md`: Medium border radius.
+
+---
+
+## Pure query-UI helpers (root export)
+No React, no DOM: use them to build your own query UI. They are the logic a host application's Query Builder page needed
+and are tested alone.
+
+| Area | Exports |
+| :--- | :--- |
+| Filter kinds | `columnKind(dataType)`, `operatorsFor(kind)`, `operatorHelp(kind, op, subject?)`, `coerceValue(kind, op, raw)` (the value to send, or an error message), `describeFilter(filter, kind)`, `prettyDate(text)` |
+| Aggregated-value filters (HAVING) | `havingTargets`, `havingKind`, `havingOperators`, `havingForSpec`, `parseHaving`, `describeHaving` |
+| Join proof | `directLinks`, `linkedTables`, `isProvenJoin`, `describeLink` |
+| Summaries | `columnsSummary`, `joinsSummary`, `sortsSummary`, `conditionsSummary`, `windowSummary`, `subqueriesSummary` |
+| Columns | `aggregatesFor(dataType)`, `typeLookup(schema)`, `columnsOf(tables)`, `typeLabel`, `kindLabel`, `columnKey` |
+| SQL file | `sqlFilename(table)`, `sqlFileText(sql, table)`: pair with the Python `QueryCompiler.compile_runnable()` |
 
 ---
 
