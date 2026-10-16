@@ -19,6 +19,7 @@ from query_builder._regex_utils import (
 from query_builder.models import (
     CteSpec,
     FilterSpec,
+    HavingSpec,
     JoinSpec,
     OrderBySpec,
     QuerySpec,
@@ -256,6 +257,7 @@ def find_top_level_clauses(sql: str) -> list[ClauseToken]:
         "JOIN",
         "WHERE",
         "GROUP BY",
+        "HAVING",
         "ORDER BY",
         "LIMIT",
         "OFFSET",
@@ -771,7 +773,6 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                         alias=alias,
                     )
                 )
-                columns.append({"column": alias, "alias": alias})
                 continue
 
             # DATE_TRUNC('month', created_at) [AS alias]
@@ -836,6 +837,11 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             agg_match = _AGG_RE.match(col_expr)
             if agg_match:
                 agg_name = agg_match.group(1).upper()
+                inner_raw = agg_match.group(2).strip()
+                if agg_name == "COUNT" and re.match(
+                    r"^DISTINCT\b", inner_raw, re.IGNORECASE
+                ):
+                    agg_name = "count_distinct"
                 inner_col = clean_identifier(_agg_argument(agg_match.group(2)))
                 alias = (
                     clean_identifier(agg_match.group(3)) if agg_match.group(3) else None
@@ -1042,7 +1048,27 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 )
             )
 
-    # 6. Pagination (LIMIT & OFFSET)
+    # 6. Having
+    having: list[HavingSpec] = []
+    having_content = clause_map.get("HAVING")
+    if having_content:
+        cond_items = split_top_level(having_content, r"^AND\b")
+        for ci in cond_items:
+            h_str = ci["value"].strip()
+            h_match = re.match(
+                r"^(COUNT|SUM|AVG|MIN|MAX)\s*\(([^)]+)\)\s*([=!><]+)\s*(.+)$",
+                h_str,
+                re.IGNORECASE,
+            )
+            if h_match:
+                h_agg = h_match.group(1).lower()
+                h_col = clean_identifier(h_match.group(2).strip())
+                h_op = h_match.group(3).strip()
+                h_val_raw = h_match.group(4).strip()
+                h_val = parse_literal_value(h_val_raw)
+                having.append(HavingSpec(column=h_col, agg=h_agg, op=h_op, value=h_val))
+
+    # 7. Pagination (LIMIT & OFFSET)
     limit = 50
     offset = 0
 
@@ -1064,6 +1090,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         joins=[*joins],
         filters=[*filters],
         filter_join=filter_join,
+        having=[*having],
         order_by=[*order_by],
         limit=limit,
         offset=offset,

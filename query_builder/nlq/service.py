@@ -31,16 +31,33 @@ def query_spec_from_validated_ast(validated_ast: dict[str, Any]) -> QuerySpec:
     return QuerySpec(
         table=validated_ast["table"],
         columns=validated_ast["columns"],
-        joins=[JoinSpec(**j) for j in validated_ast["joins"]],
-        filters=[FilterSpec(**f) for f in validated_ast["filters"]],
+        joins=[
+            JoinSpec(**j) if isinstance(j, dict) else j for j in validated_ast["joins"]
+        ],
+        filters=[
+            FilterSpec(**f) if isinstance(f, dict) else f
+            for f in validated_ast["filters"]
+        ],
         filter_join=validated_ast["filter_join"],
-        having=[HavingSpec(**h) for h in validated_ast["having"]],
-        order_by=[OrderBySpec(**o) for o in validated_ast["order_by"]],
+        having=[
+            HavingSpec(**h) if isinstance(h, dict) else h
+            for h in validated_ast["having"]
+        ],
+        order_by=[
+            OrderBySpec(**o) if isinstance(o, dict) else o
+            for o in validated_ast["order_by"]
+        ],
         limit=validated_ast["limit"],
         offset=validated_ast["offset"],
         distinct=validated_ast["distinct"],
-        vector_search=validated_ast["vector_search"],
-        hybrid_search=validated_ast["hybrid_search"],
+        vector_search=validated_ast.get("vector_search"),
+        hybrid_search=validated_ast.get("hybrid_search"),
+        metrics=validated_ast.get("metrics", []),
+        semantic_model=validated_ast.get("semantic_model"),
+        semantic_models=validated_ast.get("semantic_models", []),
+        ctes=validated_ast.get("ctes", []),
+        window_functions=validated_ast.get("window_functions", []),
+        set_operations=validated_ast.get("set_operations", []),
     )
 
 
@@ -66,6 +83,7 @@ class NlqService:
                 temperature=float(request.get("temperature", 0.0)),
                 max_tokens=int(request.get("max_tokens", 1024)),
                 options=request.get("options", {}),
+                semantic_model=request.get("semantic_model"),
             )
         else:
             req = request
@@ -81,10 +99,19 @@ class NlqService:
             prompt=req.prompt,
             schema=req.schema,
             dialect=req.dialect,
+            semantic_model=req.semantic_model,
         )
 
+        working_ast = raw_ast
+        if req.semantic_model is not None:
+            from query_builder.semantic import expand_metrics_and_dimensions
+
+            working_ast = expand_metrics_and_dimensions(
+                working_ast, req.semantic_model, dialect=req.dialect
+            )
+
         validator = NlqAstValidator(schema=req.schema)
-        validated_ast, warnings = validator.validate(raw_ast)
+        validated_ast, warnings = validator.validate(working_ast)
 
         query_spec = query_spec_from_validated_ast(validated_ast)
 

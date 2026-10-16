@@ -78,3 +78,4 @@ class NlqTranslateRequest:
     temperature: float = 0.0
     max_tokens: int = 1024
     options: dict[str, Any] = field(default_factory=dict)
+    semantic_model: Any = None

@@ -354,4 +354,92 @@ describe("FluentQuery Builder", () => {
     expect(addEventListenerSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     expect(removeEventListenerSpy).toHaveBeenCalledWith("abort", expect.any(Function));
   });
+
+  it("supports client.explain() to query explain and index recommendations", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        sql: "SELECT id FROM users",
+        params: [],
+        dialect: "postgres",
+        plan: { estimated_rows: 100 },
+        performance: { complexity: "LOW" },
+        recommended_indexes: ["CREATE INDEX idx_users_id ON users(id);"],
+      }),
+    });
+
+    const client = createQueryBuilderClient({
+      baseUrl: "/api/qb",
+      fetchFn: mockFetch,
+    });
+
+    const spec: QuerySpec = makeSpec({ table: "users", columns: ["id"] });
+    const result = await client.explain!(spec);
+
+    expect(result.sql).toBe("SELECT id FROM users");
+    expect(result.recommended_indexes).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/qb/explain");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body).spec.table).toBe("users");
+  });
+
+  it("supports client.findJoinPath() to query join path steps", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        path: [{ table: "orders", type: "INNER JOIN", left_col: "user_id", right_col: "id" }],
+        connected: true,
+        target_table: "orders",
+      }),
+    });
+
+    const client = createQueryBuilderClient({
+      baseUrl: "/api/qb",
+      fetchFn: mockFetch,
+    });
+
+    const result = await client.findJoinPath!(["users"], "orders");
+
+    expect(result.connected).toBe(true);
+    expect(result.target_table).toBe("orders");
+    expect(result.path).toHaveLength(1);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/qb/join-path");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    expect(body.active_tables).toEqual(["users"]);
+    expect(body.target_table).toBe("orders");
+  });
+
+  it("supports client.askAi() to translate NLQ prompt to QuerySpec and SQL", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        spec: { table: "customers", columns: ["id", "name"] },
+        sql: "SELECT id, name FROM customers",
+        explanation: "Selecting customers",
+        confidence: 0.95,
+      }),
+    });
+
+    const client = createQueryBuilderClient({
+      baseUrl: "/api/qb",
+      fetchFn: mockFetch,
+    });
+
+    const result = await client.askAi!("list all customers", {
+      dialect: "postgres",
+    });
+
+    expect(result.sql).toBe("SELECT id, name FROM customers");
+    expect(result.confidence).toBe(0.95);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/qb/nlq");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body);
+    expect(body.prompt).toBe("list all customers");
+    expect(body.dialect).toBe("postgres");
+  });
 });

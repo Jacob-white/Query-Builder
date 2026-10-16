@@ -411,6 +411,28 @@ def _add_mcp_parser(subparsers: Subparsers) -> None:
         help="Active security profile preset (development, production, strict).",
     )
     mcp_p.add_argument(
+        "--connections",
+        help="Optional path to a JSON file declaring connection pools/settings.",
+    )
+    mcp_p.add_argument(
+        "--connector",
+        "-c",
+        help="Optional database connector identifier to pin (e.g. sqlite, postgres, duckdb).",
+    )
+    mcp_p.add_argument(
+        "--config",
+        help="Optional connection configuration JSON string or file path.",
+    )
+    mcp_p.add_argument(
+        "--tenant-id",
+        help="Optional tenant ID to enforce tenant isolation across all operations.",
+    )
+    mcp_p.add_argument(
+        "--lock-connection",
+        action="store_true",
+        help="Lock connection so clients/LLMs cannot specify or override database targets.",
+    )
+    mcp_p.add_argument(
         "--no-security-notice",
         action="store_true",
         help="Do not print the start-up security notice (to stderr).",
@@ -1011,16 +1033,56 @@ def _print_notice(lines: list[str]) -> None:
 
 def _cmd_mcp(args: argparse.Namespace) -> int:
     from query_builder.mcp_server import McpServer
+    from query_builder.policy import SecurityPolicy, TenantContext
     from query_builder.server_security import insecure_mode_notice
 
     if getattr(args, "profile", None):
         from query_builder.config import configure_query_builder
 
         configure_query_builder(profile=args.profile)
-    if not getattr(args, "no_security_notice", False):
-        _print_notice(insecure_mode_notice("mcp"))
 
-    server = McpServer()
+    pinned_connector: Any = getattr(args, "connector", None)
+    pinned_config: dict[str, Any] | None = None
+    connections_file = getattr(args, "connections", None)
+
+    if connections_file:
+        with open(connections_file, encoding="utf-8") as fh:
+            declared = json.load(fh)
+        if isinstance(declared, dict) and declared:
+            first_id = next(iter(declared))
+            conn_spec = declared[first_id]
+            pinned_connector = conn_spec.get("connector", pinned_connector)
+            pinned_config = conn_spec.get("config", {})
+
+    if getattr(args, "config", None) and not pinned_config:
+        pinned_config = _load_connector_config(args.config)
+
+    tenant_id = getattr(args, "tenant_id", None)
+    tenant_ctx = TenantContext(tenant_id=tenant_id) if tenant_id else None
+    sec_policy = SecurityPolicy(enforce_tenant_isolation=True) if tenant_id else None
+
+    lock_conn = bool(
+        getattr(args, "lock_connection", False)
+        or pinned_connector is not None
+        or connections_file is not None
+    )
+
+    if not getattr(args, "no_security_notice", False):
+        _print_notice(insecure_mode_notice("mcp", secure=lock_conn))
+
+    kwargs: dict[str, Any] = {}
+    if pinned_connector is not None:
+        kwargs["connector"] = pinned_connector
+    if pinned_config is not None:
+        kwargs["connector_config"] = pinned_config
+    if sec_policy is not None:
+        kwargs["security_policy"] = sec_policy
+    if tenant_ctx is not None:
+        kwargs["tenant_context"] = tenant_ctx
+    if lock_conn:
+        kwargs["lock_connection"] = lock_conn
+
+    server = McpServer(**kwargs) if kwargs else McpServer()
     server.run_stdio()
     return 0
 

@@ -62,28 +62,28 @@ def test_agent_tool_definitions_formats():
     """Verifies tool generation across all 5 major AI formats."""
     # OpenAI
     openai_tools = get_agent_tool_definitions("openai")
-    assert len(openai_tools) == 4
+    assert len(openai_tools) == 7
     assert openai_tools[0]["type"] == "function"
     assert "build_query" in openai_tools[0]["function"]["name"]
 
     # Anthropic
     anthropic_tools = get_agent_tool_definitions("anthropic")
-    assert len(anthropic_tools) == 4
+    assert len(anthropic_tools) == 7
     assert "input_schema" in anthropic_tools[0]
 
     # Gemini
     gemini_tools = get_agent_tool_definitions("gemini")
-    assert len(gemini_tools) == 4
+    assert len(gemini_tools) == 7
     assert "parameters" in gemini_tools[0]
 
     # LangChain
     langchain_tools = get_agent_tool_definitions("langchain")
-    assert len(langchain_tools) == 4
+    assert len(langchain_tools) == 7
     assert "args_schema" in langchain_tools[0]
 
     # MCP
     mcp_tools = get_agent_tool_definitions("mcp")
-    assert len(mcp_tools) == 4
+    assert len(mcp_tools) == 7
     assert "inputSchema" in mcp_tools[0]
 
     # Invalid
@@ -252,6 +252,99 @@ def test_execute_agent_tool_explain_and_unknown():
     unknown = execute_agent_tool_call("non_existent_tool", {})
     assert unknown["success"] is False
     assert "Unknown tool" in unknown["error"]
+
+
+def test_execute_agent_tool_new_tools(tmp_path):
+    import sqlite3
+
+    db_path = str(tmp_path / "agent_tools.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);")
+    conn.execute(
+        "CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL);"
+    )
+    conn.execute("INSERT INTO users VALUES (1, 'Alice');")
+    conn.execute("INSERT INTO orders VALUES (10, 1, 99.5);")
+    conn.commit()
+    conn.close()
+
+    schema = {
+        "tables": {
+            "users": {
+                "columns": [
+                    {"name": "id", "data_type": "INTEGER"},
+                    {"name": "name", "data_type": "TEXT"},
+                ],
+                "foreign_keys": [],
+            },
+            "orders": {
+                "columns": [{"name": "id"}, {"name": "user_id"}, {"name": "amount"}],
+                "foreign_keys": [
+                    {
+                        "table": "orders",
+                        "column": "user_id",
+                        "foreign_table": "users",
+                        "foreign_column": "id",
+                    }
+                ],
+            },
+        }
+    }
+
+    # 1. find_join_path
+    res_path = execute_agent_tool_call(
+        "find_join_path",
+        {"active_tables": ["users"], "target_table": "orders"},
+        schema=schema,
+    )
+    assert res_path["success"] is True
+    assert len(res_path["path"]) == 1
+
+    # 2. explain_and_advise
+    res_advise = execute_agent_tool_call(
+        "explain_and_advise",
+        {"spec": {"table": "users", "columns": ["id", "name"]}, "dialect": "sqlite"},
+        schema=schema,
+    )
+    assert res_advise["success"] is True
+    assert "plan" in res_advise
+    assert "performance" in res_advise
+
+    # 3. execute_query with spec
+    res_exec = execute_agent_tool_call(
+        "execute_query",
+        {
+            "spec": {"table": "users", "columns": ["id", "name"]},
+            "connector": "sqlite",
+            "config": {"database": db_path},
+        },
+    )
+    assert res_exec["success"] is True
+    assert res_exec["count"] == 1
+    assert res_exec["rows"][0]["name"] == "Alice"
+
+    # 4. execute_query with safe sql
+    res_exec_sql = execute_agent_tool_call(
+        "execute_query",
+        {
+            "sql": "SELECT id, name FROM users",
+            "connector": "sqlite",
+            "config": {"database": db_path},
+        },
+    )
+    assert res_exec_sql["success"] is True
+
+    # 5. execute_query with mutating sql (rejected)
+    res_exec_bad = execute_agent_tool_call(
+        "execute_query",
+        {
+            "sql": "DELETE FROM users WHERE id = 1",
+            "connector": "sqlite",
+            "config": {"database": db_path},
+        },
+    )
+    assert res_exec_bad["success"] is False
+    assert "Security violation" in res_exec_bad["error"]
 
     # Security & Input Validation Hardening
     # 1. Non-string tool name
@@ -615,7 +708,7 @@ def test_query_builder_ai_agent():
 
     # As tool
     tools = agent.as_tool("openai")
-    assert len(tools) == 4
+    assert len(tools) == 7
 
     # Handle tool call
     tool_res = agent.handle_tool_call("build_query", {"intent": "Show users"})
@@ -916,3 +1009,183 @@ def test_byo_ai_branch_coverage_completion():
     healer_list_tables = SelfHealingQueryEngine(schema={"tables": ["users", "orders"]})
     h_lt, _ = healer_list_tables.auto_heal({"table": "users", "columns": ["id"]})
     assert h_lt["table"] == "users"
+
+
+def test_ask_ai_repair_loop_ast_and_exception():
+    # 1. AST violation repaired on second attempt
+    ast_calls = 0
+
+    def ai_mock(prompt_str, system_str=""):
+        nonlocal ast_calls
+        if "explain" in (prompt_str + system_str).lower():
+            return "Explanation"
+        ast_calls += 1
+        return '{"table": "users", "columns": ["id"]}'
+
+    with patch(
+        "query_builder.ast_validator.validate_sql_ast",
+        side_effect=[
+            {
+                "valid": False,
+                "is_read_only": False,
+                "violations": ["AST mutation blocked"],
+            },
+            {"valid": True, "is_read_only": True},
+        ],
+    ):
+        res_repair = ask_ai("users", ai=ai_mock, schema=SAMPLE_SCHEMA, max_retries=2)
+        assert res_repair.spec["table"] == "users"
+        assert ast_calls == 2
+
+    # 2. AST violation with 0 retries adds sanitizer alert
+    with patch(
+        "query_builder.ast_validator.validate_sql_ast",
+        return_value={
+            "valid": False,
+            "is_read_only": False,
+            "violations": ["AST mutation blocked"],
+        },
+    ):
+        res_alert = ask_ai("users", ai=ai_mock, schema=SAMPLE_SCHEMA, max_retries=0)
+        assert any("sanitizer alert" in n.lower() for n in res_alert.healing_notes)
+
+    # 3. Exception repaired on second attempt and semantic model expansion
+    exc_calls = 0
+
+    def ai_mock_exc_repair(prompt_str, system_str=""):
+        nonlocal exc_calls
+        if "explain" in (prompt_str + system_str).lower():
+            return "Explanation"
+        exc_calls += 1
+        if exc_calls == 1:
+            raise ValueError("LLM parsing glitch")
+        return '{"table": "users", "columns": ["total_users"]}'
+
+    sem_model = {
+        "models": [
+            {
+                "name": "users_model",
+                "table_name": "users",
+                "metrics": [
+                    {
+                        "name": "total_users",
+                        "sql_expression": "COUNT(id)",
+                        "aggregation": "custom",
+                    }
+                ],
+            }
+        ]
+    }
+    res_exc = ask_ai(
+        "users",
+        ai=ai_mock_exc_repair,
+        schema=SAMPLE_SCHEMA,
+        max_retries=1,
+        semantic_model=sem_model,
+    )
+    assert res_exc.spec["table"] == "users"
+    assert exc_calls == 2
+
+    # 4. Exception with 0 retries raises last_exc
+    def ai_mock_always_fail(p, s=""):
+        raise RuntimeError("Fatal LLM crash")
+
+    with pytest.raises(RuntimeError, match="Fatal LLM crash"):
+        ask_ai("users", ai=ai_mock_always_fail, schema=SAMPLE_SCHEMA, max_retries=0)
+
+
+def test_agent_tools_edge_branches():
+    from query_builder.ai.agent_tools import execute_agent_tool_call
+
+    # 1. find_join_path with comma-separated string and missing params
+    res_str = execute_agent_tool_call(
+        "find_join_path",
+        {"active_tables": "users, orders", "target_table": "orders"},
+        schema=SAMPLE_SCHEMA,
+    )
+    assert res_str["success"] is True
+
+    res_missing = execute_agent_tool_call("find_join_path", {"active_tables": []})
+    assert res_missing["success"] is False
+
+    # 2. explain_and_advise with spec as JSON string and missing spec
+    res_spec_str = execute_agent_tool_call(
+        "explain_and_advise",
+        {"spec": '{"table": "users", "columns": ["id"]}'},
+        schema=SAMPLE_SCHEMA,
+    )
+    assert res_spec_str["success"] is True
+
+    res_spec_bad = execute_agent_tool_call(
+        "explain_and_advise", {"spec": "invalid-json"}
+    )
+    assert res_spec_bad["success"] is False
+
+    res_no_spec = execute_agent_tool_call("explain_and_advise", {})
+    assert res_no_spec["success"] is False
+
+    # 3. execute_query with spec and config as strings, missing both, row truncation, and exception
+    res_eq_missing = execute_agent_tool_call("execute_query", {})
+    assert res_eq_missing["success"] is False
+
+    res_eq_str = execute_agent_tool_call(
+        "execute_query",
+        {"spec": '{"table": "users"}', "config": "{}", "max_rows": 1},
+        schema=SAMPLE_SCHEMA,
+    )
+    assert "success" in res_eq_str
+
+    res_eq_err = execute_agent_tool_call(
+        "execute_query",
+        {"sql": "SELECT 1", "connector": "nonexistent_connector"},
+    )
+    assert res_eq_err["success"] is False
+
+    # Row truncation and AsyncBaseConnector execution
+    from unittest.mock import MagicMock
+
+    from query_builder.connectors.async_base import AsyncBaseConnector
+
+    with patch("query_builder.connectors.ConnectorRegistry.get") as mock_get:
+        mock_sync_conn = MagicMock()
+        mock_sync_conn.execute.return_value = {
+            "columns": ["id"],
+            "rows": [{"id": 1}, {"id": 2}],
+        }
+        mock_get.return_value = mock_sync_conn
+        res_trunc = execute_agent_tool_call(
+            "execute_query",
+            {"spec": {"table": "users"}, "max_rows": 1},
+        )
+        assert res_trunc["truncated"] is True
+        assert len(res_trunc["rows"]) == 1
+
+        mock_async_conn = MagicMock(spec=AsyncBaseConnector)
+
+        async def async_exec(**kwargs):
+            return {"columns": ["id"], "rows": [{"id": 1}]}
+
+        mock_async_conn.execute = async_exec
+        mock_get.return_value = mock_async_conn
+        res_async = execute_agent_tool_call(
+            "execute_query",
+            {"spec": {"table": "users"}},
+        )
+        assert res_async["success"] is True
+
+        # Coroutine returning object with .columns and .rows
+        class CustomResult:
+            def __init__(self):
+                self.columns = ["id"]
+                self.rows = [{"id": 1}]
+
+        async def coro_res():
+            return CustomResult()
+
+        mock_sync_conn.execute.return_value = coro_res()
+        mock_get.return_value = mock_sync_conn
+        res_coro_obj = execute_agent_tool_call(
+            "execute_query",
+            {"spec": {"table": "users"}},
+        )
+        assert res_coro_obj["success"] is True

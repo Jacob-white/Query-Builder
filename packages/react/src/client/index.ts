@@ -14,6 +14,10 @@ import type {
   QueryResultData,
   SqlDialect,
   SqlSafetyValidation,
+  ExplainAnalysisResult,
+  JoinPathResult,
+  NlqTranslationResult,
+  AskAiRequestOptions,
 } from "../types";
 
 export type {
@@ -22,6 +26,10 @@ export type {
   QueryResultData,
   SqlDialect,
   SqlSafetyValidation,
+  ExplainAnalysisResult,
+  JoinPathResult,
+  NlqTranslationResult,
+  AskAiRequestOptions,
 };
 
 export interface QueryBuilderClientConfig {
@@ -274,6 +282,21 @@ export interface QueryBuilderClient {
    * Introspects backend engine capabilities and active feature tiers.
    */
   getCapabilities(options?: RequestOptions): Promise<Record<string, string>>;
+
+  /**
+   * Explains query execution plan and performance recommendations.
+   */
+  explain?(spec: QuerySpec, options?: RequestOptions): Promise<ExplainAnalysisResult>;
+
+  /**
+   * Finds shortest relational join path from active tables to target table.
+   */
+  findJoinPath?(activeTables: string[], targetTable: string, options?: RequestOptions): Promise<JoinPathResult>;
+
+  /**
+   * Translates natural language query intent into verified QuerySpec AST and SQL.
+   */
+  askAi?(prompt: string, options?: AskAiRequestOptions): Promise<NlqTranslationResult>;
 
   /**
    * Starts a fluent query builder bound to this client.
@@ -538,6 +561,57 @@ export function createQueryBuilderClient(
         },
         options,
         true,
+      );
+    },
+
+    async explain(spec: QuerySpec, options?: RequestOptions): Promise<ExplainAnalysisResult> {
+      return makeRequest<ExplainAnalysisResult>(
+        "/explain",
+        {
+          method: "POST",
+          body: JSON.stringify({ spec }),
+        },
+        options,
+      );
+    },
+
+    async findJoinPath(
+      activeTables: string[],
+      targetTable: string,
+      options?: RequestOptions,
+    ): Promise<JoinPathResult> {
+      return makeRequest<JoinPathResult>(
+        "/join-path",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            active_tables: activeTables,
+            target_table: targetTable,
+          }),
+        },
+        options,
+      );
+    },
+
+    async askAi(
+      prompt: string,
+      options?: AskAiRequestOptions,
+    ): Promise<NlqTranslationResult> {
+      const { dialect, provider, schema, options: nlqOptions, ...reqOptions } =
+        options || {};
+      return makeRequest<NlqTranslationResult>(
+        "/nlq",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            prompt,
+            dialect,
+            provider,
+            schema,
+            options: nlqOptions,
+          }),
+        },
+        reqOptions,
       );
     },
 

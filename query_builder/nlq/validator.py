@@ -17,7 +17,15 @@ from query_builder.models import (
 from query_builder.nlq.models import NlqValidationError
 
 VALID_JOIN_TYPES = {"INNER", "LEFT", "RIGHT", "FULL", "CROSS"}
-VALID_AGGREGATES = {"COUNT", "SUM", "AVG", "MIN", "MAX", "DISTINCT_COUNT"}
+VALID_AGGREGATES = {
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "DISTINCT_COUNT",
+    "COUNT_DISTINCT",
+}
 VALID_DIRECTIONS = {"ASC", "DESC"}
 
 
@@ -96,21 +104,56 @@ class NlqAstValidator:
                     sanitized_cols.append(self._resolve_column(table_str, col_name))
             elif isinstance(col, dict):
                 c_name = col.get("column", "")
-                if not isinstance(c_name, str) or not c_name.strip():
+                expr = col.get("expression") or col.get("raw_expression")
+                dim = col.get("dimension")
+                met = col.get("metric")
+                if not any(
+                    (
+                        c_name and isinstance(c_name, str) and c_name.strip(),
+                        expr,
+                        dim,
+                        met,
+                    )
+                ):
                     continue
-                agg = col.get("agg")
-                if agg and str(agg).upper() in VALID_AGGREGATES:
-                    agg = str(agg).upper()
-                else:
-                    agg = None
+
+                sanitized_col: dict[str, Any] = {}
+                if c_name and isinstance(c_name, str) and c_name.strip():
+                    sanitized_col["column"] = self._resolve_column(
+                        table_str, c_name.strip()
+                    )
+                if expr:
+                    sanitized_col["expression"] = str(expr).strip()
+                if "raw_expression" in col:
+                    sanitized_col["raw_expression"] = str(col["raw_expression"]).strip()
+                if dim:
+                    sanitized_col["dimension"] = str(dim).strip()
+                if met:
+                    sanitized_col["metric"] = str(met).strip()
+                if "time_grain" in col:
+                    sanitized_col["time_grain"] = str(col["time_grain"]).strip()
+                if "grain" in col:
+                    sanitized_col["grain"] = str(col["grain"]).strip()
+                if "table" in col:
+                    sanitized_col["table"] = str(col["table"]).strip()
+                if "tablePrefix" in col:
+                    sanitized_col["tablePrefix"] = str(col["tablePrefix"]).strip()
+
+                agg = col.get("agg", col.get("aggregate"))
+                if agg:
+                    agg_upper = str(agg).upper().strip()
+                    if agg_upper in VALID_AGGREGATES:
+                        if agg_upper in {"DISTINCT_COUNT", "COUNT_DISTINCT"}:
+                            sanitized_col["agg"] = "count_distinct"
+                        else:
+                            sanitized_col["agg"] = agg_upper
+
                 alias = col.get("alias")
-                sanitized_cols.append(
-                    {
-                        "column": self._resolve_column(table_str, c_name.strip()),
-                        **({"agg": agg} if agg else {}),
-                        **({"alias": str(alias).strip()} if alias else {}),
-                    }
-                )
+                if alias:
+                    sanitized_col["alias"] = str(alias).strip()
+                if "distinct" in col:
+                    sanitized_col["distinct"] = bool(col["distinct"])
+                sanitized_cols.append(sanitized_col)
 
         # 3. Joins validation
         raw_joins = raw_ast.get("joins", [])
@@ -169,24 +212,29 @@ class NlqAstValidator:
                 }:
                     op = "="
                 val = f.get("value")
-                sanitized_filters.append(
-                    {
-                        "column": col_name.strip(),
-                        "op": op,
-                        "value": val,
-                        **(
-                            {"tablePrefix": f["tablePrefix"]}
-                            if "tablePrefix" in f
-                            else {}
-                        ),
-                        **(
-                            {"combiner": comb}
-                            if (comb := str(f.get("combiner") or "").strip().upper())
-                            in {"AND", "OR"}
-                            else {}
-                        ),
-                    }
-                )
+                f_entry: dict[str, Any] = {
+                    "column": col_name.strip(),
+                    "op": op,
+                    "value": val,
+                }
+                if "tablePrefix" in f:
+                    f_entry["tablePrefix"] = f["tablePrefix"]
+                if "table" in f:
+                    f_entry["table"] = f["table"]
+                if (comb := str(f.get("combiner") or "").strip().upper()) in {
+                    "AND",
+                    "OR",
+                }:
+                    f_entry["combiner"] = comb
+                if "parenOpen" in f:
+                    f_entry["parenOpen"] = f["parenOpen"]
+                if "parenClose" in f:
+                    f_entry["parenClose"] = f["parenClose"]
+                if "subquery" in f:
+                    f_entry["subquery"] = f["subquery"]
+                if "id" in f:
+                    f_entry["id"] = f["id"]
+                sanitized_filters.append(f_entry)
 
         filter_join = str(raw_ast.get("filter_join", "AND")).upper()
         if filter_join not in {"AND", "OR"}:
@@ -308,22 +356,55 @@ class NlqAstValidator:
             "vector_search": vector_search,
             "hybrid_search": hybrid_search,
         }
+        for extra_key in (
+            "metrics",
+            "semantic_model",
+            "semantic_models",
+            "ctes",
+            "window_functions",
+            "set_operations",
+            "grouping_type",
+            "grouping_sets",
+            "rollup",
+            "cube",
+            "pivot",
+        ):
+            if extra_key in raw_ast:
+                result_ast[extra_key] = raw_ast[extra_key]
 
         # Verify QuerySpec instantiation
         try:
             QuerySpec(
                 table=result_ast["table"],
                 columns=result_ast["columns"],
-                joins=[JoinSpec(**j) for j in result_ast["joins"]],
-                filters=[FilterSpec(**f) for f in result_ast["filters"]],
+                joins=[
+                    JoinSpec(**j) if isinstance(j, dict) else j
+                    for j in result_ast["joins"]
+                ],
+                filters=[
+                    FilterSpec(**f) if isinstance(f, dict) else f
+                    for f in result_ast["filters"]
+                ],
                 filter_join=result_ast["filter_join"],
-                having=[HavingSpec(**h) for h in result_ast["having"]],
-                order_by=[OrderBySpec(**o) for o in result_ast["order_by"]],
+                having=[
+                    HavingSpec(**h) if isinstance(h, dict) else h
+                    for h in result_ast["having"]
+                ],
+                order_by=[
+                    OrderBySpec(**o) if isinstance(o, dict) else o
+                    for o in result_ast["order_by"]
+                ],
                 limit=result_ast["limit"],
                 offset=result_ast["offset"],
                 distinct=result_ast["distinct"],
                 vector_search=result_ast["vector_search"],
                 hybrid_search=result_ast["hybrid_search"],
+                metrics=result_ast.get("metrics", []),
+                semantic_model=result_ast.get("semantic_model"),
+                semantic_models=result_ast.get("semantic_models", []),
+                ctes=result_ast.get("ctes", []),
+                window_functions=result_ast.get("window_functions", []),
+                set_operations=result_ast.get("set_operations", []),
             )
         except Exception as exc:  # pragma: no cover - defensive validation
             raise NlqValidationError(

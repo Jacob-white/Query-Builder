@@ -175,6 +175,7 @@ class ConnectionPool:
         # Entry format: (connection, last_used_timestamp, created_at_timestamp)
         self._available: list[tuple[Any, float, float]] = []
         self._in_use: set[Any] = set()
+        self._created_at: dict[int, float] = {}
         self._closed = False
 
         # Pre-populate minimum connections
@@ -182,57 +183,101 @@ class ConnectionPool:
             now = time.time()
             for _ in range(self.min_size):
                 conn = self.factory()
+                self._created_at[id(conn)] = now
                 self._available.append((conn, now, now))
 
     def acquire(self) -> Any:
         """Acquires a healthy connection from the pool or creates a new one."""
-        with self._cond:
-            if self._closed:
-                raise PoolClosedError("Connection pool is closed.")
+        start_time = time.time()
 
-            start_time = time.time()
+        while True:
+            conn_to_test = None
+            create_new = False
+            slot_placeholder: object | None = None
+            stale_conns: list[Any] = []
 
-            while True:
+            with self._cond:
                 if self._closed:
                     raise PoolClosedError("Connection pool is closed.")
 
                 now = time.time()
 
                 # Option 1: Reuse existing available connection
-                if self._available:
+                while self._available:
                     conn, last_time, created_time = self._available.pop()
                     is_idle = (now - last_time) > self.max_idle_seconds
                     is_expired = (now - created_time) > self.max_lifespan_seconds
-                    healthy = True
 
-                    if not is_idle and not is_expired and self.health_check_sql:
-                        try:
-                            cursor = conn.cursor()
-                            cursor.execute(self.health_check_sql)
-                            cursor.close()
-                        except Exception:  # noqa: BLE001
-                            healthy = False
-
-                    if is_idle or is_expired or not healthy:
-                        with contextlib.suppress(Exception):
-                            conn.close()
-                        conn = self.factory()
-
-                    self._in_use.add(conn)
-                    return conn
+                    if not is_idle and not is_expired:
+                        conn_to_test = conn
+                        self._in_use.add(conn)
+                        break
+                    else:
+                        stale_conns.append(conn)
+                        self._created_at.pop(id(conn), None)
 
                 # Option 2: Pool has capacity to create a new connection
-                if len(self._in_use) < self.max_size:
-                    conn = self.factory()
-                    self._in_use.add(conn)
-                    return conn
+                if conn_to_test is None and len(self._in_use) < self.max_size:
+                    create_new = True
+                    slot_placeholder = object()
+                    self._in_use.add(slot_placeholder)
 
                 # Option 3: Wait for a connection to be released
-                remaining = self.timeout - (time.time() - start_time)
-                if remaining <= 0:
-                    raise PoolTimeoutError("Connection acquisition timed out.")
+                if conn_to_test is None and not create_new:
+                    remaining = self.timeout - (time.time() - start_time)
+                    if remaining <= 0:
+                        raise PoolTimeoutError("Connection acquisition timed out.")
+                    self._cond.wait(timeout=remaining)
+                    continue
 
-                self._cond.wait(timeout=remaining)
+            # Teardown stale connections outside lock
+            for sc in stale_conns:
+                with contextlib.suppress(Exception):
+                    sc.close()
+
+            # Health-check candidate connection outside lock
+            if conn_to_test is not None:
+                healthy = True
+                if self.health_check_sql:
+                    try:
+                        cursor = conn_to_test.cursor()
+                        cursor.execute(self.health_check_sql)
+                        cursor.close()
+                    except Exception:  # noqa: BLE001
+                        healthy = False
+
+                if healthy:
+                    return conn_to_test
+
+                # Unhealthy: teardown outside lock and remove from in_use
+                self._created_at.pop(id(conn_to_test), None)
+                with contextlib.suppress(Exception):
+                    conn_to_test.close()
+                with self._cond:
+                    self._in_use.discard(conn_to_test)
+                    self._cond.notify()
+                continue
+
+            # Create new connection outside lock
+            if create_new:
+                try:
+                    conn = self.factory()
+                except Exception:
+                    with self._cond:
+                        self._in_use.discard(slot_placeholder)
+                        self._cond.notify()
+                    raise
+
+                with self._cond:
+                    if self._closed:
+                        with contextlib.suppress(Exception):
+                            conn.close()
+                        self._in_use.discard(slot_placeholder)
+                        raise PoolClosedError("Connection pool is closed.")
+                    self._in_use.discard(slot_placeholder)
+                    self._in_use.add(conn)
+                    self._created_at[id(conn)] = time.time()
+                return conn
 
     def release(self, conn: Any) -> None:
         """Returns a connection back to the pool."""
@@ -240,11 +285,13 @@ class ConnectionPool:
             if conn in self._in_use:
                 self._in_use.remove(conn)
                 if self._closed:
+                    self._created_at.pop(id(conn), None)
                     with contextlib.suppress(Exception):
                         conn.close()
                 else:
                     now = time.time()
-                    self._available.append((conn, now, now))
+                    created_at = self._created_at.get(id(conn), now)
+                    self._available.append((conn, now, created_at))
                     self._cond.notify()
 
     @contextlib.contextmanager
@@ -261,13 +308,16 @@ class ConnectionPool:
         with self._cond:
             self._closed = True
             for conn, _, _ in self._available:
+                self._created_at.pop(id(conn), None)
                 with contextlib.suppress(Exception):
                     conn.close()
             for conn in self._in_use:
+                self._created_at.pop(id(conn), None)
                 with contextlib.suppress(Exception):
                     conn.close()
             self._available.clear()
             self._in_use.clear()
+            self._created_at.clear()
             self._cond.notify_all()
 
     @property
@@ -517,6 +567,15 @@ class ConnectionPoolManager:
             else:
                 sql = str(sql_or_spec)
                 active_params = list(params or [])
+                from query_builder.ast_validator import validate_sql_ast
+                from query_builder.security import SecurityError
+
+                val_res = validate_sql_ast(sql)
+                if not val_res.get("valid") or not val_res.get("is_read_only"):
+                    violations = val_res.get(
+                        "violations", ["Query failed AST safety validation."]
+                    )
+                    raise SecurityError(f"Security violation: {'; '.join(violations)}")
 
             token.throw_if_cancelled()
 

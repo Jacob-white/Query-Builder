@@ -13,13 +13,36 @@
   (case-insensitive) across *all* rows of the result, then page the matches with the spec's `limit` / `offset`. The text
   is a bound parameter with its LIKE wildcards escaped; the wrapper passes the AST validator. PostgreSQL family, SQLite,
   DuckDB, Redshift and the MySQL family.
+- **Unified Agent Tools & Model Context Protocol (MCP)**: Operator-pinned secure mode (`--lock-connection`), live schema catalog resources (`query-builder://schema/catalog`, `queryspec`, `semantic/metrics`), and tool calling support for `find_join_path`, `explain_and_advise`, and `execute_query`.
+- **Autonomous Self-Healing Query Engine**: Automatic operator synonym mapping (`==` -> `eq`, `!=` -> `neq`, `like` -> `contains`), cross-table column resolution, table typo fuzzy matching, and iterative repair prompt generation.
+- **Semantic Layer Grounding & `llms.txt`**: Metric and dimension expansion for NLQ translation, schema grounding, and standard `llms.txt` documentation manifest generator (`scripts/gen_llms_txt.py`).
+- **Web Framework Integrations & TypeScript Client SDK**: Added `/explain`, `/join-path`, `/nlq`, and `/export/stream` endpoints to FastAPI and Django routers, schema TTL caching (`schema_cache_ttl`), and corresponding TypeScript client methods (`client.explain`, `client.findJoinPath`, `client.askAi`).
+- **Python Fluent Query Builder & DX Guardrails**: `FluentQuery` / `query(table)` chainable query construction, `QuerySpec.builder()`, `QuerySpec.json_schema()`, unknown `QB_*` typo detection with warning suggestions, and PEP 562 lazy module imports.
+- **Dialect-Level Column Masking Expressions**: Implemented `BaseDialect.format_masking_expression()` and query compiler projection support for `redact`, `hash`, `null`, `partial_email`, `partial_phone`, and `last4` data masking strategies.
+- **Calculated Fields & Custom Expressions**: Added AST safety validation and compilation for client-supplied `expression` and `raw_expression` projected columns in `QueryCompiler._compile_dict_column()`.
 - **React helpers** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`): pure filter-kind, HAVING,
   join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page.
 
 ### Fixed
+- **Fail-Closed AST Safety & Tenant Isolation on Raw SQL**: Enforced AST safety validation (`validate_sql_ast()`) and rejected raw SQL execution under active tenant isolation across HTTP server endpoints (`/api/v1/execute`, `/api/v1/stream`, `/api/v1/export/stream`), connection pool (`ConnectionPoolManager.execute_query()`), and Django views (`execute_view`, `export_view`, `export_stream_view`, DRF views).
+- **DNS Pinning for Async Connectors**: Added connect-time DNS resolution pinning in `AsyncBaseConnector` to eliminate time-of-check to time-of-use DNS rebinding risks.
+- **Recursive Row-Level Security Policy Application**: Enhanced `apply_security_policy()` to enforce row-level filters and table permissions recursively across CTEs, set operations, derived tables, and subquery filters.
+- **Compiler Sub-Compile Parameter Counter**: Fixed parameter placeholder counter sharing in `QueryCompiler._sub_compile()` to prevent placeholder collisions across subqueries and CTEs.
+- **Semantic Model Schema & Dataclass Synchronization**: Supported camelCase key normalization in `SemanticModel.from_dict()` and synchronized `QuerySpec` dataclasses and `QuerySpec.json_schema()` with all compiler capabilities.
+- **NLQ Semantic Metric Ordering & `COUNT_DISTINCT`**: Reordered `NlqService.translate()` to expand semantic metrics before AST validation and supported `COUNT_DISTINCT` across `NlqAstValidator`, client SDK, and React visual compiler.
+- **Connection Pool Lifespan Tracking**: Preserved original connection creation timestamp in `ConnectionPool` and `AsyncConnectionPool` across acquire/release cycles to ensure proper eviction after `max_lifespan_seconds`.
+- **Async Pool Lock Concurrency**: Refactored `AsyncConnectionPool` using `asyncio.Condition`, moving connection establishment, health checks, and teardown outside pool locks to eliminate busy-waiting polling loops.
+- **SQLParser HAVING & Window Function Duplication**: Added `HAVING` clause parsing to `SQLParser` and eliminated duplicate base column emission for window functions.
+- **Advisor Index Prefix Stripping**: Fixed `recommend_indexes()` in `query_builder/advisor.py` to strip table qualifiers from column names when generating index names and DDL statements.
 - **Sorting by a count or total** (`order_by` naming an aggregate's label) now compiles to `ORDER BY "label"`. It
   compiled to `ORDER BY "t1"."label"` before, a column that does not exist, so the query passed validation and failed in
   the database.
+- **`query-builder mcp` CLI dispatch**: Fixed zero-argument `McpServer()` instantiation when no CLI flags are supplied, preventing `TypeError` on custom or default server classes.
+- **CamelCase parameter support in QuerySpec**: Added `InitVar` aliases (`tablePrefix`, `leftTable`, `leftCol`, `rightCol`) to `FilterSpec`, `OrderBySpec`, and `JoinSpec` to accept payloads directly from NLQ and TypeScript client serializers.
+- **Django and FastAPI Router Parity**: Implemented `/explain/`, `/join-path/`, `/nlq/`, and `/export/stream/` views in `create_django_urls` and `create_drf_views` for full parity with FastAPI.
+- **Async Connector Execution in Agent Tools**: Fixed `execute_query` in `agent_tools.py` to safely await coroutines from `AsyncBaseConnector` instances.
+- **Semantic Layer Expression Expansion**: Extended `expand_metrics_and_dimensions` to expand dimensions in `filters` and `order_by`, and metric calculations in `having`.
+- **Self-Healing Query Engine Enhancements**: Added support for additional operator synonyms (`starts with`, `ends with`, `is not`, `isnull`, `isnotnull`), join synthesis for tables referenced in `having` and window clauses, and typo healing for table prefixes.
 
 ### Breaking
 - **`query-builder serve` now starts in secure mode.** The server, not the client, chooses the tenant,

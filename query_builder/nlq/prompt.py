@@ -8,54 +8,94 @@ import json
 from typing import Any
 
 
-def serialize_schema_for_prompt(schema: dict[str, Any] | None) -> str:
-    """Serializes a database schema dictionary into a concise markdown text for LLM prompts."""
-    if not schema:
-        return "Schema: No explicit schema provided. Infer plausible table and column identifiers from prompt."
+def serialize_schema_for_prompt(
+    schema: dict[str, Any] | None,
+    semantic: Any = None,
+) -> str:
+    """Serializes a database schema dictionary and optional semantic layer metadata into concise markdown text for LLM prompts."""
+    lines: list[str] = []
+    if schema:
+        lines.append("Database Schema:")
+        tables = schema.get("tables", schema)
 
-    lines: list[str] = ["Database Schema:"]
-    tables = schema.get("tables", schema)
+        if isinstance(tables, dict):
+            for tbl_name, tbl_data in tables.items():
+                if not isinstance(tbl_data, dict):
+                    continue
+                cols_info: list[str] = []
+                columns = tbl_data.get("columns", {})
+                if isinstance(columns, dict):
+                    for col_name, col_meta in columns.items():
+                        if isinstance(col_meta, dict):
+                            col_type = col_meta.get(
+                                "data_type", col_meta.get("type", "TEXT")
+                            )
+                            pk = " (PK)" if col_meta.get("primary_key") else ""
+                            cols_info.append(f"{col_name}: {col_type}{pk}")
+                        else:
+                            cols_info.append(f"{col_name}: {col_meta}")
+                elif isinstance(columns, list):
+                    for col in columns:
+                        if isinstance(col, dict):
+                            cname = col.get("name", "unknown")
+                            ctype = col.get("data_type", col.get("type", "TEXT"))
+                            pk = " (PK)" if col.get("primary_key") else ""
+                            cols_info.append(f"{cname}: {ctype}{pk}")
+                        elif isinstance(col, str):
+                            cols_info.append(col)
 
-    if isinstance(tables, dict):
-        for tbl_name, tbl_data in tables.items():
-            if not isinstance(tbl_data, dict):
-                continue
-            cols_info: list[str] = []
-            columns = tbl_data.get("columns", {})
-            if isinstance(columns, dict):
-                for col_name, col_meta in columns.items():
-                    if isinstance(col_meta, dict):
-                        col_type = col_meta.get(
-                            "data_type", col_meta.get("type", "TEXT")
+                fks_info: list[str] = []
+                fks = tbl_data.get("foreign_keys", [])
+                if isinstance(fks, list):
+                    for fk in fks:
+                        if isinstance(fk, dict):
+                            from_col = fk.get("column", fk.get("from_column", ""))
+                            to_tbl = fk.get("target_table", fk.get("to_table", ""))
+                            to_col = fk.get("target_column", fk.get("to_column", ""))
+                            if from_col and to_tbl:
+                                fks_info.append(
+                                    f"{from_col} -> {to_tbl}.{to_col or 'id'}"
+                                )
+
+                col_str = ", ".join(cols_info) if cols_info else "no columns listed"
+                fk_str = f" | FK: {', '.join(fks_info)}" if fks_info else ""
+                lines.append(f"- Table `{tbl_name}`: [{col_str}]{fk_str}")
+    else:
+        lines.append(
+            "Schema: No explicit schema provided. Infer plausible table and column identifiers from prompt."
+        )
+
+    if semantic is not None:
+        from query_builder.semantic import resolve_semantic_registry
+
+        reg = resolve_semantic_registry(semantic)
+        if reg is not None:
+            models = reg.list_models()
+            metrics = reg.list_metrics()
+            if models or metrics:
+                lines.append("\nSemantic Metrics & Dimensions:")
+                for m in models:
+                    lines.append(f"- Model `{m.name}` (Table: `{m.table_name}`):")
+                    for met in m.metrics:
+                        desc = f" - {met.description}" if met.description else ""
+                        lines.append(
+                            f"  * Metric `{met.name}`: {met.title} [{met.aggregation} over `{met.sql_expression}`]{desc}"
                         )
-                        pk = " (PK)" if col_meta.get("primary_key") else ""
-                        cols_info.append(f"{col_name}: {col_type}{pk}")
-                    else:
-                        cols_info.append(f"{col_name}: {col_meta}")
-            elif isinstance(columns, list):
-                for col in columns:
-                    if isinstance(col, dict):
-                        cname = col.get("name", "unknown")
-                        ctype = col.get("data_type", col.get("type", "TEXT"))
-                        pk = " (PK)" if col.get("primary_key") else ""
-                        cols_info.append(f"{cname}: {ctype}{pk}")
-                    elif isinstance(col, str):
-                        cols_info.append(col)
-
-            fks_info: list[str] = []
-            fks = tbl_data.get("foreign_keys", [])
-            if isinstance(fks, list):
-                for fk in fks:
-                    if isinstance(fk, dict):
-                        from_col = fk.get("column", fk.get("from_column", ""))
-                        to_tbl = fk.get("target_table", fk.get("to_table", ""))
-                        to_col = fk.get("target_column", fk.get("to_column", ""))
-                        if from_col and to_tbl:
-                            fks_info.append(f"{from_col} -> {to_tbl}.{to_col or 'id'}")
-
-            col_str = ", ".join(cols_info) if cols_info else "no columns listed"
-            fk_str = f" | FK: {', '.join(fks_info)}" if fks_info else ""
-            lines.append(f"- Table `{tbl_name}`: [{col_str}]{fk_str}")
+                    for dim in m.dimensions:
+                        desc = f" - {dim.description}" if dim.description else ""
+                        lines.append(
+                            f"  * Dimension `{dim.name}`: {dim.title} [`{dim.sql_expression}` ({dim.data_type})]{desc}"
+                        )
+                # Any standalone metrics not bound to listed models
+                model_metric_names = {met.name for m in models for met in m.metrics}
+                standalone_metrics = [
+                    met for met in metrics if met.name not in model_metric_names
+                ]
+                for met in standalone_metrics:
+                    desc = f" - {met.description}" if met.description else ""
+                    lines.append(
+                        f"- Metric `{met.name}`: {met.title} [{met.aggregation} over `{met.sql_expression}` on `{met.table or 'unknown'}`]{desc}"
+                    )
 
     return "\n".join(lines)
 

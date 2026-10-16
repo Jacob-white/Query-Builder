@@ -623,6 +623,26 @@ def test_fastapi_async_connector_methods():
     assert raw_res.status_code == 200
     assert raw_res.json()["rows"] == [{"id": 1}]
 
+    # 4. /execute raw sql with tenant_id in payload is rejected (403)
+    raw_tenant_res = client.post(
+        "/execute", json={"sql": "SELECT * FROM items", "tenant_id": "tenant-abc"}
+    )
+    assert raw_tenant_res.status_code == 403
+    assert (
+        "Raw SQL execution is restricted when tenant isolation is enforced"
+        in raw_tenant_res.json()["detail"]
+    )
+
+    # 5. /export raw sql with tenant_id in payload is rejected (403)
+    export_tenant_res = client.post(
+        "/export", json={"sql": "SELECT * FROM items", "tenant_id": "tenant-abc"}
+    )
+    assert export_tenant_res.status_code == 403
+    assert (
+        "Raw SQL export is restricted when tenant isolation is enforced"
+        in export_tenant_res.json()["detail"]
+    )
+
 
 def test_django_helpers_simulation(sqlite_test_db):
     """Simulates internal Django integration helper functions without needing live Django installed."""
@@ -695,3 +715,247 @@ def test_django_helpers_simulation(sqlite_test_db):
     assert "users" in filtered["tables"]
     assert "internal_secrets" not in filtered["tables"]
     assert "orders" not in filtered["tables"]
+
+
+def test_fastapi_schema_cache_ttl(sqlite_test_db):
+    app = FastAPI()
+    router = create_query_builder_router(
+        connector=sqlite_test_db, schema_cache_ttl=60.0
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    # First fetch populates cache
+    resp1 = client.get("/schema")
+    assert resp1.status_code == 200
+    assert "tables" in resp1.json()
+
+    # Second fetch served from cache
+    resp2 = client.get("/schema")
+    assert resp2.status_code == 200
+
+    # Refresh bypasses cache
+    resp3 = client.get("/schema?refresh=true")
+    assert resp3.status_code == 200
+
+
+def test_fastapi_export_stream(sqlite_test_db):
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    # CSV stream
+    resp_csv = client.post(
+        "/export/stream",
+        json={
+            "spec": {"table": "users", "columns": ["id", "name"]},
+            "format": "csv",
+        },
+    )
+    assert resp_csv.status_code == 200
+    assert "text/csv" in resp_csv.headers["content-type"]
+    assert "id,name" in resp_csv.text
+
+    # JSON stream
+    resp_json = client.post(
+        "/export/stream",
+        json={
+            "spec": {"table": "users", "columns": ["id", "name"]},
+            "format": "json",
+        },
+    )
+    assert resp_json.status_code == 200
+    assert "application/json" in resp_json.headers["content-type"]
+    assert "Alice Alpha" in resp_json.text
+
+
+def test_fastapi_explain(sqlite_test_db):
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/explain",
+        json={
+            "spec": {"table": "users", "columns": ["id", "name"]},
+            "dialect": "sqlite",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "SELECT" in data["sql"]
+    assert "plan" in data
+    assert "performance" in data
+
+
+def test_fastapi_join_path(sqlite_test_db):
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/join-path",
+        json={
+            "active_tables": ["users"],
+            "target_table": "orders",
+            "schema_snapshot": {
+                "tables": {
+                    "users": {
+                        "columns": [{"name": "id", "data_type": "INTEGER"}],
+                        "foreign_keys": [],
+                    },
+                    "orders": {
+                        "columns": [{"name": "id"}, {"name": "user_id"}],
+                        "foreign_keys": [
+                            {
+                                "table": "orders",
+                                "column": "user_id",
+                                "foreign_table": "users",
+                                "foreign_column": "id",
+                            }
+                        ],
+                    },
+                }
+            },
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["connected"] is True
+    assert len(data["path"]) == 1
+
+
+def test_fastapi_nlq(sqlite_test_db):
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/nlq",
+        json={
+            "prompt": "Show all users",
+            "dialect": "sqlite",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["spec"]["table"] == "users"
+    assert "SELECT" in data["sql"]
+
+
+def test_fastapi_edge_branches(sqlite_test_db):
+    from unittest.mock import patch
+
+    from query_builder.exceptions import SecurityError
+
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    # 1. /export with stream=True
+    resp_stream = client.post(
+        "/export",
+        json={"spec": {"table": "users"}, "stream": True, "format": "csv"},
+    )
+    assert resp_stream.status_code == 200
+
+    # 2. /export/stream exceptions
+    with patch(
+        "query_builder.integrations.fastapi.stream_export_dataset",
+        side_effect=SecurityError("threat"),
+    ):
+        assert (
+            client.post("/export/stream", json={"spec": {"table": "users"}}).status_code
+            == 403
+        )
+    with patch(
+        "query_builder.integrations.fastapi.stream_export_dataset",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert (
+            client.post("/export/stream", json={"spec": {"table": "users"}}).status_code
+            == 400
+        )
+
+    # 3. /explain exceptions
+    with patch(
+        "query_builder.integrations.fastapi.estimate_plan_from_spec",
+        side_effect=SecurityError("threat"),
+    ):
+        assert (
+            client.post("/explain", json={"spec": {"table": "users"}}).status_code
+            == 403
+        )
+    with patch(
+        "query_builder.integrations.fastapi.estimate_plan_from_spec",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert (
+            client.post("/explain", json={"spec": {"table": "users"}}).status_code
+            == 400
+        )
+
+    # 4. /join-path with schema_snapshot=None and exceptions
+    resp_jp = client.post(
+        "/join-path",
+        json={"active_tables": ["users"], "target_table": "orders"},
+    )
+    assert resp_jp.status_code == 200
+    with patch(
+        "query_builder.integrations.fastapi.find_join_path",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert (
+            client.post(
+                "/join-path",
+                json={"active_tables": ["users"], "target_table": "orders"},
+            ).status_code
+            == 400
+        )
+
+    # 5. /nlq empty prompt and exceptions
+    assert client.post("/nlq", json={"prompt": ""}).status_code == 400
+    with patch("query_builder.ai.client.ask_ai", side_effect=SecurityError("threat")):
+        assert client.post("/nlq", json={"prompt": "users"}).status_code == 403
+    with patch("query_builder.ai.client.ask_ai", side_effect=RuntimeError("glitch")):
+        assert client.post("/nlq", json={"prompt": "users"}).status_code == 400
+
+
+def test_fastapi_http_exception_and_nlq_tenant_policy(sqlite_test_db):
+    from fastapi import HTTPException
+
+    def bad_tenant(r):
+        raise HTTPException(status_code=401, detail="Unauthorized tenant")
+
+    app = FastAPI()
+    router = create_query_builder_router(
+        connector=sqlite_test_db,
+        tenant_resolver=bad_tenant,
+        security=SecurityPolicy(enforce_tenant_isolation=True),
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    assert (
+        client.post("/export/stream", json={"spec": {"table": "users"}}).status_code
+        == 401
+    )
+    assert client.post("/nlq", json={"prompt": "users"}).status_code == 401
+
+    # NLQ with valid tenant isolation
+    app2 = FastAPI()
+    router2 = create_query_builder_router(
+        connector=sqlite_test_db,
+        tenant_resolver=lambda r: "tenant-1",
+        security=SecurityPolicy(enforce_tenant_isolation=True),
+    )
+    app2.include_router(router2)
+    client2 = TestClient(app2)
+    resp2 = client2.post("/nlq", json={"prompt": "Show users", "dialect": "sqlite"})
+    assert resp2.status_code == 200
+    assert "tenant_id" in resp2.json()["sql"]

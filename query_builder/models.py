@@ -7,7 +7,7 @@ joins, ordering, schema metadata, and validation results.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal
 
 
@@ -221,6 +221,45 @@ class JoinSpec:
     left_table: str | None = None
     left_col: str | None = None
     right_col: str | None = None
+    alias: str | None = None
+    id: str | None = None
+    leftTable: InitVar[str | None] = None
+    leftCol: InitVar[str | None] = None
+    rightCol: InitVar[str | None] = None
+
+    def __post_init__(
+        self,
+        leftTable: str | None = None,
+        leftCol: str | None = None,
+        rightCol: str | None = None,
+    ) -> None:
+        if leftTable is not None and self.left_table is None:
+            self.left_table = leftTable
+        if leftCol is not None and self.left_col is None:
+            self.left_col = leftCol
+        if rightCol is not None and self.right_col is None:
+            self.right_col = rightCol
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "table": self.table,
+            "type": self.type,
+        }
+        if self.on:
+            d["on"] = [
+                cond.__dict__ if hasattr(cond, "__dict__") else cond for cond in self.on
+            ]
+        if self.left_table is not None:
+            d["left_table"] = self.left_table
+        if self.left_col is not None:
+            d["left_col"] = self.left_col
+        if self.right_col is not None:
+            d["right_col"] = self.right_col
+        if self.alias is not None:
+            d["alias"] = self.alias
+        if self.id is not None:
+            d["id"] = self.id
+        return d
 
 
 @dataclass
@@ -233,8 +272,27 @@ class FilterSpec:
     table_prefix: str | None = None
     # Operator joining this filter to the previous one ('AND' | 'OR').
     combiner: Literal["AND", "OR"] | None = None
+    table: str | None = None
+    subquery: dict[str, Any] | QuerySpec | None = None
+    parenOpen: bool | int | str = False
+    parenClose: bool | int | str = False
+    id: str | None = None
+    tablePrefix: InitVar[str | None] = None
+    paren_open: InitVar[bool | int | str | None] = None
+    paren_close: InitVar[bool | int | str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        tablePrefix: str | None = None,
+        paren_open: bool | int | str | None = None,
+        paren_close: bool | int | str | None = None,
+    ) -> None:
+        if tablePrefix is not None and self.table_prefix is None:
+            self.table_prefix = tablePrefix
+        if paren_open is not None and not self.parenOpen:
+            self.parenOpen = paren_open
+        if paren_close is not None and not self.parenClose:
+            self.parenClose = paren_close
         if self.combiner is not None:
             norm = str(self.combiner).strip().upper()
             self.combiner = "OR" if norm == "OR" else "AND" if norm == "AND" else None
@@ -249,6 +307,20 @@ class FilterSpec:
             d["table_prefix"] = self.table_prefix
         if self.combiner is not None:
             d["combiner"] = self.combiner
+        if self.table is not None:
+            d["table"] = self.table
+        if self.id is not None:
+            d["id"] = self.id
+        if self.parenOpen:
+            d["parenOpen"] = self.parenOpen
+        if self.parenClose:
+            d["parenClose"] = self.parenClose
+        if self.subquery is not None:
+            d["subquery"] = (
+                self.subquery.to_dict()
+                if hasattr(self.subquery, "to_dict")
+                else self.subquery
+            )
         return d
 
 
@@ -269,6 +341,11 @@ class OrderBySpec:
     column: str
     direction: str = "asc"  # asc, desc
     table_prefix: str | None = None
+    tablePrefix: InitVar[str | None] = None
+
+    def __post_init__(self, tablePrefix: str | None = None) -> None:
+        if tablePrefix is not None and self.table_prefix is None:
+            self.table_prefix = tablePrefix
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -644,7 +721,7 @@ class SetOperationSpec:
 class QuerySpec:
     """Declarative specification for building and compiling a SQL query."""
 
-    table: str
+    table: str | dict[str, Any]
     columns: list[str | dict[str, Any]] = field(default_factory=list)
     joins: list[dict[str, Any] | JoinSpec] = field(default_factory=list)
     filters: list[dict[str, Any] | FilterSpec] = field(default_factory=list)
@@ -669,6 +746,9 @@ class QuerySpec:
     rollup: RollupSpec | None = None
     cube: CubeSpec | None = None
     pivot: PivotSpec | dict[str, Any] | None = None
+    metrics: list[str | dict[str, Any]] = field(default_factory=list)
+    semantic_model: dict[str, Any] | None = None
+    semantic_models: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if isinstance(self.vector_search, dict):
@@ -787,7 +867,352 @@ class QuerySpec:
                 if hasattr(self.pivot, "to_dict")
                 else dict(self.pivot)
             )
+        if self.metrics:
+            res["metrics"] = list(self.metrics)
+        if self.semantic_model is not None:
+            res["semantic_model"] = (
+                self.semantic_model.to_dict()
+                if hasattr(self.semantic_model, "to_dict")
+                else self.semantic_model
+            )
+        if self.semantic_models:
+            res["semantic_models"] = [
+                m.to_dict() if hasattr(m, "to_dict") else m
+                for m in self.semantic_models
+            ]
         return res
+
+    @classmethod
+    def json_schema(cls, strict: bool = False) -> dict[str, Any]:
+        """Returns the canonical JSON Schema for declarative QuerySpec dictionaries."""
+        schema: dict[str, Any] = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "QuerySpec",
+            "type": "object",
+            "description": "Declarative specification for building and compiling a SQL query.",
+            "required": ["table"],
+            "properties": {
+                "table": {
+                    "anyOf": [
+                        {"type": "string", "description": "Primary base table name."},
+                        {
+                            "type": "object",
+                            "description": "Derived table subquery specification.",
+                            "properties": {
+                                "subquery": {"type": "object"},
+                                "alias": {"type": "string"},
+                            },
+                        },
+                    ],
+                    "description": "Primary base table name or derived table subquery.",
+                },
+                "columns": {
+                    "type": "array",
+                    "description": "Columns, projections, or expressions to select.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "description": "Column name or expression",
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "column": {
+                                        "type": "string",
+                                        "description": "Column name",
+                                    },
+                                    "agg": {
+                                        "type": "string",
+                                        "enum": [
+                                            "count",
+                                            "count_distinct",
+                                            "sum",
+                                            "avg",
+                                            "min",
+                                            "max",
+                                        ],
+                                        "description": "Aggregate function",
+                                    },
+                                    "alias": {
+                                        "type": "string",
+                                        "description": "Output column alias",
+                                    },
+                                    "distinct": {
+                                        "type": "boolean",
+                                        "description": "Distinct aggregate flag",
+                                    },
+                                    "raw_expression": {
+                                        "type": "string",
+                                        "description": "Raw SQL expression",
+                                    },
+                                },
+                            },
+                        ]
+                    },
+                },
+                "joins": {
+                    "type": "array",
+                    "description": "Relational table joins.",
+                    "items": {
+                        "type": "object",
+                        "required": ["table"],
+                        "properties": {
+                            "table": {
+                                "type": "string",
+                                "description": "Target join table name",
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "INNER",
+                                    "LEFT",
+                                    "RIGHT",
+                                    "FULL",
+                                    "INNER JOIN",
+                                    "LEFT JOIN",
+                                    "RIGHT JOIN",
+                                    "FULL JOIN",
+                                ],
+                                "default": "LEFT JOIN",
+                                "description": "SQL join type",
+                            },
+                            "alias": {
+                                "type": "string",
+                                "description": "Join table alias",
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "Unique identifier for the join",
+                            },
+                            "left_table": {
+                                "type": "string",
+                                "description": "Source table on join left side",
+                            },
+                            "left_col": {
+                                "type": "string",
+                                "description": "Left join column",
+                            },
+                            "right_col": {
+                                "type": "string",
+                                "description": "Right join column",
+                            },
+                            "on": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "left": {"type": "string"},
+                                        "right": {"type": "string"},
+                                        "op": {"type": "string"},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                "filters": {
+                    "type": "array",
+                    "description": "WHERE clause filtering conditions.",
+                    "items": {
+                        "type": "object",
+                        "required": ["column", "op"],
+                        "properties": {
+                            "column": {
+                                "type": "string",
+                                "description": "Column name or expression",
+                            },
+                            "op": {
+                                "type": "string",
+                                "enum": [
+                                    "eq",
+                                    "neq",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "contains",
+                                    "starts_with",
+                                    "ends_with",
+                                    "in",
+                                    "not_in",
+                                    "between",
+                                    "is_null",
+                                    "is_not_null",
+                                ],
+                                "description": "Comparison filter operator",
+                            },
+                            "value": {"description": "Comparison value"},
+                            "tablePrefix": {
+                                "type": "string",
+                                "description": "Optional qualifying table name",
+                            },
+                            "table": {
+                                "type": "string",
+                                "description": "Explicit table name",
+                            },
+                            "subquery": {
+                                "type": "object",
+                                "description": "Subquery specification for IN/EXISTS filters",
+                            },
+                            "parenOpen": {
+                                "anyOf": [
+                                    {"type": "boolean"},
+                                    {"type": "integer"},
+                                    {"type": "string"},
+                                ],
+                                "description": "Open grouping parenthesis",
+                            },
+                            "parenClose": {
+                                "anyOf": [
+                                    {"type": "boolean"},
+                                    {"type": "integer"},
+                                    {"type": "string"},
+                                ],
+                                "description": "Close grouping parenthesis",
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "Unique identifier for the filter",
+                            },
+                        },
+                    },
+                },
+                "filter_join": {
+                    "type": "string",
+                    "enum": ["AND", "OR", "and", "or"],
+                    "default": "AND",
+                    "description": "Boolean conjunction connecting filters",
+                },
+                "having": {
+                    "type": "array",
+                    "description": "HAVING clause filtering conditions.",
+                    "items": {
+                        "type": "object",
+                        "required": ["column", "op"],
+                        "properties": {
+                            "column": {
+                                "type": "string",
+                                "description": "Aggregated column name or alias",
+                            },
+                            "agg": {
+                                "type": "string",
+                                "enum": [
+                                    "count",
+                                    "count_distinct",
+                                    "sum",
+                                    "avg",
+                                    "min",
+                                    "max",
+                                ],
+                                "description": "Aggregate function",
+                            },
+                            "op": {
+                                "type": "string",
+                                "enum": [
+                                    "eq",
+                                    "neq",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "=",
+                                    "!=",
+                                    ">",
+                                    ">=",
+                                    "<",
+                                    "<=",
+                                ],
+                                "description": "Comparison operator",
+                            },
+                            "value": {"description": "Comparison value"},
+                        },
+                    },
+                },
+                "order_by": {
+                    "type": "array",
+                    "description": "Sorting orders.",
+                    "items": {
+                        "type": "object",
+                        "required": ["column"],
+                        "properties": {
+                            "column": {
+                                "type": "string",
+                                "description": "Column name to sort on",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["ASC", "DESC", "asc", "desc"],
+                                "default": "ASC",
+                                "description": "Sort direction",
+                            },
+                            "tablePrefix": {"type": "string"},
+                            "table": {"type": "string"},
+                            "id": {"type": "string"},
+                        },
+                    },
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "Maximum number of rows to return",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Row pagination offset",
+                },
+                "distinct": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether to enforce SELECT DISTINCT",
+                },
+                "grouping_type": {
+                    "type": "string",
+                    "enum": ["standard", "rollup", "cube", "grouping_sets"],
+                    "description": "Analytical grouping extension",
+                },
+                "grouping_sets": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "tenant_id": {
+                    "description": "Tenant ID for multi-tenant isolation",
+                },
+                "metrics": {
+                    "type": "array",
+                    "description": "Semantic metrics to expand and project.",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "object"},
+                        ]
+                    },
+                },
+                "semantic_model": {
+                    "type": "object",
+                    "description": "Semantic model containing metrics and dimensions definitions.",
+                },
+                "semantic_models": {
+                    "type": "array",
+                    "description": "List of semantic models.",
+                    "items": {"type": "object"},
+                },
+            },
+        }
+        if strict:
+            schema["additionalProperties"] = False
+        return schema
+
+    @classmethod
+    def builder(cls, table: str) -> Any:
+        """Shorthand creating a chainable FluentQuery builder for the primary table."""
+        from query_builder.fluent import FluentQuery
+
+        return FluentQuery(table)
 
 
 @dataclass
