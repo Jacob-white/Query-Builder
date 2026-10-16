@@ -348,9 +348,29 @@ export type SpecInput<Schema = DatabaseSchemaDefinition> =
   | Partial<QuerySpec<Schema>>
   | SpecStatePartial<Schema>;
 
+const JOIN_KINDS = new Set(["INNER", "LEFT", "RIGHT", "FULL"]);
+
+/**
+ * A join kind in the form the visual builder matches (`"INNER JOIN"`, `"LEFT JOIN"`, ...). The compiler and the
+ * server write the bare kind (`"INNER"`), in any case and optionally with `OUTER` or `JOIN`; a kind that is none of
+ * the four is returned as written, and a missing one is a left join. Read word by word, not with a pattern, so no
+ * input can make it slow.
+ */
+export function toBuilderJoinType(type: string | undefined): string {
+  if (type === undefined || type.trim() === "") return "LEFT JOIN";
+  const words = type.trim().toUpperCase().split(/\s+/);
+  if (words[words.length - 1] === "JOIN") words.pop();
+  if (words[words.length - 1] === "OUTER") words.pop();
+  return words.length === 1 && JOIN_KINDS.has(words[0]) ? `${words[0]} JOIN` : type;
+}
+
 /**
  * Converts a serialized spec (snake_case QuerySpec, camelCase state shape or saved preset) into a
  * partial headless-hook state. Keys absent from the input stay absent.
+ *
+ * A spec with no `activeTables` activates its base table and every joined table, because the visual builder offers a
+ * table's columns only while the table is active. Join kinds are converted to the builder's own form
+ * (see {@link toBuilderJoinType}).
  */
 export function specToState<Schema = DatabaseSchemaDefinition>(
   input: SpecInput<Schema>,
@@ -366,7 +386,8 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
   if (Array.isArray(s.activeTables)) {
     partial.activeTables = s.activeTables as SchemaTableNames<Schema>[];
   } else if (primary) {
-    partial.activeTables = [primary as SchemaTableNames<Schema>];
+    const joined = Array.isArray(s.joins) ? s.joins.map((j) => j.table).filter(Boolean) : [];
+    partial.activeTables = [...new Set([primary, ...joined])] as SchemaTableNames<Schema>[];
   }
 
   if (s.selectedColumns && typeof s.selectedColumns === "object") {
@@ -433,7 +454,7 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
 
       return {
         id: j.id || `join_${idx + 1}`,
-        type: (j.type || "LEFT JOIN") as VisualJoin<Schema>["type"],
+        type: toBuilderJoinType(j.type) as VisualJoin<Schema>["type"],
         left_table: leftTable as SchemaTableNames<Schema> | undefined,
         table: j.table as SchemaTableNames<Schema>,
         left_col: leftCol,

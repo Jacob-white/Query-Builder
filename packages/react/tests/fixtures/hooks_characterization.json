@@ -8002,7 +8002,8 @@
     "state": {
      "primaryTable": "orders",
      "activeTables": [
-      "orders"
+      "orders",
+      "users"
      ],
      "selectedColumns": {
       "orders.id": {
@@ -8023,7 +8024,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8079,131 +8080,7 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
-       "left_table": "orders",
-       "left_col": "user_id",
-       "right_col": "id",
-       "on": [
-        {
-         "left": "orders.user_id",
-         "right": "users.id"
-        }
-       ]
-      }
-     ],
-     "filters": [
-      {
-       "column": "total",
-       "op": "gt",
-       "value": 5,
-       "tablePrefix": "orders",
-       "combiner": "OR"
-      },
-      {
-       "column": "name",
-       "op": "=",
-       "value": "a",
-       "tablePrefix": "users",
-       "combiner": "OR"
-      }
-     ],
-     "filter_join": "OR",
-     "order_by": [
-      {
-       "column": "orders.total",
-       "direction": "DESC"
-      }
-     ],
-     "distinct": true,
-     "limit": 7
-    },
-    "canUndo": true,
-    "canRedo": false,
-    "pastLen": 1,
-    "futureLen": 0
-   },
-   {
-    "state": {
-     "primaryTable": "orders",
-     "activeTables": [
-      "orders"
-     ],
-     "selectedColumns": {
-      "orders.id": {
-       "table": "orders",
-       "name": "id"
-      },
-      "orders.total": {
-       "table": "orders",
-       "name": "total",
-       "aggregate": "sum",
-       "alias": "t"
-      }
-     },
-     "orderedProjectionKeys": [
-      "orders.id",
-      "orders.total"
-     ],
-     "joins": [
-      {
-       "id": "join_1",
-       "type": "inner",
-       "left_table": "orders",
-       "table": "users",
-       "left_col": "user_id",
-       "right_col": "id"
-      }
-     ],
-     "filters": [
-      {
-       "id": "filter_1",
-       "combiner": "OR",
-       "tablePrefix": "orders",
-       "column": "total",
-       "operator": "gt",
-       "value": 5
-      },
-      {
-       "id": "filter_2",
-       "combiner": "OR",
-       "tablePrefix": "users",
-       "column": "name",
-       "operator": "=",
-       "value": "a"
-      }
-     ],
-     "sorts": [
-      {
-       "id": "sort_1",
-       "tablePrefix": "orders",
-       "column": "total",
-       "direction": "DESC"
-      }
-     ],
-     "isDistinct": true,
-     "limit": 7,
-     "offset": 0,
-     "dialect": "postgres",
-     "isDirty": false,
-     "vectorSearch": null,
-     "hybridSearch": null,
-     "ctes": [],
-     "windowFunctions": []
-    },
-    "spec": {
-     "table": "orders",
-     "columns": [
-      "orders.id",
-      {
-       "column": "orders.total",
-       "agg": "sum",
-       "alias": "t"
-      }
-     ],
-     "joins": [
-      {
-       "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -8251,7 +8128,7 @@
      "primaryTable": "orders",
      "activeTables": [
       "orders",
-      "products"
+      "users"
      ],
      "selectedColumns": {
       "orders.id": {
@@ -8272,131 +8149,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
-       "left_table": "orders",
-       "table": "users",
-       "left_col": "user_id",
-       "right_col": "id"
-      }
-     ],
-     "filters": [
-      {
-       "id": "filter_1",
-       "combiner": "OR",
-       "tablePrefix": "orders",
-       "column": "total",
-       "operator": "gt",
-       "value": 5
-      },
-      {
-       "id": "filter_2",
-       "combiner": "OR",
-       "tablePrefix": "users",
-       "column": "name",
-       "operator": "=",
-       "value": "a"
-      }
-     ],
-     "sorts": [
-      {
-       "id": "sort_1",
-       "tablePrefix": "orders",
-       "column": "total",
-       "direction": "DESC"
-      }
-     ],
-     "isDistinct": true,
-     "limit": 7,
-     "offset": 0,
-     "dialect": "postgres",
-     "isDirty": true,
-     "vectorSearch": null,
-     "hybridSearch": null,
-     "ctes": [],
-     "windowFunctions": []
-    },
-    "spec": {
-     "table": "orders",
-     "columns": [
-      "orders.id",
-      {
-       "column": "orders.total",
-       "agg": "sum",
-       "alias": "t"
-      }
-     ],
-     "joins": [
-      {
-       "table": "users",
-       "type": "inner",
-       "left_table": "orders",
-       "left_col": "user_id",
-       "right_col": "id",
-       "on": [
-        {
-         "left": "orders.user_id",
-         "right": "users.id"
-        }
-       ]
-      }
-     ],
-     "filters": [
-      {
-       "column": "total",
-       "op": "gt",
-       "value": 5,
-       "tablePrefix": "orders",
-       "combiner": "OR"
-      },
-      {
-       "column": "name",
-       "op": "=",
-       "value": "a",
-       "tablePrefix": "users",
-       "combiner": "OR"
-      }
-     ],
-     "filter_join": "OR",
-     "order_by": [
-      {
-       "column": "orders.total",
-       "direction": "DESC"
-      }
-     ],
-     "distinct": true,
-     "limit": 7
-    },
-    "canUndo": true,
-    "canRedo": false,
-    "pastLen": 2,
-    "futureLen": 0
-   },
-   {
-    "state": {
-     "primaryTable": "orders",
-     "activeTables": [
-      "orders"
-     ],
-     "selectedColumns": {
-      "orders.id": {
-       "table": "orders",
-       "name": "id"
-      },
-      "orders.total": {
-       "table": "orders",
-       "name": "total",
-       "aggregate": "sum",
-       "alias": "t"
-      }
-     },
-     "orderedProjectionKeys": [
-      "orders.id",
-      "orders.total"
-     ],
-     "joins": [
-      {
-       "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8452,7 +8205,258 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
+       "left_table": "orders",
+       "left_col": "user_id",
+       "right_col": "id",
+       "on": [
+        {
+         "left": "orders.user_id",
+         "right": "users.id"
+        }
+       ]
+      }
+     ],
+     "filters": [
+      {
+       "column": "total",
+       "op": "gt",
+       "value": 5,
+       "tablePrefix": "orders",
+       "combiner": "OR"
+      },
+      {
+       "column": "name",
+       "op": "=",
+       "value": "a",
+       "tablePrefix": "users",
+       "combiner": "OR"
+      }
+     ],
+     "filter_join": "OR",
+     "order_by": [
+      {
+       "column": "orders.total",
+       "direction": "DESC"
+      }
+     ],
+     "distinct": true,
+     "limit": 7
+    },
+    "canUndo": true,
+    "canRedo": false,
+    "pastLen": 1,
+    "futureLen": 0
+   },
+   {
+    "state": {
+     "primaryTable": "orders",
+     "activeTables": [
+      "orders",
+      "users",
+      "products"
+     ],
+     "selectedColumns": {
+      "orders.id": {
+       "table": "orders",
+       "name": "id"
+      },
+      "orders.total": {
+       "table": "orders",
+       "name": "total",
+       "aggregate": "sum",
+       "alias": "t"
+      }
+     },
+     "orderedProjectionKeys": [
+      "orders.id",
+      "orders.total"
+     ],
+     "joins": [
+      {
+       "id": "join_1",
+       "type": "INNER JOIN",
+       "left_table": "orders",
+       "table": "users",
+       "left_col": "user_id",
+       "right_col": "id"
+      }
+     ],
+     "filters": [
+      {
+       "id": "filter_1",
+       "combiner": "OR",
+       "tablePrefix": "orders",
+       "column": "total",
+       "operator": "gt",
+       "value": 5
+      },
+      {
+       "id": "filter_2",
+       "combiner": "OR",
+       "tablePrefix": "users",
+       "column": "name",
+       "operator": "=",
+       "value": "a"
+      }
+     ],
+     "sorts": [
+      {
+       "id": "sort_1",
+       "tablePrefix": "orders",
+       "column": "total",
+       "direction": "DESC"
+      }
+     ],
+     "isDistinct": true,
+     "limit": 7,
+     "offset": 0,
+     "dialect": "postgres",
+     "isDirty": true,
+     "vectorSearch": null,
+     "hybridSearch": null,
+     "ctes": [],
+     "windowFunctions": []
+    },
+    "spec": {
+     "table": "orders",
+     "columns": [
+      "orders.id",
+      {
+       "column": "orders.total",
+       "agg": "sum",
+       "alias": "t"
+      }
+     ],
+     "joins": [
+      {
+       "table": "users",
+       "type": "INNER JOIN",
+       "left_table": "orders",
+       "left_col": "user_id",
+       "right_col": "id",
+       "on": [
+        {
+         "left": "orders.user_id",
+         "right": "users.id"
+        }
+       ]
+      }
+     ],
+     "filters": [
+      {
+       "column": "total",
+       "op": "gt",
+       "value": 5,
+       "tablePrefix": "orders",
+       "combiner": "OR"
+      },
+      {
+       "column": "name",
+       "op": "=",
+       "value": "a",
+       "tablePrefix": "users",
+       "combiner": "OR"
+      }
+     ],
+     "filter_join": "OR",
+     "order_by": [
+      {
+       "column": "orders.total",
+       "direction": "DESC"
+      }
+     ],
+     "distinct": true,
+     "limit": 7
+    },
+    "canUndo": true,
+    "canRedo": false,
+    "pastLen": 2,
+    "futureLen": 0
+   },
+   {
+    "state": {
+     "primaryTable": "orders",
+     "activeTables": [
+      "orders",
+      "users"
+     ],
+     "selectedColumns": {
+      "orders.id": {
+       "table": "orders",
+       "name": "id"
+      },
+      "orders.total": {
+       "table": "orders",
+       "name": "total",
+       "aggregate": "sum",
+       "alias": "t"
+      }
+     },
+     "orderedProjectionKeys": [
+      "orders.id",
+      "orders.total"
+     ],
+     "joins": [
+      {
+       "id": "join_1",
+       "type": "INNER JOIN",
+       "left_table": "orders",
+       "table": "users",
+       "left_col": "user_id",
+       "right_col": "id"
+      }
+     ],
+     "filters": [
+      {
+       "id": "filter_1",
+       "combiner": "OR",
+       "tablePrefix": "orders",
+       "column": "total",
+       "operator": "gt",
+       "value": 5
+      },
+      {
+       "id": "filter_2",
+       "combiner": "OR",
+       "tablePrefix": "users",
+       "column": "name",
+       "operator": "=",
+       "value": "a"
+      }
+     ],
+     "sorts": [
+      {
+       "id": "sort_1",
+       "tablePrefix": "orders",
+       "column": "total",
+       "direction": "DESC"
+      }
+     ],
+     "isDistinct": true,
+     "limit": 7,
+     "offset": 0,
+     "dialect": "postgres",
+     "isDirty": false,
+     "vectorSearch": null,
+     "hybridSearch": null,
+     "ctes": [],
+     "windowFunctions": []
+    },
+    "spec": {
+     "table": "orders",
+     "columns": [
+      "orders.id",
+      {
+       "column": "orders.total",
+       "agg": "sum",
+       "alias": "t"
+      }
+     ],
+     "joins": [
+      {
+       "table": "users",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -8544,7 +8548,8 @@
     "state": {
      "primaryTable": "orders",
      "activeTables": [
-      "orders"
+      "orders",
+      "users"
      ],
      "selectedColumns": {
       "orders.id": {
@@ -8565,7 +8570,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8621,7 +8626,7 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -8669,6 +8674,7 @@
      "primaryTable": "orders",
      "activeTables": [
       "orders",
+      "users",
       "products"
      ],
      "selectedColumns": {
@@ -8690,7 +8696,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8746,7 +8752,7 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -8794,6 +8800,7 @@
      "primaryTable": "orders",
      "activeTables": [
       "orders",
+      "users",
       "products"
      ],
      "selectedColumns": {
@@ -8815,7 +8822,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8871,7 +8878,7 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -8919,6 +8926,7 @@
      "primaryTable": "orders",
      "activeTables": [
       "orders",
+      "users",
       "products"
      ],
      "selectedColumns": {
@@ -8940,7 +8948,7 @@
      "joins": [
       {
        "id": "join_1",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "table": "users",
        "left_col": "user_id",
@@ -8996,7 +9004,7 @@
      "joins": [
       {
        "table": "users",
-       "type": "inner",
+       "type": "INNER JOIN",
        "left_table": "orders",
        "left_col": "user_id",
        "right_col": "id",
@@ -10931,7 +10939,8 @@
    "state": {
     "primaryTable": "orders",
     "activeTables": [
-     "orders"
+     "orders",
+     "users"
     ],
     "selectedColumns": {
      "orders.id": {
@@ -10952,7 +10961,7 @@
     "joins": [
      {
       "id": "join_1",
-      "type": "inner",
+      "type": "INNER JOIN",
       "left_table": "orders",
       "table": "users",
       "left_col": "user_id",
@@ -11008,7 +11017,7 @@
     "joins": [
      {
       "table": "users",
-      "type": "inner",
+      "type": "INNER JOIN",
       "left_table": "orders",
       "left_col": "user_id",
       "right_col": "id",
@@ -11200,14 +11209,17 @@
    "state": {
     "primaryTable": "orders",
     "activeTables": [
-     "orders"
+     "orders",
+     "users",
+     "products",
+     "isolated"
     ],
     "selectedColumns": {},
     "orderedProjectionKeys": [],
     "joins": [
      {
       "id": "join_1",
-      "type": "left",
+      "type": "LEFT JOIN",
       "table": "users",
       "left_col": "user_id",
       "right_col": "id"
@@ -11246,7 +11258,7 @@
     "joins": [
      {
       "table": "users",
-      "type": "left",
+      "type": "LEFT JOIN",
       "left_table": "orders",
       "left_col": "user_id",
       "right_col": "id",
@@ -11590,7 +11602,8 @@
    "specToState": {
     "primaryTable": "orders",
     "activeTables": [
-     "orders"
+     "orders",
+     "users"
     ],
     "selectedColumns": {
      "orders.id": {
@@ -11611,7 +11624,7 @@
     "joins": [
      {
       "id": "join_1",
-      "type": "inner",
+      "type": "INNER JOIN",
       "left_table": "orders",
       "table": "users",
       "left_col": "user_id",
@@ -11660,7 +11673,7 @@
     "joins": [
      {
       "table": "users",
-      "type": "inner",
+      "type": "INNER JOIN",
       "left_table": "orders",
       "left_col": "user_id",
       "right_col": "id",
@@ -11698,8 +11711,8 @@
     "distinct": true,
     "limit": 7
    },
-   "sqlPostgres": "SELECT DISTINCT \"orders\".\"id\", SUM(\"orders\".\"total\") AS \"t\"\nFROM \"orders\"\nLEFT JOIN \"users\" ON \"orders\".\"user_id\" = \"users\".\"id\"\nWHERE \"users\".\"name\" = 'a'\nORDER BY \"orders\".\"total\" DESC\nLIMIT 7;",
-   "sqlMysql": "SELECT DISTINCT `orders`.`id`, SUM(`orders`.`total`) AS `t`\nFROM `orders`\nLEFT JOIN `users` ON `orders`.`user_id` = `users`.`id`\nWHERE `users`.`name` = 'a'\nORDER BY `orders`.`total` DESC\nLIMIT 7;"
+   "sqlPostgres": "SELECT DISTINCT \"orders\".\"id\", SUM(\"orders\".\"total\") AS \"t\"\nFROM \"orders\"\nINNER JOIN \"users\" ON \"orders\".\"user_id\" = \"users\".\"id\"\nWHERE \"users\".\"name\" = 'a'\nORDER BY \"orders\".\"total\" DESC\nLIMIT 7;",
+   "sqlMysql": "SELECT DISTINCT `orders`.`id`, SUM(`orders`.`total`) AS `t`\nFROM `orders`\nINNER JOIN `users` ON `orders`.`user_id` = `users`.`id`\nWHERE `users`.`name` = 'a'\nORDER BY `orders`.`total` DESC\nLIMIT 7;"
   },
   "stateShaped": {
    "specToState": {
@@ -11826,12 +11839,15 @@
    "specToState": {
     "primaryTable": "orders",
     "activeTables": [
-     "orders"
+     "orders",
+     "users",
+     "products",
+     "isolated"
     ],
     "joins": [
      {
       "id": "join_1",
-      "type": "left",
+      "type": "LEFT JOIN",
       "table": "users",
       "left_col": "user_id",
       "right_col": "id"
@@ -11859,7 +11875,7 @@
     "joins": [
      {
       "table": "users",
-      "type": "left",
+      "type": "LEFT JOIN",
       "left_table": "orders",
       "left_col": "user_id",
       "right_col": "id",

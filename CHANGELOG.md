@@ -27,6 +27,10 @@
   join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page.
 
 ### Fixed
+- **React `loadSpec` / `specToState`**: join kinds in the compiler's form (`"INNER"`) are converted to the builder's form
+  (`"INNER JOIN"`), so a loaded join is highlighted and compiles back with the same kind (a join loaded as `"inner"`
+  used to compile as `LEFT JOIN`); a spec with no `activeTables` now activates its joined tables as well as its base
+  table, so their column pickers are not blank. See `packages/react/CHANGELOG.md`.
 - **`HavingSpec` and `OrderBySpec` Identifier & Key Parity**: Added `table_prefix`, `table`, `id`, and camelCase `tablePrefix` parity to `HavingSpec` and `OrderBySpec`, ensuring compiler validation accepts valid table qualifiers and prefixes across all clause specs.
 - **`QuerySpec.json_schema()` Synchronization**: Fully synchronized `QuerySpec.json_schema()` with compiler capabilities, adding missing top-level keys (`vector_search`, `hybrid_search`, `ctes`, `window_functions`, `set_operations`, `rollup`, `cube`, `pivot`), column keys (`name`, `expression`, `format`, `case_when`, `masked`, `masking_strategy`, etc.), and all 41 built-in filter operators.
 - **Analytical Dialect LIKE Escape Alignment**: Configured `like_escape_char = "\\"` on `BigQueryDialect`, `DatabricksDialect`, and `RedshiftDialect` ensuring consistent escaping behavior across warehouse query generation.

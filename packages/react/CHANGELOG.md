@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+- **Loading a spec into the builder (`loadSpec`, `specToState`)** now matches what the Join step and the column pickers
+  expect:
+  - A join kind in the compiler's form (`"INNER"`, `"left"`, `"FULL OUTER"`, ...) is converted to the builder's form
+    (`"INNER JOIN"`, ...). Before, the kind was copied as written, so no kind was highlighted, and a join loaded as
+    `"inner"` compiled back to SQL as a `LEFT JOIN`.
+  - A spec with no `activeTables` now activates its base table **and every joined table**. Before, only the base table
+    was active, and the builder offers a table's columns only while the table is active, so a joined table's pickers were
+    blank. A spec that lists `activeTables` is unchanged.
+  - A join that names no columns still loads as `id = id` (unchanged, for compatibility).
+
 ### Query UI helpers (new, pure, no React)
 - New exports for building a query UI on top of the package, extracted from a host application's Query Builder page and
   tested on their own (`src/utils/queryHelpers`):
