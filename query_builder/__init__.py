@@ -597,6 +597,7 @@ from query_builder.schema import (
     format_schema_tree,
     normalize_schema_snapshot,
 )
+from query_builder.schema_audit import SchemaAudit, audit_schema
 from query_builder.schema_converters import (
     to_drizzle_schema,
     to_prisma_schema,
@@ -1191,6 +1192,8 @@ __all__ = [
     "validate_network_target",
     "validate_sql_ast",
     "check_columns",
+    "audit_schema",
+    "SchemaAudit",
     "SpecColumnError",
     "FluentQuery",
     "query",

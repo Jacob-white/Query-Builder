@@ -24,6 +24,11 @@
   `.available`). Covers the selected columns, filters and sort; leaves expressions, CASE columns, `*`, aliases,
   sub-queries and tables the schema does not list alone. Meant for callers that send the message back to a language
   model for a repair as well as for a person.
+- **`audit_schema(schema)` / `SchemaAudit` (`query_builder.schema_audit`) and `query-builder schema --audit`**: list the
+  gaps in what a schema tells a query builder or an AI helper: `..._id` columns named after a table (singular or plural)
+  with no declared foreign key or relationship, id columns that name no table, and tables and columns with no description.
+  Reads only names, links and descriptions. `--audit` exits 1 when a link is missing, so it can gate a build;
+  `--known-not-link TABLE.COLUMN` and `--ignore-table-prefix PREFIX` keep a host's own conventions out of the report.
 - **Unified Agent Tools & Model Context Protocol (MCP)**: Operator-pinned secure mode (`--lock-connection`), live schema catalog resources (`query-builder://schema/catalog`, `queryspec`, `semantic/metrics`), and tool calling support for `find_join_path`, `explain_and_advise`, and `execute_query`.
 - **Autonomous Self-Healing Query Engine**: Automatic operator synonym mapping (`==` -> `eq`, `!=` -> `neq`, `like` -> `contains`), cross-table column resolution, table typo fuzzy matching, and iterative repair prompt generation.
 - **Semantic Layer Grounding & `llms.txt`**: Metric and dimension expansion for NLQ translation, schema grounding, and standard `llms.txt` documentation manifest generator (`scripts/gen_llms_txt.py`).
