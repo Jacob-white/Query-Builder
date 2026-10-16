@@ -33,8 +33,13 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 from rest_framework.test import APIRequestFactory
 
-from query_builder.capabilities import EngineCapabilities, FeatureTier
+from query_builder.capabilities import (
+    DisabledFeatureError,
+    EngineCapabilities,
+    FeatureTier,
+)
 from query_builder.connectors.sqlite import SQLiteConnector
+from query_builder.exceptions import SecurityError
 from query_builder.integrations.django import (
     _exec_conn_method,
     _filter_schema_tables,
@@ -1126,3 +1131,523 @@ def test_django_401_does_not_echo_os_permission_error_text(sqlite_conn):
     resp = post("query-builder-execute", {"spec": {"table": "users"}})
     assert resp.status_code == 401
     assert "TenantContext could not be resolved" in resp.content.decode()
+
+
+def test_django_schema_cache_ttl(sqlite_conn):
+    rf = RequestFactory()
+    urls = create_django_urls(sqlite_conn, schema_cache_ttl=60.0)
+    url_map = {u.name: u.callback for u in urls}
+
+    # Initial fetch
+    resp1 = url_map["query-builder-schema"](rf.get("/schema/"))
+    assert resp1.status_code == 200
+    data1 = json.loads(resp1.content)
+    assert "tables" in data1
+
+    # Cached fetch
+    resp2 = url_map["query-builder-schema"](rf.get("/schema/"))
+    assert resp2.status_code == 200
+
+    # Refresh fetch
+    resp3 = url_map["query-builder-schema"](rf.get("/schema/?refresh=true"))
+    assert resp3.status_code == 200
+
+
+def test_django_new_endpoints(sqlite_conn):
+    rf = RequestFactory()
+    urls = create_django_urls(
+        sqlite_conn,
+        security={
+            "allowed_tables": ["users", "orders"],
+            "enforce_tenant_isolation": False,
+        },
+    )
+    url_map = {u.name: u.callback for u in urls}
+
+    # 1. Explain
+    req = rf.post(
+        "/explain/",
+        data=json.dumps({"spec": {"table": "users", "columns": ["id"]}}),
+        content_type="application/json",
+    )
+    resp = url_map["query-builder-explain"](req)
+    assert resp.status_code == 200
+    explain_data = json.loads(resp.content)
+    assert "sql" in explain_data
+    assert "plan" in explain_data
+    assert "performance" in explain_data
+
+    # Explain missing table error
+    bad_req = rf.post(
+        "/explain/",
+        data=json.dumps({"spec": {}}),
+        content_type="application/json",
+    )
+    bad_resp = url_map["query-builder-explain"](bad_req)
+    assert bad_resp.status_code == 400
+
+    # 2. Join Path
+    schema_snap = {
+        "tables": {
+            "users": {"columns": ["id", "name"]},
+            "orders": {
+                "columns": ["id", "user_id"],
+                "foreign_keys": [
+                    {
+                        "column": "user_id",
+                        "target_table": "users",
+                        "target_column": "id",
+                    }
+                ],
+            },
+        }
+    }
+    jp_req = rf.post(
+        "/join-path/",
+        data=json.dumps(
+            {
+                "active_tables": ["orders"],
+                "target_table": "users",
+                "schema": schema_snap,
+            }
+        ),
+        content_type="application/json",
+    )
+    jp_resp = url_map["query-builder-join-path"](jp_req)
+    assert jp_resp.status_code == 200
+    jp_data = json.loads(jp_resp.content)
+    assert jp_data["connected"] is True
+    assert jp_data["target_table"] == "users"
+
+    # 3. NLQ
+    nlq_req = rf.post(
+        "/nlq/",
+        data=json.dumps(
+            {"prompt": "users with id greater than 5", "schema": schema_snap}
+        ),
+        content_type="application/json",
+    )
+    nlq_resp = url_map["query-builder-nlq"](nlq_req)
+    assert nlq_resp.status_code == 200
+    nlq_data = json.loads(nlq_resp.content)
+    assert "spec" in nlq_data
+    assert "sql" in nlq_data
+
+    # NLQ empty prompt error
+    bad_nlq = rf.post(
+        "/nlq/",
+        data=json.dumps({"prompt": ""}),
+        content_type="application/json",
+    )
+    bad_nlq_resp = url_map["query-builder-nlq"](bad_nlq)
+    assert bad_nlq_resp.status_code == 400
+
+    # 4. Export Stream
+    stream_req = rf.post(
+        "/export/stream/",
+        data=json.dumps(
+            {
+                "rows": [{"id": 1, "name": "Alice"}],
+                "columns": ["id", "name"],
+                "format": "csv",
+            }
+        ),
+        content_type="application/json",
+    )
+    stream_resp = url_map["query-builder-export-stream"](stream_req)
+    assert stream_resp.status_code == 200
+    assert "text/csv" in stream_resp["Content-Type"]
+    content = b"".join(stream_resp.streaming_content).decode()
+    assert "Alice" in content
+
+    # Export with stream=True flag
+    stream_flag_req = rf.post(
+        "/export/",
+        data=json.dumps(
+            {
+                "rows": [{"id": 2, "name": "Bob"}],
+                "columns": ["id", "name"],
+                "format": "csv",
+                "stream": True,
+            }
+        ),
+        content_type="application/json",
+    )
+    stream_flag_resp = url_map["query-builder-export"](stream_flag_req)
+    assert stream_flag_resp.status_code == 200
+    content2 = b"".join(stream_flag_resp.streaming_content).decode()
+    assert "Bob" in content2
+
+
+def test_drf_new_views(sqlite_conn):
+    rf = APIRequestFactory()
+    views = create_drf_views(
+        sqlite_conn,
+        security={
+            "allowed_tables": ["users", "orders"],
+            "enforce_tenant_isolation": False,
+        },
+    )
+
+    # 1. ExplainView
+    req = rf.post(
+        "/explain/",
+        data={"spec": {"table": "users", "columns": ["id"]}},
+        format="json",
+    )
+    resp = views["ExplainView"].as_view()(req)
+    assert resp.status_code == 200
+    assert "plan" in resp.data
+
+    # 2. JoinPathView
+    schema_snap = {
+        "tables": {
+            "users": {"columns": ["id"]},
+            "orders": {
+                "columns": ["id", "user_id"],
+                "foreign_keys": [
+                    {
+                        "column": "user_id",
+                        "target_table": "users",
+                        "target_column": "id",
+                    }
+                ],
+            },
+        }
+    }
+    jp_req = rf.post(
+        "/join-path/",
+        data={
+            "active_tables": ["orders"],
+            "target_table": "users",
+            "schema": schema_snap,
+        },
+        format="json",
+    )
+    jp_resp = views["JoinPathView"].as_view()(jp_req)
+    assert jp_resp.status_code == 200
+    assert jp_resp.data["connected"] is True
+
+    # 3. NlqView
+    nlq_req = rf.post(
+        "/nlq/",
+        data={"prompt": "select users", "schema": schema_snap},
+        format="json",
+    )
+    nlq_resp = views["NlqView"].as_view()(nlq_req)
+    assert nlq_resp.status_code == 200
+    assert "spec" in nlq_resp.data
+
+    # 4. ExportStreamView
+    exp_req = rf.post(
+        "/export/stream/",
+        data={
+            "rows": [{"id": 1, "name": "Alice"}],
+            "columns": ["id", "name"],
+            "format": "json",
+        },
+        format="json",
+    )
+    exp_resp = views["ExportStreamView"].as_view()(exp_req)
+    assert exp_resp.status_code == 200
+    body = b"".join(exp_resp.streaming_content).decode()
+    assert "Alice" in body
+
+
+def test_django_drf_ninja_raw_sql_tenant_isolation_and_ast_safety(sqlite_conn):
+    """Verify raw SQL is rejected when tenant isolation is specified in payload/context, and AST safety is enforced in Ninja."""
+    from ninja.errors import HttpError
+
+    rf = APIRequestFactory()
+    django_rf = RequestFactory()
+
+    # 1. Standard Django views: raw SQL with tenant_id or context in body is rejected (403)
+    urls = create_django_urls(sqlite_conn, security=None)
+    exec_view = [u for u in urls if u.pattern._route == "execute/"][0].callback
+
+    req_sql_tenant = django_rf.post(
+        "/execute/",
+        data=json.dumps({"sql": "SELECT 1", "tenant_id": "tenant-xyz"}),
+        content_type="application/json",
+    )
+    resp = exec_view(req_sql_tenant)
+    assert resp.status_code == 403
+    assert (
+        "Raw SQL execution restricted under tenant isolation" in resp.content.decode()
+    )
+
+    req_sql_ctx = django_rf.post(
+        "/execute/",
+        data=json.dumps({"sql": "SELECT 1", "context": {"tenant_id": "tenant-xyz"}}),
+        content_type="application/json",
+    )
+    resp_ctx = exec_view(req_sql_ctx)
+    assert resp_ctx.status_code == 403
+
+    # 2. DRF views: raw SQL with tenant_id in data is rejected (403)
+    drf_views = create_drf_views(sqlite_conn)
+    drf_req = rf.post(
+        "/execute/",
+        data={"sql": "SELECT 1", "tenant_id": "tenant-xyz"},
+        format="json",
+    )
+    drf_resp = drf_views["ExecuteView"].as_view()(drf_req)
+    assert drf_resp.status_code == 403
+    assert "Raw SQL execution restricted under tenant isolation" in str(drf_resp.data)
+
+    drf_exp_req = rf.post(
+        "/export/",
+        data={"sql": "SELECT 1", "context": {"tenant_id": "tenant-xyz"}},
+        format="json",
+    )
+    drf_exp_resp = drf_views["ExportView"].as_view()(drf_exp_req)
+    assert drf_exp_resp.status_code == 403
+
+    # 3. Ninja router: AST validation and tenant isolation enforcement
+    router = create_ninja_router(sqlite_conn)
+    op_map = {
+        (op.methods[0], path_str): op.view_func
+        for path_str, ops in router.path_operations.items()
+        for op in ops.operations
+    }
+    req = django_rf.post("/execute")
+
+    # AST safety violation (DROP TABLE)
+    with pytest.raises(HttpError) as exc_info:
+        op_map[("POST", "/execute")](req, payload={"sql": "DROP TABLE users"})
+    assert exc_info.value.status_code == 403
+    assert "Security violation" in str(exc_info.value.message)
+
+    # Raw SQL under payload tenant_id
+    with pytest.raises(HttpError) as exc_info:
+        op_map[("POST", "/execute")](
+            req, payload={"sql": "SELECT 1", "tenant_id": "t1"}
+        )
+    assert exc_info.value.status_code == 403
+    assert "Raw SQL execution restricted under tenant isolation" in str(
+        exc_info.value.message
+    )
+
+    # Ninja export raw SQL AST safety violation
+    with pytest.raises(HttpError) as exc_info:
+        op_map[("POST", "/export")](req, payload={"sql": "DROP TABLE users"})
+    assert exc_info.value.status_code == 403
+    assert "Security violation" in str(exc_info.value.message)
+
+    # Ninja export with raw_sql disabled
+    router_no_raw = create_ninja_router(
+        sqlite_conn, capabilities=EngineCapabilities(raw_sql=FeatureTier.DISABLED)
+    )
+    op_map_no_raw = {
+        (op.methods[0], path_str): op.view_func
+        for path_str, ops in router_no_raw.path_operations.items()
+        for op in ops.operations
+    }
+    with pytest.raises(HttpError) as exc_info:
+        op_map_no_raw[("POST", "/export")](req, payload={"sql": "SELECT 1"})
+    assert exc_info.value.status_code == 403
+    assert "Feature 'raw_sql' is disabled" in str(exc_info.value.message)
+
+
+def test_django_export_stream_and_parity_endpoints(sqlite_conn, rf):
+    # 1. Standard Django export_stream_view
+    urls = create_django_urls(sqlite_conn)
+    url_map = {u.name: u.callback for u in urls}
+    export_stream = url_map["query-builder-export-stream"]
+
+    # 1a. With spec
+    req_spec = rf.post(
+        "/export/stream/",
+        data=json.dumps({"spec": {"table": "users", "columns": ["id", "name"]}}),
+        content_type="application/json",
+    )
+    resp = export_stream(req_spec)
+    assert resp.status_code == 200
+    assert "text/csv" in resp["Content-Type"]
+
+    # 1b. With raw SQL
+    req_sql = rf.post(
+        "/export/stream/",
+        data=json.dumps({"sql": "SELECT id, name FROM users"}),
+        content_type="application/json",
+    )
+    resp_sql = export_stream(req_sql)
+    assert resp_sql.status_code == 200
+
+    # 1c. With raw_sql disabled
+    urls_no_raw = create_django_urls(
+        sqlite_conn, capabilities=EngineCapabilities(raw_sql=FeatureTier.DISABLED)
+    )
+    assert {u.name: u.callback for u in urls_no_raw}["query-builder-export-stream"](
+        req_sql
+    ).status_code == 403
+
+    # 1d. Under tenant isolation
+    urls_iso = create_django_urls(
+        sqlite_conn,
+        security=SecurityPolicy(enforce_tenant_isolation=True),
+        tenant_resolver=lambda r: "t1",
+    )
+    assert {u.name: u.callback for u in urls_iso}["query-builder-export-stream"](
+        req_sql
+    ).status_code == 403
+
+    # 1e. AST safety violation
+    req_drop = rf.post(
+        "/export/stream/",
+        data=json.dumps({"sql": "DROP TABLE users"}),
+        content_type="application/json",
+    )
+    assert export_stream(req_drop).status_code == 403
+
+    # 1f. Missing export data source
+    req_empty = rf.post(
+        "/export/stream/", data=json.dumps({}), content_type="application/json"
+    )
+    assert export_stream(req_empty).status_code == 400
+
+    # 1g. Exception branches in export_stream_view
+    with patch(
+        "query_builder.integrations.django.stream_export_dataset",
+        side_effect=PermissionError("denied"),
+    ):
+        assert export_stream(req_spec).status_code == 401
+    with patch(
+        "query_builder.integrations.django.stream_export_dataset",
+        side_effect=DisabledFeatureError("export"),
+    ):
+        assert export_stream(req_spec).status_code == 403
+    with patch(
+        "query_builder.integrations.django.stream_export_dataset",
+        side_effect=SecurityError("threat"),
+    ):
+        assert export_stream(req_spec).status_code == 403
+    with patch(
+        "query_builder.integrations.django.stream_export_dataset",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert export_stream(req_spec).status_code == 400
+
+    # 2. DRF ExportStreamView
+    from rest_framework.test import APIRequestFactory
+
+    drf_rf = APIRequestFactory()
+    drf_views = create_drf_views(sqlite_conn)
+    stream_view = drf_views["ExportStreamView"].as_view()
+
+    # 2a. With spec
+    resp_drf_spec = stream_view(
+        drf_rf.post("/", {"spec": {"table": "users"}}, format="json")
+    )
+    assert resp_drf_spec.status_code == 200
+
+    # 2b. With raw SQL
+    resp_drf_sql = stream_view(
+        drf_rf.post("/", {"sql": "SELECT id FROM users"}, format="json")
+    )
+    assert resp_drf_sql.status_code == 200
+
+    # 2c. With raw_sql disabled
+    drf_no_raw = create_drf_views(
+        sqlite_conn, capabilities=EngineCapabilities(raw_sql=FeatureTier.DISABLED)
+    )
+    assert (
+        drf_no_raw["ExportStreamView"]
+        .as_view()(drf_rf.post("/", {"sql": "SELECT 1"}, format="json"))
+        .status_code
+        == 403
+    )
+
+    # 2d. Under tenant isolation
+    drf_iso = create_drf_views(
+        sqlite_conn,
+        security=SecurityPolicy(enforce_tenant_isolation=True),
+        tenant_resolver=lambda r: "t1",
+    )
+    assert (
+        drf_iso["ExportStreamView"]
+        .as_view()(drf_rf.post("/", {"sql": "SELECT 1"}, format="json"))
+        .status_code
+        == 403
+    )
+
+    # 2e. AST violation
+    assert (
+        stream_view(
+            drf_rf.post("/", {"sql": "DROP TABLE users"}, format="json")
+        ).status_code
+        == 403
+    )
+
+    # 2f. Missing source
+    assert stream_view(drf_rf.post("/", {}, format="json")).status_code == 400
+
+    # 3. explain_view, join_path_view, nlq_view branches
+    explain = url_map["query-builder-explain"]
+    with patch(
+        "query_builder.integrations.django.estimate_plan_from_spec",
+        side_effect=PermissionError("denied"),
+    ):
+        assert (
+            explain(
+                rf.post(
+                    "/",
+                    data=json.dumps({"spec": {"table": "users"}}),
+                    content_type="application/json",
+                )
+            ).status_code
+            == 401
+        )
+    with patch(
+        "query_builder.integrations.django.estimate_plan_from_spec",
+        side_effect=SecurityError("threat"),
+    ):
+        assert (
+            explain(
+                rf.post(
+                    "/",
+                    data=json.dumps({"spec": {"table": "users"}}),
+                    content_type="application/json",
+                )
+            ).status_code
+            == 403
+        )
+    with patch(
+        "query_builder.integrations.django.estimate_plan_from_spec",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert (
+            explain(
+                rf.post(
+                    "/",
+                    data=json.dumps({"spec": {"table": "users"}}),
+                    content_type="application/json",
+                )
+            ).status_code
+            == 400
+        )
+
+    join_path = url_map["query-builder-join-path"]
+    # Schema None triggers introspect_schema
+    req_jp_no_schema = rf.post(
+        "/join-path/",
+        data=json.dumps({"active_tables": ["users"], "target_table": "orders"}),
+        content_type="application/json",
+    )
+    assert join_path(req_jp_no_schema).status_code == 200
+    with patch(
+        "query_builder.integrations.django.find_join_path",
+        side_effect=RuntimeError("glitch"),
+    ):
+        assert join_path(req_jp_no_schema).status_code == 400
+
+    nlq = url_map["query-builder-nlq"]
+    # Schema None triggers introspect_schema
+    req_nlq_no_schema = rf.post(
+        "/nlq/",
+        data=json.dumps({"prompt": "Show users", "dialect": "sqlite"}),
+        content_type="application/json",
+    )
+    assert nlq(req_nlq_no_schema).status_code == 200
+    with patch("query_builder.ai.client.ask_ai", side_effect=RuntimeError("glitch")):
+        assert nlq(req_nlq_no_schema).status_code == 400

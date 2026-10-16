@@ -118,7 +118,10 @@ class MetricDefinition:
             raise SemanticError("Metric definition requires a 'name'.")
         title = data.get("title") or name.replace("_", " ").title()
         sql_expr = (
-            data.get("sql_expression") or data.get("sql") or data.get("expression")
+            data.get("sql_expression")
+            or data.get("sqlExpression")
+            or data.get("sql")
+            or data.get("expression")
         )
         if not sql_expr:
             raise SemanticError(
@@ -136,7 +139,7 @@ class MetricDefinition:
             aggregation=str(data.get("aggregation") or data.get("type") or "sum"),
             filters=filters,
             format=str(data.get("format") or "number"),
-            table=data.get("table"),
+            table=data.get("table") or data.get("tableName"),
         )
 
 
@@ -178,7 +181,10 @@ class DimensionDefinition:
             raise SemanticError("Dimension definition requires a 'name'.")
         title = data.get("title") or name.replace("_", " ").title()
         sql_expr = (
-            data.get("sql_expression") or data.get("sql") or data.get("expression")
+            data.get("sql_expression")
+            or data.get("sqlExpression")
+            or data.get("sql")
+            or data.get("expression")
         )
         if not sql_expr:
             raise SemanticError(
@@ -190,9 +196,14 @@ class DimensionDefinition:
             title=str(title),
             description=data.get("description"),
             sql_expression=str(sql_expr),
-            data_type=str(data.get("data_type") or data.get("type") or "string"),
-            time_grains=list(data.get("time_grains") or []),
-            table=data.get("table"),
+            data_type=str(
+                data.get("data_type")
+                or data.get("dataType")
+                or data.get("type")
+                or "string"
+            ),
+            time_grains=list(data.get("time_grains") or data.get("timeGrains") or []),
+            table=data.get("table") or data.get("tableName"),
         )
 
 
@@ -236,7 +247,9 @@ class SemanticModel:
         name = data.get("name") or data.get("model")
         if not name:
             raise SemanticError("SemanticModel requires a 'name' or 'model'.")
-        table_name = data.get("table_name") or data.get("table") or name
+        table_name = (
+            data.get("table_name") or data.get("tableName") or data.get("table") or name
+        )
 
         dims: list[DimensionDefinition] = []
         for d_item in data.get("dimensions", []):
@@ -254,8 +267,11 @@ class SemanticModel:
             description=data.get("description"),
             dimensions=dims,
             metrics=metrics,
-            primary_key=data.get("primary_key") or data.get("pk"),
-            default_time_dimension=data.get("default_time_dimension"),
+            primary_key=data.get("primary_key")
+            or data.get("primaryKey")
+            or data.get("pk"),
+            default_time_dimension=data.get("default_time_dimension")
+            or data.get("defaultTimeDimension"),
         )
 
 
@@ -590,3 +606,167 @@ def expand_time_grain_sql(
         return f"TRUNC({expr}, '{fmt}')"
     else:
         return f"DATE_TRUNC('{g}', {expr})"
+
+
+def resolve_semantic_registry(semantic: Any) -> SemanticRegistry | None:
+    """Normalizes an arbitrary semantic configuration into a SemanticRegistry instance."""
+    if semantic is None:
+        return None
+    if isinstance(semantic, SemanticRegistry):
+        return semantic
+    if isinstance(semantic, SemanticModel):
+        reg = SemanticRegistry()
+        reg.register_model(semantic)
+        return reg
+    if isinstance(semantic, dict):
+        reg = SemanticRegistry()
+        models = load_semantic_models_from_dict(semantic)
+        for m in models:
+            reg.register_model(m)
+        return reg
+    if isinstance(semantic, (list, tuple)):
+        reg = SemanticRegistry()
+        for item in semantic:
+            if isinstance(item, SemanticModel):
+                reg.register_model(item)
+            elif isinstance(item, dict):
+                reg.register_model(SemanticModel.from_dict(item))
+        return reg
+    return None
+
+
+def expand_metrics_and_dimensions(
+    spec: dict[str, Any], semantic: Any, dialect: str = "postgres"
+) -> dict[str, Any]:
+    """
+    Expands high-level business metric and virtual dimension references in a QuerySpec dictionary
+    into their concrete SQL expressions and aggregate filters.
+    """
+    reg = resolve_semantic_registry(semantic)
+    if reg is None:
+        return dict(spec)
+
+    expanded = dict(spec)
+
+    # Expand columns
+    new_columns: list[dict[str, Any] | str] = []
+    for col in expanded.get("columns", ["*"]):
+        if isinstance(col, str):
+            metric = reg.get_metric(col)
+            if metric is not None:
+                new_columns.append(
+                    {
+                        "raw_expression": expand_metric_sql(metric, dialect=dialect),
+                        "alias": metric.name,
+                        "metric": metric.name,
+                    }
+                )
+                continue
+
+            # Check dimensions across models
+            dim_found = False
+            for model in reg.list_models():
+                dim = model.get_dimension(col)
+                if dim is not None:
+                    new_columns.append(
+                        {
+                            "raw_expression": dim.sql_expression,
+                            "alias": dim.name,
+                            "dimension": dim.name,
+                        }
+                    )
+                    dim_found = True
+                    break
+            if dim_found:
+                continue
+
+            new_columns.append(col)
+        elif isinstance(col, dict):
+            c_name = col.get("metric") or col.get("column") or ""
+            metric = reg.get_metric(str(c_name))
+            if metric is not None:
+                alias = col.get("alias") or metric.name
+                new_columns.append(
+                    {
+                        "raw_expression": expand_metric_sql(metric, dialect=dialect),
+                        "alias": alias,
+                        "metric": metric.name,
+                    }
+                )
+                continue
+
+            dim_found = False
+            for model in reg.list_models():
+                dim = model.get_dimension(str(c_name))
+                if dim is not None:
+                    alias = col.get("alias") or dim.name
+                    new_columns.append(
+                        {
+                            "raw_expression": dim.sql_expression,
+                            "alias": alias,
+                            "dimension": dim.name,
+                        }
+                    )
+                    dim_found = True
+                    break
+            if dim_found:
+                continue
+
+            new_columns.append(col)
+        else:
+            new_columns.append(col)
+
+    expanded["columns"] = new_columns
+
+    # Expand filters (virtual dimensions)
+    if "filters" in expanded and isinstance(expanded["filters"], list):
+        new_filters: list[dict[str, Any]] = []
+        for f in expanded["filters"]:
+            if isinstance(f, dict):
+                f_copy = dict(f)
+                col_name = str(f_copy.get("column", ""))
+                for model in reg.list_models():
+                    dim = model.get_dimension(col_name)
+                    if dim is not None:
+                        f_copy["column"] = dim.sql_expression
+                        break
+                new_filters.append(f_copy)
+            else:
+                new_filters.append(f)
+        expanded["filters"] = new_filters
+
+    # Expand having (metrics)
+    if "having" in expanded and isinstance(expanded["having"], list):
+        new_having: list[dict[str, Any]] = []
+        for h in expanded["having"]:
+            if isinstance(h, dict):
+                h_copy = dict(h)
+                col_name = str(h_copy.get("column", ""))
+                metric = reg.get_metric(col_name)
+                if metric is not None:
+                    h_copy["column"] = metric.sql_expression
+                    if not h_copy.get("agg"):
+                        h_copy["agg"] = metric.aggregation
+                new_having.append(h_copy)
+            else:
+                new_having.append(h)
+        expanded["having"] = new_having
+
+    # Expand order_by (virtual dimensions)
+    if "order_by" in expanded and isinstance(expanded["order_by"], list):
+        new_order: list[dict[str, Any]] = []
+        for o in expanded["order_by"]:
+            if isinstance(o, dict):
+                o_copy = dict(o)
+                col_name = str(o_copy.get("column", ""))
+                for model in reg.list_models():
+                    dim = model.get_dimension(col_name)
+                    if dim is not None:
+                        o_copy["column"] = dim.sql_expression
+                        break
+                new_order.append(o_copy)
+            else:
+                new_order.append(o)
+        expanded["order_by"] = new_order
+
+    return expanded

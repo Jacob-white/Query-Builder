@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import concurrent.futures
 import sqlite3
+import threading
 import time
 
 import pytest
 
 from query_builder.pool import (
     ConnectionPool,
+    ConnectionPoolManager,
     PoolClosedError,
     PoolTimeoutError,
 )
@@ -610,3 +612,120 @@ def test_connection_pool_manager_singleton():
     mgr3 = get_connection_pool_manager()
     assert mgr3 is not mgr1
     reset_connection_pool_manager()
+
+
+def test_pool_preserves_created_at_lifespan():
+    """Verify that connection lifespan is tracked across multiple acquire/release cycles."""
+    pool = ConnectionPool(
+        factory=lambda: sqlite3.connect(":memory:"),
+        max_size=2,
+        max_lifespan_seconds=0.05,
+    )
+    conn = pool.acquire()
+    conn_id = id(conn)
+    orig_created_at = pool._created_at[conn_id]
+
+    # Release back to pool
+    pool.release(conn)
+    assert pool._created_at[conn_id] == orig_created_at
+
+    # Re-acquire immediately: same connection should be reused with preserved created_at
+    conn2 = pool.acquire()
+    assert conn2 is conn
+    assert pool._created_at[conn_id] == orig_created_at
+    pool.release(conn2)
+
+    # Wait past max_lifespan_seconds (0.05s)
+    time.sleep(0.06)
+    conn3 = pool.acquire()
+    # Old connection should have been evicted due to lifespan, new connection created
+    assert conn3 is not conn
+    pool.release(conn3)
+    pool.close_all()
+
+
+def test_pool_execute_query_validates_raw_sql_ast():
+    """Verify ConnectionPoolManager.execute_query() enforces AST safety validation on raw SQL."""
+    from query_builder.exceptions import SecurityError
+
+    mgr = ConnectionPoolManager()
+    pool = ConnectionPool(factory=lambda: sqlite3.connect(":memory:"), max_size=1)
+    mgr.register_pool("sec_pool", pool=pool)
+
+    # Valid read-only query succeeds
+    res = mgr.execute_query("SELECT 1 AS num", connection_id="sec_pool")
+    assert res["count"] == 1
+
+    # Destructive SQL fails closed with SecurityError
+    with pytest.raises(SecurityError, match="Security violation"):
+        mgr.execute_query("DROP TABLE users", connection_id="sec_pool")
+
+    with pytest.raises(SecurityError, match="Security violation"):
+        mgr.execute_query("DELETE FROM users WHERE id = 1", connection_id="sec_pool")
+
+    mgr.close_all()
+
+
+def test_pool_factory_does_not_hold_condition_lock():
+    """Verify that a slow factory call does not hold condition lock, allowing lock access."""
+    in_factory = threading.Event()
+    continue_factory = threading.Event()
+
+    def slow_factory():
+        in_factory.set()
+        continue_factory.wait(timeout=2.0)
+        return sqlite3.connect(":memory:")
+
+    pool = ConnectionPool(factory=slow_factory, max_size=2)
+
+    t1 = threading.Thread(target=pool.acquire)
+    t1.start()
+
+    assert in_factory.wait(timeout=1.0)
+    # The pool condition lock is NOT held while slow_factory runs
+    assert pool.in_use_count == 1
+
+    continue_factory.set()
+    t1.join(timeout=1.0)
+    assert not t1.is_alive()
+    pool.close_all()
+
+
+def test_pool_health_check_does_not_hold_condition_lock():
+    """Verify health check runs outside the condition lock."""
+    in_health_check = threading.Event()
+    continue_health_check = threading.Event()
+
+    class MonitoredConn:
+        def cursor(self):
+            class C:
+                def execute(self, sql):
+                    in_health_check.set()
+                    continue_health_check.wait(timeout=2.0)
+
+                def close(self):
+                    pass
+
+            return C()
+
+        def close(self):
+            pass
+
+    pool = ConnectionPool(
+        factory=lambda: sqlite3.connect(":memory:"),
+        max_size=2,
+        health_check_sql="SELECT 1",
+    )
+    mon = MonitoredConn()
+    pool._available.append((mon, time.time(), time.time()))
+
+    t = threading.Thread(target=pool.acquire)
+    t.start()
+
+    assert in_health_check.wait(timeout=1.0)
+    assert pool.in_use_count == 1
+
+    continue_health_check.set()
+    t.join(timeout=1.0)
+    assert not t.is_alive()
+    pool.close_all()

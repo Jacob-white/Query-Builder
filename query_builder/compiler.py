@@ -98,6 +98,10 @@ ALLOWED_COLUMN_KEYS = {
     "format",
     "case_when",
     "expression",
+    "raw_expression",
+    "dimension",
+    "masked",
+    "masking_strategy",
 }
 ALLOWED_JOIN_KEYS = {
     "table",
@@ -356,7 +360,11 @@ def _validate_column_dict(col: dict[str, Any]) -> None:
         _validate_case_when(case_when)
 
     if raw_col is None:
-        if case_when is None and col.get("expression") is None:
+        if (
+            case_when is None
+            and col.get("expression") is None
+            and col.get("raw_expression") is None
+        ):
             return
     elif isinstance(raw_col, str):
         _check_column_name(raw_col)
@@ -937,11 +945,15 @@ class QueryCompiler:
         semantic_models: Any = None,
         capabilities: Any = None,
         inner: bool = False,
+        param_counter: list[int] | None = None,
     ) -> None:
         # Nested queries (CTE bodies, subqueries in FROM / IN / EXISTS) must not
         # get the implicit page LIMIT: it would silently truncate the inner
         # result set (and MySQL rejects LIMIT inside IN subqueries).
         self.inner = inner
+        self._param_counter: list[int] = (
+            param_counter if param_counter is not None else [0]
+        )
         if capabilities is not None:
             from query_builder.capabilities import EngineCapabilities
 
@@ -1123,11 +1135,25 @@ class QueryCompiler:
         cols = self.spec.get("columns", [])
         for c in cols:
             if isinstance(c, dict):
-                if c.get("expression") or c.get("case_when"):
+                if c.get("case_when"):
                     self.capabilities.require_feature("calculated_fields")
-            elif hasattr(c, "expression") or hasattr(c, "case_when"):
-                if getattr(c, "expression", None) or getattr(c, "case_when", None):
+                if c.get("expression") or c.get("raw_expression"):
+                    if not (c.get("metric") or c.get("dimension")):
+                        self.capabilities.require_feature("custom_expressions")
+                        self.capabilities.require_feature("calculated_fields")
+            elif (
+                hasattr(c, "expression")
+                or hasattr(c, "case_when")
+                or hasattr(c, "raw_expression")
+            ):
+                if getattr(c, "case_when", None):
                     self.capabilities.require_feature("calculated_fields")
+                if getattr(c, "expression", None) or getattr(c, "raw_expression", None):
+                    if not (
+                        getattr(c, "metric", None) or getattr(c, "dimension", None)
+                    ):
+                        self.capabilities.require_feature("custom_expressions")
+                        self.capabilities.require_feature("calculated_fields")
 
     def _aggregate_template(self, agg: str) -> str:
         if agg in ("avg", "count_distinct"):
@@ -1504,9 +1530,17 @@ class QueryCompiler:
         sub_compiler = QueryCompiler(
             sub_spec,
             schema=self.schema,
+            user_id=self.user_id,
+            force_user_filter=self.force_user_filter,
+            tenant_id=self.tenant_id,
             dialect=self.dialect,
+            ownership_paths=self.ownership_paths,
+            max_limit=self.max_limit,
             allow_unknown_keys=True,
+            capabilities=self.capabilities,
+            semantic_models=self.semantic_models,
             inner=inner,
+            param_counter=self._param_counter,
         )
         sub_sql, sub_params, _, _ = sub_compiler.compile()
         return sub_sql, sub_params
@@ -1654,8 +1688,13 @@ class QueryCompiler:
         explicit_alias = join.get("alias")
         if explicit_alias:
             _check_ident(explicit_alias, "join alias")
-            self.table_aliases[explicit_alias] = explicit_alias
-            return str(explicit_alias)
+            alias_str = str(explicit_alias)
+            self.table_aliases[alias_str] = alias_str
+            if clean_target not in self.table_aliases:
+                self.table_aliases[clean_target] = alias_str
+            if target_table not in self.table_aliases:
+                self.table_aliases[target_table] = alias_str
+            return alias_str
         if clean_target in self.table_aliases or target_table in self.table_aliases:
             alias = self._generate_unique_alias()
             self.table_aliases[alias] = alias
@@ -1738,14 +1777,15 @@ class QueryCompiler:
         columns_spec = self.spec.get("columns", [])
         if columns_spec:
             return list(columns_spec)
-        base_meta = self.tables_meta.get(self._base_table) or self.tables_meta.get(
-            self._clean_base
-        )
-        if base_meta:
-            return [
-                f"{self._clean_base}.{c['name'] if isinstance(c, dict) else str(c)}"
-                for c in base_meta.get("columns", [])
-            ]
+        if isinstance(self._base_table, str):
+            base_meta = self.tables_meta.get(self._base_table) or self.tables_meta.get(
+                self._clean_base
+            )
+            if base_meta:
+                return [
+                    f"{self._clean_base}.{c['name'] if isinstance(c, dict) else str(c)}"
+                    for c in base_meta.get("columns", [])
+                ]
         return ["*"]
 
     def _add_select(
@@ -1803,6 +1843,40 @@ class QueryCompiler:
             self._add_select(case_body, alias_label, group_by=case_body)
             return
 
+        expr = col_item.get("expression") or col_item.get("raw_expression")
+        if expr is not None:
+            if not isinstance(expr, str) or not expr.strip():
+                raise ValidationError("Column 'expression' must be a non-empty string.")
+
+            is_semantic = bool(col_item.get("metric") or col_item.get("dimension"))
+            if not is_semantic and self.capabilities:
+                self.capabilities.require_feature("custom_expressions")
+
+            from query_builder.ast_validator import validate_sql_ast
+
+            val_res = validate_sql_ast(
+                f"SELECT {expr} FROM {self.dialect.quote_identifier(self._clean_base or 't')}"
+            )
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Expression failed AST safety validation."]
+                )
+                raise CompilationError(
+                    f"Expression failed AST safety validation: {'; '.join(violations)}"
+                )
+
+            expr_alias = (
+                col_item.get("alias") or f"expr_{len(self.select_clause_items) + 1}"
+            )
+            import re
+
+            if re.search(r"\b(SUM|COUNT|AVG|MIN|MAX)\b", expr, re.IGNORECASE):
+                self.has_aggregation = True
+                self._add_select(expr, expr_alias)
+            else:
+                self._add_select(expr, expr_alias, group_by=expr)
+            return
+
         raw_col_ref = col_item.get("column", col_item.get("name"))
         if not raw_col_ref or not isinstance(raw_col_ref, str):
             return
@@ -1830,6 +1904,14 @@ class QueryCompiler:
             return
 
         if self._compile_column_metric(col_item, raw_col_ref, alias):
+            return
+
+        if col_item.get("masked"):
+            strategy = col_item.get("masking_strategy", "redact")
+            masked_expr = self.dialect.format_masking_expression(quoted_ref, strategy)
+            self._add_select(
+                masked_expr, alias or f"{raw_col_ref}_masked", group_by=masked_expr
+            )
             return
 
         if agg in AGGREGATE_MAP:

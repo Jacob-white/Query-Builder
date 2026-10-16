@@ -1,0 +1,233 @@
+"""Generate the root llms.txt context document for AI coding assistants.
+
+Usage::
+
+    python scripts/gen_llms_txt.py            # rewrite llms.txt
+    python scripts/gen_llms_txt.py --check    # exit 1 if llms.txt is stale
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+DOC = ROOT / "llms.txt"
+
+
+def render() -> str:
+    return """# Query-Builder: Developer & AI Integration Guide
+
+> Universal SQL Query Compiler, AST Safety Validator, Multi-Tenant Guard & Relational Semantic Layer.
+
+Query-Builder (`query-builder-engine` for Python, `@jacob-white/query-builder-react` for React/TypeScript) provides a declarative JSON `QuerySpec` standard compiled safely across 71+ SQL database dialects with fail-closed security, AST safety validation, tenant isolation, and autonomous AI self-healing.
+
+---
+
+## 1. Architecture & Capabilities
+
+- **Universal Query Compiler**: Compiles JSON `QuerySpec` to parameterized SQL across 71+ engines (PostgreSQL, Snowflake, BigQuery, MySQL, SQLite, DuckDB, ClickHouse, Oracle, SQL Server, Trino, Redshift, etc.).
+- **Fail-Closed AST Validator**: Enforces read-only guarantees (`SELECT` only), blocks DDL/DML mutations (`DROP`, `DELETE`, `INSERT`, `ALTER`), restricts SQL comments, and checks table allowlists.
+- **Row-Level Security & Multi-Tenancy**: Automatically injects tenant isolation filters (e.g. `WHERE tenant_id = '...'`) across queries and joins; strictly blocks raw SQL when tenant isolation is active.
+- **Semantic Layer**: Declarative metrics, calculated dimensions, and temporal grains with filtered aggregates (`expand_metric_sql`).
+- **Autonomous AI & MCP Server**: Model Context Protocol (MCP) server with operator-pinned connection security (`--lock-connection`), resources (`resources/list`, `resources/read`), unified AI tool definitions, and self-healing query engines (`ask_ai`, `SelfHealingQueryEngine`).
+
+---
+
+## 2. Installation
+
+```bash
+# Python Engine
+pip install query-builder-engine
+# With Web Framework & AI Extras
+pip install "query-builder-engine[server,django,dev]"
+
+# React & TypeScript Client SDK
+npm install @jacob-white/query-builder-react
+# or
+pnpm add @jacob-white/query-builder-react
+```
+
+---
+
+## 3. Python Fluent Query Builder
+
+```python
+from query_builder import query, QuerySpec
+
+# Fluent query construction
+q = (
+    query("orders")
+    .select("id", "created_at", {"column": "amount", "agg": "sum", "alias": "total_revenue"})
+    .join("users", "orders.user_id", "users.id", join_type="INNER")
+    .where("status", "eq", "COMPLETED")
+    .where("amount", "gt", 100)
+    .order_by("total_revenue", "DESC")
+    .limit(25)
+)
+
+# Compile to target dialect SQL with bind parameters
+sql, params = q.compile(dialect="postgres")
+# Result: SELECT orders.id, orders.created_at, SUM(orders.amount) AS total_revenue ...
+
+# Export to declarative QuerySpec dictionary or dataclass
+spec_dict = q.to_dict()
+spec_model = q.to_spec()
+```
+
+---
+
+## 4. QuerySpec JSON Schema
+
+```json
+{
+  "table": "orders",
+  "columns": [
+    "id",
+    "user_id",
+    {"column": "amount", "agg": "sum", "alias": "total_spend"}
+  ],
+  "joins": [
+    {
+      "table": "users",
+      "type": "INNER",
+      "left_col": "orders.user_id",
+      "right_col": "users.id"
+    }
+  ],
+  "filters": [
+    {"column": "status", "op": "eq", "value": "COMPLETED"},
+    {"column": "amount", "op": "gt", "value": 50}
+  ],
+  "filter_join": "AND",
+  "having": [],
+  "order_by": [
+    {"column": "total_spend", "direction": "DESC"}
+  ],
+  "limit": 50,
+  "offset": 0,
+  "distinct": false
+}
+```
+
+### Supported Filter Operators:
+`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_with`, `ends_with`, `in`, `not_in`, `between`, `is_null`, `is_not_null`
+
+---
+
+## 5. Web Framework Router Integration
+
+### FastAPI
+```python
+from fastapi import FastAPI, Request
+from query_builder.connectors.postgres import PostgresConnector
+from query_builder.integrations.fastapi import create_query_builder_router
+from query_builder.policy import TenantContext
+
+app = FastAPI()
+connector = PostgresConnector(dsn="postgresql://user:pass@localhost:5432/db")
+
+async def get_tenant(request: Request) -> TenantContext:
+    # Resolve from JWT / session header
+    tenant_id = request.headers.get("X-Tenant-ID")
+    return TenantContext(tenant_id=tenant_id)
+
+router = create_query_builder_router(
+    connector=connector,
+    tenant_resolver=get_tenant,
+    schema_cache_ttl=300.0,  # Cache introspection for 5 minutes
+    prefix="/api/qb",
+)
+app.include_router(router)
+```
+
+### Endpoints Registered:
+- `GET  /api/qb/schema` (supports `?refresh=true`)
+- `POST /api/qb/compile`
+- `POST /api/qb/validate`
+- `POST /api/qb/execute`
+- `POST /api/qb/explain`
+- `POST /api/qb/join-path`
+- `POST /api/qb/export`
+- `POST /api/qb/export/stream`
+
+---
+
+## 6. TypeScript Client SDK
+
+```typescript
+import { createQueryBuilderClient } from "@jacob-white/query-builder-react";
+
+const client = createQueryBuilderClient({
+  baseUrl: "/api/qb",
+  token: async () => localStorage.getItem("auth_token"),
+});
+
+// 1. Introspect schema
+const schema = await client.getSchema();
+
+// 2. Execute query
+const results = await client.execute({
+  table: "users",
+  columns: ["id", "email", "created_at"],
+  limit: 10,
+});
+
+// 3. Explain and analyze plan
+const analysis = await client.explain({ table: "orders", columns: ["*"] });
+
+// 4. Multi-table join pathfinding
+const path = await client.findJoinPath(["orders"], "products");
+
+// 5. Ask AI in natural language
+const aiResult = await client.askAi("Show top 10 customers by revenue");
+```
+
+---
+
+## 7. Model Context Protocol (MCP) Server
+
+Run the standalone operator-pinned secure MCP server:
+
+```bash
+query-builder mcp \
+  --connector postgres \
+  --config '{"host":"db.internal","database":"app"}' \
+  --lock-connection \
+  --tenant-id "tenant-prod-1"
+```
+
+Available passive MCP resources:
+- `query-builder://schema/catalog`: Active database catalog and schema metadata.
+- `query-builder://schema/queryspec`: Canonical `QuerySpec` JSON Schema.
+- `query-builder://semantic/metrics`: Registered business metrics & dimensions.
+"""
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="exit 1 if llms.txt is stale"
+    )
+    args = parser.parse_args(argv)
+
+    content = render()
+    current = DOC.read_text(encoding="utf-8") if DOC.is_file() else ""
+
+    if args.check:
+        if content.strip() != current.strip():
+            print(f"{DOC.name} is stale: run python scripts/gen_llms_txt.py")
+            return 1
+        return 0
+
+    if content.strip() != current.strip():
+        DOC.write_text(content.strip() + "\n", encoding="utf-8")
+        print(f"wrote {DOC}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -593,3 +593,59 @@ def test_server_send_bytes_response_without_filename():
     )
     handler.send_response.assert_called_once_with(200)
     handler.send_header.assert_any_call("Content-Type", "text/plain")
+
+
+def test_server_execute_raw_sql_security_enforcement(server_base_url: str):
+    # 1. Tenant isolation blocks raw SQL execution
+    status, _, body = _request(
+        f"{server_base_url}/api/v1/execute",
+        method="POST",
+        body={"sql": "SELECT 1", "policy": {"enforce_tenant_isolation": True}},
+    )
+    assert status == 403
+    assert b"tenant isolation" in body
+
+    # 2. Destructive raw SQL fails AST safety validation
+    status_drop, _, body_drop = _request(
+        f"{server_base_url}/api/v1/execute",
+        method="POST",
+        body={"sql": "DROP TABLE users"},
+    )
+    assert status_drop == 403
+    assert b"Security violation" in body_drop
+
+    # 3. Stream endpoint also blocks destructive raw SQL
+    status_stream, _, body_stream = _request(
+        f"{server_base_url}/api/v1/stream",
+        method="POST",
+        body={"sql": "DELETE FROM users WHERE id = 1"},
+    )
+    assert status_stream == 403
+    assert b"Security violation" in body_stream
+
+    # 4. Stream endpoint blocks raw SQL under tenant isolation
+    status_stream_t, _, body_stream_t = _request(
+        f"{server_base_url}/api/v1/stream",
+        method="POST",
+        body={"sql": "SELECT 1", "policy": {"enforce_tenant_isolation": True}},
+    )
+    assert status_stream_t == 403
+    assert b"tenant isolation" in body_stream_t
+
+    # 5. Export stream endpoint blocks destructive raw SQL
+    status_exp_drop, _, body_exp_drop = _request(
+        f"{server_base_url}/api/v1/export/stream",
+        method="POST",
+        body={"sql": "DROP TABLE users"},
+    )
+    assert status_exp_drop == 403
+    assert b"Security violation" in body_exp_drop
+
+    # 6. Export stream endpoint blocks raw SQL under tenant isolation
+    status_exp_t, _, body_exp_t = _request(
+        f"{server_base_url}/api/v1/export/stream",
+        method="POST",
+        body={"sql": "SELECT 1", "policy": {"enforce_tenant_isolation": True}},
+    )
+    assert status_exp_t == 403
+    assert b"tenant isolation" in body_exp_t

@@ -41,6 +41,7 @@ from query_builder.security import (
     calculate_ast_complexity,
     check_cartesian_products,
     collect_target_config,
+    resolve_and_validate_target,
     scrub_secrets,
     validate_network_target,
 )
@@ -100,6 +101,7 @@ class AsyncBaseConnector(ABC):
                     self: Any, *args: Any, **kw: Any
                 ) -> Any:
                     self._validate_network_target()
+                    await self._pin_network_target()
                     try:
                         with egress_guard(self._network_policy_config()):
                             conn = await orig_connect(self, *args, **kw)
@@ -182,19 +184,72 @@ class AsyncBaseConnector(ABC):
         """The network policy the egress guard enforces for this connector (or ``None``)."""
         return effective_network_config(self)
 
-    def _validate_network_target(
-        self, security_config: SecurityConfig | None = None
-    ) -> None:
+    def _network_context(
+        self, security_config: SecurityConfig | None
+    ) -> tuple[Any, dict[str, Any]] | None:
         net_cfg = effective_network_config(self, security_config)
         if net_cfg is None:
-            return
+            return None
 
         target_config = collect_target_config(self)
 
+        return net_cfg, target_config
+
+    def _validate_network_target(
+        self, security_config: SecurityConfig | None = None
+    ) -> None:
+        ctx = self._network_context(security_config)
+        if ctx is None:
+            return
+        net_cfg, target_config = ctx
         validate_network_target(
             config=target_config,
             network_config=net_cfg,
         )
+
+    async def _pin_network_target(self) -> None:
+        """Resolves the configured host ONCE asynchronously, validates every address, and remembers
+        the validated address in ``self._pinned_target`` for the connector to connect to.
+        """
+        self._pinned_target = None
+        ctx = self._network_context(None)
+        if ctx is None:
+            return
+        net_cfg, target_config = ctx
+        if not getattr(net_cfg, "pin_resolved_addresses", True):
+            return
+        host = None
+        for key in ("host", "hostname", "server"):
+            if isinstance(target_config.get(key), str) and target_config[key].strip():
+                host = target_config[key].strip()
+                break
+        if host is None or "://" in host:
+            return
+        port = target_config.get("port")
+        try:
+            port = int(port) if port is not None else None
+        except (TypeError, ValueError):
+            return
+
+        self._pinned_target = resolve_and_validate_target(
+            host,
+            port,
+            net_cfg,
+            resolver=getattr(self, "_dns_resolver", None),
+            fail_closed=bool(getattr(net_cfg, "fail_closed_on_dns_error", False)),
+        )
+
+    def pinned_connect_config(self, address_key: str = "hostaddr") -> dict[str, Any]:
+        """``self.config`` plus ``address_key=<validated IP>`` when the host was pinned.
+
+        For drivers that accept a separate numeric address next to the hostname: the
+        hostname is still used for TLS verification, but no DNS lookup happens at connect time.
+        """
+        cfg = dict(self.config)
+        target = getattr(self, "_pinned_target", None)
+        if target is not None and target.pinned_address and not cfg.get(address_key):
+            cfg[address_key] = target.pinned_address
+        return cfg
 
     def validate_network(self, security_config: SecurityConfig | None = None) -> None:
         """Validates network egress target against active network security policy."""

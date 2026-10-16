@@ -406,3 +406,159 @@ class TestMcpServer:
         # Run inside active event loop
         resp = server.handle_request(req)
         assert not resp["result"]["isError"]
+
+    def test_resources_list(self):
+        server = McpServer()
+        req = {"jsonrpc": "2.0", "id": 18, "method": "resources/list"}
+        resp = server.handle_request(req)
+        assert resp["id"] == 18
+        res = resp["result"]["resources"]
+        assert len(res) == 3
+        uris = [r["uri"] for r in res]
+        assert "query-builder://schema/catalog" in uris
+        assert "query-builder://schema/queryspec" in uris
+        assert "query-builder://semantic/metrics" in uris
+
+    def test_resources_read(self, tmp_path):
+        import sqlite3
+
+        db_path = str(tmp_path / "test_res.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE products (id INT, price REAL);")
+        conn.close()
+
+        server = McpServer(connector="sqlite", connector_config={"database": db_path})
+
+        # Read queryspec schema
+        req1 = {
+            "jsonrpc": "2.0",
+            "id": 19,
+            "method": "resources/read",
+            "params": {"uri": "query-builder://schema/queryspec"},
+        }
+        resp1 = server.handle_request(req1)
+        assert "result" in resp1
+        assert resp1["result"]["contents"][0]["mimeType"] == "application/json"
+        spec_schema = json.loads(resp1["result"]["contents"][0]["text"])
+        assert "properties" in spec_schema
+
+        # Read semantic metrics
+        req2 = {
+            "jsonrpc": "2.0",
+            "id": 20,
+            "method": "resources/read",
+            "params": {"uri": "query-builder://semantic/metrics"},
+        }
+        resp2 = server.handle_request(req2)
+        assert "result" in resp2
+        assert "metrics" in json.loads(resp2["result"]["contents"][0]["text"])
+
+        # Read schema catalog
+        req3 = {
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "resources/read",
+            "params": {"uri": "query-builder://schema/catalog"},
+        }
+        resp3 = server.handle_request(req3)
+        assert "result" in resp3
+        catalog = json.loads(resp3["result"]["contents"][0]["text"])
+        assert "tables" in catalog or "products" in str(catalog)
+
+        # Unknown resource
+        req4 = {
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "resources/read",
+            "params": {"uri": "query-builder://unknown"},
+        }
+        resp4 = server.handle_request(req4)
+        assert "error" in resp4
+
+    def test_locked_connection_mode(self, tmp_path):
+        import sqlite3
+
+        from query_builder.connectors.sqlite import SQLiteConnector
+
+        db_path = str(tmp_path / "locked.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE users (id INT, name TEXT);")
+        conn.execute("INSERT INTO users VALUES (1, 'Alice');")
+        conn.commit()
+        conn.close()
+
+        sqlite_conn = SQLiteConnector(database=db_path)
+        server = McpServer(connector=sqlite_conn, lock_connection=True)
+
+        tools = server.get_tools()
+        introspect_tool = next(
+            t for t in tools if t["name"] == "query_builder_introspect"
+        )
+        execute_tool = next(t for t in tools if t["name"] == "query_builder_execute")
+        assert "connector" not in introspect_tool["inputSchema"]["properties"]
+        assert "connector" not in execute_tool["inputSchema"]["properties"]
+
+        # Execution works without passing connector/config
+        req = {
+            "jsonrpc": "2.0",
+            "id": 23,
+            "method": "tools/call",
+            "params": {
+                "name": "query_builder_execute",
+                "arguments": {
+                    "spec": {"table": "users", "columns": ["name"]},
+                },
+            },
+        }
+        resp = server.handle_request(req)
+        assert not resp["result"]["isError"]
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert content["count"] == 1
+
+
+def test_mcp_locked_connection_policy_filtering_and_main(tmp_path):
+    import sqlite3
+    from unittest.mock import patch
+
+    from query_builder.connectors.sqlite import SQLiteConnector
+    from query_builder.mcp_server import main
+    from query_builder.policy import SecurityPolicy
+
+    db_path = str(tmp_path / "mcp_policy.db")
+    raw_conn = sqlite3.connect(db_path)
+    raw_conn.execute("CREATE TABLE users (id INT, name TEXT)")
+    raw_conn.execute("CREATE TABLE orders (id INT, amount NUMERIC)")
+    raw_conn.execute("CREATE TABLE secret (id INT, token TEXT)")
+    raw_conn.commit()
+    raw_conn.close()
+
+    sqlite_conn = SQLiteConnector(database=db_path)
+    policy = SecurityPolicy(
+        allowed_tables=["users", "orders"], restricted_tables=["secret"]
+    )
+    server = McpServer(
+        connector=sqlite_conn, lock_connection=True, security_policy=policy
+    )
+
+    # 1. Resource query-builder://schema/catalog with table filtering
+    res_str = server._read_resource("query-builder://schema/catalog")
+    res_data = json.loads(res_str)
+    assert "users" in res_data["tables"]
+    assert "orders" in res_data["tables"]
+    assert "secret" not in res_data["tables"]
+
+    # 2. Tool query_builder_introspect with table filtering
+    req = {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "tools/call",
+        "params": {"name": "query_builder_introspect", "arguments": {}},
+    }
+    resp = server.handle_request(req)
+    intro_data = json.loads(resp["result"]["content"][0]["text"])
+    assert "users" in intro_data["tables"]
+    assert "secret" not in intro_data["tables"]
+
+    # 3. main() entry point
+    with patch("query_builder.mcp_server.McpServer.run_stdio", return_value=None):
+        assert main() == 0

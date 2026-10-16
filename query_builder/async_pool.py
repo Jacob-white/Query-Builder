@@ -128,10 +128,12 @@ class AsyncConnectionPool:
         self.max_lifespan_seconds = max(0.0, max_lifespan_seconds)
         self.health_check_sql = health_check_sql
 
-        self._lock = asyncio.Lock()
+        self._cond = asyncio.Condition()
+        self._lock = self._cond
         # Entry format: (connection, last_used_timestamp, created_at_timestamp)
         self._available: list[tuple[Any, float, float]] = []
         self._in_use: set[Any] = set()
+        self._created_at: dict[int, float] = {}
         self._closed: bool = False
         self._initialized: bool = False
 
@@ -177,14 +179,16 @@ class AsyncConnectionPool:
 
     async def initialize(self) -> None:
         """Pre-warms minimum required connections."""
-        async with self._lock:
+        async with self._cond:
             if self._initialized or self._closed:
                 return
             now = time.time()
             for _ in range(self.min_size):
                 conn = await self._create_connection()
+                self._created_at[id(conn)] = now
                 self._available.append((conn, now, now))
             self._initialized = True
+            self._cond.notify_all()
 
     async def acquire(self, token: AsyncCancellationToken | None = None) -> Any:
         """Acquires a healthy connection from the pool, or creates a new one."""
@@ -197,7 +201,12 @@ class AsyncConnectionPool:
             if token:
                 token.throw_if_cancelled()
 
-            async with self._lock:
+            conn_to_test = None
+            create_new = False
+            slot_placeholder: object | None = None
+            stale_conns: list[Any] = []
+
+            async with self._cond:
                 if self._closed:
                     raise PoolClosedError("Async connection pool is closed.")
 
@@ -210,42 +219,90 @@ class AsyncConnectionPool:
                     is_expired = (now - created_time) > self.max_lifespan_seconds
 
                     if not is_idle and not is_expired:
-                        # Test health outside lock
-                        healthy = await self._check_health(conn)
-                        if healthy:
-                            self._in_use.add(conn)
-                            return conn
-
-                    # Stale or unhealthy connection
-                    await self._close_connection(conn)
+                        conn_to_test = conn
+                        self._in_use.add(conn)
+                        break
+                    else:
+                        stale_conns.append(conn)
+                        self._created_at.pop(id(conn), None)
 
                 # 2. Pool capacity available to create new connection
-                if len(self._in_use) < self.max_size:
+                if conn_to_test is None and len(self._in_use) < self.max_size:
+                    create_new = True
+                    slot_placeholder = object()
+                    self._in_use.add(slot_placeholder)
+
+                if conn_to_test is None and not create_new:
+                    # 3. Wait for connection release
+                    elapsed = time.time() - start_time
+                    remaining = self.timeout - elapsed
+                    if remaining <= 0:
+                        raise PoolTimeoutError(
+                            f"Timeout waiting for connection after {elapsed:.2f}s (max_size={self.max_size})."
+                        )
+                    step_timeout = min(remaining, 0.05)
+                    try:
+                        await asyncio.wait_for(self._cond.wait(), timeout=step_timeout)
+                    except TimeoutError:
+                        if (time.time() - start_time) >= self.timeout:
+                            raise PoolTimeoutError(
+                                f"Timeout waiting for connection after {self.timeout:.2f}s (max_size={self.max_size})."
+                            ) from None
+                    continue
+
+            # Teardown stale connections outside lock
+            for sc in stale_conns:
+                await self._close_connection(sc)
+
+            if conn_to_test is not None:
+                healthy = await self._check_health(conn_to_test)
+                if healthy:
+                    return conn_to_test
+                # Unhealthy: teardown outside lock
+                await self._close_connection(conn_to_test)
+                async with self._cond:
+                    self._created_at.pop(id(conn_to_test), None)
+                    self._in_use.discard(conn_to_test)
+                    self._cond.notify()
+                continue
+
+            if create_new:
+                try:
                     conn = await self._create_connection()
+                except Exception:
+                    async with self._cond:
+                        self._in_use.discard(slot_placeholder)
+                        self._cond.notify()
+                    raise
+
+                async with self._cond:
+                    self._in_use.discard(slot_placeholder)
+                    if self._closed:
+                        await self._close_connection(conn)
+                        raise PoolClosedError("Async connection pool is closed.")
+                    now = time.time()
+                    self._created_at[id(conn)] = now
                     self._in_use.add(conn)
                     return conn
 
-            # 3. Wait for connection release
-            elapsed = time.time() - start_time
-            if elapsed >= self.timeout:
-                raise PoolTimeoutError(
-                    f"Timeout waiting for connection after {elapsed:.2f}s (max_size={self.max_size})."
-                )
-
-            await asyncio.sleep(0.01)
-
     async def release(self, conn: Any) -> None:
         """Returns a connection to the pool or closes it if pool is closed."""
-        async with self._lock:
+        should_close = False
+        async with self._cond:
             if conn in self._in_use:
                 self._in_use.remove(conn)
 
             if self._closed:
-                await self._close_connection(conn)
-                return
+                should_close = True
+                self._created_at.pop(id(conn), None)
+            else:
+                now = time.time()
+                created_at = self._created_at.get(id(conn), now)
+                self._available.append((conn, now, created_at))
+                self._cond.notify()
 
-            now = time.time()
-            self._available.append((conn, now, now))
+        if should_close:
+            await self._close_connection(conn)
 
     @contextlib.asynccontextmanager
     async def connection(
@@ -260,12 +317,20 @@ class AsyncConnectionPool:
 
     async def close(self) -> None:
         """Closes all idle and active connections in the pool."""
-        async with self._lock:
+        async with self._cond:
             self._closed = True
             to_close = [c for c, _, _ in self._available]
-            to_close.extend(list(self._in_use))
+            to_close.extend(
+                [
+                    c
+                    for c in self._in_use
+                    if hasattr(c, "close") or inspect.isawaitable(c)
+                ]
+            )
             self._available.clear()
             self._in_use.clear()
+            self._created_at.clear()
+            self._cond.notify_all()
 
         for conn in to_close:
             await self._close_connection(conn)

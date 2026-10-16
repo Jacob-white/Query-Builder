@@ -80,7 +80,7 @@ def recommend_indexes(
     """Recommends database indexes based on QuerySpec filters, joins, and order_by."""
     spec_dict = spec.to_dict() if hasattr(spec, "to_dict") else dict(spec)
     primary_table = spec_dict.get("table", "")
-    if not primary_table:
+    if not primary_table or not isinstance(primary_table, str):
         return []
 
     recommendations: list[dict[str, Any]] = []
@@ -90,12 +90,13 @@ def recommend_indexes(
     filters = spec_dict.get("filters", [])
     for f in filters:
         f_dict = f.to_dict() if hasattr(f, "to_dict") else dict(f)
-        col = f_dict.get("column", "")
+        raw_col = f_dict.get("column", "")
         op = f_dict.get("op", "")
-        if not col or col == "*" or op == "RAW":
+        if not raw_col or raw_col == "*" or op == "RAW":
             continue
 
-        target_table = f_dict.get("table_prefix") or primary_table
+        col = raw_col.split(".")[-1]
+        target_table = (f_dict.get("table_prefix") or primary_table).split(".")[-1]
         if col.lower() not in existing_indexes:
             idx_name = f"idx_{target_table}_{col.lower()}"
             recommendations.append(
@@ -114,21 +115,23 @@ def recommend_indexes(
     joins = spec_dict.get("joins", [])
     for j in joins:
         j_dict = j.to_dict() if hasattr(j, "to_dict") else dict(j)
-        right_col = j_dict.get("right_col")
-        j_table = j_dict.get("table", "")
-        if right_col and right_col.lower() not in existing_indexes:
-            idx_name = f"idx_{j_table}_{right_col.lower()}"
-            recommendations.append(
-                {
-                    "id": f"idx_join_{j_table}_{right_col}",
-                    "table": j_table,
-                    "columns": [right_col],
-                    "index_name": idx_name,
-                    "ddl": f"CREATE INDEX {idx_name} ON {j_table} ({right_col});",
-                    "rationale": f"Improves JOIN performance on foreign key between {primary_table} and {j_table}.",
-                    "estimated_impact": "high",
-                }
-            )
+        raw_right_col = j_dict.get("right_col")
+        j_table = (j_dict.get("table", "") or "").split(".")[-1]
+        if raw_right_col:
+            right_col = raw_right_col.split(".")[-1]
+            if right_col.lower() not in existing_indexes:
+                idx_name = f"idx_{j_table}_{right_col.lower()}"
+                recommendations.append(
+                    {
+                        "id": f"idx_join_{j_table}_{right_col}",
+                        "table": j_table,
+                        "columns": [right_col],
+                        "index_name": idx_name,
+                        "ddl": f"CREATE INDEX {idx_name} ON {j_table} ({right_col});",
+                        "rationale": f"Improves JOIN performance on foreign key between {primary_table} and {j_table}.",
+                        "estimated_impact": "high",
+                    }
+                )
 
     # 3. Composite index on (first_filter, first_order_by)
     order_by = spec_dict.get("order_by", [])
@@ -141,17 +144,18 @@ def recommend_indexes(
             if hasattr(order_by[0], "to_dict")
             else dict(order_by[0])
         )
-        f_col = f0.get("column", "")
-        o_col = o0.get("column", "")
+        f_col = (f0.get("column", "") or "").split(".")[-1]
+        o_col = (o0.get("column", "") or "").split(".")[-1]
         if f_col and o_col and f_col != o_col and f0.get("op") != "RAW":
-            idx_name = f"idx_{primary_table}_comp_{f_col}_{o_col}"
+            clean_prim = primary_table.split(".")[-1]
+            idx_name = f"idx_{clean_prim}_comp_{f_col.lower()}_{o_col.lower()}"
             recommendations.append(
                 {
-                    "id": f"idx_comp_{primary_table}_{f_col}_{o_col}",
-                    "table": primary_table,
+                    "id": f"idx_comp_{clean_prim}_{f_col}_{o_col}",
+                    "table": clean_prim,
                     "columns": [f_col, o_col],
                     "index_name": idx_name,
-                    "ddl": f"CREATE INDEX {idx_name} ON {primary_table} ({f_col}, {o_col});",
+                    "ddl": f"CREATE INDEX {idx_name} ON {clean_prim} ({f_col}, {o_col});",
                     "rationale": f"Composite index satisfies both WHERE {f_col} and ORDER BY {o_col} avoiding file-sort.",
                     "estimated_impact": "medium",
                 }

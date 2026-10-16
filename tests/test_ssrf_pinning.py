@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from query_builder.config import NetworkSecurityConfig, SecurityConfig
+from query_builder.connectors.async_base import AsyncBaseConnector
 from query_builder.connectors.postgres import PostgresConnector
 from query_builder.security import (
     SecurityError,
@@ -253,3 +254,71 @@ def test_fail_closed_option_blocks_unresolvable_connector_hosts(fake_psycopg) ->
     with dns_resolver(nxdomain), pytest.raises(SecurityError):
         c.connect()
     fake_psycopg.connect.assert_not_called()
+
+
+class DummyAsyncConnector(AsyncBaseConnector):
+    driver_name = "dummy_async"
+    dialect_name = "postgres"
+
+    async def connect(self):
+        return MagicMock()
+
+    async def disconnect(self):
+        pass
+
+    async def execute(self, spec, **kw):
+        return MagicMock()
+
+    async def execute_raw(self, sql, params=None, **kw):
+        return [], [], 0.0
+
+    async def introspect_schema(self):
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_async_connector_pins_validated_address():
+    r = SequenceResolver([PUBLIC_A], [PUBLIC_B], ["10.0.0.5"])
+    c = DummyAsyncConnector(security=_sec(), host="db.example", port=5432)
+    with dns_resolver(r):
+        await c.connect()
+    pinned = c.pinned_connect_config("hostaddr")
+    assert pinned.get("hostaddr") == PUBLIC_B
+    assert c._pinned_target is not None
+    assert c._pinned_target.pinned_address == PUBLIC_B
+
+
+@pytest.mark.asyncio
+async def test_async_connector_rebinding_adversarial_is_refused():
+    r = SequenceResolver([PUBLIC_A], ["10.0.0.5"])
+    c = DummyAsyncConnector(security=_sec(), host="db.example", port=5432)
+    with (
+        dns_resolver(r),
+        pytest.raises(SecurityError, match="resolves to forbidden private/internal IP"),
+    ):
+        await c.connect()
+
+
+@pytest.mark.asyncio
+async def test_async_connector_rebinding_control_allows_private_when_configured():
+    r = SequenceResolver([PUBLIC_A], ["10.0.0.5"])
+    c = DummyAsyncConnector(
+        security=_sec(allow_private_networks=True), host="db.example", port=5432
+    )
+    with dns_resolver(r):
+        await c.connect()
+    pinned = c.pinned_connect_config("hostaddr")
+    assert pinned.get("hostaddr") == "10.0.0.5"
+
+
+@pytest.mark.asyncio
+async def test_async_connector_pinning_can_be_disabled():
+    r = SequenceResolver([PUBLIC_A])
+    c = DummyAsyncConnector(
+        security=_sec(pin_resolved_addresses=False), host="db.example", port=5432
+    )
+    with dns_resolver(r):
+        await c.connect()
+    assert getattr(c, "_pinned_target", None) is None
+    pinned = c.pinned_connect_config("hostaddr")
+    assert "hostaddr" not in pinned

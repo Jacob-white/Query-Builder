@@ -11,14 +11,25 @@ Generates standardized tool/function definitions for AI agentic frameworks:
 
 from __future__ import annotations
 
+import contextlib
+import inspect
 import json
 from typing import Any
 
+from query_builder.advisor import analyze_query_performance, recommend_indexes
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import QueryCompiler
+from query_builder.explain import estimate_plan_from_spec
+from query_builder.join_solver import find_join_path
+from query_builder.models import QuerySpec
 from query_builder.nlq.prompt import serialize_schema_for_prompt
 from query_builder.nlq.service import NlqService
 from query_builder.nlq.validator import NlqAstValidator
+
+_SPEC_SCHEMA: dict[str, Any] = {
+    **QuerySpec.json_schema(),
+    "description": "Declarative QuerySpec dictionary containing table, columns, joins, filters, order_by, limit.",
+}
 
 TOOL_SCHEMAS_BASE = [
     {
@@ -73,10 +84,7 @@ TOOL_SCHEMAS_BASE = [
         "parameters": {
             "type": "object",
             "properties": {
-                "spec": {
-                    "type": "object",
-                    "description": "QuerySpec AST dictionary containing table, columns, joins, filters, order_by, limit.",
-                },
+                "spec": _SPEC_SCHEMA,
                 "sql": {
                     "type": "string",
                     "description": "Raw SQL query to parse, validate, and compile.",
@@ -125,14 +133,91 @@ TOOL_SCHEMAS_BASE = [
                     "type": "string",
                     "description": "SQL statement to explain.",
                 },
-                "spec": {
-                    "type": "object",
-                    "description": "QuerySpec AST dictionary to explain.",
-                },
+                "spec": _SPEC_SCHEMA,
                 "dialect": {
                     "type": "string",
                     "description": "SQL dialect of the query. Defaults to 'postgres'.",
                     "default": "postgres",
+                },
+            },
+        },
+    },
+    {
+        "name": "find_join_path",
+        "description": (
+            "Exposes graph-based relational join pathfinding to automatically determine the "
+            "optimal join chain and foreign key relationships between tables."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "active_tables": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of currently active table names in the query.",
+                },
+                "target_table": {
+                    "type": "string",
+                    "description": "Target table name to connect with active tables.",
+                },
+                "join_type": {
+                    "type": "string",
+                    "description": "Default SQL join type (e.g. 'LEFT JOIN', 'INNER JOIN'). Defaults to 'LEFT JOIN'.",
+                    "default": "LEFT JOIN",
+                },
+            },
+            "required": ["active_tables", "target_table"],
+        },
+    },
+    {
+        "name": "explain_and_advise",
+        "description": (
+            "Analyzes query execution plan, calculates normalized complexity, and recommends "
+            "database indexing and performance optimizations."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": _SPEC_SCHEMA,
+                "dialect": {
+                    "type": "string",
+                    "description": "Target SQL dialect. Defaults to 'postgres'.",
+                    "default": "postgres",
+                },
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "execute_query",
+        "description": (
+            "Safely executes a read-only query specification or raw SQL query against a database connector."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": _SPEC_SCHEMA,
+                "sql": {
+                    "type": "string",
+                    "description": "Raw SQL query string (enforced read-only by AST validator).",
+                },
+                "params": {
+                    "type": "array",
+                    "description": "Optional bind parameters for parameterized query execution.",
+                },
+                "connector": {
+                    "type": "string",
+                    "description": "Registered connector identifier. Defaults to 'sqlite'.",
+                    "default": "sqlite",
+                },
+                "config": {
+                    "type": "object",
+                    "description": "Optional connector configuration dictionary.",
+                },
+                "max_rows": {
+                    "type": "integer",
+                    "description": "Maximum number of rows to return (default: 50).",
+                    "default": 50,
                 },
             },
         },
@@ -455,6 +540,136 @@ def execute_agent_tool_call(
             "filters_count": len(filters),
             "limit": spec_limit,
         }
+
+    elif name == "find_join_path":
+        active_tables = args.get("active_tables", [])
+        target_table = str(args.get("target_table", "")).strip()
+        join_type = str(args.get("join_type", "LEFT JOIN"))
+        schema_data = args.get("schema") or schema
+
+        if isinstance(active_tables, str):
+            active_tables = [t.strip() for t in active_tables.split(",") if t.strip()]
+
+        if not active_tables or not target_table:
+            return {
+                "success": False,
+                "error": "Both 'active_tables' and 'target_table' are required.",
+            }
+
+        path = find_join_path(
+            active_tables,
+            target_table,
+            schema_data=schema_data,
+            default_join_type=join_type,
+        )
+        return {
+            "success": True,
+            "tool": "find_join_path",
+            "path": path,
+            "active_tables": active_tables,
+            "target_table": target_table,
+        }
+
+    elif name == "explain_and_advise":
+        target_dialect = args.get("dialect", dialect) or "postgres"
+        spec = args.get("spec")
+        if isinstance(spec, str):
+            try:
+                spec = json.loads(spec)
+            except Exception as exc:
+                return {"success": False, "error": f"Invalid spec JSON: {exc}"}
+        if not spec:
+            return {"success": False, "error": "Missing required argument 'spec'."}
+
+        compiler = QueryCompiler(spec, schema=schema, dialect=target_dialect)
+        sql = compiler.compile()[0]
+        plan = estimate_plan_from_spec(spec)
+        perf = analyze_query_performance(spec, sql=sql, dialect=target_dialect)
+        recs = recommend_indexes(spec)
+
+        return {
+            "success": True,
+            "tool": "explain_and_advise",
+            "sql": sql,
+            "plan": plan.to_dict() if hasattr(plan, "to_dict") else plan,
+            "performance": perf,
+            "recommended_indexes": recs,
+            "dialect": target_dialect,
+        }
+
+    elif name == "execute_query":
+        spec_raw = args.get("spec")
+        raw_sql = args.get("sql")
+        params = args.get("params") or []
+        connector_name = args.get("connector", "sqlite")
+        config = args.get("config") or {}
+        max_rows = int(args.get("max_rows", 50))
+
+        if isinstance(spec_raw, str):
+            with contextlib.suppress(Exception):
+                spec_raw = json.loads(spec_raw)
+        if isinstance(config, str):
+            with contextlib.suppress(Exception):
+                config = json.loads(config)
+
+        spec_obj: dict[str, Any] | QuerySpec | None = None
+        if isinstance(spec_raw, (dict, QuerySpec)):
+            spec_obj = spec_raw
+            if isinstance(spec_obj, dict):
+                spec_obj = dict(spec_obj)
+                spec_obj["limit"] = min(int(spec_obj.get("limit", max_rows)), max_rows)
+
+        if not spec_obj and not raw_sql:
+            return {
+                "success": False,
+                "error": "Either 'spec' or 'sql' must be provided.",
+            }
+
+        if raw_sql:
+            val_res = validate_sql_ast(raw_sql)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query rejected: Non-read-only statement."]
+                )
+                return {
+                    "success": False,
+                    "error": f"Security violation: {'; '.join(violations)}",
+                }
+
+        from query_builder.connectors import AsyncBaseConnector, ConnectorRegistry
+        from query_builder.mcp_server import _run_coroutine_safely
+
+        config_dict: dict[str, Any] = config if isinstance(config, dict) else {}
+        try:
+            connector = ConnectorRegistry.get(str(connector_name), **config_dict)
+            if isinstance(connector, AsyncBaseConnector):
+                res = _run_coroutine_safely(
+                    connector.execute(spec=spec_obj, sql=raw_sql, params=params)
+                )
+            else:
+                res = connector.execute(spec=spec_obj, sql=raw_sql, params=params)
+            if inspect.isawaitable(res):
+                res = _run_coroutine_safely(res)
+            if hasattr(res, "to_dict"):
+                res_dict = res.to_dict()
+            elif isinstance(res, dict):
+                res_dict = dict(res)
+            else:
+                res_dict = {
+                    "columns": getattr(res, "columns", []),
+                    "rows": getattr(res, "rows", []),
+                    "count": len(getattr(res, "rows", [])),
+                }
+            if "rows" in res_dict and len(res_dict["rows"]) > max_rows:
+                res_dict["rows"] = res_dict["rows"][:max_rows]
+                res_dict["truncated"] = True
+            return {
+                "success": True,
+                "tool": "execute_query",
+                **res_dict,
+            }
+        except Exception as exc:
+            return {"success": False, "error": f"Execution error: {exc}"}
 
     else:
         return {

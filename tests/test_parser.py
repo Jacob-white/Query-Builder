@@ -169,7 +169,7 @@ class TestSqlParser:
         }
         assert spec.columns[1] == {
             "column": "email",
-            "agg": "COUNT",
+            "agg": "count_distinct",
             "alias": "unique_emails",
         }
         assert spec.columns[2] == {
@@ -241,6 +241,17 @@ class TestSqlParser:
         assert wf2.partition_by == []
         assert wf2.order_by == []
         assert wf2.alias == "total_count"
+        # Window functions must not be duplicated into base columns
+        assert spec.columns == ["id"]
+
+    def test_count_distinct_aggregate(self) -> None:
+        spec = parse_sql_to_spec(
+            "SELECT COUNT(DISTINCT user_id) AS distinct_users FROM orders;"
+        )
+        assert spec is not None
+        assert spec.columns == [
+            {"column": "user_id", "agg": "count_distinct", "alias": "distinct_users"}
+        ]
 
     def test_raw_expressions(self) -> None:
         sql = """
@@ -482,3 +493,34 @@ class TestSqlParser:
         assert spec_lim is not None
         assert spec_lim.limit == 50
         assert spec_lim.offset == 0
+
+    def test_having_and_window_functions_parsing(self) -> None:
+        sql = """
+            SELECT
+                department,
+                COUNT(id) AS emp_count,
+                AVG(salary) AS avg_sal,
+                ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) AS rn
+            FROM employees
+            GROUP BY department
+            HAVING COUNT(id) > 5 AND AVG(salary) >= 50000
+        """
+        spec = parse_sql_to_spec(sql)
+        assert spec is not None
+        assert spec.table == "employees"
+        assert len(spec.having) == 2
+        assert spec.having[0].column == "id"
+        assert spec.having[0].agg == "count"
+        assert spec.having[0].op == ">"
+        assert spec.having[0].value == 5
+        assert spec.having[1].column == "salary"
+        assert spec.having[1].agg == "avg"
+        assert spec.having[1].op == ">="
+        assert spec.having[1].value == 50000
+
+        # Window function and having parsed
+        assert len(spec.window_functions) == 1
+        assert spec.window_functions[0].alias == "rn"
+        assert not any(
+            (c.get("alias") if isinstance(c, dict) else c) == "rn" for c in spec.columns
+        )

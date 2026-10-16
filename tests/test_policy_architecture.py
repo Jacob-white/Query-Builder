@@ -124,6 +124,9 @@ POLICY_KNOB_MODULES = {
     "server_security.py",
     "integrations/django.py",
     "integrations/fastapi.py",
+    "server.py",
+    "cli.py",
+    "mcp_server.py",
 }
 
 
@@ -149,6 +152,7 @@ LEDGER: dict[str, str] = {
     "server.py": "policy",
     "integrations/fastapi.py": "policy",
     "integrations/django.py": "policy",
+    "mcp_server.py": "policy",
     # Policy applied by the lifecycle pipeline (SecurityMiddleware.on_pre_compile).
     "connectors/base.py": "pipeline",
     "connectors/async_base.py": "pipeline",
@@ -162,11 +166,11 @@ LEDGER: dict[str, str] = {
     # server, AI agent tooling, raw pool execution.  Not multi-tenant entry points; they
     # must be placed behind an authenticated gateway (see docs/THREAT_MODEL.md).
     "cli.py": "no-tenant-context",
-    "mcp_server.py": "no-tenant-context",
     "pool.py": "no-tenant-context",
     "ai/agent_tools.py": "no-tenant-context",
     "ai/client.py": "no-tenant-context",
     "ai/self_healing.py": "no-tenant-context",
+    "fluent.py": "no-tenant-context",
 }
 
 

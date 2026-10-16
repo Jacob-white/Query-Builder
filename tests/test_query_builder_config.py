@@ -385,3 +385,13 @@ def test_concurrent_configuration_access():
 
     assert len(results) == 20
     assert all(100 <= r < 120 for r in results)
+
+
+def test_unknown_qb_env_var_warning(monkeypatch):
+    from query_builder.config import get_security_config, reset_security_config
+
+    monkeypatch.setenv("QB_ALLOW_PRIVATE_NETWOKS", "1")
+    reset_security_config()
+    with pytest.warns(UserWarning, match="did you mean 'QB_ALLOW_PRIVATE_NETWORKS'"):
+        get_security_config()
+    reset_security_config()
