@@ -649,3 +649,42 @@ def test_server_execute_raw_sql_security_enforcement(server_base_url: str):
     )
     assert status_exp_t == 403
     assert b"tenant isolation" in body_exp_t
+
+
+def test_server_post_explain_security_checks(server_base_url: str):
+    # 1. Raw SQL explain blocks destructive/non-read-only SQL (adversarial)
+    status_drop, _, body_drop = _request(
+        f"{server_base_url}/api/v1/explain",
+        method="POST",
+        body={"sql": "DROP TABLE users"},
+    )
+    assert status_drop == 403
+    assert b"Security violation" in body_drop
+
+    # 2. Raw SQL explain blocks raw SQL when tenant isolation is enforced (adversarial)
+    status_tenant, _, body_tenant = _request(
+        f"{server_base_url}/api/v1/explain",
+        method="POST",
+        body={"sql": "SELECT 1", "policy": {"enforce_tenant_isolation": True}},
+    )
+    assert status_tenant == 403
+    assert b"tenant isolation" in body_tenant
+
+    # 3. Read-only raw SQL explain succeeds (control)
+    status_ok, _, body_ok = _request(
+        f"{server_base_url}/api/v1/explain",
+        method="POST",
+        body={"sql": "SELECT 1"},
+    )
+    assert status_ok == 200
+
+    # 4. Spec explain rejects restricted table in policy (adversarial)
+    status_pol, _, body_pol = _request(
+        f"{server_base_url}/api/v1/explain",
+        method="POST",
+        body={
+            "spec": {"table": "secret_table", "columns": ["id"]},
+            "policy": {"restricted_tables": ["secret_table"]},
+        },
+    )
+    assert status_pol == 403

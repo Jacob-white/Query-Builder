@@ -22,6 +22,7 @@ from tests.integration.engines import (
     RO_PASSWORD,
     RO_USER,
     Engine,
+    Limitation,
     Native,
     _dbapi_native,
     register,
@@ -507,9 +508,9 @@ register(
         container_port=50000,
         fold_alias=True,
         unsupported={
-            "db_read_only": (
+            "db_read_only": Limitation(
                 "Db2 authenticates operating-system users; a restricted login would have to "
-                "be created inside the container's OS, which the harness cannot do"
+                "be created inside the container's OS, which the harness cannot do",
             ),
         },
     )

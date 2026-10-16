@@ -24,7 +24,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
+  const [rowsPerPage] = useState(pageSize);
 
   if (isLoading) {
     return (

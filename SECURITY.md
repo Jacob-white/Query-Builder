@@ -1,6 +1,6 @@
 # Security Policy — Query-Builder ⚡
 
-At **Query-Builder**, security is a foundational architectural pillar. Owned and maintained by **HobbyHabbit LLC** under the **MIT License**, Query-Builder is a dynamic query compilation and execution engine supporting over 198 database connector variants, designed to enforce zero-trust query isolation, defense-in-depth SQL injection prevention, and strict multi-tenant data governance.
+At **Query-Builder**, security is a foundational architectural pillar. Owned and maintained by **HobbyHabbit LLC** under the **MIT License**, Query-Builder is a dynamic query compilation and execution engine supporting 138 connector classes (89 sync + 49 async, 306 registered names), designed to enforce zero-trust query isolation, defense-in-depth SQL injection prevention, and strict multi-tenant data governance.
 
 This document outlines our security policies, vulnerability reporting procedures, defensive architecture, and configuration best practices for developers.
 
@@ -209,6 +209,7 @@ The table below is **generated from `query_builder/config.py`** (`python scripts
 | `QB_FILTER_SQL_COMMENTS` | bool | `false` | `true` | `true` | Filter SQL comments in submitted SQL |
 | `QB_ALLOW_CTE` | bool | `true` | `true` | `true` | Permit `WITH` clauses |
 | `QB_ALLOW_RECURSIVE_CTE` | bool | `true` | `false` | `false` | Permit `WITH RECURSIVE` |
+| `QB_RESTRICTED_TABLES` | list | `[]` | `[]` | `[]` | Comma-separated table names rejected in all queries (supports schema.table) |
 | `QB_ENFORCE_TENANT_ISOLATION` | bool | `false` | `true` | `true` | Fail-closed tenant predicate injection |
 | `QB_TENANT_COLUMN` | str | `tenant_id` | `tenant_id` | `tenant_id` | Column holding the tenant id (cannot be empty) |
 | `QB_MASKING_STRATEGY` | str | `redact` | `redact` | `hash` | Masking mode: `redact`, `hash` or `partial` |

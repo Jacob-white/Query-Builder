@@ -18,7 +18,7 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Callable, Coroutine
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from typing import Any, cast
 
 from query_builder.advisor import analyze_query_performance, recommend_indexes
@@ -327,7 +327,7 @@ def _get_effective_policy(
         return None
     if isinstance(security, SecurityPolicy):
         if has_tenant_resolver:
-            security.enforce_tenant_isolation = True
+            return replace(security, enforce_tenant_isolation=True)
         return security
     if isinstance(security, dict):
         pol = SecurityPolicy(**security)
@@ -504,6 +504,15 @@ def create_django_urls(
                 capabilities=effective_capabilities,
             )
             main_sql, params, count_sql, count_params = compiler.compile()
+            val_res = validate_sql_ast(main_sql, dialect=dialect)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                return JsonResponse(
+                    {"error": f"Security violation: {'; '.join(violations)}"},
+                    status=403,
+                )
             return JsonResponse(
                 {
                     "sql": main_sql,
@@ -893,6 +902,7 @@ def create_django_urls(
                 conn = _resolve_conn(connector)
                 raw_schema = _exec_conn_method(conn, "introspect_schema")
                 schema_data = _normalize_schema_snapshot(raw_schema)
+            schema_data = _filter_schema_tables(schema_data, policy)
 
             path_steps = find_join_path(
                 active_tables,
@@ -928,6 +938,7 @@ def create_django_urls(
             if schema_data is None:
                 raw_schema = _exec_conn_method(conn, "introspect_schema")
                 schema_data = _normalize_schema_snapshot(raw_schema)
+            schema_data = _filter_schema_tables(schema_data, policy)
 
             dialect_str = str(
                 body.get("dialect")
@@ -1050,6 +1061,14 @@ def create_drf_views(
                     capabilities=effective_capabilities,
                 )
                 sql, params, c_sql, c_params = compiler.compile()
+                val_res = validate_sql_ast(sql, dialect=dialect)
+                if not val_res.get("valid") or not val_res.get("is_read_only"):
+                    violations = val_res.get(
+                        "violations", ["Query failed AST safety validation."]
+                    )
+                    raise PermissionDenied(
+                        f"Security violation: {'; '.join(violations)}"
+                    )
             except DisabledFeatureError as exc:
                 raise PermissionDenied(
                     disabled_feature_message(exc, effective_capabilities)
@@ -1343,6 +1362,7 @@ def create_drf_views(
                 conn = _resolve_conn(connector)
                 raw_schema = _exec_conn_method(conn, "introspect_schema")
                 schema_data = _normalize_schema_snapshot(raw_schema)
+            schema_data = _filter_schema_tables(schema_data, policy)
 
             path_steps = find_join_path(
                 active_tables,
@@ -1369,6 +1389,7 @@ def create_drf_views(
             if schema_data is None:
                 raw_schema = _exec_conn_method(conn, "introspect_schema")
                 schema_data = _normalize_schema_snapshot(raw_schema)
+            schema_data = _filter_schema_tables(schema_data, policy)
 
             dialect_str = str(
                 request.data.get("dialect")
@@ -1493,6 +1514,12 @@ def create_ninja_router(
                 capabilities=effective_capabilities,
             )
             sql, params, c_sql, c_params = compiler.compile()
+            val_res = validate_sql_ast(sql, dialect=dialect)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                raise HttpError(403, f"Security violation: {'; '.join(violations)}")
         except DisabledFeatureError as exc:
             raise HttpError(
                 403, disabled_feature_message(exc, effective_capabilities)

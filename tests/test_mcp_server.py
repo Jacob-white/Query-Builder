@@ -562,3 +562,74 @@ def test_mcp_locked_connection_policy_filtering_and_main(tmp_path):
     # 3. main() entry point
     with patch("query_builder.mcp_server.McpServer.run_stdio", return_value=None):
         assert main() == 0
+
+
+def test_mcp_server_lock_connection_defaults(tmp_path):
+    from query_builder.connectors.sqlite import SQLiteConnector
+
+    db_path = str(tmp_path / "test_lock.db")
+    sqlite_conn = SQLiteConnector(database=db_path)
+
+    # Defaults to True if connector provided
+    s1 = McpServer(connector=sqlite_conn)
+    assert s1.lock_connection is True
+
+    # Defaults to False if no connector provided
+    s2 = McpServer()
+    assert s2.lock_connection is False
+
+    # Explicit lock_connection=False is respected
+    s3 = McpServer(connector=sqlite_conn, lock_connection=False)
+    assert s3.lock_connection is False
+
+
+def test_mcp_server_raw_sql_forbidden_under_security_policy(tmp_path):
+    import sqlite3
+
+    from query_builder.connectors.sqlite import SQLiteConnector
+    from query_builder.policy import SecurityPolicy, TenantContext
+
+    db_path = str(tmp_path / "test_mcp_sec.db")
+    raw_conn = sqlite3.connect(db_path)
+    raw_conn.execute("CREATE TABLE users (id INT, name TEXT)")
+    raw_conn.execute("INSERT INTO users VALUES (1, 'Alice')")
+    raw_conn.commit()
+    raw_conn.close()
+
+    sqlite_conn = SQLiteConnector(database=db_path)
+
+    # 1. Adversarial: security policy active (even with enforce_tenant_isolation=False)
+    pol = SecurityPolicy(enforce_tenant_isolation=False, restricted_tables=["secret"])
+    server_sec = McpServer(connector=sqlite_conn, security_policy=pol)
+    req_bad = {
+        "jsonrpc": "2.0",
+        "id": 201,
+        "method": "tools/call",
+        "params": {
+            "name": "query_builder_execute",
+            "arguments": {"sql": "SELECT id, name FROM users"},
+        },
+    }
+    resp_bad = server_sec.handle_request(req_bad)
+    assert resp_bad["result"]["isError"] is True
+    assert (
+        "Raw SQL execution is forbidden when a security policy or tenant context is active"
+        in resp_bad["result"]["content"][0]["text"]
+    )
+
+    # 2. Adversarial: tenant context active
+    ctx = TenantContext(tenant_id="t1")
+    server_tenant = McpServer(connector=sqlite_conn, tenant_context=ctx)
+    resp_tenant = server_tenant.handle_request(req_bad)
+    assert resp_tenant["result"]["isError"] is True
+    assert (
+        "Raw SQL execution is forbidden when a security policy or tenant context is active"
+        in resp_tenant["result"]["content"][0]["text"]
+    )
+
+    # 3. Control: no security policy, no tenant context -> raw SQL allowed
+    server_open = McpServer(connector=sqlite_conn)
+    resp_ok = server_open.handle_request(req_bad)
+    assert resp_ok["result"].get("isError") is not True
+    content = json.loads(resp_ok["result"]["content"][0]["text"])
+    assert len(content["rows"]) == 1

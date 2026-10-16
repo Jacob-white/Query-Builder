@@ -247,7 +247,7 @@ class McpServer:
         security_policy: SecurityPolicy | None = None,
         tenant_context: TenantContext | None = None,
         semantic_registry: SemanticRegistry | None = None,
-        lock_connection: bool = False,
+        lock_connection: bool | None = None,
     ) -> None:
         self.stdin = stdin or sys.stdin
         self.stdout = stdout or sys.stdout
@@ -256,7 +256,10 @@ class McpServer:
         self.security_policy = security_policy
         self.tenant_context = tenant_context
         self.semantic_registry = semantic_registry
-        self.lock_connection = lock_connection or (connector is not None)
+        if lock_connection is None:
+            self.lock_connection = bool(connector is not None)
+        else:
+            self.lock_connection = bool(lock_connection)
 
     def get_tools(self) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = copy.deepcopy(TOOLS)
@@ -614,12 +617,9 @@ class McpServer:
 
             # Validate AST safety on raw SQL
             if raw_sql:
-                if self.tenant_context is not None or (
-                    self.security_policy
-                    and getattr(self.security_policy, "enforce_tenant_isolation", False)
-                ):
+                if self.tenant_context is not None or self.security_policy is not None:
                     raise SecurityError(
-                        "Raw SQL execution is forbidden when tenant isolation is enforced. Use 'spec' instead."
+                        "Raw SQL execution is forbidden when a security policy or tenant context is active. Use 'spec' instead."
                     )
                 val_res = validate_sql_ast(raw_sql)
                 if not val_res.get("valid") or not val_res.get("is_read_only"):

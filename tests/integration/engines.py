@@ -929,7 +929,9 @@ _register(
             "case_sensitive_identifiers": Limitation(
                 "Trino folds identifiers to lower case", probe=case_probe()
             ),
-            "db_read_only": "no read-only login in the memory catalog",
+            "db_read_only": Limitation(
+                "no read-only login in the memory catalog",
+            ),
         },
     )
 )

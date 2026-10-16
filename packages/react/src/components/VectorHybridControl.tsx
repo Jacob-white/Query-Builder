@@ -78,7 +78,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
   const [includeDistances, setIncludeDistances] = useState<boolean>(
     vectorSearch?.include_distances ?? true
   );
-  const [minScore, setMinScore] = useState<number | undefined>(
+  const [minScore] = useState<number | undefined>(
     vectorSearch?.min_score
   );
 

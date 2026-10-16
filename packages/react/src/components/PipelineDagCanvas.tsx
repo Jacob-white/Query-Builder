@@ -62,7 +62,7 @@ export const PipelineDagCanvas: React.FC<PipelineDagCanvasProps> = ({
   onCtesChange,
   onSelectStage,
   selectedStage,
-  finalQueryTable = "Final Presentation Query",
+  finalQueryTable: _finalQueryTable = "Final Presentation Query",
   unstyled = false,
   className,
 }) => {

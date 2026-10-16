@@ -16,6 +16,7 @@ class BigQueryDialect(BaseDialect):
 
     name: str = "bigquery"
     placeholder: str = "%s"
+    like_escape_char = "\\"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:
@@ -152,6 +153,7 @@ class DatabricksDialect(BaseDialect):
 
     name: str = "databricks"
     placeholder: str = "%s"
+    like_escape_char = "\\"
     ilike_template: str = "LOWER({col}) LIKE LOWER({ph})"
 
     def quote_identifier(self, ident: str) -> str:

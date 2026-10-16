@@ -29,6 +29,7 @@ from tests.integration.engines import (
     _pg_native,
     _pg_ro,
     _ro,
+    case_probe,
     feature_probe,
     register,
 )
@@ -255,7 +256,19 @@ register(
         native_factory=_crate_native,
         ro_native=_crate_ro,
         slow_sql=_GEN_SLOW,
-        unsupported={"introspect_fk": "CrateDB has no foreign keys"},
+        unsupported={
+            "introspect_fk": Limitation(
+                "CrateDB has no foreign keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_c (id integer, pid integer, FOREIGN KEY (pid) REFERENCES qbit_pr_p (id))",
+                    "CREATE TABLE qbit_pr_p (id integer)",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_c",
+                        "DROP TABLE IF EXISTS qbit_pr_p",
+                    ),
+                ),
+            ),
+        },
         service="cratedb",
         container_port=4200,
     )
@@ -543,7 +556,10 @@ register(
         ),
         slow_sql=_MYSQL_SLOW,
         unsupported={
-            "case_sensitive_identifiers": "TiDB table names follow lower_case_table_names",
+            "case_sensitive_identifiers": Limitation(
+                "TiDB table names follow lower_case_table_names",
+                probe=case_probe(quote="`"),
+            ),
         },
         service="tidb",
         container_port=4000,
@@ -596,7 +612,22 @@ register(
             "SELECT count(*) FROM TABLE(generate_series(1, 100000000)) a "
             "CROSS JOIN TABLE(generate_series(1, 100000)) b"
         ),
-        unsupported={"introspect_fk": "StarRocks has no foreign keys"},
+        unsupported={
+            "introspect_fk": Limitation(
+                "StarRocks has no foreign keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_c (id INT, pid INT, "
+                    "FOREIGN KEY (pid) REFERENCES qbit_pr_p (id)) "
+                    "PRIMARY KEY (id) DISTRIBUTED BY HASH(id) BUCKETS 1",
+                    "CREATE TABLE qbit_pr_p (id INT) "
+                    "PRIMARY KEY (id) DISTRIBUTED BY HASH(id) BUCKETS 1",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_c",
+                        "DROP TABLE IF EXISTS qbit_pr_p",
+                    ),
+                ),
+            ),
+        },
         service="starrocks",
         container_port=9030,
     )
@@ -625,7 +656,22 @@ register(
             "CROSS JOIN numbers('number' = '100000') b"
         ),
         unsupported={
-            "introspect_fk": "Doris has no foreign keys",
+            "introspect_fk": Limitation(
+                "Doris has no foreign keys",
+                probe=feature_probe(
+                    "CREATE TABLE qbit_pr_c (id INT, pid INT, "
+                    "FOREIGN KEY (pid) REFERENCES qbit_pr_p (id)) "
+                    "UNIQUE KEY (id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    "PROPERTIES ('replication_num' = '1')",
+                    "CREATE TABLE qbit_pr_p (id INT) "
+                    "UNIQUE KEY (id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    "PROPERTIES ('replication_num' = '1')",
+                    cleanup=(
+                        "DROP TABLE IF EXISTS qbit_pr_c",
+                        "DROP TABLE IF EXISTS qbit_pr_p",
+                    ),
+                ),
+            ),
             "unicode_identifiers": Limitation(
                 "Doris column names must match an ASCII-only pattern",
                 probe=(
@@ -672,7 +718,10 @@ register(
         ),
         slow_sql=_MYSQL_SLOW,
         unsupported={
-            "case_sensitive_identifiers": "OceanBase (MySQL mode) table names follow lower_case_table_names",
+            "case_sensitive_identifiers": Limitation(
+                "OceanBase (MySQL mode) table names follow lower_case_table_names",
+                probe=case_probe(quote="`"),
+            ),
         },
         service="oceanbase",
         container_port=2881,
