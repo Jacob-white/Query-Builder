@@ -18,6 +18,12 @@
   formatter's output is used only when it equals the input apart from whitespace and the case of unquoted words (string
   values, quoted names and comments are compared exactly), and the input comes back unchanged otherwise or if the
   formatter fails. Off by default.
+- **`check_columns(spec, schema)` and `SpecColumnError`** (`query_builder.spec_check`): refuse a spec that names a column
+  which does not exist in a table of the query, before it compiles, with a message that names the column and the table,
+  suggests the likeliest real column and lists the table's columns (also on `.column`, `.table`, `.suggestions`,
+  `.available`). Covers the selected columns, filters and sort; leaves expressions, CASE columns, `*`, aliases,
+  sub-queries and tables the schema does not list alone. Meant for callers that send the message back to a language
+  model for a repair as well as for a person.
 - **Unified Agent Tools & Model Context Protocol (MCP)**: Operator-pinned secure mode (`--lock-connection`), live schema catalog resources (`query-builder://schema/catalog`, `queryspec`, `semantic/metrics`), and tool calling support for `find_join_path`, `explain_and_advise`, and `execute_query`.
 - **Autonomous Self-Healing Query Engine**: Automatic operator synonym mapping (`==` -> `eq`, `!=` -> `neq`, `like` -> `contains`), cross-table column resolution, table typo fuzzy matching, and iterative repair prompt generation.
 - **Semantic Layer Grounding & `llms.txt`**: Metric and dimension expansion for NLQ translation, schema grounding, and standard `llms.txt` documentation manifest generator (`scripts/gen_llms_txt.py`).

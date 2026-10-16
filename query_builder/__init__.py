@@ -463,6 +463,7 @@ from query_builder.exceptions import (
     DialectError,
     QueryBuilderError,
     SecurityError,
+    SpecColumnError,
     ValidationError,
 )
 from query_builder.executor import (
@@ -629,6 +630,7 @@ from query_builder.server import (
     generate_openapi_spec,
     serve_swagger_ui_html,
 )
+from query_builder.spec_check import check_columns
 from query_builder.telemetry import (
     AuditEvent,
     ExecutionEvent,
@@ -1188,6 +1190,8 @@ __all__ = [
     "unregister_filter_operator",
     "validate_network_target",
     "validate_sql_ast",
+    "check_columns",
+    "SpecColumnError",
     "FluentQuery",
     "query",
 ]

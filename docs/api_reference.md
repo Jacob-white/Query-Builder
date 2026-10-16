@@ -386,6 +386,17 @@ The same holds for the `alias` of an ordinary selected column (`{"column": "orde
 `{"column": "state"}` compiles to `ORDER BY "state"`). An unprefixed name that is also a column of the base table keeps
 meaning that column.
 
+### Spec checks: `check_columns(spec, schema) -> None` (`query_builder.spec_check`)
+The compiler checks identifier shape and SQL safety, not that a column exists, so a misspelt or invented column reaches the
+database as a driver error. `check_columns` refuses it first with `SpecColumnError` (a `ValidationError`): the message names
+the column and the table, suggests the likeliest real column (one that contains the name first, then close spellings) and
+lists the table's columns, and the exception carries `.column`, `.table`, `.suggestions` and `.available`. A column of a
+table that is not in the query says to join it first. It checks the selected columns, the filters and the sort.
+
+Left alone, because they are not a plain column of a listed table: expressions, CASE columns, `*`, an alias used in a sort,
+a sub-query's columns, a filter on a sub-query, and a table the schema does not list. `schema` may be a `SchemaSnapshot`,
+`{"tables": {...}}` or a bare table mapping. The error text is meant to be sent back to a language model for a repair.
+
 ### Custom Filter Operators
 - `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
 - `unregister_filter_operator(name: str) -> None`
