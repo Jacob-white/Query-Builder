@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -159,6 +160,92 @@ def _extract_columns_from_expression(
     except Exception:  # noqa: BLE001, S110
         pass
     return cols
+
+
+def _is_column_masked(
+    table: str | None,
+    column: str,
+    base_table: str,
+    active_policy: SecurityPolicy,
+    compiled_patterns: list[re.Pattern[str]],
+    alias_map: Mapping[str, str] | None = None,
+    referenced_tables: Sequence[str] | None = None,
+) -> bool:
+    """Checks whether a table.column combination is subject to masking."""
+    if "." in column:
+        parts = column.split(".")
+        tbl_part: str | None = parts[-2] if len(parts) > 1 else parts[0]
+        col_part = parts[-1]
+    else:
+        tbl_part = table
+        col_part = column
+
+    if compiled_patterns and col_part != "*":
+        if any(p.search(col_part) for p in compiled_patterns):
+            return True
+
+    if not active_policy.column_masking:
+        return False
+
+    def _resolve(t: str) -> str:
+        cleaned = t.strip().lower().split(".")[-1]
+        return alias_map.get(cleaned, t.strip()) if alias_map else t.strip()
+
+    if tbl_part:
+        resolved_tbl = _resolve(tbl_part)
+        clean_tbl = tbl_part.split(".")[-1].lower()
+        clean_resolved = resolved_tbl.split(".")[-1].lower()
+        tbl_variants = {
+            str(tbl_part),
+            str(tbl_part).lower(),
+            clean_tbl,
+            resolved_tbl,
+            resolved_tbl.lower(),
+            clean_resolved,
+            "*",
+        }
+        for k, v in active_policy.column_masking.items():
+            clean_k = k.split(".")[-1].lower()
+            if (
+                k in tbl_variants
+                or k.lower() in tbl_variants
+                or clean_k in tbl_variants
+            ):
+                if (
+                    col_part in v
+                    or col_part.lower() in [m.lower() for m in v]
+                    or column in v
+                    or column.lower() in [m.lower() for m in v]
+                ):
+                    return True
+        return False
+    else:
+        candidate_tables: list[str] = (
+            list(referenced_tables)
+            if referenced_tables
+            else ([base_table] if base_table else ["*"])
+        )
+        for cand in candidate_tables:
+            resolved_cand = _resolve(cand)
+            clean_cand = resolved_cand.split(".")[-1].lower()
+            tbl_variants = {
+                cand,
+                cand.lower(),
+                clean_cand,
+                resolved_cand,
+                resolved_cand.lower(),
+                "*",
+            }
+            for k, v in active_policy.column_masking.items():
+                clean_k = k.split(".")[-1].lower()
+                if (
+                    k in tbl_variants
+                    or k.lower() in tbl_variants
+                    or clean_k in tbl_variants
+                ):
+                    if col_part in v or col_part.lower() in [m.lower() for m in v]:
+                        return True
+        return False
 
 
 def apply_security_policy(
@@ -356,6 +443,37 @@ def apply_security_policy(
         if j_tbl and isinstance(j_tbl, str):
             referenced_tables.append(j_tbl.strip())
 
+    alias_map: dict[str, str] = {}
+    base_alias = (
+        spec_dict.get("alias")
+        if isinstance(spec_dict, dict)
+        else getattr(spec_dict, "alias", None)
+    )
+    if base_alias and isinstance(base_alias, str) and base_table:
+        alias_map[base_alias.strip().lower()] = base_table
+        alias_map[base_alias.strip().split(".")[-1].lower()] = base_table
+
+    for join in spec_dict.get("joins", []):
+        j_tbl = (
+            join.get("table")
+            if isinstance(join, dict)
+            else getattr(join, "table", None)
+        )
+        j_alias = (
+            join.get("alias")
+            if isinstance(join, dict)
+            else getattr(join, "alias", None)
+        )
+        if j_alias and isinstance(j_alias, str) and j_tbl and isinstance(j_tbl, str):
+            alias_map[j_alias.strip().lower()] = j_tbl.strip()
+            alias_map[j_alias.strip().split(".")[-1].lower()] = j_tbl.strip()
+
+    def _resolve_table(t: str | None) -> str | None:
+        if not t:
+            return None
+        cleaned = str(t).strip().lower().split(".")[-1]
+        return alias_map.get(cleaned, str(t).strip())
+
     for tbl in referenced_tables:
         clean_tbl = tbl.split(".")[-1].lower()
         if clean_tbl in active_defined_ctes:
@@ -535,20 +653,35 @@ def apply_security_policy(
                     c.lower() for c in perm.get("restricted_columns", [])
                 }
                 if restricted_cols and not (user_roles & allowed_roles):
+
+                    def _check_clac_restricted(
+                        raw_tbl: str | None,
+                        col_raw: str,
+                        *,
+                        _clean_tbl: str = clean_tbl,
+                        _restricted_cols: set[str] = restricted_cols,
+                        _orig_tbl: str = tbl,
+                        _allowed_roles: set[str] = allowed_roles,
+                    ) -> None:
+                        col_lower = col_raw.split(".")[-1].lower()
+                        parts = col_raw.split(".")
+                        tbl_candidate = parts[-2] if len(parts) > 1 else raw_tbl
+                        resolved = _resolve_table(tbl_candidate)
+                        clean_col_tbl = (
+                            resolved.split(".")[-1].lower() if resolved else None
+                        )
+                        if (
+                            clean_col_tbl is None
+                            or clean_col_tbl == _clean_tbl
+                            or clean_col_tbl == "*"
+                        ) and col_lower in _restricted_cols:
+                            raise SecurityError(
+                                f"Access to restricted column '{col_lower}' on table '{_orig_tbl}' requires roles: {sorted(_allowed_roles)}."
+                            )
+
                     for c in spec_dict.get("columns", []):
                         if isinstance(c, str):
-                            col_name = c.split(".")[-1].lower()
-                            col_tbl = (
-                                c.split(".")[0].lower()
-                                if "." in c
-                                else clean_base_table
-                            )
-                            if (
-                                col_tbl == clean_tbl or col_tbl == "*"
-                            ) and col_name in restricted_cols:
-                                raise SecurityError(
-                                    f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
-                                )
+                            _check_clac_restricted(None, c)
                         elif isinstance(c, dict):
                             expr = c.get("expression") or c.get("raw_expression")
                             if expr and isinstance(expr, str):
@@ -556,26 +689,86 @@ def apply_security_policy(
                                     expr, clean_base_table
                                 )
                                 for e_tbl, e_col in expr_cols:
-                                    if (
-                                        e_tbl == clean_tbl or e_tbl == "*" or not e_tbl
-                                    ) and e_col in restricted_cols:
-                                        raise SecurityError(
-                                            f"Access to restricted column '{e_col}' on table '{tbl}' via expression requires roles: {sorted(allowed_roles)}."
-                                        )
-                            col_name = str(c.get("column") or c.get("name", "")).lower()
-                            if not col_name:
-                                continue
-                            col_tbl = (
-                                str(c.get("table") or clean_base_table)
-                                .split(".")[-1]
-                                .lower()
-                            )
-                            if (
-                                col_tbl == clean_tbl or col_tbl == "*"
-                            ) and col_name in restricted_cols:
-                                raise SecurityError(
-                                    f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
+                                    _check_clac_restricted(e_tbl, e_col)
+                            c_name = str(c.get("column") or c.get("name", ""))
+                            if c_name:
+                                c_t = (
+                                    c.get("table")
+                                    or c.get("tablePrefix")
+                                    or c.get("table_prefix")
                                 )
+                                _check_clac_restricted(c_t, c_name)
+
+                    def _check_filter_clac(flt: Any) -> None:
+                        fd = dict(flt.__dict__) if hasattr(flt, "__dict__") else flt
+                        if not isinstance(fd, dict):
+                            return
+                        sub_flts = fd.get("filters")
+                        if isinstance(sub_flts, list):
+                            for sf in sub_flts:
+                                _check_filter_clac(sf)
+                        expr = fd.get("expression") or fd.get("raw_expression")
+                        if expr and isinstance(expr, str):
+                            for e_tbl, e_col in _extract_columns_from_expression(
+                                expr, clean_base_table
+                            ):
+                                _check_clac_restricted(e_tbl, e_col)
+                        c_col = fd.get("column") or fd.get("field")
+                        if c_col and isinstance(c_col, str):
+                            c_t = (
+                                fd.get("table")
+                                or fd.get("tablePrefix")
+                                or fd.get("table_prefix")
+                            )
+                            _check_clac_restricted(c_t, c_col)
+
+                    for f in spec_dict.get("filters", []):
+                        _check_filter_clac(f)
+
+                    for h in spec_dict.get("having", []):
+                        hd = dict(h.__dict__) if hasattr(h, "__dict__") else h
+                        if isinstance(hd, dict):
+                            expr = hd.get("expression") or hd.get("raw_expression")
+                            if expr and isinstance(expr, str):
+                                for e_tbl, e_col in _extract_columns_from_expression(
+                                    expr, clean_base_table
+                                ):
+                                    _check_clac_restricted(e_tbl, e_col)
+                            c_col = hd.get("column") or hd.get("field")
+                            if c_col and isinstance(c_col, str):
+                                c_t = (
+                                    hd.get("table")
+                                    or hd.get("tablePrefix")
+                                    or hd.get("table_prefix")
+                                )
+                                _check_clac_restricted(c_t, c_col)
+
+                    for ob in spec_dict.get("order_by", []):
+                        if isinstance(ob, str):
+                            ob_col = ob.split()[0]
+                            _check_clac_restricted(None, ob_col)
+                        else:
+                            obd = dict(ob.__dict__) if hasattr(ob, "__dict__") else ob
+                            if isinstance(obd, dict):
+                                expr = obd.get("expression") or obd.get(
+                                    "raw_expression"
+                                )
+                                if expr and isinstance(expr, str):
+                                    for (
+                                        e_tbl,
+                                        e_col,
+                                    ) in _extract_columns_from_expression(
+                                        expr, clean_base_table
+                                    ):
+                                        _check_clac_restricted(e_tbl, e_col)
+                                c_col = obd.get("column") or obd.get("field")
+                                if c_col and isinstance(c_col, str):
+                                    c_t = (
+                                        obd.get("table")
+                                        or obd.get("tablePrefix")
+                                        or obd.get("table_prefix")
+                                    )
+                                    _check_clac_restricted(c_t, c_col)
 
     # 5. Column Masking
     if active_policy.column_masking or active_policy.sensitive_column_patterns:
@@ -592,20 +785,17 @@ def apply_security_policy(
             for c in cols:
                 if isinstance(c, str):
                     parts = c.split(".")
-                    c_tbl = parts[0] if len(parts) > 1 else base_table
+                    c_tbl = parts[-2] if len(parts) > 1 else None
                     c_name = parts[-1]
-                    masked_list = (
-                        active_policy.column_masking.get(c_tbl)
-                        or active_policy.column_masking.get(c_tbl.lower())
-                        or active_policy.column_masking.get(
-                            c_tbl.split(".")[-1].lower()
-                        )
-                        or active_policy.column_masking.get("*", [])
-                    )
-                    is_masked = c_name in masked_list or c in masked_list
-                    if not is_masked and compiled_patterns:
-                        is_masked = any(p.search(c_name) for p in compiled_patterns)
-                    if is_masked:
+                    if _is_column_masked(
+                        c_tbl,
+                        c_name,
+                        base_table,
+                        active_policy,
+                        compiled_patterns,
+                        alias_map=alias_map,
+                        referenced_tables=referenced_tables,
+                    ):
                         col_entry: dict[str, Any] = {
                             "column": c_name,
                             "alias": f"{c_name}_masked",
@@ -623,46 +813,31 @@ def apply_security_policy(
                     if expr and isinstance(expr, str):
                         expr_cols = _extract_columns_from_expression(expr, base_table)
                         for e_tbl, e_col in expr_cols:
-                            e_masked_list = (
-                                active_policy.column_masking.get(e_tbl)
-                                or active_policy.column_masking.get(str(e_tbl).lower())
-                                or active_policy.column_masking.get(
-                                    str(e_tbl).split(".")[-1].lower()
-                                )
-                                or active_policy.column_masking.get("*", [])
-                            )
-                            is_e_masked = e_col in e_masked_list or e_col.lower() in [
-                                m.lower() for m in e_masked_list
-                            ]
-                            if not is_e_masked and compiled_patterns:
-                                is_e_masked = any(
-                                    p.search(e_col) for p in compiled_patterns
-                                )
-                            if is_e_masked:
+                            if _is_column_masked(
+                                e_tbl,
+                                e_col,
+                                base_table,
+                                active_policy,
+                                compiled_patterns,
+                                alias_map=alias_map,
+                                referenced_tables=referenced_tables,
+                            ):
                                 raise SecurityError(
                                     f"Access to masked column '{e_col}' in expression is forbidden."
                                 )
                     c_name = c.get("column") or c.get("name", "")
                     c_tbl = (
-                        c.get("table")
-                        or c.get("tablePrefix")
-                        or c.get("table_prefix")
-                        or base_table
+                        c.get("table") or c.get("tablePrefix") or c.get("table_prefix")
                     )
-                    masked_list = (
-                        active_policy.column_masking.get(c_tbl)
-                        or active_policy.column_masking.get(str(c_tbl).lower())
-                        or active_policy.column_masking.get(
-                            str(c_tbl).split(".")[-1].lower()
-                        )
-                        or active_policy.column_masking.get("*", [])
-                    )
-                    is_masked = c_name in masked_list
-                    if not is_masked and compiled_patterns:
-                        is_masked = any(
-                            p.search(str(c_name)) for p in compiled_patterns
-                        )
-                    if is_masked:
+                    if c_name and _is_column_masked(
+                        c_tbl,
+                        str(c_name),
+                        base_table,
+                        active_policy,
+                        compiled_patterns,
+                        alias_map=alias_map,
+                        referenced_tables=referenced_tables,
+                    ):
                         c_copy = dict(c)
                         c_copy["alias"] = c.get("alias") or f"{c_name}_masked"
                         c_copy["masked"] = True
@@ -674,5 +849,182 @@ def apply_security_policy(
                 else:
                     new_cols.append(c)
             spec_dict["columns"] = new_cols
+
+            def _check_filter_masks(flt: Any) -> None:
+                flt_dict = dict(flt.__dict__) if hasattr(flt, "__dict__") else flt
+                if not isinstance(flt_dict, dict):
+                    return
+
+                sub_filters = flt_dict.get("filters")
+                if isinstance(sub_filters, list):
+                    for sf in sub_filters:
+                        _check_filter_masks(sf)
+
+                subq = flt_dict.get("subquery") or (
+                    flt_dict.get("value")
+                    if isinstance(flt_dict.get("value"), dict)
+                    else None
+                )
+                if isinstance(subq, dict):
+                    subq_cols = subq.get("columns", [])
+                    subq_tbl = str(subq.get("table") or base_table)
+                    for sc in subq_cols:
+                        c_name = (
+                            sc.get("column")
+                            if isinstance(sc, dict)
+                            else (sc if isinstance(sc, str) else None)
+                        )
+                        if (isinstance(sc, dict) and sc.get("masked")) or (
+                            c_name
+                            and _is_column_masked(
+                                subq_tbl,
+                                str(c_name),
+                                subq_tbl,
+                                active_policy,
+                                compiled_patterns,
+                                alias_map=alias_map,
+                                referenced_tables=referenced_tables,
+                            )
+                        ):
+                            raise SecurityError(
+                                f"Filtering or sorting on masked column '{c_name or 'column'}' is forbidden."
+                            )
+
+                expr = flt_dict.get("expression") or flt_dict.get("raw_expression")
+                if expr and isinstance(expr, str):
+                    expr_cols = _extract_columns_from_expression(expr, base_table)
+                    for e_tbl, e_col in expr_cols:
+                        if _is_column_masked(
+                            e_tbl,
+                            e_col,
+                            base_table,
+                            active_policy,
+                            compiled_patterns,
+                            alias_map=alias_map,
+                            referenced_tables=referenced_tables,
+                        ):
+                            raise SecurityError(
+                                f"Filtering or sorting on masked column '{e_col}' is forbidden."
+                            )
+
+                col = flt_dict.get("column") or flt_dict.get("field")
+                if col and isinstance(col, str):
+                    col_tbl = (
+                        flt_dict.get("table")
+                        or flt_dict.get("tablePrefix")
+                        or flt_dict.get("table_prefix")
+                    )
+                    if _is_column_masked(
+                        col_tbl,
+                        col,
+                        base_table,
+                        active_policy,
+                        compiled_patterns,
+                        alias_map=alias_map,
+                        referenced_tables=referenced_tables,
+                    ):
+                        raise SecurityError(
+                            f"Filtering or sorting on masked column '{col}' is forbidden."
+                        )
+
+            for f in spec_dict.get("filters", []):
+                _check_filter_masks(f)
+
+            for h in spec_dict.get("having", []):
+                h_dict = dict(h.__dict__) if hasattr(h, "__dict__") else h
+                if isinstance(h_dict, dict):
+                    expr = h_dict.get("expression") or h_dict.get("raw_expression")
+                    if expr and isinstance(expr, str):
+                        expr_cols = _extract_columns_from_expression(expr, base_table)
+                        for e_tbl, e_col in expr_cols:
+                            if _is_column_masked(
+                                e_tbl,
+                                e_col,
+                                base_table,
+                                active_policy,
+                                compiled_patterns,
+                                alias_map=alias_map,
+                                referenced_tables=referenced_tables,
+                            ):
+                                raise SecurityError(
+                                    f"Filtering or sorting on masked column '{e_col}' is forbidden."
+                                )
+                    col = h_dict.get("column") or h_dict.get("field")
+                    if col and isinstance(col, str):
+                        h_tbl = (
+                            h_dict.get("table")
+                            or h_dict.get("tablePrefix")
+                            or h_dict.get("table_prefix")
+                        )
+                        if _is_column_masked(
+                            h_tbl,
+                            col,
+                            base_table,
+                            active_policy,
+                            compiled_patterns,
+                            alias_map=alias_map,
+                            referenced_tables=referenced_tables,
+                        ):
+                            raise SecurityError(
+                                f"Filtering or sorting on masked column '{col}' is forbidden."
+                            )
+
+            for ob in spec_dict.get("order_by", []):
+                if isinstance(ob, str):
+                    ob_col = ob.split()[0]
+                    if _is_column_masked(
+                        None,
+                        ob_col,
+                        base_table,
+                        active_policy,
+                        compiled_patterns,
+                        alias_map=alias_map,
+                        referenced_tables=referenced_tables,
+                    ):
+                        raise SecurityError(
+                            f"Filtering or sorting on masked column '{ob_col}' is forbidden."
+                        )
+                else:
+                    ob_dict = dict(ob.__dict__) if hasattr(ob, "__dict__") else ob
+                    if isinstance(ob_dict, dict):
+                        expr = ob_dict.get("expression") or ob_dict.get(
+                            "raw_expression"
+                        )
+                        if expr and isinstance(expr, str):
+                            expr_cols = _extract_columns_from_expression(
+                                expr, base_table
+                            )
+                            for e_tbl, e_col in expr_cols:
+                                if _is_column_masked(
+                                    e_tbl,
+                                    e_col,
+                                    base_table,
+                                    active_policy,
+                                    compiled_patterns,
+                                    alias_map=alias_map,
+                                    referenced_tables=referenced_tables,
+                                ):
+                                    raise SecurityError(
+                                        f"Filtering or sorting on masked column '{e_col}' is forbidden."
+                                    )
+                        col = ob_dict.get("column") or ob_dict.get("field")
+                        if col and isinstance(col, str):
+                            ob_tbl = (
+                                ob_dict.get("table")
+                                or ob_dict.get("tablePrefix")
+                                or ob_dict.get("table_prefix")
+                            )
+                            if _is_column_masked(
+                                ob_tbl,
+                                col,
+                                base_table,
+                                active_policy,
+                                compiled_patterns,
+                                alias_map=alias_map,
+                                referenced_tables=referenced_tables,
+                            ):
+                                raise SecurityError(
+                                    f"Filtering or sorting on masked column '{col}' is forbidden."
+                                )
 
     return spec_dict

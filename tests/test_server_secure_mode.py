@@ -613,3 +613,20 @@ def test_secure_request_raises_when_the_policy_cannot_be_applied() -> None:
         assert err.value.status == 403 and err.value.code == "FORBIDDEN"
     finally:
         reset_security_config()
+
+
+def test_explain_requires_tenant_in_secure_mode(
+    secure: Client, default: Client
+) -> None:
+    # Adversarial: in secure mode, omitting tenant header fails closed with 401
+    status, out, _ = secure.post("/api/v1/explain", {"spec": SPEC})
+    assert status == 401 and error_code(out) == "TENANT_REQUIRED"
+
+    # Control: in default mode, same request succeeds
+    status, out, _ = default.post("/api/v1/explain", {"spec": SPEC})
+    assert status == 200
+
+
+def test_explain_with_tenant_header_succeeds(secure: Client) -> None:
+    status, out, _ = secure.post("/api/v1/explain", {"spec": SPEC}, headers=ACME)
+    assert status == 200

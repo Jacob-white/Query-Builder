@@ -29,7 +29,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   querySpec,
   sql,
   dialect = "postgres",
-  schema,
+  schema: _schema,
   tableStats,
   onApplyIndexDdl,
   unstyled = false,

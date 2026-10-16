@@ -56,8 +56,8 @@ SECURE_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 _EXECUTE_PATHS = frozenset({"/api/v1/execute", "/api/query", "/api/v1/query/execute"})
-_SPEC_PATHS = _EXECUTE_PATHS | {"/api/v1/compile"}
 _EXPLAIN_PATHS = frozenset({"/api/v1/explain", "/api/query/explain"})
+_SPEC_PATHS = _EXECUTE_PATHS | _EXPLAIN_PATHS | {"/api/v1/compile"}
 #: fields a client must never choose in secure mode
 _FORBIDDEN_FIELDS = ("tenant_id", "policy", "config")
 _MAX_TENANT_ID_LENGTH = 128

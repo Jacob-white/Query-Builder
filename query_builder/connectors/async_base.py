@@ -180,6 +180,10 @@ class AsyncBaseConnector(ABC):
         )
         return f"{self.__class__.__name__}(dialect={self.dialect_name}, config={safe_config})"
 
+    @property
+    def effective_network_config(self) -> Any:
+        return effective_network_config(self, self.security)
+
     def _network_policy_config(self) -> Any:
         """The network policy the egress guard enforces for this connector (or ``None``)."""
         return effective_network_config(self)

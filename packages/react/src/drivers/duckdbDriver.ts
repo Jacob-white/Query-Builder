@@ -532,7 +532,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
   async ingestJson(
     tableName: string,
     rows: Record<string, unknown>[],
-    options: DuckDBIngestOptions = {},
+    _options: DuckDBIngestOptions = {},
   ): Promise<DuckDBTableMeta> {
     const cleanName = cleanIdent(tableName);
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -574,7 +574,7 @@ export class InMemoryOlapEngine implements ClientOlapEngine {
   async ingestParquet(
     tableName: string,
     buffer: Uint8Array,
-    options: DuckDBIngestOptions = {},
+    _options: DuckDBIngestOptions = {},
   ): Promise<DuckDBTableMeta> {
     const cleanName = cleanIdent(tableName);
     // Parquet magic bytes: PAR1 (0x50, 0x41, 0x52, 0x31)

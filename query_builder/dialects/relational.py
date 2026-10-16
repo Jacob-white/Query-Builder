@@ -199,6 +199,7 @@ class RedshiftDialect(BaseDialect):
 
     name: str = "redshift"
     placeholder: str = "%s"
+    like_escape_char = "\\"
 
 
 class TimescaleDialect(PostgresDialect):

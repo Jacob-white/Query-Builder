@@ -177,3 +177,57 @@ def test_find_best_join_condition_multipart_schema(sample_schema):
     assert cond["left_table"] == "firm_master"
     assert cond["left_col"] == "firm_master_id"
     assert cond["right_col"] == "firm_master_id"
+
+
+def test_join_solver_custom_canonical_columns():
+    from query_builder.models import SchemaSnapshot, TableMeta
+
+    schema_dict = {
+        "tables": {
+            "orders": {"columns": [{"name": "org_uuid"}, {"name": "amount"}]},
+            "invoices": {"columns": [{"name": "org_uuid"}, {"name": "total"}]},
+        },
+        "canonical_columns": ["org_uuid"],
+    }
+    # 1. Via dict canonical_columns
+    cond1 = find_best_join_condition("orders", "invoices", schema_dict)
+    assert cond1["left_col"] == "org_uuid"
+    assert cond1["right_col"] == "org_uuid"
+    assert cond1["is_fk"] is False
+    path1 = find_join_path(["orders"], "invoices", schema_dict)
+    assert len(path1) == 1
+    assert path1[0]["left_col"] == "org_uuid"
+    assert path1[0]["right_col"] == "org_uuid"
+
+    raw_schema = {
+        "tables": {
+            "orders": {"columns": [{"name": "org_uuid"}, {"name": "amount"}]},
+            "invoices": {"columns": [{"name": "org_uuid"}, {"name": "total"}]},
+        },
+    }
+    cond2 = find_best_join_condition(
+        "orders", "invoices", raw_schema, canonical_columns=["org_uuid"]
+    )
+    assert cond2["left_col"] == "org_uuid"
+    path2 = find_join_path(
+        ["orders"], "invoices", raw_schema, canonical_columns=["org_uuid"]
+    )
+    assert len(path2) == 1
+    assert path2[0]["left_col"] == "org_uuid"
+
+    # 3. Via SchemaSnapshot.canonical_columns
+    snapshot = SchemaSnapshot(
+        tables={
+            "orders": TableMeta(
+                name="orders", columns=[{"name": "org_uuid"}, {"name": "amount"}]
+            ),
+            "invoices": TableMeta(
+                name="invoices", columns=[{"name": "org_uuid"}, {"name": "total"}]
+            ),
+        },
+        canonical_columns=["org_uuid"],
+    )
+    cond3 = find_best_join_condition("orders", "invoices", snapshot)
+    assert cond3["left_col"] == "org_uuid"
+    path3 = find_join_path(["orders"], "invoices", snapshot)
+    assert len(path3) == 1

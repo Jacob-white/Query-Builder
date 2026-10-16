@@ -56,8 +56,6 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
     messages,
     isGenerating,
     error,
-    latestSpec,
-    latestSql,
     sendMessage,
     applySpec,
     clearMessages,

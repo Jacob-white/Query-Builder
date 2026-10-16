@@ -416,7 +416,9 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
         return
 
     if spec is None:
-        pol = body.get("policy")
+        pol = body.get("policy") or (
+            h.server_security.policy if h.server_security else None
+        )
         tenant_active = bool(
             (isinstance(pol, dict) and pol.get("enforce_tenant_isolation"))
             or (isinstance(pol, SecurityPolicy) and pol.enforce_tenant_isolation)
@@ -784,7 +786,7 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
 def _post_explain(h: QueryBuilderHandler, req: Request) -> None:
     """POST /api/v1/explain, /api/query/explain."""
     body = req.body
-    spec = body.get("spec")
+    spec = body.get("spec") or body.get("query")
     raw_explain = body.get("raw_explain")
     connector_name = body.get("connector", "sqlite")
     dialect = body.get("dialect", connector_name)
@@ -794,9 +796,37 @@ def _post_explain(h: QueryBuilderHandler, req: Request) -> None:
         if raw_explain is not None:
             node = normalize_explain_output(raw_explain, dialect=dialect)
         elif spec is not None:
-            node = estimate_plan_from_spec(spec, schema=schema)
+            active_spec = _policy_spec(body, spec, schema)
+            node = estimate_plan_from_spec(active_spec, schema=schema)
         elif body.get("sql"):
             sql = body["sql"]
+            pol = body.get("policy") or (
+                h.server_security.policy if h.server_security else None
+            )
+            tenant_active = bool(
+                (isinstance(pol, dict) and pol.get("enforce_tenant_isolation"))
+                or (isinstance(pol, SecurityPolicy) and pol.enforce_tenant_isolation)
+            )
+            if tenant_active:
+                h.send_error_response(
+                    "Raw SQL execution is restricted when tenant isolation is enforced. Please use structured QuerySpec.",
+                    code="FORBIDDEN",
+                    status=403,
+                )
+                return
+
+            val_res = validate_sql_ast(sql, allowed_schemas=body.get("allowed_schemas"))
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                h.send_error_response(
+                    f"Security violation: {'; '.join(violations)}",
+                    code="FORBIDDEN",
+                    status=403,
+                )
+                return
+
             config = body.get("config", {})
             try:
                 conn = get_connector(
@@ -821,6 +851,8 @@ def _post_explain(h: QueryBuilderHandler, req: Request) -> None:
             return
 
         h.send_json_response(node.to_dict())
+    except SecurityError as exc:
+        h.send_error_response(str(exc), code="FORBIDDEN", status=403)
     except Exception as exc:  # noqa: BLE001
         h.send_error_response(
             f"Explain failed: {exc}",
