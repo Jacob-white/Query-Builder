@@ -32,7 +32,12 @@ from query_builder.compiler import QueryCompiler
 from query_builder.config import SecurityConfig
 from query_builder.connectors.registry import get_connector
 from query_builder.explain import estimate_plan_from_spec
-from query_builder.export import export_dataset, stream_export_dataset
+from query_builder.export import (
+    EXTENSIONS,
+    MIME_TYPES,
+    export_dataset,
+    stream_export_dataset,
+)
 from query_builder.integrations._errors import public_error
 from query_builder.join_solver import find_join_path
 from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
@@ -224,6 +229,24 @@ def _normalize_schema_snapshot(snapshot: Any) -> dict[str, Any]:
 
 class TenantResolutionError(PermissionError):
     """Raised when the request's tenant cannot be resolved (a deliberate 401)."""
+
+
+def _stream_download(stream_iter: Any, fmt: Any) -> Any:
+    """A streamed file download whose headers come only from the fixed export tables.
+
+    The content type and file name are looked up from constants (never echoed from the
+    request), the body is a download, and sniffing is switched off, so exported cell
+    text is never interpreted as a page.
+    """
+    key = fmt.strip().lower() if isinstance(fmt, str) else ""
+    mime, ext = "application/octet-stream", "bin"
+    for name, known_mime in MIME_TYPES.items():
+        if name == key:
+            mime, ext = known_mime, EXTENSIONS[name]
+    resp = StreamingHttpResponse(stream_iter, content_type=mime)
+    resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+    resp["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 def _unauthorized_message(exc: PermissionError) -> str:
@@ -775,9 +798,8 @@ def create_django_urls(
             else:
                 return JsonResponse({"error": "Missing export data source"}, status=400)
 
-            stream_iter, mime_type, ext = stream_export_dataset(export_data, format=fmt)
-            resp = StreamingHttpResponse(stream_iter, content_type=mime_type)
-            resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+            stream_iter, _mime, _ext = stream_export_dataset(export_data, format=fmt)
+            resp = _stream_download(stream_iter, fmt)
             return resp
         except PermissionError as exc:
             return JsonResponse({"error": _unauthorized_message(exc)}, status=401)
@@ -1184,9 +1206,10 @@ def create_drf_views(
                 raise ValidationError("Missing export data source")
 
             if request.data.get("stream", False):
-                stream_iter, mime, ext = stream_export_dataset(export_data, format=fmt)
-                resp = StreamingHttpResponse(stream_iter, content_type=mime)
-                resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+                stream_iter, _mime, _ext = stream_export_dataset(
+                    export_data, format=fmt
+                )
+                resp = _stream_download(stream_iter, fmt)
                 return resp
 
             content, mime, ext = export_dataset(export_data, format=fmt)
@@ -1253,9 +1276,8 @@ def create_drf_views(
             else:
                 raise ValidationError("Missing export data source")
 
-            stream_iter, mime, ext = stream_export_dataset(export_data, format=fmt)
-            resp = StreamingHttpResponse(stream_iter, content_type=mime)
-            resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+            stream_iter, _mime, _ext = stream_export_dataset(export_data, format=fmt)
+            resp = _stream_download(stream_iter, fmt)
             return resp
 
     class ExplainView(drf_api_view):  # type: ignore[misc, valid-type]
