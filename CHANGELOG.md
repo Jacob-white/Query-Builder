@@ -40,7 +40,9 @@
 - **Configurable Canonical Columns for Join Solving**: Added `canonical_columns` override support to `SchemaSnapshot`, `find_best_join_condition()`, and `find_join_path()` to allow schema-specific entity link keys while retaining standard fallback defaults.
 - **Dialect Native Driver Limitation Probes**: Added native driver `Limitation` probes for CrateDB, StarRocks, Doris, TiDB, and OceanBase to test driver capabilities for introspecting foreign keys and case-sensitive identifier support.
 - **React helpers** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`): pure filter-kind, HAVING,
-  join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page.
+  join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page; `completeJoins` /
+  `loadCompleted` fill a loaded join's missing columns from the one declared link instead of letting it default to
+  `id = id`, and `joinsSummary` now says the kind and columns of each join (bare `{table}` joins are listed as before).
 
 ### Fixed
 - **React `loadSpec` / `specToState`**: join kinds in the compiler's form (`"INNER"`) are converted to the builder's form

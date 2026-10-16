@@ -768,6 +768,7 @@ and are tested alone.
 | Join proof | `directLinks`, `linkedTables`, `isProvenJoin`, `describeLink` |
 | Summaries | `columnsSummary`, `joinsSummary`, `sortsSummary`, `conditionsSummary`, `windowSummary`, `subqueriesSummary` |
 | Columns | `aggregatesFor(dataType)`, `typeLookup(schema)`, `columnsOf(tables)`, `typeLabel`, `kindLabel`, `columnKey` |
+| Join completion | `completeJoins(spec, links)`, `loadCompleted(actions, spec, links)`: fill a join's missing columns from the one declared link, report the rest (`none` / `several`) instead of guessing |
 | SQL file | `sqlFilename(table)`, `sqlFileText(sql, table)`: pair with the Python `QueryCompiler.compile_runnable()` |
 
 ---

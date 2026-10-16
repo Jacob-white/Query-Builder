@@ -19,7 +19,18 @@
     blank. A spec that lists `activeTables` is unchanged.
   - A join that names no columns still loads as `id = id` (unchanged, for compatibility).
 
+### Changed
+- **`joinsSummary(joins)`** now says what each join is when it is given more than a table name: the kind and the columns
+  (`Left join customers on orders.customer_id = customers.id`, `choose the matching column` for a half-filled join, and
+  `; and N more` after two). Joins that carry only a `table` (all of what the function took before) are still listed by
+  table name, exactly as before. The kind is read in either form (`"LEFT"` or `"LEFT JOIN"`, any case).
+
 ### Query UI helpers (new, pure, no React)
+- **Join completion:** `completeJoins(spec, links)` fills a join's missing criteria from the one declared link between the
+  joined table and a table already in the query (either direction), and reports the joins it could not complete with
+  the reason (`none` or `several`) instead of guessing. `loadCompleted(actions, spec, links)` loads the completed spec and
+  blanks those joins in the builder (`updateJoin`) so they show as still to be chosen rather than as `id = id`. Opt-in:
+  `loadSpec` still defaults a join that names no columns to `id = id`.
 - New exports for building a query UI on top of the package, extracted from a host application's Query Builder page and
   tested on their own (`src/utils/queryHelpers`):
   - **Filter kinds:** `columnKind(dataType)`, `operatorsFor(kind)`, `operatorHelp(kind, op)`, `coerceValue(kind, op, raw)`
