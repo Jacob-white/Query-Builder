@@ -255,3 +255,99 @@ def test_the_report_counts_what_it_audited() -> None:
     skipped = audit_schema({"tables": TABLES}, ignore_prefixes=("reg",))
     assert (skipped.tables, skipped.columns) == (2, 5)
     assert report.to_dict()["tables"] == 3 and report.to_dict()["clean"] is False
+
+
+# --- odd entries in a schema are skipped, not reported or fatal --------------------------------------------------------
+
+
+def test_columns_may_be_a_name_to_type_mapping() -> None:
+    schema = {
+        "tables": {
+            "orders": {"columns": {"id": "INTEGER", "customer_id": "INTEGER"}},
+            "customers": {"columns": {"id": "INTEGER"}},
+        }
+    }
+    report = audit_schema(schema)
+    assert report.missing_links == [("orders", "customer_id", "customers")]
+    assert report.columns == 3 and report.undescribed_columns == {
+        "orders": 2,
+        "customers": 1,
+    }
+
+
+def test_a_column_entry_that_is_not_a_name_is_skipped_and_the_others_still_audited() -> (
+    None
+):
+    schema = {
+        "tables": {
+            "orders": {"columns": [5, None, {}, {"name": 3}, "id", "customer_id"]},
+            "customers": {"columns": ["id"]},
+        }
+    }
+    report = audit_schema(schema)
+    assert report.missing_links == [("orders", "customer_id", "customers")]
+    assert report.columns == 3  # id and customer_id of orders, id of customers
+
+
+def test_a_per_table_foreign_key_that_is_not_a_link_is_skipped_and_a_real_one_still_counts() -> (
+    None
+):
+    tables = {
+        "orders": {
+            "columns": ["id", "customer_id"],
+            "foreign_keys": [
+                None,
+                "x",
+                {"column": 5},
+                {"foreign_table": "customers"},
+                {"column": "customer_id", "foreign_table": "customers"},
+            ],
+        },
+        "customers": {"columns": ["id"]},
+    }
+    assert audit_schema({"tables": tables}).missing_links == []
+    unlinked = {
+        "orders": {**tables["orders"], "foreign_keys": [None, "x", {"column": 5}]},
+        "customers": tables["customers"],
+    }
+    assert audit_schema({"tables": unlinked}).missing_links == [
+        ("orders", "customer_id", "customers")
+    ]
+
+
+def test_a_top_level_foreign_key_or_relationship_that_is_not_a_mapping_is_skipped() -> (
+    None
+):
+    schema = {
+        "tables": {
+            "orders": {"columns": ["id", "customer_id", "region_id"]},
+            "customers": {"columns": ["id"]},
+            "regions": {"columns": ["id"]},
+        },
+        "foreign_keys": [
+            None,
+            7,
+            {
+                "table": "orders",
+                "column": "customer_id",
+                "foreign_table": "customers",
+                "foreign_column": "id",
+            },
+        ],
+        "relationships": [
+            "x",
+            None,
+            {
+                "source_table": "orders",
+                "source_column": "region_id",
+                "target_table": "regions",
+                "target_column": "id",
+            },
+        ],
+    }
+    assert audit_schema(schema).missing_links == []
+    only_junk = {**schema, "foreign_keys": [None, 7], "relationships": ["x"]}
+    assert {c for _, c, _ in audit_schema(only_junk).missing_links} == {
+        "customer_id",
+        "region_id",
+    }

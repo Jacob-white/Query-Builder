@@ -209,3 +209,25 @@ def test_a_dialect_that_cannot_be_rendered_is_still_none_with_pretty() -> None:
         )
         is None
     )
+
+
+# --- comments are compared exactly -------------------------------------------------------------------------------------
+
+
+def test_a_block_comment_is_kept_as_written_and_the_fingerprint_notices_a_change_inside_it() -> (
+    None
+):
+    assert _fingerprint("SELECT /* keep  this */ 1") != _fingerprint(
+        "SELECT /* keep this */ 1"
+    )
+    assert _fingerprint("select /* keep this */ 1") == _fingerprint(
+        "SELECT  /* keep this */\n1"
+    )
+    out = format_sql("SELECT /* keep   this */ 1 FROM t")
+    assert out is not None and "/* keep   this */" in out
+
+
+def test_an_unterminated_comment_runs_to_the_end_and_does_not_hang_or_crash() -> None:
+    assert _fingerprint("SELECT 1 /* never closed  ") == "select1/* never closed  "
+    assert _fingerprint("SELECT 1 -- no newline  ") == "select1-- no newline  "
+    assert format_sql("SELECT 1 /* never closed") is not None

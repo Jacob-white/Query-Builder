@@ -325,3 +325,71 @@ def test_a_table_name_is_matched_case_sensitively_like_the_compiler_does() -> No
     check_columns(
         {"table": "Orders", "columns": ["Orders.zzz"]}, SCHEMA
     )  # not a listed table: left alone
+
+
+# --- odd entries in a schema or spec are skipped, not fatal --------------------------------------------------------------
+
+
+def test_a_table_entry_that_is_not_a_mapping_is_skipped_and_the_rest_still_checked() -> (
+    None
+):
+    schema = {
+        "tables": {
+            "broken": None,
+            5: {"columns": ["x"]},
+            "orders": SCHEMA["tables"]["orders"],
+        }
+    }
+    assert (
+        refused({"table": "orders", "columns": ["orders.zzz"]}, schema).table
+        == "orders"
+    )
+    check_columns(
+        {"table": "broken", "columns": ["broken.anything"]}, schema
+    )  # not a usable table: left alone
+
+
+@pytest.mark.parametrize("columns", [None, 5, "id"])
+def test_a_table_whose_columns_are_not_a_list_or_mapping_lists_none_so_every_column_is_unknown(
+    columns: Any,
+) -> None:
+    schema = {"tables": {"orders": {"columns": columns}}}
+    error = refused({"table": "orders", "columns": ["orders.id"]}, schema)
+    assert error.available == [] and error.suggestions == []
+
+
+def test_a_column_entry_that_is_not_a_name_is_skipped_when_reading_the_schema() -> None:
+    schema = {
+        "tables": {
+            "orders": {"columns": [5, None, {}, {"name": 3}, "id", {"name": "status"}]}
+        }
+    }
+    check_columns(
+        {"table": "orders", "columns": ["orders.status", "orders.id"]}, schema
+    )
+    assert refused(
+        {"table": "orders", "columns": ["orders.zzz"]}, schema
+    ).available == ["id", "status"]
+
+
+def test_a_join_entry_that_is_not_a_join_is_skipped_and_a_real_one_still_counts() -> (
+    None
+):
+    spec = {
+        "table": "orders",
+        "columns": ["orders.id", "customers.region"],
+        "joins": [None, "x", {"left_col": "a"}, {"table": 5}, JOIN],
+    }
+    check_columns(spec, SCHEMA)
+    assert (
+        refused({**spec, "columns": ["orders.id", "customers.zzz"]}).table
+        == "customers"
+    )
+
+
+def test_a_column_of_a_table_the_schema_does_not_list_is_left_alone_even_when_it_is_not_joined() -> (
+    None
+):
+    check_columns(
+        {"table": "orders", "columns": ["orders.id", "mystery.anything"]}, SCHEMA
+    )

@@ -86,15 +86,14 @@ def _column_names(meta: Mapping[str, Any]) -> list[tuple[str, str]]:
 
 
 def _declared_links(
-    schema_tables: Mapping[str, Any], schema: Any
+    schema_tables: Mapping[str, Mapping[str, Any]], schema: Any
 ) -> set[tuple[str, str]]:
     """Every ``(table, column)`` that holds a declared link: a per-table foreign key, a top-level one, or a relationship."""
     links: set[tuple[str, str]] = set()
-    for name, meta in schema_tables.items():
-        if isinstance(meta, Mapping):
-            for fk in meta.get("foreign_keys", []) or []:
-                if isinstance(fk, Mapping) and isinstance(fk.get("column"), str):
-                    links.add((name, fk["column"]))
+    for name, meta in schema_tables.items():  # every meta here is already a mapping
+        for fk in meta.get("foreign_keys", []) or []:
+            if isinstance(fk, Mapping) and isinstance(fk.get("column"), str):
+                links.add((name, fk["column"]))
     top: Iterable[Any] = getattr(schema, "foreign_keys", None) or (
         schema.get("foreign_keys", []) if isinstance(schema, Mapping) else []
     )
