@@ -9,6 +9,7 @@ derived GROUP BY, HAVING, ordering, and pagination.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -128,7 +129,18 @@ ALLOWED_FILTER_KEYS = {
     "parenClose",
     "_enforced",
 }
-ALLOWED_HAVING_KEYS = {"column", "agg", "aggregate", "op", "operator", "value"}
+ALLOWED_HAVING_KEYS = {
+    "column",
+    "agg",
+    "aggregate",
+    "op",
+    "operator",
+    "value",
+    "table",
+    "table_prefix",
+    "tablePrefix",
+    "id",
+}
 ALLOWED_ORDER_BY_KEYS = {
     "column",
     "direction",
@@ -212,6 +224,7 @@ ALLOWED_FILTER_OPS = {
 
 _BUILTIN_FILTER_OPS = set(ALLOWED_FILTER_OPS)
 _CUSTOM_FILTER_OPERATORS: dict[str, Callable[..., Any]] = {}
+_CUSTOM_FILTER_OPERATORS_LOCK = threading.RLock()
 
 
 def register_filter_operator(
@@ -225,8 +238,9 @@ def register_filter_operator(
     and return either a SQL clause string, or a tuple of (clause_str, params).
     """
     clean_name = name.lower().strip()
-    _CUSTOM_FILTER_OPERATORS[clean_name] = handler
-    ALLOWED_FILTER_OPS.add(clean_name)
+    with _CUSTOM_FILTER_OPERATORS_LOCK:
+        _CUSTOM_FILTER_OPERATORS[clean_name] = handler
+        ALLOWED_FILTER_OPS.add(clean_name)
 
 
 def unregister_filter_operator(name: str) -> None:
@@ -234,16 +248,18 @@ def unregister_filter_operator(name: str) -> None:
     Unregister a custom filter operator.
     """
     clean_name = name.lower().strip()
-    _CUSTOM_FILTER_OPERATORS.pop(clean_name, None)
-    if clean_name not in _BUILTIN_FILTER_OPS:
-        ALLOWED_FILTER_OPS.discard(clean_name)
+    with _CUSTOM_FILTER_OPERATORS_LOCK:
+        _CUSTOM_FILTER_OPERATORS.pop(clean_name, None)
+        if clean_name not in _BUILTIN_FILTER_OPS:
+            ALLOWED_FILTER_OPS.discard(clean_name)
 
 
 def list_filter_operators() -> list[str]:
     """
     Return a sorted list of all allowed filter operator names (built-in and custom).
     """
-    return sorted(ALLOWED_FILTER_OPS)
+    with _CUSTOM_FILTER_OPERATORS_LOCK:
+        return sorted(ALLOWED_FILTER_OPS)
 
 
 ALLOWED_JOIN_TYPES = {
@@ -453,12 +469,19 @@ def _validate_joins(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
         _validate_join(j, allow_unknown_keys)
 
 
-def _validate_filter(raw: Any, allow_unknown_keys: bool) -> None:
+def _validate_filter(
+    raw: Any,
+    allow_unknown_keys: bool,
+    extra_ops: set[str] | None = None,
+) -> None:
     flt_dict = _as_item_dict(raw, "filter")
     _check_unknown_keys(flt_dict, ALLOWED_FILTER_KEYS, "filter", allow_unknown_keys)
 
     op = str(flt_dict.get("op", flt_dict.get("operator", "eq"))).strip().lower()
-    if op not in ALLOWED_FILTER_OPS:
+    valid_ops = (
+        ALLOWED_FILTER_OPS if extra_ops is None else (ALLOWED_FILTER_OPS | extra_ops)
+    )
+    if op not in valid_ops:
         raise ValidationError(f"Unsupported filter operator: '{op}'")
 
     val = flt_dict.get("value")
@@ -470,7 +493,11 @@ def _validate_filter(raw: Any, allow_unknown_keys: bool) -> None:
     ):
         sub_spec = subquery if subquery is not None else val
         sub_dict = sub_spec if isinstance(sub_spec, dict) else sub_spec.__dict__
-        validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
+        validate_query_spec(
+            sub_dict,
+            allow_unknown_keys=allow_unknown_keys,
+            extra_filter_ops=extra_ops,
+        )
         flt_col = flt_dict.get("column")
         if flt_col is not None:
             _check_ident(flt_col, "filter column")
@@ -508,9 +535,13 @@ def _validate_filter(raw: Any, allow_unknown_keys: bool) -> None:
         raise ValidationError("BETWEEN filter requires exactly 2 bounds.")
 
 
-def _validate_filters(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
+def _validate_filters(
+    spec: dict[str, Any],
+    allow_unknown_keys: bool,
+    extra_ops: set[str] | None = None,
+) -> None:
     for flt in _list_section(spec, "filters"):
-        _validate_filter(flt, allow_unknown_keys)
+        _validate_filter(flt, allow_unknown_keys, extra_ops=extra_ops)
 
     if (
         "filter_join" in spec
@@ -534,6 +565,11 @@ def _validate_having_item(raw: Any, allow_unknown_keys: bool) -> None:
     h_op = str(h_dict.get("op", h_dict.get("operator", "gt"))).lower()
     if h_op not in OPERATOR_MAP:
         raise ValidationError(f"Unsupported having operator: '{h_op}'")
+    h_pfx = (
+        h_dict.get("tablePrefix") or h_dict.get("table_prefix") or h_dict.get("table")
+    )
+    if h_pfx is not None:
+        _check_ident(h_pfx, "having table prefix")
 
 
 def _validate_having(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
@@ -884,7 +920,11 @@ _VALIDATION_STEPS: tuple[Callable[[dict[str, Any], bool], None], ...] = (
 )
 
 
-def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) -> None:
+def validate_query_spec(
+    spec: dict[str, Any],
+    allow_unknown_keys: bool = False,
+    extra_filter_ops: set[str] | None = None,
+) -> None:
     """
     Validates an untrusted query specification dictionary against schema rules,
     acceptable keys, data types, and defensive DoS limits.
@@ -894,7 +934,10 @@ def validate_query_spec(spec: dict[str, Any], allow_unknown_keys: bool = False) 
             f"Query spec must be a dictionary, got {type(spec).__name__}"
         )
     for step in _VALIDATION_STEPS:
-        step(spec, allow_unknown_keys)
+        if step is _validate_filters:
+            _validate_filters(spec, allow_unknown_keys, extra_ops=extra_filter_ops)
+        else:
+            step(spec, allow_unknown_keys)
 
 
 _EXISTS_OPS = ("exists", "not_exists", "not exists")
@@ -946,6 +989,7 @@ class QueryCompiler:
         capabilities: Any = None,
         inner: bool = False,
         param_counter: list[int] | None = None,
+        custom_operators: dict[str, Callable[..., Any]] | None = None,
     ) -> None:
         # Nested queries (CTE bodies, subqueries in FROM / IN / EXISTS) must not
         # get the implicit page LIMIT: it would silently truncate the inner
@@ -953,6 +997,11 @@ class QueryCompiler:
         self.inner = inner
         self._param_counter: list[int] = (
             param_counter if param_counter is not None else [0]
+        )
+        self.custom_operators: dict[str, Callable[..., Any]] | None = (
+            {k.lower().strip(): v for k, v in custom_operators.items()}
+            if custom_operators is not None
+            else None
         )
         if capabilities is not None:
             from query_builder.capabilities import EngineCapabilities
@@ -985,7 +1034,14 @@ class QueryCompiler:
             raise CompilationError(f"Unsupported spec type: {type(spec)}")
 
         if validate_spec:
-            validate_query_spec(self.spec, allow_unknown_keys=allow_unknown_keys)
+            extra_ops = (
+                set(self.custom_operators.keys()) if self.custom_operators else None
+            )
+            validate_query_spec(
+                self.spec,
+                allow_unknown_keys=allow_unknown_keys,
+                extra_filter_ops=extra_ops,
+            )
 
         if self.capabilities:
             self._validate_capabilities()
@@ -1541,6 +1597,7 @@ class QueryCompiler:
             semantic_models=self.semantic_models,
             inner=inner,
             param_counter=self._param_counter,
+            custom_operators=self.custom_operators,
         )
         sub_sql, sub_params, _, _ = sub_compiler.compile()
         return sub_sql, sub_params
@@ -2369,8 +2426,11 @@ class QueryCompiler:
             return self._compile_in_filter(quoted_ref, op, val)
         if op in ("between", "not_between", "not between"):
             return self._compile_between_filter(quoted_ref, op, val)
-        if op in _CUSTOM_FILTER_OPERATORS:
+        if self.custom_operators and op in self.custom_operators:
             return self._compile_custom_filter(quoted_ref, op, val)
+        with _CUSTOM_FILTER_OPERATORS_LOCK:
+            if op in _CUSTOM_FILTER_OPERATORS:
+                return self._compile_custom_filter(quoted_ref, op, val)
         raise CompilationError(f"Unsupported filter operator: '{op}'")
 
     def _compile_in_filter(self, quoted_ref: str, op: str, val: Any) -> str:
@@ -2423,7 +2483,15 @@ class QueryCompiler:
         return f"{quoted_ref} {not_pfx}BETWEEN {self.dialect.placeholder} AND {self.dialect.placeholder}"
 
     def _compile_custom_filter(self, quoted_ref: str, op: str, val: Any) -> str:
-        res = _CUSTOM_FILTER_OPERATORS[op](quoted_ref, val, self.dialect)
+        handler = None
+        if self.custom_operators and op in self.custom_operators:
+            handler = self.custom_operators[op]
+        else:
+            with _CUSTOM_FILTER_OPERATORS_LOCK:
+                handler = _CUSTOM_FILTER_OPERATORS.get(op)
+        if handler is None:
+            raise CompilationError(f"Unsupported filter operator: '{op}'")
+        res = handler(quoted_ref, val, self.dialect)
         if isinstance(res, tuple):
             clause_str, new_params = res
             if isinstance(new_params, (list, tuple)):
@@ -2447,6 +2515,13 @@ class QueryCompiler:
             op = str(hvg.get("op", hvg.get("operator", "gt"))).lower()
             val = hvg.get("value")
 
+            prefix = (
+                hvg.get("tablePrefix")
+                or hvg.get("table_prefix")
+                or hvg.get("table")
+                or self._clean_base
+            )
+
             if col_ref == "*":
                 if agg != "count":
                     raise CompilationError(
@@ -2454,7 +2529,7 @@ class QueryCompiler:
                     )
                 agg_expr = "COUNT(*)"
             else:
-                _, _, quoted_ref = self._resolve_column_ref(col_ref, self._clean_base)
+                _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
                 if agg not in AGGREGATE_MAP:
                     continue
                 agg_expr = self._aggregate_template(agg).format(quoted_ref)

@@ -304,6 +304,10 @@ class BaseConnector(ABC):
         )
         return f"{self.__class__.__name__}(dialect={self.dialect_name}, config={safe_config})"
 
+    @property
+    def effective_network_config(self) -> Any:
+        return effective_network_config(self, self.security)
+
     def _validate_network_target(
         self, security_config: SecurityConfig | None = None
     ) -> None:

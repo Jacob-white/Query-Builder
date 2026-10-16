@@ -105,7 +105,7 @@ const SAMPLE_CHART_RESULTS: QueryResultData = {
 
 // Headless Demo Component
 const HeadlessDemoUI: React.FC<{ schema: SchemaSnapshot }> = ({ schema }) => {
-  const { state, actions, compiled, safety } = useQueryBuilder({
+  const { state, actions, compiled } = useQueryBuilder({
     schema,
     initialTable: "users",
     initialLimit: 10,

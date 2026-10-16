@@ -10849,7 +10849,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "bigquery",
@@ -10868,9 +10868,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -11259,15 +11259,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -11283,15 +11283,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -11307,15 +11307,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -20134,7 +20134,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "databricks",
@@ -20153,9 +20153,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -20544,15 +20544,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -20568,15 +20568,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -20592,15 +20592,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -64563,7 +64563,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "redshift",
@@ -64582,9 +64582,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -64973,15 +64973,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -64997,15 +64997,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -65021,15 +65021,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",
@@ -69840,7 +69840,7 @@
    "attrs": {
     "avg_template": "AVG({})",
     "count_distinct_template": "COUNT(DISTINCT {})",
-    "like_escape_char": null,
+    "like_escape_char": "\\",
     "like_escape_clause": false,
     "like_special_chars": "%_",
     "name": "databricks",
@@ -69859,9 +69859,9 @@
    "methods": {
     "escape_like": [
      "abc",
-     "50%",
-     "a_b",
-     "back\\slash",
+     "50\\%",
+     "a\\_b",
+     "back\\\\slash",
      "~tilde",
      "5"
     ],
@@ -70250,15 +70250,15 @@
      ],
      [
       "contains",
-      "%50%%"
+      "%50\\%%"
      ],
      [
       "contains",
-      "%a_b%"
+      "%a\\_b%"
      ],
      [
       "contains",
-      "%back\\slash%"
+      "%back\\\\slash%"
      ],
      [
       "contains",
@@ -70274,15 +70274,15 @@
      ],
      [
       "starts",
-      "50%%"
+      "50\\%%"
      ],
      [
       "starts",
-      "a_b%"
+      "a\\_b%"
      ],
      [
       "starts",
-      "back\\slash%"
+      "back\\\\slash%"
      ],
      [
       "starts",
@@ -70298,15 +70298,15 @@
      ],
      [
       "ends",
-      "%50%"
+      "%50\\%"
      ],
      [
       "ends",
-      "%a_b"
+      "%a\\_b"
      ],
      [
       "ends",
-      "%back\\slash"
+      "%back\\\\slash"
      ],
      [
       "ends",

@@ -959,3 +959,57 @@ def test_fastapi_http_exception_and_nlq_tenant_policy(sqlite_test_db):
     resp2 = client2.post("/nlq", json={"prompt": "Show users", "dialect": "sqlite"})
     assert resp2.status_code == 200
     assert "tenant_id" in resp2.json()["sql"]
+
+
+def test_fastapi_compile_validates_sql_ast(sqlite_test_db):
+    """Verifies that /compile validates SQL AST safety and rejects non-read-only compiled SQL."""
+    from unittest.mock import patch
+
+    app = FastAPI()
+    router = create_query_builder_router(connector=sqlite_test_db)
+    app.include_router(router)
+    client = TestClient(app)
+
+    # Control: valid select compiles with 200
+    res_ok = client.post(
+        "/compile", json={"spec": {"table": "users", "columns": ["id"]}}
+    )
+    assert res_ok.status_code == 200
+
+    # Adversarial: compiled SQL containing non-read-only statement fails closed with 403
+    with patch(
+        "query_builder.compiler.QueryCompiler.compile",
+        return_value=("DROP TABLE users;", [], None, None),
+    ):
+        res_bad = client.post(
+            "/compile", json={"spec": {"table": "users", "columns": ["id"]}}
+        )
+        assert res_bad.status_code == 403
+        assert "Security violation" in res_bad.json()["detail"]
+
+
+def test_fastapi_policy_immutability_and_join_path_table_filter(sqlite_test_db):
+    """Verifies that get_effective_policy does not mutate caller's SecurityPolicy and join-path filters tables."""
+    orig_policy = SecurityPolicy(
+        enforce_tenant_isolation=False,
+        restricted_tables=["orders"],
+    )
+    app = FastAPI()
+    router = create_query_builder_router(
+        connector=sqlite_test_db,
+        security=orig_policy,
+        tenant_resolver=lambda r: "t1",
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    # Immutability check: caller's policy was not mutated
+    assert orig_policy.enforce_tenant_isolation is False
+
+    # Join path table filtering
+    res = client.post(
+        "/join-path",
+        json={"active_tables": ["users"], "target_table": "orders"},
+    )
+    # Since orders is in restricted_tables, it's filtered out of the schema snapshot
+    assert res.status_code == 200

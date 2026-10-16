@@ -227,7 +227,6 @@ export function formatIlike(
     dialect === "firebolt" ||
     dialect === "neon" ||
     dialect === "supabase" ||
-    dialect === "starrocks" ||
     dialect === "materialize" ||
     dialect === "mz" ||
     dialect === "risingwave" ||
@@ -246,19 +245,20 @@ export function formatIlike(
     dialect === "chdb" ||
     dialect === "greptimedb" ||
     dialect === "greptime" ||
-    dialect === "doris" ||
-    dialect === "apache_doris" ||
-    dialect === "pydoris" ||
     dialect === "impala" ||
     dialect === "apache_impala" ||
     dialect === "impyla" ||
     dialect === "kyuubi" ||
     dialect === "apache_kyuubi" ||
+    dialect === "yugabyte" ||
+    dialect === "yugabytedb" ||
+    dialect === "starrocks" ||
+    dialect === "doris" ||
+    dialect === "apache_doris" ||
+    dialect === "pydoris" ||
     dialect === "drill" ||
     dialect === "apache_drill" ||
     dialect === "pydrill" ||
-    dialect === "yugabyte" ||
-    dialect === "yugabytedb" ||
     dialect === "clickhouse_native" ||
     dialect === "ch_native" ||
     dialect === "clickhouse_tcp"

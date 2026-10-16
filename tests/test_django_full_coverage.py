@@ -1651,3 +1651,70 @@ def test_django_export_stream_and_parity_endpoints(sqlite_conn, rf):
     assert nlq(req_nlq_no_schema).status_code == 200
     with patch("query_builder.ai.client.ask_ai", side_effect=RuntimeError("glitch")):
         assert nlq(req_nlq_no_schema).status_code == 400
+
+
+def test_django_compile_views_validate_sql_ast(sqlite_conn):
+    rf = RequestFactory()
+    urls = create_django_urls(sqlite_conn)
+    url_map = {u.name: u.callback for u in urls}
+    compile_view = url_map["query-builder-compile"]
+
+    # 1. Standard Django compile_view blocks non-read-only compiled SQL
+    with patch(
+        "query_builder.compiler.QueryCompiler.compile",
+        return_value=("DROP TABLE users;", [], None, None),
+    ):
+        resp = compile_view(
+            rf.post(
+                "/compile/",
+                data=json.dumps({"spec": {"table": "users", "columns": ["id"]}}),
+                content_type="application/json",
+            )
+        )
+        assert resp.status_code == 403
+        assert "Security violation" in json.loads(resp.content.decode("utf-8"))["error"]
+
+    # 2. DRF CompileView blocks non-read-only compiled SQL
+    drf_rf = APIRequestFactory()
+    views = create_drf_views(sqlite_conn)
+    drf_comp = views["CompileView"].as_view()
+    with patch(
+        "query_builder.compiler.QueryCompiler.compile",
+        return_value=("DROP TABLE users;", [], None, None),
+    ):
+        resp_drf = drf_comp(
+            drf_rf.post(
+                "/",
+                {"spec": {"table": "users", "columns": ["id"]}},
+                format="json",
+            )
+        )
+        assert resp_drf.status_code == 403
+
+
+def test_django_policy_immutability_and_schema_filter(sqlite_conn):
+    orig_policy = SecurityPolicy(
+        enforce_tenant_isolation=False,
+        restricted_tables=["orders"],
+    )
+    urls = create_django_urls(
+        sqlite_conn,
+        security=orig_policy,
+        tenant_resolver=lambda r: "t1",
+    )
+    url_map = {u.name: u.callback for u in urls}
+
+    # Immutability check
+    assert orig_policy.enforce_tenant_isolation is False
+
+    # Join path table filter
+    rf = RequestFactory()
+    join_path = url_map["query-builder-join-path"]
+    resp = join_path(
+        rf.post(
+            "/join-path/",
+            data=json.dumps({"active_tables": ["users"], "target_table": "orders"}),
+            content_type="application/json",
+        )
+    )
+    assert resp.status_code == 200

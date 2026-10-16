@@ -56,6 +56,7 @@ EFFECT = {
     "QB_FILTER_SQL_COMMENTS": "Filter SQL comments in submitted SQL",
     "QB_ALLOW_CTE": "Permit `WITH` clauses",
     "QB_ALLOW_RECURSIVE_CTE": "Permit `WITH RECURSIVE`",
+    "QB_RESTRICTED_TABLES": "Comma-separated table names rejected in all queries (supports schema.table)",
     "QB_ENFORCE_TENANT_ISOLATION": "Fail-closed tenant predicate injection",
     "QB_TENANT_COLUMN": "Column holding the tenant id (cannot be empty)",
     "QB_MASKING_STRATEGY": "Masking mode: `redact`, `hash` or `partial`",

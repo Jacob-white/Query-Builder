@@ -201,6 +201,7 @@ class SchemaSnapshot:
     relationships: list[dict[str, Any]] = field(default_factory=list)
     foreign_keys: list[dict[str, Any]] = field(default_factory=list)
     categories: dict[str, list[str]] = field(default_factory=dict)
+    canonical_columns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -332,6 +333,29 @@ class HavingSpec:
     agg: str = "count"  # count, sum, avg, min, max
     op: str = "gt"
     value: Any = None
+    table_prefix: str | None = None
+    table: str | None = None
+    id: str | None = None
+    tablePrefix: InitVar[str | None] = None
+
+    def __post_init__(self, tablePrefix: str | None = None) -> None:
+        if tablePrefix is not None and self.table_prefix is None:
+            self.table_prefix = tablePrefix
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "column": self.column,
+            "agg": self.agg,
+            "op": self.op,
+            "value": self.value,
+        }
+        if self.table_prefix is not None:
+            d["table_prefix"] = self.table_prefix
+        if self.table is not None:
+            d["table"] = self.table
+        if self.id is not None:
+            d["id"] = self.id
+        return d
 
 
 @dataclass
@@ -341,6 +365,8 @@ class OrderBySpec:
     column: str
     direction: str = "asc"  # asc, desc
     table_prefix: str | None = None
+    table: str | None = None
+    id: str | None = None
     tablePrefix: InitVar[str | None] = None
 
     def __post_init__(self, tablePrefix: str | None = None) -> None:
@@ -354,6 +380,10 @@ class OrderBySpec:
         }
         if self.table_prefix is not None:
             d["table_prefix"] = self.table_prefix
+        if self.table is not None:
+            d["table"] = self.table
+        if self.id is not None:
+            d["id"] = self.id
         return d
 
 
@@ -922,6 +952,10 @@ class QuerySpec:
                                         "type": "string",
                                         "description": "Column name",
                                     },
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Alternative key for column name",
+                                    },
                                     "agg": {
                                         "type": "string",
                                         "enum": [
@@ -934,6 +968,10 @@ class QuerySpec:
                                         ],
                                         "description": "Aggregate function",
                                     },
+                                    "aggregate": {
+                                        "type": "string",
+                                        "description": "Alternative key for aggregate function",
+                                    },
                                     "alias": {
                                         "type": "string",
                                         "description": "Output column alias",
@@ -945,6 +983,46 @@ class QuerySpec:
                                     "raw_expression": {
                                         "type": "string",
                                         "description": "Raw SQL expression",
+                                    },
+                                    "expression": {
+                                        "type": "string",
+                                        "description": "Alternative key for raw SQL expression",
+                                    },
+                                    "table": {
+                                        "type": "string",
+                                        "description": "Qualifying table name or prefix",
+                                    },
+                                    "time_grain": {
+                                        "type": "string",
+                                        "description": "Date/time truncation granularity",
+                                    },
+                                    "grain": {
+                                        "type": "string",
+                                        "description": "Alternative key for time grain",
+                                    },
+                                    "metric": {
+                                        "type": "string",
+                                        "description": "Semantic metric name",
+                                    },
+                                    "dimension": {
+                                        "type": "string",
+                                        "description": "Semantic dimension name",
+                                    },
+                                    "format": {
+                                        "type": "string",
+                                        "description": "Display or serialization format string",
+                                    },
+                                    "case_when": {
+                                        "type": "object",
+                                        "description": "Case-when conditional specification",
+                                    },
+                                    "masked": {
+                                        "type": "boolean",
+                                        "description": "Column masking flag",
+                                    },
+                                    "masking_strategy": {
+                                        "type": "string",
+                                        "description": "Specific column masking strategy",
                                     },
                                 },
                             },
@@ -1025,27 +1103,63 @@ class QuerySpec:
                             "op": {
                                 "type": "string",
                                 "enum": [
+                                    "=",
+                                    "!=",
+                                    "<",
+                                    "<=",
+                                    ">",
+                                    ">=",
+                                    "between",
+                                    "contains",
+                                    "ends_with",
+                                    "endswith",
                                     "eq",
-                                    "neq",
+                                    "exists",
                                     "gt",
                                     "gte",
+                                    "ilike",
+                                    "in",
+                                    "is not null",
+                                    "is null",
+                                    "is_not_null",
+                                    "is_null",
+                                    "like",
                                     "lt",
                                     "lte",
-                                    "contains",
-                                    "starts_with",
-                                    "ends_with",
-                                    "in",
+                                    "neq",
+                                    "not between",
+                                    "not contains",
+                                    "not endswith",
+                                    "not exists",
+                                    "not ilike",
+                                    "not in",
+                                    "not like",
+                                    "not startswith",
+                                    "not_between",
+                                    "not_contains",
+                                    "not_ends_with",
+                                    "not_exists",
+                                    "not_ilike",
                                     "not_in",
-                                    "between",
-                                    "is_null",
-                                    "is_not_null",
+                                    "not_like",
+                                    "not_starts_with",
+                                    "starts_with",
+                                    "startswith",
                                 ],
                                 "description": "Comparison filter operator",
+                            },
+                            "operator": {
+                                "type": "string",
+                                "description": "Alternative key for comparison filter operator",
                             },
                             "value": {"description": "Comparison value"},
                             "tablePrefix": {
                                 "type": "string",
                                 "description": "Optional qualifying table name",
+                            },
+                            "table_prefix": {
+                                "type": "string",
+                                "description": "Alternative key for qualifying table name",
                             },
                             "table": {
                                 "type": "string",
@@ -1107,6 +1221,10 @@ class QuerySpec:
                                 ],
                                 "description": "Aggregate function",
                             },
+                            "aggregate": {
+                                "type": "string",
+                                "description": "Alternative key for aggregate function",
+                            },
                             "op": {
                                 "type": "string",
                                 "enum": [
@@ -1125,7 +1243,27 @@ class QuerySpec:
                                 ],
                                 "description": "Comparison operator",
                             },
+                            "operator": {
+                                "type": "string",
+                                "description": "Alternative key for comparison operator",
+                            },
                             "value": {"description": "Comparison value"},
+                            "tablePrefix": {
+                                "type": "string",
+                                "description": "Optional qualifying table name",
+                            },
+                            "table_prefix": {
+                                "type": "string",
+                                "description": "Alternative key for qualifying table name",
+                            },
+                            "table": {
+                                "type": "string",
+                                "description": "Explicit table name",
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "Unique identifier for having item",
+                            },
                         },
                     },
                 },
@@ -1147,6 +1285,7 @@ class QuerySpec:
                                 "description": "Sort direction",
                             },
                             "tablePrefix": {"type": "string"},
+                            "table_prefix": {"type": "string"},
                             "table": {"type": "string"},
                             "id": {"type": "string"},
                         },
@@ -1200,6 +1339,63 @@ class QuerySpec:
                     "type": "array",
                     "description": "List of semantic models.",
                     "items": {"type": "object"},
+                },
+                "vector_search": {
+                    "type": "object",
+                    "description": "Vector similarity search specification.",
+                    "properties": {
+                        "vector": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "description": "Query embedding vector",
+                        },
+                        "column": {"type": "string", "default": "embedding"},
+                        "top_k": {"type": "integer", "default": 10},
+                        "metric": {
+                            "type": "string",
+                            "enum": [
+                                "cosine",
+                                "euclidean",
+                                "l2",
+                                "dot_product",
+                                "inner_product",
+                            ],
+                            "default": "cosine",
+                        },
+                        "include_distances": {"type": "boolean", "default": True},
+                        "min_score": {"type": "number"},
+                    },
+                },
+                "hybrid_search": {
+                    "type": "object",
+                    "description": "Hybrid vector and full-text search specification.",
+                },
+                "ctes": {
+                    "type": "array",
+                    "description": "Common Table Expressions (WITH clauses).",
+                    "items": {"type": "object"},
+                },
+                "window_functions": {
+                    "type": "array",
+                    "description": "Analytic window function projections.",
+                    "items": {"type": "object"},
+                },
+                "set_operations": {
+                    "type": "array",
+                    "description": "SQL set operations (UNION, INTERSECT, EXCEPT).",
+                    "items": {"type": "object"},
+                },
+                "rollup": {
+                    "type": "object",
+                    "description": "Hierarchical multidimensional aggregation rollup.",
+                },
+                "cube": {
+                    "type": "object",
+                    "description": "Multidimensional hypercube aggregation.",
+                },
+                "pivot": {
+                    "type": "object",
+                    "description": "Relational pivot table projection.",
                 },
             },
         }

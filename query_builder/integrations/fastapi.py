@@ -518,6 +518,15 @@ def create_query_builder_router(
                 capabilities=effective_capabilities,
             )
             main_sql, params, count_sql, count_params = compiler.compile()
+            val_res = validate_sql_ast(main_sql, dialect=dialect)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Security violation: {'; '.join(violations)}",
+                )
             return {
                 "sql": main_sql,
                 "params": params,
@@ -878,6 +887,24 @@ def create_query_builder_router(
                     )
                 )
 
+            policy = get_effective_policy()
+            if (
+                policy
+                and "tables" in schema_data
+                and isinstance(schema_data["tables"], dict)
+            ):
+                allowed = (
+                    set(policy.allowed_tables)
+                    if policy.allowed_tables is not None
+                    else None
+                )
+                restricted = set(policy.restricted_tables or [])
+                schema_data["tables"] = {
+                    tname: tmeta
+                    for tname, tmeta in schema_data["tables"].items()
+                    if (allowed is None or tname in allowed) and tname not in restricted
+                }
+
             path_steps = find_join_path(
                 payload.active_tables,
                 payload.target_table,
@@ -916,6 +943,23 @@ def create_query_builder_router(
                         else dict(raw_schema)
                     )
                 )
+
+            if (
+                policy
+                and "tables" in schema_data
+                and isinstance(schema_data["tables"], dict)
+            ):
+                allowed = (
+                    set(policy.allowed_tables)
+                    if policy.allowed_tables is not None
+                    else None
+                )
+                restricted = set(policy.restricted_tables or [])
+                schema_data["tables"] = {
+                    tname: tmeta
+                    for tname, tmeta in schema_data["tables"].items()
+                    if (allowed is None or tname in allowed) and tname not in restricted
+                }
 
             dialect_str = str(
                 payload.dialect

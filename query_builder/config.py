@@ -58,6 +58,7 @@ KNOWN_QB_ENV_VARS: frozenset[str] = frozenset(
         "QB_FILTER_SQL_COMMENTS",
         "QB_ALLOW_CTE",
         "QB_ALLOW_RECURSIVE_CTE",
+        "QB_RESTRICTED_TABLES",
         "QB_ENFORCE_TENANT_ISOLATION",
         "QB_TENANT_COLUMN",
         "QB_MASKING_STRATEGY",
@@ -170,6 +171,7 @@ class ValidationSecurityConfig:
     filter_sql_comments: bool = True
     allow_cte: bool = True
     allow_recursive_cte: bool = False
+    restricted_tables: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.allowed_statements, list):
@@ -179,6 +181,8 @@ class ValidationSecurityConfig:
         ]
         if not self.allowed_statements:
             raise ValueError("allowed_statements cannot be empty")
+        if not isinstance(self.restricted_tables, list):
+            self.restricted_tables = list(self.restricted_tables)
 
 
 @dataclass
@@ -610,6 +614,10 @@ def load_security_config_from_env(
     if "QB_ALLOW_RECURSIVE_CTE" in source:
         config.validation.allow_recursive_cte = _parse_bool(
             source["QB_ALLOW_RECURSIVE_CTE"], "QB_ALLOW_RECURSIVE_CTE"
+        )
+    if "QB_RESTRICTED_TABLES" in source:
+        config.validation.restricted_tables = _parse_list(
+            source["QB_RESTRICTED_TABLES"]
         )
 
     # --- Privacy Overrides ---

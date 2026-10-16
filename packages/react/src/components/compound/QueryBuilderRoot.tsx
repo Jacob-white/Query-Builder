@@ -182,7 +182,7 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
     // Synchronize controlled `value` prop into useQueryState
     const initialCanonical = useMemo(
       () => (value ? fastCanonicalSpec(createInitialState(value)) : ""),
-      [],
+      [value],
     );
     const lastControlledValueRef = useRef<string>(initialCanonical);
     const lastReportedSpecRef = useRef<string>(initialCanonical);
@@ -336,13 +336,16 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
     const [isRunning, setIsRunning] = useState<boolean>(false);
     const [error, setError] = useState<Error | string | null>(null);
 
-    const effectiveOnExecuteQuery =
-      propExecuteQuery ??
-      (client
-        ? async (sql: string, s?: QuerySpec | null) => {
-            return client.execute(s ? s : { sql });
-          }
-        : undefined);
+    const effectiveOnExecuteQuery = useMemo(() => {
+      return (
+        propExecuteQuery ??
+        (client
+          ? async (sql: string, s?: QuerySpec | null) => {
+              return client.execute(s ? s : { sql });
+            }
+          : undefined)
+      );
+    }, [propExecuteQuery, client]);
 
     const executeQuery = useCallback(
       async (

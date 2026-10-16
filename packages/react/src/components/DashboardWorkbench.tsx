@@ -26,7 +26,7 @@ export interface DashboardWorkbenchProps {
 
 export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   initialState,
-  onStateChange,
+  onStateChange: _onStateChange,
   readOnly = false,
   unstyled = false,
   className = "",
@@ -40,7 +40,6 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
     addTile,
     removeTile,
     duplicateTile,
-    moveTile,
     resizeTile,
     setGlobalFilter,
     removeGlobalFilter,

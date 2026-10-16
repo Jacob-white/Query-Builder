@@ -49,7 +49,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
   const { state, actions, spec } = useQueryState(fallbackInitialSpec);
   const [activeDialect, setActiveDialect] = useState<SqlDialect>(defaultDialect);
 
-  const { sql, safety, countSql } = useSqlCompiler(spec, {
+  const { sql, safety } = useSqlCompiler(spec, {
     dialect: activeDialect,
     schema: normalizedSchema,
   });

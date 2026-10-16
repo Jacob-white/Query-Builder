@@ -9,6 +9,7 @@ FOREIGN KEY configuration from the user.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ def find_best_join_condition(
     left_table: str,
     right_table: str,
     schema_data: dict[str, Any] | SchemaSnapshot | None = None,
+    canonical_columns: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """
     Determines the best join condition between two tables.
@@ -95,6 +97,8 @@ def find_best_join_condition(
         left_tbl_meta = raw_left.to_dict()
     elif isinstance(raw_left, dict):
         left_tbl_meta = raw_left
+    elif hasattr(raw_left, "columns"):
+        left_tbl_meta = {"columns": getattr(raw_left, "columns", [])}
     else:
         left_tbl_meta = {}
 
@@ -105,6 +109,8 @@ def find_best_join_condition(
         right_tbl_meta = raw_right.to_dict()
     elif isinstance(raw_right, dict):
         right_tbl_meta = raw_right
+    elif hasattr(raw_right, "columns"):
+        right_tbl_meta = {"columns": getattr(raw_right, "columns", [])}
     else:
         right_tbl_meta = {}
 
@@ -156,8 +162,18 @@ def find_best_join_condition(
                 "reason": "Schema foreign key constraint",
             }
 
+    effective_canon: Sequence[str] = CANONICAL_ENTITY_COLUMNS
+    if canonical_columns:
+        effective_canon = canonical_columns
+    elif isinstance(schema_data, dict) and schema_data.get("canonical_columns"):
+        effective_canon = schema_data["canonical_columns"]
+    elif schema_data is not None and (
+        canon_attr := getattr(schema_data, "canonical_columns", None)
+    ):
+        effective_canon = canon_attr
+
     # 2. Canonical entity ID matches
-    for col in CANONICAL_ENTITY_COLUMNS:
+    for col in effective_canon:
         if col in left_col_names and col in right_col_names:
             return {
                 "left_table": clean_left,
@@ -219,6 +235,7 @@ def find_join_path(
     target_table: str,
     schema_data: dict[str, Any] | SchemaSnapshot | None = None,
     default_join_type: str = "LEFT JOIN",
+    canonical_columns: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Finds the shortest join path from any table in active_tables to target_table
@@ -277,6 +294,16 @@ def find_join_path(
     if len(foreign_keys) > MAX_FOREIGN_KEYS:
         foreign_keys = foreign_keys[:MAX_FOREIGN_KEYS]
 
+    effective_canon: Sequence[str] = CANONICAL_ENTITY_COLUMNS
+    if canonical_columns:
+        effective_canon = canonical_columns
+    elif isinstance(schema_data, dict) and schema_data.get("canonical_columns"):
+        effective_canon = schema_data["canonical_columns"]
+    elif schema_data is not None and (
+        canon_attr := getattr(schema_data, "canonical_columns", None)
+    ):
+        effective_canon = canon_attr
+
     # Build adjacency graph
     adj: dict[str, set[str]] = {}
 
@@ -302,6 +329,8 @@ def find_join_path(
             meta = raw_meta.to_dict()
         elif isinstance(raw_meta, dict):
             meta = raw_meta
+        elif hasattr(raw_meta, "columns"):
+            meta = {"columns": getattr(raw_meta, "columns", [])}
         else:
             continue
         clean_tbl = _clean_table_name(tbl_name)
@@ -309,7 +338,7 @@ def find_join_path(
             c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
             for c in meta.get("columns", [])
         }
-        for entity_col in CANONICAL_ENTITY_COLUMNS:
+        for entity_col in effective_canon:
             if entity_col in col_names and entity_col.endswith("_id"):
                 base_entity = entity_col[:-3]
                 if base_entity in tables_meta:
@@ -335,7 +364,12 @@ def find_join_path(
         for neighbor in adj.get(current, set()):
             if neighbor not in visited:
                 visited.add(neighbor)
-                cond = find_best_join_condition(current, neighbor, schema_data)
+                cond = find_best_join_condition(
+                    current,
+                    neighbor,
+                    schema_data,
+                    canonical_columns=effective_canon,
+                )
                 next_join = {
                     "type": safe_join_type,
                     "left_table": cond["left_table"],
@@ -347,7 +381,12 @@ def find_join_path(
 
     # Fallback direct join from first active table
     fallback_start = clean_active[0]
-    cond = find_best_join_condition(fallback_start, clean_target, schema_data)
+    cond = find_best_join_condition(
+        fallback_start,
+        clean_target,
+        schema_data,
+        canonical_columns=effective_canon,
+    )
     return [
         {
             "type": safe_join_type,
