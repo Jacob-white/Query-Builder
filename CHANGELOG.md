@@ -13,6 +13,11 @@
   (case-insensitive) across *all* rows of the result, then page the matches with the spec's `limit` / `offset`. The text
   is a bound parameter with its LIKE wildcards escaped; the wrapper passes the AST validator. PostgreSQL family, SQLite,
   DuckDB, Redshift and the MySQL family.
+- **`format_sql(sql)` and `QueryCompiler.compile_runnable(pretty=True)`**: lay the runnable statement out one clause per
+  line with keywords in capitals, for a person to read or save as a `.sql` file. The layout is checked, not trusted: the
+  formatter's output is used only when it equals the input apart from whitespace and the case of unquoted words (string
+  values, quoted names and comments are compared exactly), and the input comes back unchanged otherwise or if the
+  formatter fails. Off by default.
 - **Unified Agent Tools & Model Context Protocol (MCP)**: Operator-pinned secure mode (`--lock-connection`), live schema catalog resources (`query-builder://schema/catalog`, `queryspec`, `semantic/metrics`), and tool calling support for `find_join_path`, `explain_and_advise`, and `execute_query`.
 - **Autonomous Self-Healing Query Engine**: Automatic operator synonym mapping (`==` -> `eq`, `!=` -> `neq`, `like` -> `contains`), cross-table column resolution, table typo fuzzy matching, and iterative repair prompt generation.
 - **Semantic Layer Grounding & `llms.txt`**: Metric and dimension expansion for NLQ translation, schema grounding, and standard `llms.txt` documentation manifest generator (`scripts/gen_llms_txt.py`).

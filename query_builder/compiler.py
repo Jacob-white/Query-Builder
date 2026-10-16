@@ -1510,21 +1510,30 @@ class QueryCompiler:
 
         return main_sql, main_params, count_sql, count_params
 
-    def compile_runnable(self, context: dict[str, Any] | None = None) -> str | None:
+    def compile_runnable(
+        self, context: dict[str, Any] | None = None, *, pretty: bool = False
+    ) -> str | None:
         """The main query with its values written in as SQL literals, to paste into a SQL window; None if it cannot be.
 
         The bound form from ``compile`` is what should be executed. This is the copy for people (see ``runnable``):
         None for a dialect whose placeholders are not positional, or if the placeholders and values do not line up.
+        With ``pretty=True`` the statement is laid out one clause per line with keywords in capitals
+        (``runnable.format_sql``), which never changes what it says.
         """
-        from query_builder.runnable import BACKSLASH_ESCAPE_DIALECTS, inline_params
+        from query_builder.runnable import (
+            BACKSLASH_ESCAPE_DIALECTS,
+            format_sql,
+            inline_params,
+        )
 
         sql, params, _, _ = self.compile(context)
-        return inline_params(
+        runnable = inline_params(
             sql,
             params,
             placeholder=self.dialect.placeholder,
             backslash_escapes=self.dialect.name in BACKSLASH_ESCAPE_DIALECTS,
         )
+        return format_sql(runnable) if pretty else runnable
 
     def compile_search(
         self, term: str, context: dict[str, Any] | None = None

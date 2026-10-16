@@ -355,7 +355,7 @@ class QueryCompiler:
 
 **Returns**: `(main_sql, main_params, count_sql, count_params)`
 
-#### `compile_runnable(context=None) -> str | None`
+#### `compile_runnable(context=None, *, pretty=False) -> str | None`
 The main query with its values written in as SQL literals, to show a person or save as a `.sql` file and paste into a
 SQL window. **Execute the bound form from `compile()`; this copy is for people.** It is `None` for a dialect whose
 placeholders are not positional (`$param`, `@param`) or if the placeholders and values do not line up, never a guess.
@@ -363,6 +363,11 @@ The helpers are public too: `query_builder.inline_params(sql, params, placeholde
 `query_builder.sql_literal(value)`. A placeholder inside a quoted identifier, string or comment is left alone, quotes in
 values are doubled, and a backslash is doubled only for dialects that treat it as an escape
 (`query_builder.runnable.BACKSLASH_ESCAPE_DIALECTS`).
+
+`pretty=True` lays the statement out one clause per line with keywords in capitals, using
+`query_builder.format_sql(sql)` (also public). The layout is cosmetic and checked: the formatter's output is accepted only
+if it equals the input apart from whitespace and the case of unquoted words (string values and quoted names are compared
+exactly); otherwise, or if the formatter fails, the statement comes back as it was. `None` and `""` pass through.
 
 #### `compile_search(term, context=None) -> tuple[str, list, str, list]`
 Like `compile()`, but keeps only the rows where some output column contains `term` (case-insensitive), across **all** rows
