@@ -377,6 +377,10 @@ and `!` escaped, so they match themselves. Raises `CompilationError` for an empt
 default `sum_<column>` label). It compiles to `ORDER BY "n"`. Before, it compiled to `ORDER BY "t1"."n"`, which no database
 accepts. A name with a `tablePrefix` still means that table's column.
 
+The same holds for the `alias` of an ordinary selected column (`{"column": "orders.status", "alias": "state"}` sorted by
+`{"column": "state"}` compiles to `ORDER BY "state"`). An unprefixed name that is also a column of the base table keeps
+meaning that column.
+
 ### Custom Filter Operators
 - `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
 - `unregister_filter_operator(name: str) -> None`

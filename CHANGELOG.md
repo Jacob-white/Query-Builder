@@ -50,6 +50,11 @@
 - **Sorting by a count or total** (`order_by` naming an aggregate's label) now compiles to `ORDER BY "label"`. It
   compiled to `ORDER BY "t1"."label"` before, a column that does not exist, so the query passed validation and failed in
   the database.
+- **Sorting by the alias of an ordinary column** (`order_by` with no table prefix naming a selected column's `alias`)
+  now compiles to `ORDER BY "alias"` too; it compiled to `ORDER BY "t1"."alias"` before, a column that does not exist,
+  so the query passed validation and failed in the database. Nothing that worked changes: a table prefix still means
+  that table's column, and an unprefixed name that is a column of the base table keeps meaning that column even when an
+  alias has the same name. Verified by running the queries on SQLite.
 - **`query-builder mcp` CLI dispatch**: Fixed zero-argument `McpServer()` instantiation when no CLI flags are supplied, preventing `TypeError` on custom or default server classes.
 - **CamelCase parameter support in QuerySpec**: Added `InitVar` aliases (`tablePrefix`, `leftTable`, `leftCol`, `rightCol`) to `FilterSpec`, `OrderBySpec`, and `JoinSpec` to accept payloads directly from NLQ and TypeScript client serializers.
 - **Django and FastAPI Router Parity**: Implemented `/explain/`, `/join-path/`, `/nlq/`, and `/export/stream/` views in `create_django_urls` and `create_drf_views` for full parity with FastAPI.
