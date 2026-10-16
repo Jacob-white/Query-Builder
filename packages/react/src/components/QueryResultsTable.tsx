@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { QueryResultData, QueryBuilderClassNames } from "../types";
 import type { CellRenderer } from "../theme/QueryBuilderProvider";
+import { csvCellText } from "../utils/csvSafe";
 import { cx } from "../utils/classNames";
 
 export interface QueryResultsTableProps {
@@ -97,12 +98,12 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   const handleExportCsv = () => {
     if (typeof document === "undefined") return;
     if (rows.length === 0) return;
-    const header = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",");
+    const header = columns.map((c) => `"${csvCellText(c).replace(/"/g, '""')}"`).join(",");
     const body = rows
       .map((r) =>
         columns
           .map((c) => {
-            const v = String(r[c] ?? "").replace(/"/g, '""');
+            const v = csvCellText(r[c]).replace(/"/g, '""');
             return `"${v}"`;
           })
           .join(","),

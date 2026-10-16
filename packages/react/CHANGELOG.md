@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Security
+- **The CSV download of `QueryResultsTable` no longer lets a cell run as a spreadsheet formula.** Text that starts with
+  `=`, `+`, `-`, `@`, a tab or a carriage return (in a cell or a column name) is now written with an apostrophe in front.
+  Quoting the cell does not stop Excel evaluating it, and a query can return text someone else typed. Numbers are
+  untouched, so a negative number stays a number. The same helper is exported as `csvCellText(value)`.
+
 ### Fixed
 - **Loading a spec into the builder (`loadSpec`, `specToState`)** now matches what the Join step and the column pickers
   expect:

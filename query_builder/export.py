@@ -8,6 +8,7 @@ Excel export is zero-dependency OpenXML packaging via Python standard library.
 from __future__ import annotations
 
 import csv
+import decimal
 import io
 import json
 import zipfile
@@ -55,6 +56,31 @@ EXTENSIONS: dict[str, str] = {
     "ndjson": "jsonl",
     "arrow": "arrow",
 }
+
+
+#: Text starting with one of these is read as a formula by Excel and LibreOffice when a CSV is opened.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe_cell(value: Any) -> Any:
+    """``value`` made safe to write into a CSV cell that a spreadsheet will open.
+
+    Text that starts with ``=``, ``+``, ``-``, ``@``, a tab or a carriage return would run as a formula, so it gets an
+    apostrophe in front (the spreadsheet then shows it as text). ``None``, booleans and numbers are not text and are
+    returned unchanged, so a negative number stays a number. Any other object is read as the text the CSV writer would
+    write for it, and prefixed if that text starts like a formula.
+    """
+    if value is None or isinstance(value, (bool, int, float, decimal.Decimal)):
+        return value
+    text = value if isinstance(value, str) else str(value)
+    return "'" + text if text.startswith(_FORMULA_STARTS) else text
+
+
+def _cell(value: Any, neutralize: bool) -> Any:
+    """One CSV cell: empty for ``None``, otherwise the value, made formula-safe unless ``neutralize`` is off."""
+    if value is None:
+        return ""
+    return csv_safe_cell(value) if neutralize else value
 
 
 def _col_letter(col_idx: int) -> str:
@@ -199,8 +225,13 @@ def _generate_xlsx(columns: list[str], rows: list[Any]) -> bytes:
 def export_dataset(
     data: QueryResult | dict[str, Any] | list[dict[str, Any]],
     format: str = "csv",
+    neutralize_formulas: bool = True,
 ) -> tuple[bytes, str, str]:
     """Exports dataset to specified tabular format.
+
+    ``neutralize_formulas`` (CSV only, default on) prefixes text that a spreadsheet would run as a formula (it starts
+    with ``=``, ``+``, ``-``, ``@``, a tab or a carriage return), in the cells and in the header, with an apostrophe.
+    Pass ``False`` only for a consumer that is not a spreadsheet and needs the text exactly as it is.
 
     Returns:
         tuple[bytes, str, str]: (payload_bytes, mime_type, file_extension)
@@ -249,19 +280,16 @@ def export_dataset(
         buf = io.StringIO()
         writer = csv.writer(buf, lineterminator="\n")
         if columns:
-            writer.writerow(columns)
+            writer.writerow([_cell(c, neutralize_formulas) for c in columns])
         for row in rows:
             if isinstance(row, dict):
                 writer.writerow(
-                    [
-                        row.get(col, "") if row.get(col) is not None else ""
-                        for col in columns
-                    ]
+                    [_cell(row.get(col), neutralize_formulas) for col in columns]
                 )
             elif isinstance(row, (list, tuple)):
-                writer.writerow([val if val is not None else "" for val in row])
+                writer.writerow([_cell(val, neutralize_formulas) for val in row])
             else:
-                writer.writerow([row if row is not None else ""])
+                writer.writerow([_cell(row, neutralize_formulas)])
         payload = buf.getvalue().encode("utf-8")
         return payload, MIME_TYPES["csv"], EXTENSIONS["csv"]
 
@@ -338,13 +366,18 @@ class CsvStreamExporter:
     """Streams tabular data as CSV byte chunks."""
 
     def __init__(
-        self, columns: list[str] | None = None, chunk_size: int = 1000
+        self,
+        columns: list[str] | None = None,
+        chunk_size: int = 1000,
+        neutralize_formulas: bool = True,
     ) -> None:
         self.columns = columns
         self.chunk_size = max(1, chunk_size)
+        self.neutralize_formulas = neutralize_formulas
 
     def export_stream(self, row_iterator: Iterable[Any]) -> Iterator[bytes]:
         cols = list(self.columns) if self.columns is not None else None
+        neutralize = self.neutralize_formulas
         header_emitted = False
         buf = io.StringIO()
         writer = csv.writer(buf, lineterminator="\n")
@@ -354,18 +387,16 @@ class CsvStreamExporter:
             if cols is None and isinstance(row, dict):
                 cols = list(row.keys())
             if not header_emitted and cols:
-                writer.writerow(cols)
+                writer.writerow([_cell(c, neutralize) for c in cols])
                 header_emitted = True
 
             if isinstance(row, dict):
                 row_cols = cols if cols is not None else list(row.keys())
-                writer.writerow(
-                    [row.get(c, "") if row.get(c) is not None else "" for c in row_cols]
-                )
+                writer.writerow([_cell(row.get(c), neutralize) for c in row_cols])
             elif isinstance(row, (list, tuple)):
-                writer.writerow([val if val is not None else "" for val in row])
+                writer.writerow([_cell(val, neutralize) for val in row])
             else:
-                writer.writerow([row if row is not None else ""])
+                writer.writerow([_cell(row, neutralize)])
 
             count += 1
             if count >= self.chunk_size:
@@ -375,7 +406,7 @@ class CsvStreamExporter:
                 count = 0
 
         if not header_emitted and cols:
-            writer.writerow(cols)
+            writer.writerow([_cell(c, neutralize) for c in cols])
 
         data = buf.getvalue().encode("utf-8")
         if data:
@@ -514,8 +545,11 @@ def stream_export_dataset(
     format: str = "csv",
     columns: list[str] | None = None,
     chunk_size: int = 1000,
+    neutralize_formulas: bool = True,
 ) -> tuple[Iterator[bytes], str, str]:
     """Streams dataset export in chunks yielding bytes, along with (mime_type, file_extension).
+
+    ``neutralize_formulas`` applies to CSV only, as for :func:`export_dataset`.
 
     Returns:
         tuple[Iterator[bytes], str, str]: (chunk_iterator, mime_type, file_extension)
@@ -568,7 +602,11 @@ def stream_export_dataset(
 
     exporter: StreamExporter
     if fmt == "csv":
-        exporter = CsvStreamExporter(columns=resolved_cols, chunk_size=chunk_size)
+        exporter = CsvStreamExporter(
+            columns=resolved_cols,
+            chunk_size=chunk_size,
+            neutralize_formulas=neutralize_formulas,
+        )
     elif fmt in ("jsonl", "ndjson"):
         exporter = JsonlStreamExporter(chunk_size=chunk_size)
     elif fmt == "json":

@@ -100,6 +100,15 @@
   is a required peer dependency, the tarball no longer includes `src/`.
 
 ### Security
+- **CSV exports no longer let a cell run as a spreadsheet formula** (behaviour change, on by default).
+  `export_dataset`, `stream_export_dataset` and `CsvStreamExporter` now write text that starts with `=`, `+`, `-`,
+  `@`, a tab or a carriage return, in a cell or in the header, with an apostrophe in front, because Excel and
+  LibreOffice run such a cell as a formula when the file is opened and a query can return text someone else
+  typed (or a column alias a caller chose). Numbers, booleans and `None` are untouched, so a negative number stays
+  a number. Pass `neutralize_formulas=False` to get the text exactly as it was (for a consumer that is not a
+  spreadsheet); `csv_safe_cell(value)` is the same rule as a function. The `.xlsx` writer stores text as inline
+  strings, which Excel never evaluates, and is unchanged. The React package's CSV download got the same fix
+  (see `packages/react/CHANGELOG.md`).
 - Tenant and row-level-security predicates are now enforced **outside** the client's filter
   group (`WHERE tenant = ? AND (client filters)`), so a client `OR` can no longer widen them.
   Client-supplied `_enforced` flags are stripped; unbalanced client parentheses cannot close
