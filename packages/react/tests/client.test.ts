@@ -374,7 +374,7 @@ describe("FluentQuery Builder", () => {
     });
 
     const spec: QuerySpec = makeSpec({ table: "users", columns: ["id"] });
-    const result = await client.explain(spec);
+    const result = await client.explain!(spec);
 
     expect(result.sql).toBe("SELECT id FROM users");
     expect(result.recommended_indexes).toHaveLength(1);
@@ -400,7 +400,7 @@ describe("FluentQuery Builder", () => {
       fetchFn: mockFetch,
     });
 
-    const result = await client.findJoinPath(["users"], "orders");
+    const result = await client.findJoinPath!(["users"], "orders");
 
     expect(result.connected).toBe(true);
     expect(result.target_table).toBe("orders");
@@ -429,7 +429,7 @@ describe("FluentQuery Builder", () => {
       fetchFn: mockFetch,
     });
 
-    const result = await client.askAi("list all customers", {
+    const result = await client.askAi!("list all customers", {
       dialect: "postgres",
     });
 
