@@ -27,7 +27,8 @@ export interface CompiledVisualQuery {
     columns: (
       | string
       | {
-          column: string;
+          column?: string;
+          expression?: string;
           agg?: string;
           alias?: string;
           time_grain?: string;
@@ -48,6 +49,8 @@ export interface CompiledVisualQuery {
       value: string | number | boolean;
       tablePrefix?: string;
       combiner?: "AND" | "OR";
+      parenOpen?: string;
+      parenClose?: string;
     }[];
     filter_join: "AND" | "OR";
     order_by: { column: string; direction: "ASC" | "DESC"; tablePrefix?: string }[];
@@ -81,7 +84,14 @@ const ALLOWED_OPERATORS = new Set([
   "RAW",
 ]);
 
-const ALLOWED_AGGREGATES = new Set(["COUNT", "SUM", "AVG", "MIN", "MAX"]);
+const ALLOWED_AGGREGATES = new Set([
+  "COUNT",
+  "COUNT_DISTINCT",
+  "SUM",
+  "AVG",
+  "MIN",
+  "MAX",
+]);
 
 const ALLOWED_TIME_GRAINS = new Set([
   "second",
@@ -374,7 +384,8 @@ export function compileVisualState(
   const specColumns: (
     | string
     | {
-        column: string;
+        column?: string;
+        expression?: string;
         agg?: string;
         alias?: string;
         time_grain?: string;
@@ -417,7 +428,11 @@ export function compileVisualState(
             agg: aggUpper.toLowerCase(),
             alias,
           });
-          return `${aggUpper}(${colRef}) AS ${quoteAlias(alias, dialect)}`;
+          const aggSql =
+            aggUpper === "COUNT_DISTINCT"
+              ? `COUNT(DISTINCT ${colRef})`
+              : `${aggUpper}(${colRef})`;
+          return `${aggSql} AS ${quoteAlias(alias, dialect)}`;
         }
 
         if (item.rawExpression) {
@@ -436,7 +451,7 @@ export function compileVisualState(
           usedAliases.add(alias);
 
           specColumns.push({
-            column: item.rawExpression,
+            expression: item.rawExpression,
             alias,
           });
           return `${item.rawExpression} AS ${quoteAlias(alias, dialect)}`;
@@ -707,6 +722,8 @@ export function compileVisualState(
     );
     resolvedFilterJoin = resolved.filterJoin;
     built.forEach(({ f }, i) => {
+      const open = (f.parenOpen || "").replace(/[^(]/g, "");
+      const close = (f.parenClose || "").replace(/[^)]/g, "");
       specFilters.push({
         column: sanitizeIdent(f.column),
         op: f.operator.toLowerCase().replace(" ", "_"),
@@ -715,6 +732,8 @@ export function compileVisualState(
         // With any OR present every filter must state its combiner: a backend falling back to
         // `filter_join: "OR"` would otherwise turn explicit ANDs into ORs.
         ...(resolved.hasOr ? { combiner: resolved.combiners[i] } : {}),
+        ...(open ? { parenOpen: open } : {}),
+        ...(close ? { parenClose: close } : {}),
       });
     });
 
@@ -733,10 +752,28 @@ export function compileVisualState(
   let orderClause = "";
 
   if (activeSorts.length > 0) {
+    const aggregateAliases = new Set<string>();
+    for (const key of safeProjectionKeys) {
+      const item = selectedColumns[key];
+      if (!item) continue;
+      if (item.aggregate) {
+        if (item.alias) {
+          aggregateAliases.add(sanitizeIdent(item.alias));
+        }
+        aggregateAliases.add(
+          sanitizeIdent(`${item.aggregate.toLowerCase()}_${item.name}`)
+        );
+      }
+    }
+
     const sortParts = activeSorts.map((s) => {
-      const tbl = cleanTableName(s.tablePrefix || cleanPrimary);
       const colName = sanitizeIdent(s.column);
       const direction = s.direction === "DESC" ? "DESC" : "ASC";
+      if (aggregateAliases.has(colName)) {
+        specSorts.push({ column: colName, direction });
+        return `${quoteAlias(colName, dialect)} ${direction}`;
+      }
+      const tbl = cleanTableName(s.tablePrefix || cleanPrimary);
       specSorts.push({ column: `${tbl}.${colName}`, direction, tablePrefix: tbl });
       return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)} ${direction}`;
     });

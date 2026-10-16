@@ -42,6 +42,11 @@ class BaseDialect:
 
     name: str = "base"
     placeholder: str = "%s"
+
+    def format_placeholder(self, index: int) -> str:
+        """Formats a bind placeholder for the given 1-based parameter index."""
+        return self.placeholder
+
     pagination_placement: str = "suffix"
     requires_order_by_for_pagination: bool = False
     supports_cte: bool = True
@@ -129,6 +134,19 @@ class BaseDialect:
         _validate_alias(alias_name)
         cleaned = alias_name.replace('"', '""')
         return f'"{cleaned}"'
+
+    def format_masking_expression(self, col_ref: str, strategy: str = "redact") -> str:
+        """Formats a SQL expression to mask sensitive column data according to strategy."""
+        s = (strategy or "redact").lower()
+        if s == "null":
+            return "NULL"
+        if s in ("hash", "md5"):
+            return f"MD5(CAST({col_ref} AS VARCHAR))"
+        if s == "sha256":
+            return f"SHA256(CAST({col_ref} AS VARCHAR))"
+        if s == "partial":
+            return f"CONCAT(SUBSTR(CAST({col_ref} AS VARCHAR), 1, 2), '***')"
+        return "'***REDACTED***'"
 
     def format_ilike(self, col_ref: str) -> str:
         """Formats a case-insensitive string matching expression."""

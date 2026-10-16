@@ -415,6 +415,32 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
         )
         return
 
+    if spec is None:
+        pol = body.get("policy")
+        tenant_active = bool(
+            (isinstance(pol, dict) and pol.get("enforce_tenant_isolation"))
+            or (isinstance(pol, SecurityPolicy) and pol.enforce_tenant_isolation)
+        )
+        if tenant_active:
+            h.send_error_response(
+                "Raw SQL execution is restricted when tenant isolation is enforced. Please use structured QuerySpec.",
+                code="FORBIDDEN",
+                status=403,
+            )
+            return
+
+        val_res = validate_sql_ast(sql, allowed_schemas=body.get("allowed_schemas"))
+        if not val_res.get("valid") or not val_res.get("is_read_only"):
+            violations = val_res.get(
+                "violations", ["Query failed AST safety validation."]
+            )
+            h.send_error_response(
+                f"Security violation: {'; '.join(violations)}",
+                code="FORBIDDEN",
+                status=403,
+            )
+            return
+
     eid, token = h.connection_pool_manager.create_execution(execution_id)
 
     cache = get_global_cache()
@@ -646,6 +672,32 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
         )
         return
 
+    if spec is None:
+        pol = body.get("policy")
+        tenant_active = bool(
+            (isinstance(pol, dict) and pol.get("enforce_tenant_isolation"))
+            or (isinstance(pol, SecurityPolicy) and pol.enforce_tenant_isolation)
+        )
+        if tenant_active:
+            h.send_error_response(
+                "Raw SQL execution is restricted when tenant isolation is enforced. Please use structured QuerySpec.",
+                code="FORBIDDEN",
+                status=403,
+            )
+            return
+
+        val_res = validate_sql_ast(sql, allowed_schemas=body.get("allowed_schemas"))
+        if not val_res.get("valid") or not val_res.get("is_read_only"):
+            violations = val_res.get(
+                "violations", ["Query failed AST safety validation."]
+            )
+            h.send_error_response(
+                f"Security violation: {'; '.join(violations)}",
+                code="FORBIDDEN",
+                status=403,
+            )
+            return
+
     try:
         conn = get_connector(
             connector_name,
@@ -829,13 +881,41 @@ def _post_export_stream(h: QueryBuilderHandler, req: Request) -> None:
                 "columns": res.get("columns", []),
             }
         elif "sql" in body:
+            raw_sql = body["sql"]
+            pol = body.get("policy")
+            tenant_active = bool(
+                (isinstance(pol, dict) and pol.get("enforce_tenant_isolation"))
+                or (isinstance(pol, SecurityPolicy) and pol.enforce_tenant_isolation)
+            )
+            if tenant_active:
+                h.send_error_response(
+                    "Raw SQL execution is restricted when tenant isolation is enforced. Please use structured QuerySpec.",
+                    code="FORBIDDEN",
+                    status=403,
+                )
+                return
+
+            val_res = validate_sql_ast(
+                raw_sql, allowed_schemas=body.get("allowed_schemas")
+            )
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                h.send_error_response(
+                    f"Security violation: {'; '.join(violations)}",
+                    code="FORBIDDEN",
+                    status=403,
+                )
+                return
+
             connector_name = body.get("connector", "sqlite")
             config = body.get("config", {})
             conn = get_connector(
                 connector_name,
                 **(config if isinstance(config, dict) else {}),
             )
-            cols, rows, _ = conn.execute_raw(body["sql"], body.get("params", []))
+            cols, rows, _ = conn.execute_raw(raw_sql, body.get("params", []))
             export_data = {
                 "rows": rows,
                 "columns": cols,

@@ -9,10 +9,12 @@ variable overrides, and thread-safe global framework configuration state.
 from __future__ import annotations
 
 import copy
+import difflib
 import math
 import os
 import re
 import threading
+import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -30,6 +32,48 @@ DEFAULT_SENSITIVE_COLUMN_PATTERNS: list[str] = [
 DEFAULT_SENSITIVE_KEY_PATTERNS: list[str] = [
     r"(?i)(password|passwd|pwd|secret|token|key|auth|api[_-]?key)"
 ]
+
+KNOWN_QB_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "QB_SECURITY_PROFILE",
+        "QB_ALLOW_PRIVATE_NETWORKS",
+        "QB_ENFORCE_TLS",
+        "QB_VERIFY_SSL_CERTS",
+        "QB_CA_BUNDLE_PATH",
+        "QB_SOCKET_TIMEOUT_SECONDS",
+        "QB_ALLOWED_HOSTNAMES",
+        "QB_BLOCKED_HOSTNAMES",
+        "QB_ENFORCE_READ_ONLY",
+        "QB_STATEMENT_TIMEOUT_MS",
+        "QB_MAX_ROWS_LIMIT",
+        "QB_MAX_JOIN_DEPTH",
+        "QB_MAX_COMPLEXITY_SCORE",
+        "QB_PREVENT_CARTESIAN_PRODUCTS",
+        "QB_ENABLE_CACHE",
+        "QB_DEFAULT_TTL_SECONDS",
+        "QB_MAX_CACHE_ENTRIES",
+        "QB_VALIDATE_AST",
+        "QB_ALLOWED_STATEMENTS",
+        "QB_ALLOW_SYSTEM_CATALOGS",
+        "QB_FILTER_SQL_COMMENTS",
+        "QB_ALLOW_CTE",
+        "QB_ALLOW_RECURSIVE_CTE",
+        "QB_ENFORCE_TENANT_ISOLATION",
+        "QB_TENANT_COLUMN",
+        "QB_MASKING_STRATEGY",
+        "QB_SENSITIVE_COLUMN_PATTERNS",
+        "QB_MASK_CREDENTIALS",
+        "QB_REDACT_PARAMETERS",
+        "QB_EMIT_AUDIT_EVENTS",
+        "QB_SENSITIVE_KEY_PATTERNS",
+    }
+)
+
+IGNORED_QB_ENV_PREFIXES: tuple[str, ...] = (
+    "QB_UPDATE_GOLDEN",
+    "QB_LIVE_",
+    "QB_TEST_",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +471,21 @@ def load_security_config_from_env(
 
     profile_name = source.get("QB_SECURITY_PROFILE", "production")
     config = SecurityProfile.from_name(profile_name)
+
+    # Check for unknown or misspelled QB_* environment variables
+    for k in list(source.keys()):
+        if k.startswith("QB_") and k not in KNOWN_QB_ENV_VARS:
+            if any(k.startswith(p) for p in IGNORED_QB_ENV_PREFIXES):
+                continue
+            close = difflib.get_close_matches(
+                k, list(KNOWN_QB_ENV_VARS), n=1, cutoff=0.6
+            )
+            suggestion = f"; did you mean '{close[0]}'?" if close else ""
+            warnings.warn(
+                f"Unknown environment variable '{k}' is ignored{suggestion}",
+                UserWarning,
+                stacklevel=2,
+            )
 
     # --- Network Overrides ---
     if "QB_ALLOW_PRIVATE_NETWORKS" in source:
@@ -901,6 +960,7 @@ __all__ = [
     "DEFAULT_SENSITIVE_COLUMN_PATTERNS",
     "DEFAULT_SENSITIVE_KEY_PATTERNS",
     "VALID_MASKING_STRATEGIES",
+    "KNOWN_QB_ENV_VARS",
     "ExecutionSecurityConfig",
     "LoggingSecurityConfig",
     "NetworkSecurityConfig",

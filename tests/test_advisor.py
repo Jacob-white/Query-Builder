@@ -132,6 +132,47 @@ class TestIndexRecommendations:
         assert len(recs) == 1
         assert recs[0]["columns"] == ["created_at"]
 
+    def test_recommend_indexes_strips_table_prefixes(self) -> None:
+        spec = QuerySpec(
+            table="orders",
+            joins=[
+                JoinSpec(
+                    table="users",
+                    left_col="orders.user_id",
+                    right_col="users.user_uuid",
+                )
+            ],
+            filters=[FilterSpec(column="orders.status", op="=", value="shipped")],
+            order_by=[OrderBySpec(column="orders.created_at", direction="desc")],
+        )
+        recs = recommend_indexes(spec)
+        assert len(recs) == 3
+
+        r_filter = next(r for r in recs if r["columns"] == ["status"])
+        assert r_filter["index_name"] == "idx_orders_status"
+        assert r_filter["ddl"] == "CREATE INDEX idx_orders_status ON orders (status);"
+
+        r_join = next(r for r in recs if r["columns"] == ["user_uuid"])
+        assert r_join["index_name"] == "idx_users_user_uuid"
+        assert r_join["ddl"] == "CREATE INDEX idx_users_user_uuid ON users (user_uuid);"
+
+        r_comp = next(r for r in recs if len(r["columns"]) == 2)
+        assert r_comp["columns"] == ["status", "created_at"]
+        assert r_comp["index_name"] == "idx_orders_comp_status_created_at"
+        assert (
+            r_comp["ddl"]
+            == "CREATE INDEX idx_orders_comp_status_created_at ON orders (status, created_at);"
+        )
+
+    def test_recommend_indexes_derived_table_returns_empty(self) -> None:
+        spec = {
+            "table": {"subquery": {"table": "orders", "columns": ["id"]}},
+            "columns": ["id"],
+            "filters": [{"column": "status", "op": "=", "value": "active"}],
+        }
+        recs = recommend_indexes(spec)
+        assert recs == []
+
 
 class TestAnalyzeQueryPerformance:
     """Tests for analyze_query_performance."""

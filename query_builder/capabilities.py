@@ -58,6 +58,7 @@ class EngineCapabilities:
     raw_sql: FeatureTier = FeatureTier.ADVANCED
     query_plan: FeatureTier = FeatureTier.ADVANCED
     calculated_fields: FeatureTier = FeatureTier.ADVANCED
+    custom_expressions: FeatureTier = FeatureTier.ADVANCED
     schema_tools: FeatureTier = FeatureTier.ADVANCED
     custom_overrides: dict[str, FeatureTier] = field(default_factory=dict)
 
@@ -98,6 +99,7 @@ class EngineCapabilities:
             "raw_sql": self.raw_sql.value,
             "query_plan": self.query_plan.value,
             "calculated_fields": self.calculated_fields.value,
+            "custom_expressions": self.custom_expressions.value,
             "schema_tools": self.schema_tools.value,
         }
         for k, v in self.custom_overrides.items():
@@ -138,6 +140,7 @@ class EngineCapabilities:
             "raw_sql",
             "query_plan",
             "calculated_fields",
+            "custom_expressions",
             "schema_tools",
         }
 
@@ -167,6 +170,7 @@ class EngineCapabilities:
             raw_sql=FeatureTier.DISABLED,
             query_plan=FeatureTier.DISABLED,
             calculated_fields=FeatureTier.DISABLED,
+            custom_expressions=FeatureTier.DISABLED,
             schema_tools=FeatureTier.DISABLED,
         )
 
@@ -186,6 +190,7 @@ class EngineCapabilities:
             raw_sql=FeatureTier.STANDARD,
             query_plan=FeatureTier.STANDARD,
             calculated_fields=FeatureTier.STANDARD,
+            custom_expressions=FeatureTier.STANDARD,
             schema_tools=FeatureTier.STANDARD,
         )
 

@@ -324,7 +324,7 @@ export interface VisualSort<Schema = DatabaseSchemaDefinition> {
 export interface VisualColumnSelect<Schema = DatabaseSchemaDefinition> {
   table: SchemaTableNames<Schema>;
   name: SchemaColumnNames<Schema, string> | string;
-  aggregate?: "" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
+  aggregate?: "" | "COUNT" | "COUNT_DISTINCT" | "SUM" | "AVG" | "MIN" | "MAX";
   alias?: string;
   timeGrain?: TimeGrain;
   metric?: boolean | string | MetricDefinition;
@@ -440,6 +440,8 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
     tablePrefix?: SchemaTableNames<Schema>;
     combiner?: "AND" | "OR";
     rawExpression?: string;
+    parenOpen?: string;
+    parenClose?: string;
   }[];
   filter_join: "AND" | "OR";
   order_by: {
@@ -497,6 +499,8 @@ export interface LooseSpecFilter {
   value?: string | number | boolean | null;
   raw_expression?: string;
   rawExpression?: string;
+  parenOpen?: string;
+  parenClose?: string;
 }
 
 export interface LooseSpecSort {
@@ -1088,5 +1092,48 @@ export interface PerformanceAdvisorInsight {
   recommendation?: IndexRecommendation;
   costEstimate?: CloudCostEstimate;
 }
+
+export interface ExplainAnalysisResult {
+  sql: string;
+  params: unknown[];
+  dialect: string;
+  plan?: Record<string, unknown>;
+  performance?: Record<string, unknown>;
+  recommended_indexes?: string[];
+}
+
+export interface JoinPathStep {
+  table: string;
+  type: string;
+  left_table?: string;
+  left_col?: string;
+  right_col?: string;
+}
+
+export interface JoinPathResult {
+  path: JoinPathStep[];
+  connected: boolean;
+  target_table: string;
+}
+
+export interface NlqTranslationResult {
+  spec: QuerySpec;
+  sql: string;
+  params?: unknown[];
+  explanation: string;
+  confidence: number;
+  warnings?: string[];
+}
+
+export interface AskAiRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+  dialect?: SqlDialect;
+  provider?: string;
+  schema?: SchemaSnapshot;
+  options?: Record<string, unknown>;
+}
+
 
 

@@ -142,11 +142,31 @@ def _drop_equivalent(
     filters[:] = keep
 
 
+def _extract_columns_from_expression(
+    expr: str, default_table: str
+) -> list[tuple[str, str]]:
+    """Extracts (table_name, column_name) pairs referenced in a SQL expression."""
+    cols: list[tuple[str, str]] = []
+    clean_def_tbl = default_table.split(".")[-1].lower() if default_table else ""
+    try:
+        import sqlglot
+        from sqlglot import exp
+
+        tree = sqlglot.parse_one(f"SELECT {expr} FROM {clean_def_tbl or 't'}")
+        for col_node in tree.find_all(exp.Column):
+            t = (col_node.table or clean_def_tbl).lower()
+            cols.append((t, col_node.name.lower()))
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return cols
+
+
 def apply_security_policy(
     spec: dict[str, Any] | QuerySpec,
     schema: dict[str, Any] | SchemaSnapshot | None = None,
     context: TenantContext | None = None,
     policy: SecurityPolicy | dict[str, Any] | Any | None = None,
+    defined_ctes: set[str] | None = None,
 ) -> dict[str, Any]:
     """Validates and transforms query spec according to tenant context and security policy.
 
@@ -156,6 +176,8 @@ def apply_security_policy(
     - Automatically injects tenant_column filters and row_level_filters.
     - Redacts or masks columns matching column_masking or sensitive_column_patterns
       for non-privileged roles using configured masking_strategy.
+    - Recursively inspects and transforms CTEs, set operations, filter subqueries,
+      and derived tables.
     """
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
         spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
@@ -165,11 +187,8 @@ def apply_security_policy(
         raise SecurityError(f"Unsupported spec type: {type(spec).__name__}")
 
     raw_table = spec_dict.get("table")
-    if not raw_table or not isinstance(raw_table, str) or not raw_table.strip():
+    if not raw_table:
         raise SecurityError("Query specification missing required 'table'.")
-
-    base_table = raw_table.strip()
-    clean_base_table = base_table.split(".")[-1].lower()
 
     if policy is None:
         active_policy = SecurityPolicy()
@@ -213,6 +232,98 @@ def apply_security_policy(
     else:
         active_policy = policy
 
+    if defined_ctes is None:
+        active_defined_ctes: set[str] = set()
+    else:
+        active_defined_ctes = set(defined_ctes)
+
+    # Recursively apply security policy to CTEs
+    ctes = spec_dict.get("ctes")
+    if ctes and isinstance(ctes, list):
+        for cte in ctes:
+            c_name = (
+                cte.get("name") if isinstance(cte, dict) else getattr(cte, "name", None)
+            )
+            if c_name and isinstance(c_name, str):
+                active_defined_ctes.add(c_name.strip().lower())
+        for cte in ctes:
+            c_query = (
+                cte.get("query")
+                if isinstance(cte, dict)
+                else getattr(cte, "query", None)
+            )
+            if c_query:
+                transformed_query = apply_security_policy(
+                    c_query,
+                    schema=schema,
+                    context=context,
+                    policy=active_policy,
+                    defined_ctes=active_defined_ctes,
+                )
+                if isinstance(cte, dict):
+                    cte["query"] = transformed_query
+                elif hasattr(cte, "query"):
+                    cte.query = transformed_query
+
+    # Recursively apply security policy to set operations
+    set_ops = spec_dict.get("set_operations")
+    if set_ops and isinstance(set_ops, list):
+        for so in set_ops:
+            so_query = (
+                so.get("query") if isinstance(so, dict) else getattr(so, "query", None)
+            )
+            if so_query:
+                transformed_so = apply_security_policy(
+                    so_query,
+                    schema=schema,
+                    context=context,
+                    policy=active_policy,
+                    defined_ctes=active_defined_ctes,
+                )
+                if isinstance(so, dict):
+                    so["query"] = transformed_so
+                elif hasattr(so, "query"):
+                    so.query = transformed_so
+
+    # Recursively apply security policy to filter subqueries
+    for flt in spec_dict.get("filters", []):
+        if isinstance(flt, dict):
+            subq = flt.get("subquery")
+            if subq:
+                flt["subquery"] = apply_security_policy(
+                    subq,
+                    schema=schema,
+                    context=context,
+                    policy=active_policy,
+                    defined_ctes=active_defined_ctes,
+                )
+            elif isinstance(flt.get("value"), dict) and "table" in flt["value"]:
+                flt["value"] = apply_security_policy(
+                    flt["value"],
+                    schema=schema,
+                    context=context,
+                    policy=active_policy,
+                    defined_ctes=active_defined_ctes,
+                )
+
+    if isinstance(raw_table, dict) or hasattr(raw_table, "__dataclass_fields__"):
+        spec_dict["table"] = apply_security_policy(
+            raw_table,
+            schema=schema,
+            context=context,
+            policy=active_policy,
+            defined_ctes=active_defined_ctes,
+        )
+        base_table = "subquery"
+        clean_base_table = "subquery"
+        referenced_tables = []
+    elif isinstance(raw_table, str) and raw_table.strip():
+        base_table = raw_table.strip()
+        clean_base_table = base_table.split(".")[-1].lower()
+        referenced_tables = [base_table]
+    else:
+        raise SecurityError("Query specification missing required 'table'.")
+
     # 0. Pre-execution Complexity Quota Governor
     max_complexity = getattr(active_policy, "max_complexity_score", None)
     if max_complexity is not None:
@@ -236,7 +347,6 @@ def apply_security_policy(
             )
 
     # 2. Table authorization (base table + joined tables)
-    referenced_tables: list[str] = [base_table]
     for join in spec_dict.get("joins", []):
         j_tbl = (
             join.get("table")
@@ -248,6 +358,8 @@ def apply_security_policy(
 
     for tbl in referenced_tables:
         clean_tbl = tbl.split(".")[-1].lower()
+        if clean_tbl in active_defined_ctes:
+            continue
         if active_policy.restricted_tables:
             for r in active_policy.restricted_tables:
                 if clean_tbl == r.split(".")[-1].lower():
@@ -285,22 +397,21 @@ def apply_security_policy(
     if active_policy.enforce_tenant_isolation and context and context.tenant_id:
         tenant_id_str = str(context.tenant_id).strip()
 
-        # Always inject an enforced predicate: a client-supplied equal predicate
-        # could be OR-ed away, so it never satisfies the requirement. An
-        # identical plain client predicate is folded into the enforced one.
-        _drop_equivalent(
-            filters, active_policy.tenant_column, tenant_id_str, base_table
-        )
-        filters.insert(
-            0,
-            {
-                "column": active_policy.tenant_column,
-                "op": "eq",
-                "value": tenant_id_str,
-                "table": base_table,
-                "_enforced": True,
-            },
-        )
+        # Always inject an enforced predicate on base table if not a derived subquery
+        if base_table != "subquery":
+            _drop_equivalent(
+                filters, active_policy.tenant_column, tenant_id_str, base_table
+            )
+            filters.insert(
+                0,
+                {
+                    "column": active_policy.tenant_column,
+                    "op": "eq",
+                    "value": tenant_id_str,
+                    "table": base_table,
+                    "_enforced": True,
+                },
+            )
 
         # Check join tables
         for join in spec_dict.get("joins", []):
@@ -353,6 +464,8 @@ def apply_security_policy(
     if active_policy.row_level_filters:
         for tbl in referenced_tables:
             clean_tbl = tbl.split(".")[-1].lower()
+            if clean_tbl in active_defined_ctes:
+                continue
             rules = (
                 active_policy.row_level_filters.get(tbl)
                 or active_policy.row_level_filters.get(clean_tbl)
@@ -382,6 +495,29 @@ def apply_security_policy(
                 rule_copy.pop("enforced", None)
                 rule_copy.pop("combiner", None)
                 rule_copy["_enforced"] = True
+
+                col_name = rule_copy.get("column")
+                if schema is not None and col_name:
+                    tables_map = getattr(schema, "tables", None) or (
+                        schema.get("tables") if isinstance(schema, dict) else None
+                    )
+                    if tables_map and isinstance(tables_map, dict):
+                        tbl_info = tables_map.get(tbl) or tables_map.get(clean_tbl)
+                        if tbl_info is not None:
+                            t_cols = (
+                                tbl_info.get("columns", [])
+                                if isinstance(tbl_info, dict)
+                                else getattr(tbl_info, "columns", [])
+                            )
+                            c_names = [
+                                c.name
+                                if hasattr(c, "name")
+                                else (c.get("name") if isinstance(c, dict) else str(c))
+                                for c in t_cols
+                            ]
+                            if col_name not in c_names:
+                                continue
+
                 filters.append(rule_copy)
 
     # 4.5. Column-Level Access Control (CLAC)
@@ -407,21 +543,39 @@ def apply_security_policy(
                                 if "." in c
                                 else clean_base_table
                             )
+                            if (
+                                col_tbl == clean_tbl or col_tbl == "*"
+                            ) and col_name in restricted_cols:
+                                raise SecurityError(
+                                    f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
+                                )
                         elif isinstance(c, dict):
+                            expr = c.get("expression") or c.get("raw_expression")
+                            if expr and isinstance(expr, str):
+                                expr_cols = _extract_columns_from_expression(
+                                    expr, clean_base_table
+                                )
+                                for e_tbl, e_col in expr_cols:
+                                    if (
+                                        e_tbl == clean_tbl or e_tbl == "*" or not e_tbl
+                                    ) and e_col in restricted_cols:
+                                        raise SecurityError(
+                                            f"Access to restricted column '{e_col}' on table '{tbl}' via expression requires roles: {sorted(allowed_roles)}."
+                                        )
                             col_name = str(c.get("column") or c.get("name", "")).lower()
+                            if not col_name:
+                                continue
                             col_tbl = (
                                 str(c.get("table") or clean_base_table)
                                 .split(".")[-1]
                                 .lower()
                             )
-                        else:
-                            continue
-                        if (
-                            col_tbl == clean_tbl or col_tbl == "*"
-                        ) and col_name in restricted_cols:
-                            raise SecurityError(
-                                f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
-                            )
+                            if (
+                                col_tbl == clean_tbl or col_tbl == "*"
+                            ) and col_name in restricted_cols:
+                                raise SecurityError(
+                                    f"Access to restricted column '{col_name}' on table '{tbl}' requires roles: {sorted(allowed_roles)}."
+                                )
 
     # 5. Column Masking
     if active_policy.column_masking or active_policy.sensitive_column_patterns:
@@ -465,6 +619,29 @@ def apply_security_policy(
                     else:
                         new_cols.append(c)
                 elif isinstance(c, dict):
+                    expr = c.get("expression") or c.get("raw_expression")
+                    if expr and isinstance(expr, str):
+                        expr_cols = _extract_columns_from_expression(expr, base_table)
+                        for e_tbl, e_col in expr_cols:
+                            e_masked_list = (
+                                active_policy.column_masking.get(e_tbl)
+                                or active_policy.column_masking.get(str(e_tbl).lower())
+                                or active_policy.column_masking.get(
+                                    str(e_tbl).split(".")[-1].lower()
+                                )
+                                or active_policy.column_masking.get("*", [])
+                            )
+                            is_e_masked = e_col in e_masked_list or e_col.lower() in [
+                                m.lower() for m in e_masked_list
+                            ]
+                            if not is_e_masked and compiled_patterns:
+                                is_e_masked = any(
+                                    p.search(e_col) for p in compiled_patterns
+                                )
+                            if is_e_masked:
+                                raise SecurityError(
+                                    f"Access to masked column '{e_col}' in expression is forbidden."
+                                )
                     c_name = c.get("column") or c.get("name", "")
                     c_tbl = (
                         c.get("table")

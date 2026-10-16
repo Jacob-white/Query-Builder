@@ -615,3 +615,105 @@ models:
         assert (
             expand_time_grain_sql("col", "day", "exotic_db") == "DATE_TRUNC('day', col)"
         )
+
+
+class TestSemanticRegistryAndExpansion:
+    def test_resolve_semantic_registry(self):
+        from query_builder.semantic import (
+            MetricDefinition,
+            SemanticModel,
+            SemanticRegistry,
+            resolve_semantic_registry,
+        )
+
+        assert resolve_semantic_registry(None) is None
+        assert resolve_semantic_registry("not-valid") is None
+
+        reg = SemanticRegistry()
+        assert resolve_semantic_registry(reg) is reg
+
+        m = SemanticModel(
+            name="users",
+            table_name="users",
+            metrics=[
+                MetricDefinition(
+                    name="total_users",
+                    title="Total Users",
+                    sql_expression="id",
+                    aggregation="count",
+                )
+            ],
+        )
+        r1 = resolve_semantic_registry(m)
+        assert r1 is not None
+        assert r1.get_metric("total_users") is not None
+
+        d = {
+            "name": "orders",
+            "table": "orders",
+            "metrics": [{"name": "revenue", "sql": "amount", "aggregation": "sum"}],
+        }
+        r2 = resolve_semantic_registry(d)
+        assert r2 is not None
+        assert r2.get_metric("revenue") is not None
+
+        r3 = resolve_semantic_registry([m, d])
+        assert r3 is not None
+        assert r3.get_metric("total_users") is not None
+        assert r3.get_metric("revenue") is not None
+
+    def test_expand_metrics_and_dimensions(self):
+        from query_builder.semantic import (
+            DimensionDefinition,
+            MetricDefinition,
+            SemanticModel,
+            expand_metrics_and_dimensions,
+        )
+
+        model = SemanticModel(
+            name="orders",
+            table_name="orders",
+            metrics=[
+                MetricDefinition(
+                    name="total_revenue",
+                    title="Total Revenue",
+                    sql_expression="amount",
+                    aggregation="sum",
+                )
+            ],
+            dimensions=[
+                DimensionDefinition(
+                    name="order_status",
+                    title="Order Status",
+                    sql_expression="UPPER(status)",
+                    data_type="string",
+                )
+            ],
+        )
+
+        spec = {
+            "table": "orders",
+            "columns": ["id", "total_revenue", {"column": "order_status"}],
+            "filters": [{"column": "order_status", "op": "eq", "value": "PAID"}],
+            "having": [{"column": "total_revenue", "op": "gt", "value": 1000}],
+            "order_by": [{"column": "order_status", "direction": "ASC"}],
+        }
+
+        expanded = expand_metrics_and_dimensions(spec, model, dialect="postgres")
+
+        # Columns expanded
+        assert expanded["columns"][0] == "id"
+        assert expanded["columns"][1]["alias"] == "total_revenue"
+        assert "SUM(amount)" in expanded["columns"][1]["raw_expression"]
+        assert expanded["columns"][2]["alias"] == "order_status"
+        assert expanded["columns"][2]["raw_expression"] == "UPPER(status)"
+
+        # Filters expanded
+        assert expanded["filters"][0]["column"] == "UPPER(status)"
+
+        # Having expanded
+        assert expanded["having"][0]["column"] == "amount"
+        assert expanded["having"][0]["agg"] == "sum"
+
+        # Order by expanded
+        assert expanded["order_by"][0]["column"] == "UPPER(status)"

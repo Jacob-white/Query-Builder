@@ -241,3 +241,37 @@ async def test_async_pool_manager():
 
     await reset_async_connection_pool_manager()
     assert manager.get_pool("db1") is None
+
+
+@pytest.mark.anyio
+async def test_async_pool_preserves_created_at_lifespan():
+    """Verify that async connection lifespan is tracked across multiple acquire/release cycles."""
+    counter = 0
+
+    async def factory():
+        nonlocal counter
+        counter += 1
+        return MockAsyncConnection(counter)
+
+    pool = AsyncConnectionPool(factory=factory, max_size=2, max_lifespan_seconds=0.05)
+    conn = await pool.acquire()
+    conn_id = id(conn)
+    orig_created_at = pool._created_at[conn_id]
+
+    await pool.release(conn)
+    assert pool._created_at[conn_id] == orig_created_at
+
+    # Re-acquire immediately: same connection should be reused with preserved created_at
+    conn2 = await pool.acquire()
+    assert conn2 is conn
+    assert pool._created_at[conn_id] == orig_created_at
+    await pool.release(conn2)
+
+    # Wait past max_lifespan_seconds (0.05s)
+    await asyncio.sleep(0.06)
+    conn3 = await pool.acquire()
+    # Old connection should have been evicted due to lifespan, new connection created
+    assert conn3 is not conn
+    assert conn3.conn_id == 2
+    await pool.release(conn3)
+    await pool.close()

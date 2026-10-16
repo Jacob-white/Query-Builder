@@ -8,18 +8,27 @@ for integration with AI developer tools, assistants, and agentic environments
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
-from typing import Any, TextIO
+from dataclasses import asdict, is_dataclass
+from typing import TYPE_CHECKING, Any, TextIO
 
 from query_builder import __version__
 from query_builder.advisor import analyze_query_performance, recommend_indexes
 from query_builder.ast_validator import validate_sql_ast
 from query_builder.compiler import QueryCompiler
-from query_builder.exceptions import QueryBuilderError
+from query_builder.exceptions import QueryBuilderError, SecurityError
 from query_builder.explain import estimate_plan_from_spec
 from query_builder.join_solver import find_join_path
+from query_builder.models import QuerySpec
+from query_builder.policy import SecurityPolicy, TenantContext, apply_security_policy
 from query_builder.security import calculate_ast_complexity, scrub_secrets
+
+if TYPE_CHECKING:
+    from query_builder.connectors.async_base import AsyncBaseConnector
+    from query_builder.connectors.base import BaseConnector
+    from query_builder.semantic import SemanticRegistry
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -50,17 +59,40 @@ SERVER_CAPABILITIES = {
     },
 }
 
-TOOLS = [
+RESOURCES = [
+    {
+        "uri": "query-builder://schema/catalog",
+        "name": "Database Schema Catalog",
+        "description": "Active database schema snapshot including tables, columns, data types, and foreign keys.",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "query-builder://schema/queryspec",
+        "name": "QuerySpec JSON Schema",
+        "description": "Canonical JSON Schema for declarative QuerySpec AST and supported operators.",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "query-builder://semantic/metrics",
+        "name": "Semantic Metrics & Dimensions",
+        "description": "Registered business metrics, calculated dimensions, and aggregations.",
+        "mimeType": "application/json",
+    },
+]
+
+_SPEC_SCHEMA: dict[str, Any] = {
+    **QuerySpec.json_schema(),
+    "description": "Declarative QuerySpec dictionary (table, columns, joins, filters, order_by, limit, etc.)",
+}
+
+TOOLS: list[dict[str, Any]] = [
     {
         "name": "query_builder_compile",
         "description": "Compiles a declarative JSON QuerySpec into safe, parameterized SQL with multi-dialect support.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "spec": {
-                    "type": "object",
-                    "description": "Declarative QuerySpec dictionary (table, columns, joins, filters, order_by, limit, etc.)",
-                },
+                "spec": _SPEC_SCHEMA,
                 "dialect": {
                     "type": "string",
                     "description": "Target SQL dialect (postgres, snowflake, mysql, sqlite, mssql, duckdb, etc.)",
@@ -80,10 +112,7 @@ TOOLS = [
                     "type": "string",
                     "description": "Raw SQL query string to validate for read-only AST safety.",
                 },
-                "spec": {
-                    "type": "object",
-                    "description": "Declarative QuerySpec dictionary to validate for read-only AST safety.",
-                },
+                "spec": _SPEC_SCHEMA,
                 "dialect": {
                     "type": "string",
                     "description": "Target SQL dialect when compiling spec (default: 'postgres').",
@@ -98,10 +127,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "spec": {
-                    "type": "object",
-                    "description": "Declarative QuerySpec dictionary to analyze.",
-                },
+                "spec": _SPEC_SCHEMA,
                 "dialect": {
                     "type": "string",
                     "description": "Target SQL dialect. Defaults to 'postgres'.",
@@ -117,10 +143,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "spec": {
-                    "type": "object",
-                    "description": "Declarative QuerySpec dictionary.",
-                },
+                "spec": _SPEC_SCHEMA,
             },
             "required": ["spec"],
         },
@@ -154,10 +177,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "spec": {
-                    "type": "object",
-                    "description": "Declarative QuerySpec dictionary (table, columns, joins, filters, limit, etc.).",
-                },
+                "spec": _SPEC_SCHEMA,
                 "sql": {
                     "type": "string",
                     "description": "Raw SQL query string (enforced read-only by AST validator).",
@@ -218,10 +238,117 @@ class McpServer:
     """Standard Model Context Protocol JSON-RPC server running over stdio."""
 
     def __init__(
-        self, stdin: TextIO | None = None, stdout: TextIO | None = None
+        self,
+        stdin: TextIO | None = None,
+        stdout: TextIO | None = None,
+        *,
+        connector: BaseConnector | AsyncBaseConnector | str | None = None,
+        connector_config: dict[str, Any] | None = None,
+        security_policy: SecurityPolicy | None = None,
+        tenant_context: TenantContext | None = None,
+        semantic_registry: SemanticRegistry | None = None,
+        lock_connection: bool = False,
     ) -> None:
         self.stdin = stdin or sys.stdin
         self.stdout = stdout or sys.stdout
+        self.connector = connector
+        self.connector_config = connector_config or {}
+        self.security_policy = security_policy
+        self.tenant_context = tenant_context
+        self.semantic_registry = semantic_registry
+        self.lock_connection = lock_connection or (connector is not None)
+
+    def get_tools(self) -> list[dict[str, Any]]:
+        tools: list[dict[str, Any]] = copy.deepcopy(TOOLS)
+        if self.lock_connection:
+            for t in tools:
+                if t.get("name") in (
+                    "query_builder_introspect",
+                    "query_builder_execute",
+                ):
+                    schema = t.get("inputSchema")
+                    if isinstance(schema, dict):
+                        props = schema.get("properties")
+                        if isinstance(props, dict):
+                            props.pop("connector", None)
+                            props.pop("config", None)
+                        req = schema.get("required")
+                        if isinstance(req, list):
+                            if "connector" in req:
+                                req.remove("connector")
+                            if "config" in req:
+                                req.remove("config")
+        return tools
+
+    def _resolve_connector(
+        self,
+        connector_name: str = "sqlite",
+        config: dict[str, Any] | None = None,
+    ) -> Any:
+        from query_builder.connectors import ConnectorRegistry
+
+        if self.lock_connection:
+            if self.connector is not None:
+                if isinstance(self.connector, str):
+                    return ConnectorRegistry.get(
+                        self.connector, **self.connector_config
+                    )
+                return self.connector
+            return ConnectorRegistry.get("sqlite", **self.connector_config)
+        return ConnectorRegistry.get(connector_name, **(config or {}))
+
+    def _read_resource(self, uri: str) -> str:
+        if uri == "query-builder://schema/catalog":
+            connector = self._resolve_connector()
+            from query_builder.connectors import AsyncBaseConnector
+
+            if isinstance(connector, AsyncBaseConnector):
+                snapshot = _run_coroutine_safely(
+                    connector.introspect_schema(filter_sensitive=True)
+                )
+            else:
+                snapshot = connector.introspect_schema(filter_sensitive=True)
+
+            if is_dataclass(snapshot) and not isinstance(snapshot, type):
+                snap_dict = asdict(snapshot)
+            elif hasattr(snapshot, "to_dict"):
+                snap_dict = snapshot.to_dict()
+            elif isinstance(snapshot, dict):
+                snap_dict = snapshot
+            else:
+                snap_dict = {"tables": {}}
+
+            if (
+                self.security_policy
+                and "tables" in snap_dict
+                and isinstance(snap_dict["tables"], dict)
+            ):
+                allowed = (
+                    set(self.security_policy.allowed_tables)
+                    if self.security_policy.allowed_tables is not None
+                    else None
+                )
+                restricted = set(self.security_policy.restricted_tables or [])
+                snap_dict["tables"] = {
+                    t: m
+                    for t, m in snap_dict["tables"].items()
+                    if (allowed is None or t in allowed) and t not in restricted
+                }
+            return json.dumps(snap_dict, indent=2)
+
+        if uri == "query-builder://schema/queryspec":
+            return json.dumps(QuerySpec.json_schema(), indent=2)
+
+        if uri == "query-builder://semantic/metrics":
+            if self.semantic_registry:
+                metrics = [m.to_dict() for m in self.semantic_registry.list_metrics()]
+                models = [m.to_dict() for m in self.semantic_registry.list_models()]
+                payload = {"metrics": metrics, "models": models}
+            else:
+                payload = {"metrics": [], "models": []}
+            return json.dumps(payload, indent=2)
+
+        raise QueryBuilderError(f"Resource not found: '{uri}'")
 
     def handle_request(self, req: dict[str, Any]) -> dict[str, Any] | None:
         """Dispatches a single JSON-RPC 2.0 request."""
@@ -263,8 +390,42 @@ class McpServer:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"tools": TOOLS},
+                "result": {"tools": self.get_tools()},
             }
+
+        if method == "resources/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"resources": RESOURCES},
+            }
+
+        if method == "resources/read":
+            uri = str(params.get("uri", ""))
+            try:
+                content_text = self._read_resource(uri)
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "contents": [
+                            {
+                                "uri": uri,
+                                "mimeType": "application/json",
+                                "text": content_text,
+                            }
+                        ]
+                    },
+                }
+            except Exception as e:  # noqa: BLE001
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32602,
+                        "message": f"Invalid params: {e!s}",
+                    },
+                }
 
         if method == "tools/call":
             tool_name = str(params.get("name"))
@@ -304,6 +465,27 @@ class McpServer:
         }
 
     def _dispatch_tool(self, name: str, args: dict[str, Any]) -> Any:
+        if self.lock_connection and ("connector" in args or "config" in args):
+            raise SecurityError(
+                "Specifying 'connector' or 'config' is forbidden in locked connection mode."
+            )
+
+        if name in (
+            "query_builder_compile",
+            "query_builder_execute",
+            "query_builder_explain_and_advise",
+        ):
+            spec = args.get("spec")
+            if spec:
+                if isinstance(spec, str):
+                    spec = json.loads(spec)
+                if self.security_policy is not None or self.tenant_context is not None:
+                    spec = apply_security_policy(
+                        spec, context=self.tenant_context, policy=self.security_policy
+                    )
+                args = dict(args)
+                args["spec"] = spec
+
         if name == "query_builder_compile":
             spec = args.get("spec", {})
             if isinstance(spec, str):
@@ -375,11 +557,9 @@ class McpServer:
                 config = json.loads(config)
             filter_sensitive = bool(args.get("filter_sensitive", True))
 
-            from dataclasses import asdict, is_dataclass
+            from query_builder.connectors import AsyncBaseConnector
 
-            from query_builder.connectors import AsyncBaseConnector, ConnectorRegistry
-
-            connector = ConnectorRegistry.get(connector_name, **config)
+            connector = self._resolve_connector(connector_name, config)
             if isinstance(connector, AsyncBaseConnector):
                 snapshot = _run_coroutine_safely(
                     connector.introspect_schema(filter_sensitive=filter_sensitive)
@@ -397,6 +577,23 @@ class McpServer:
                 snap_dict = snapshot
             else:
                 snap_dict = {"tables": {}}
+
+            if (
+                self.security_policy
+                and "tables" in snap_dict
+                and isinstance(snap_dict["tables"], dict)
+            ):
+                allowed = (
+                    set(self.security_policy.allowed_tables)
+                    if self.security_policy.allowed_tables is not None
+                    else None
+                )
+                restricted = set(self.security_policy.restricted_tables or [])
+                snap_dict["tables"] = {
+                    t: m
+                    for t, m in snap_dict["tables"].items()
+                    if (allowed is None or t in allowed) and t not in restricted
+                }
             return snap_dict
 
         if name == "query_builder_execute":
@@ -417,6 +614,13 @@ class McpServer:
 
             # Validate AST safety on raw SQL
             if raw_sql:
+                if self.tenant_context is not None or (
+                    self.security_policy
+                    and getattr(self.security_policy, "enforce_tenant_isolation", False)
+                ):
+                    raise SecurityError(
+                        "Raw SQL execution is forbidden when tenant isolation is enforced. Use 'spec' instead."
+                    )
                 val_res = validate_sql_ast(raw_sql)
                 if not val_res.get("valid") or not val_res.get("is_read_only"):
                     violations = val_res.get(
@@ -437,9 +641,9 @@ class McpServer:
                     spec = dict(spec)
                     spec["limit"] = max_rows
 
-            from query_builder.connectors import AsyncBaseConnector, ConnectorRegistry
+            from query_builder.connectors import AsyncBaseConnector
 
-            connector = ConnectorRegistry.get(connector_name, **config)
+            connector = self._resolve_connector(connector_name, config)
             if isinstance(connector, AsyncBaseConnector):
                 res = _run_coroutine_safely(
                     connector.execute(spec=spec, sql=raw_sql, params=params)

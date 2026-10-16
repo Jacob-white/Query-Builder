@@ -183,7 +183,7 @@ PARSE_TABLE = [
         "SELECT ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS rn, name FROM "
         "emp",
         {
-            "columns": [{"alias": "rn", "column": "rn"}, "name"],
+            "columns": ["name"],
             "distinct": False,
             "filter_join": "AND",
             "filters": [],
@@ -207,7 +207,7 @@ PARSE_TABLE = [
     (
         "SELECT SUM(amount) OVER (ORDER BY ts) total, id FROM t",
         {
-            "columns": [{"alias": "total", "column": "total"}, "id"],
+            "columns": ["id"],
             "distinct": False,
             "filter_join": "AND",
             "filters": [],
@@ -231,7 +231,7 @@ PARSE_TABLE = [
     (
         "SELECT rank ( ) OVER ( PARTITION BY a , b ORDER BY c ROWS 1 ) AS r FROM t",
         {
-            "columns": [{"alias": "r", "column": "r"}],
+            "columns": [],
             "distinct": False,
             "filter_join": "AND",
             "filters": [],
@@ -310,7 +310,7 @@ PARSE_TABLE = [
         "SELECT COUNT(DISTINCT user_id) AS u, SUM( amount ) FROM orders",
         {
             "columns": [
-                {"agg": "COUNT", "alias": "u", "column": "user_id"},
+                {"agg": "count_distinct", "alias": "u", "column": "user_id"},
                 {"agg": "SUM", "column": "amount"},
             ],
             "distinct": False,
@@ -327,7 +327,7 @@ PARSE_TABLE = [
     (
         "SELECT COUNT( DISTINCT  ) FROM t",
         {
-            "columns": [{"agg": "COUNT", "column": ""}],
+            "columns": [{"agg": "count_distinct", "column": ""}],
             "distinct": False,
             "filter_join": "AND",
             "filters": [],
