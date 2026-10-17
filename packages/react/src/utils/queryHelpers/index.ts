@@ -6,6 +6,7 @@
 export * from "./columnTypes";
 export * from "./filterKinds";
 export * from "./havingFilters";
+export * from "./joinCompletion";
 export * from "./joinLinks";
 export * from "./sqlFile";
 export * from "./summaryText";

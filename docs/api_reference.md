@@ -355,7 +355,7 @@ class QueryCompiler:
 
 **Returns**: `(main_sql, main_params, count_sql, count_params)`
 
-#### `compile_runnable(context=None) -> str | None`
+#### `compile_runnable(context=None, *, pretty=False) -> str | None`
 The main query with its values written in as SQL literals, to show a person or save as a `.sql` file and paste into a
 SQL window. **Execute the bound form from `compile()`; this copy is for people.** It is `None` for a dialect whose
 placeholders are not positional (`$param`, `@param`) or if the placeholders and values do not line up, never a guess.
@@ -363,6 +363,11 @@ The helpers are public too: `query_builder.inline_params(sql, params, placeholde
 `query_builder.sql_literal(value)`. A placeholder inside a quoted identifier, string or comment is left alone, quotes in
 values are doubled, and a backslash is doubled only for dialects that treat it as an escape
 (`query_builder.runnable.BACKSLASH_ESCAPE_DIALECTS`).
+
+`pretty=True` lays the statement out one clause per line with keywords in capitals, using
+`query_builder.format_sql(sql)` (also public). The layout is cosmetic and checked: the formatter's output is accepted only
+if it equals the input apart from whitespace and the case of unquoted words (string values and quoted names are compared
+exactly); otherwise, or if the formatter fails, the statement comes back as it was. `None` and `""` pass through.
 
 #### `compile_search(term, context=None) -> tuple[str, list, str, list]`
 Like `compile()`, but keeps only the rows where some output column contains `term` (case-insensitive), across **all** rows
@@ -376,6 +381,34 @@ and `!` escaped, so they match themselves. Raises `CompilationError` for an empt
 `order_by` may name the label of an aggregated column (`{"column": "n"}` where `n` is the alias of a `count`, or the
 default `sum_<column>` label). It compiles to `ORDER BY "n"`. Before, it compiled to `ORDER BY "t1"."n"`, which no database
 accepts. A name with a `tablePrefix` still means that table's column.
+
+The same holds for the `alias` of an ordinary selected column (`{"column": "orders.status", "alias": "state"}` sorted by
+`{"column": "state"}` compiles to `ORDER BY "state"`). An unprefixed name that is also a column of the base table keeps
+meaning that column.
+
+### Spec checks: `check_columns(spec, schema) -> None` (`query_builder.spec_check`)
+The compiler checks identifier shape and SQL safety, not that a column exists, so a misspelt or invented column reaches the
+database as a driver error. `check_columns` refuses it first with `SpecColumnError` (a `ValidationError`): the message names
+the column and the table, suggests the likeliest real column (one that contains the name first, then close spellings) and
+lists the table's columns, and the exception carries `.column`, `.table`, `.suggestions` and `.available`. A column of a
+table that is not in the query says to join it first. It checks the selected columns, the filters and the sort.
+
+Left alone, because they are not a plain column of a listed table: expressions, CASE columns, `*`, an alias used in a sort,
+a sub-query's columns, a filter on a sub-query, and a table the schema does not list. `schema` may be a `SchemaSnapshot`,
+`{"tables": {...}}` or a bare table mapping. The error text is meant to be sent back to a language model for a repair.
+
+### Schema audit: `audit_schema(schema, *, known_not_links=(), ignore_prefixes=(), not_link_prefixes=(), not_link_names=...) -> SchemaAudit` (`query_builder.schema_audit`)
+Lists the gaps in what a schema tells a query builder or an AI helper. Anything that joins only on *declared* links cannot
+follow an `..._id` column that has none, and a table or column with no description is a guess about meaning. The report
+(`SchemaAudit`, with `.to_dict()` and `.clean`) holds `missing_links` (`(table, column, target_table)`: an id column named
+after a table that exists, singular or plural, with no foreign key or relationship to it), `unexplained_ids` (an id column
+that names no table), `undescribed_tables`, `undescribed_columns` (a count per table) and the `tables` / `columns` audited.
+Links are read from per-table `foreign_keys`, top-level `foreign_keys` and `relationships`; descriptions from `description`
+or `comment`. `known_not_links` (`(table, column)` pairs), `ignore_prefixes` (skip whole tables), `not_link_prefixes` and
+`not_link_names` keep a host's own conventions (identifiers from another system, trace keys) out of the report. It reads
+only names, links and descriptions, never row data. From the command line:
+`query-builder schema --schema schema.json --audit [--json] [--known-not-link TABLE.COLUMN] [--ignore-table-prefix PREFIX]`
+exits 1 when a link is missing, so it can gate a build; missing descriptions are reported but do not fail it.
 
 ### Custom Filter Operators
 - `register_filter_operator(name: str, handler: Callable[..., tuple[str, list[Any]]]) -> None`
@@ -506,6 +539,7 @@ Standard JSON-RPC 2.0 stdio server providing AI agents with:
 - `test-connection` (alias: `test`): Tests database reachability, health, and latency.
 - `introspect`: Reverse-engineers database schema metadata and foreign key relationships.
 - `export-schema` (alias: `export`): Converts schema snapshot into Prisma, Drizzle, or SQLAlchemy definitions.
+- `schema`: explores a schema snapshot (tables, relationships, hubs; `--tree`, `--table`, `--json`); `--audit` instead lists id columns with no declared link and tables and columns with no description (see `audit_schema`).
 - `join-path` (alias: `join`): Discovers shortest relational join path between tables via BFS graph solver.
 - `serve`: Launches zero-dependency HTTP REST API microservice server with Swagger UI. Options: `--host`, `--port`, `--profile {development,production,strict}` (applied to connectors too), `--no-security-notice`, and **secure mode, the default since 2.0** (the server, not the client, chooses tenant, policy and connection; implies `--profile production`): `--secure` (accepted for compatibility), `--insecure` (the old open behaviour, for local development only; refuses `--connections` and `--allow-origin`), `--tenant-header NAME` (default `X-Tenant-ID`; only safe behind a proxy that authenticates and sets it), `--connections FILE` (JSON `{id: {connector, config, dialect?}}` registered at start-up), `--default-connection ID` and `--allow-origin ORIGIN` (repeatable). See [SECURE_DEPLOYMENT.md](SECURE_DEPLOYMENT.md).
 - `schema`: Inspects schema catalog structure and prints ASCII relationship trees.
@@ -734,6 +768,7 @@ and are tested alone.
 | Join proof | `directLinks`, `linkedTables`, `isProvenJoin`, `describeLink` |
 | Summaries | `columnsSummary`, `joinsSummary`, `sortsSummary`, `conditionsSummary`, `windowSummary`, `subqueriesSummary` |
 | Columns | `aggregatesFor(dataType)`, `typeLookup(schema)`, `columnsOf(tables)`, `typeLabel`, `kindLabel`, `columnKey` |
+| Join completion | `completeJoins(spec, links)`, `loadCompleted(actions, spec, links)`: fill a join's missing columns from the one declared link, report the rest (`none` / `several`) instead of guessing |
 | SQL file | `sqlFilename(table)`, `sqlFileText(sql, table)`: pair with the Python `QueryCompiler.compile_runnable()` |
 
 ---

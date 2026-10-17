@@ -13,6 +13,22 @@
   (case-insensitive) across *all* rows of the result, then page the matches with the spec's `limit` / `offset`. The text
   is a bound parameter with its LIKE wildcards escaped; the wrapper passes the AST validator. PostgreSQL family, SQLite,
   DuckDB, Redshift and the MySQL family.
+- **`format_sql(sql)` and `QueryCompiler.compile_runnable(pretty=True)`**: lay the runnable statement out one clause per
+  line with keywords in capitals, for a person to read or save as a `.sql` file. The layout is checked, not trusted: the
+  formatter's output is used only when it equals the input apart from whitespace and the case of unquoted words (string
+  values, quoted names and comments are compared exactly), and the input comes back unchanged otherwise or if the
+  formatter fails. Off by default.
+- **`check_columns(spec, schema)` and `SpecColumnError`** (`query_builder.spec_check`): refuse a spec that names a column
+  which does not exist in a table of the query, before it compiles, with a message that names the column and the table,
+  suggests the likeliest real column and lists the table's columns (also on `.column`, `.table`, `.suggestions`,
+  `.available`). Covers the selected columns, filters and sort; leaves expressions, CASE columns, `*`, aliases,
+  sub-queries and tables the schema does not list alone. Meant for callers that send the message back to a language
+  model for a repair as well as for a person.
+- **`audit_schema(schema)` / `SchemaAudit` (`query_builder.schema_audit`) and `query-builder schema --audit`**: list the
+  gaps in what a schema tells a query builder or an AI helper: `..._id` columns named after a table (singular or plural)
+  with no declared foreign key or relationship, id columns that name no table, and tables and columns with no description.
+  Reads only names, links and descriptions. `--audit` exits 1 when a link is missing, so it can gate a build;
+  `--known-not-link TABLE.COLUMN` and `--ignore-table-prefix PREFIX` keep a host's own conventions out of the report.
 - **Unified Agent Tools & Model Context Protocol (MCP)**: Operator-pinned secure mode (`--lock-connection`), live schema catalog resources (`query-builder://schema/catalog`, `queryspec`, `semantic/metrics`), and tool calling support for `find_join_path`, `explain_and_advise`, and `execute_query`.
 - **Autonomous Self-Healing Query Engine**: Automatic operator synonym mapping (`==` -> `eq`, `!=` -> `neq`, `like` -> `contains`), cross-table column resolution, table typo fuzzy matching, and iterative repair prompt generation.
 - **Semantic Layer Grounding & `llms.txt`**: Metric and dimension expansion for NLQ translation, schema grounding, and standard `llms.txt` documentation manifest generator (`scripts/gen_llms_txt.py`).
@@ -24,9 +40,15 @@
 - **Configurable Canonical Columns for Join Solving**: Added `canonical_columns` override support to `SchemaSnapshot`, `find_best_join_condition()`, and `find_join_path()` to allow schema-specific entity link keys while retaining standard fallback defaults.
 - **Dialect Native Driver Limitation Probes**: Added native driver `Limitation` probes for CrateDB, StarRocks, Doris, TiDB, and OceanBase to test driver capabilities for introspecting foreign keys and case-sensitive identifier support.
 - **React helpers** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`): pure filter-kind, HAVING,
-  join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page.
+  join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page; `completeJoins` /
+  `loadCompleted` fill a loaded join's missing columns from the one declared link instead of letting it default to
+  `id = id`, and `joinsSummary` now says the kind and columns of each join (bare `{table}` joins are listed as before).
 
 ### Fixed
+- **React `loadSpec` / `specToState`**: join kinds in the compiler's form (`"INNER"`) are converted to the builder's form
+  (`"INNER JOIN"`), so a loaded join is highlighted and compiles back with the same kind (a join loaded as `"inner"`
+  used to compile as `LEFT JOIN`); a spec with no `activeTables` now activates its joined tables as well as its base
+  table, so their column pickers are not blank. See `packages/react/CHANGELOG.md`.
 - **`HavingSpec` and `OrderBySpec` Identifier & Key Parity**: Added `table_prefix`, `table`, `id`, and camelCase `tablePrefix` parity to `HavingSpec` and `OrderBySpec`, ensuring compiler validation accepts valid table qualifiers and prefixes across all clause specs.
 - **`QuerySpec.json_schema()` Synchronization**: Fully synchronized `QuerySpec.json_schema()` with compiler capabilities, adding missing top-level keys (`vector_search`, `hybrid_search`, `ctes`, `window_functions`, `set_operations`, `rollup`, `cube`, `pivot`), column keys (`name`, `expression`, `format`, `case_when`, `masked`, `masking_strategy`, etc.), and all 41 built-in filter operators.
 - **Analytical Dialect LIKE Escape Alignment**: Configured `like_escape_char = "\\"` on `BigQueryDialect`, `DatabricksDialect`, and `RedshiftDialect` ensuring consistent escaping behavior across warehouse query generation.
@@ -46,6 +68,11 @@
 - **Sorting by a count or total** (`order_by` naming an aggregate's label) now compiles to `ORDER BY "label"`. It
   compiled to `ORDER BY "t1"."label"` before, a column that does not exist, so the query passed validation and failed in
   the database.
+- **Sorting by the alias of an ordinary column** (`order_by` with no table prefix naming a selected column's `alias`)
+  now compiles to `ORDER BY "alias"` too; it compiled to `ORDER BY "t1"."alias"` before, a column that does not exist,
+  so the query passed validation and failed in the database. Nothing that worked changes: a table prefix still means
+  that table's column, and an unprefixed name that is a column of the base table keeps meaning that column even when an
+  alias has the same name. Verified by running the queries on SQLite.
 - **`query-builder mcp` CLI dispatch**: Fixed zero-argument `McpServer()` instantiation when no CLI flags are supplied, preventing `TypeError` on custom or default server classes.
 - **CamelCase parameter support in QuerySpec**: Added `InitVar` aliases (`tablePrefix`, `leftTable`, `leftCol`, `rightCol`) to `FilterSpec`, `OrderBySpec`, and `JoinSpec` to accept payloads directly from NLQ and TypeScript client serializers.
 - **Django and FastAPI Router Parity**: Implemented `/explain/`, `/join-path/`, `/nlq/`, and `/export/stream/` views in `create_django_urls` and `create_drf_views` for full parity with FastAPI.
@@ -96,6 +123,15 @@
   is a required peer dependency, the tarball no longer includes `src/`.
 
 ### Security
+- **CSV exports no longer let a cell run as a spreadsheet formula** (behaviour change, on by default).
+  `export_dataset`, `stream_export_dataset` and `CsvStreamExporter` now write text that starts with `=`, `+`, `-`,
+  `@`, a tab or a carriage return, in a cell or in the header, with an apostrophe in front, because Excel and
+  LibreOffice run such a cell as a formula when the file is opened and a query can return text someone else
+  typed (or a column alias a caller chose). Numbers, booleans and `None` are untouched, so a negative number stays
+  a number. Pass `neutralize_formulas=False` to get the text exactly as it was (for a consumer that is not a
+  spreadsheet); `csv_safe_cell(value)` is the same rule as a function. The `.xlsx` writer stores text as inline
+  strings, which Excel never evaluates, and is unchanged. The React package's CSV download got the same fix
+  (see `packages/react/CHANGELOG.md`).
 - Tenant and row-level-security predicates are now enforced **outside** the client's filter
   group (`WHERE tenant = ? AND (client filters)`), so a client `OR` can no longer widen them.
   Client-supplied `_enforced` flags are stripped; unbalanced client parentheses cannot close

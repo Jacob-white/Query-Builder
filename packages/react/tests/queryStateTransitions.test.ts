@@ -14,6 +14,7 @@ import {
   specToBuilderPatch,
   specToState,
   stateToSpec,
+  toBuilderJoinType,
   toggleColumnOnState,
   updateColumnSelectOnState,
   updateItemById,
@@ -257,5 +258,73 @@ describe("hook boundary behavior", () => {
     act(() => b.result.current.actions.setFilters([]));
     act(() => b.result.current.actions.setSorts((prev) => prev));
     expect(b.result.current.state.filters).toEqual([]);
+  });
+});
+
+describe("specToState: joins loaded from a compiler-form spec", () => {
+  const spec = (joins: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
+    ({ table: "orders", columns: ["orders.id"], joins, ...extra }) as never;
+
+  it.each([
+    ["INNER", "INNER JOIN"],
+    ["left", "LEFT JOIN"],
+    ["Right", "RIGHT JOIN"],
+    ["FULL", "FULL JOIN"],
+    ["FULL OUTER", "FULL JOIN"],
+    ["left outer join", "LEFT JOIN"],
+    ["  inner join ", "INNER JOIN"],
+    ["INNER JOIN", "INNER JOIN"],
+  ])("reads the join kind %j as %j, the form the Join step matches", (given, expected) => {
+    const state = specToState(spec([{ table: "customers", type: given, left_table: "orders", left_col: "customer_id", right_col: "id" }]));
+    expect(state.joins?.[0].type).toBe(expected);
+  });
+
+  it("keeps a join kind it does not recognise exactly as written, and defaults a missing one to LEFT JOIN", () => {
+    expect(specToState(spec([{ table: "c", type: "CROSS APPLY" }])).joins?.[0].type).toBe("CROSS APPLY");
+    expect(specToState(spec([{ table: "c" }])).joins?.[0].type).toBe("LEFT JOIN");
+  });
+
+  it("activates every joined table when the spec names no active tables, base table first", () => {
+    const state = specToState(
+      spec([
+        { table: "customers", left_table: "orders", left_col: "customer_id", right_col: "id" },
+        { table: "regions", left_table: "customers", left_col: "region_id", right_col: "id" },
+      ]),
+    );
+    expect(state.activeTables).toEqual(["orders", "customers", "regions"]);
+  });
+
+  it("does not list a table twice when it is joined twice or is the base table", () => {
+    const state = specToState(spec([{ table: "customers" }, { table: "customers" }, { table: "orders" }]));
+    expect(state.activeTables).toEqual(["orders", "customers"]);
+  });
+
+  it("leaves an explicit activeTables list alone (control)", () => {
+    const state = specToState(spec([{ table: "customers" }], { activeTables: ["orders"] }));
+    expect(state.activeTables).toEqual(["orders"]);
+  });
+
+  it("is unchanged for a spec with no joins (control)", () => {
+    expect(specToState({ table: "orders" } as never).activeTables).toEqual(["orders"]);
+  });
+
+  it("still defaults a join that names no columns to id = id, as before (compatibility)", () => {
+    const join = specToState(spec([{ table: "customers" }])).joins?.[0];
+    expect([join?.left_col, join?.right_col]).toEqual(["id", "id"]);
+  });
+});
+
+describe("toBuilderJoinType", () => {
+  it("is linear for hostile input", () => {
+    const hostile = ["INNER" + " ".repeat(200_000) + "x", "A".repeat(200_000), " ".repeat(200_000), "JOIN ".repeat(40_000)];
+    const started = performance.now();
+    for (const input of hostile) toBuilderJoinType(input);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("does not turn something that merely contains a kind into one", () => {
+    expect(toBuilderJoinType("INNER SELECT")).toBe("INNER SELECT");
+    expect(toBuilderJoinType("JOIN")).toBe("JOIN");
+    expect(toBuilderJoinType("OUTER JOIN")).toBe("OUTER JOIN");
   });
 });

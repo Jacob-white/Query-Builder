@@ -7,6 +7,7 @@ export * from "./types";
 export * from "./utils/joinUtils";
 export { narrowSerializedSpec } from "./utils/queryStateTransitions";
 export * from "./utils/safety";
+export { csvCellText } from "./utils/csvSafe";
 export * from "./utils/compiler";
 export * from "./utils/schemaUtils";
 export * from "./utils/sqlParser";
