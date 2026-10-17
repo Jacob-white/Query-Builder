@@ -19,6 +19,8 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+import sqlparse
+
 #: Dialects whose string literals treat a backslash as an escape character. A backslash in a value must be doubled there
 #: to stay one backslash; everywhere else it is an ordinary character and doubling it would change the value.
 BACKSLASH_ESCAPE_DIALECTS = frozenset(
@@ -139,9 +141,61 @@ def inline_params(
     return "".join(out) if used == len(values) else None
 
 
+def _fingerprint(sql: str) -> str:
+    """``sql`` reduced to what it says: no whitespace and no letter case outside quotes, quoted text and comments as written.
+
+    Two layouts of one statement have the same fingerprint, and two statements that differ in a value, a quoted name or a
+    comment do not. One pass, so it is linear however large the statement.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch in "'\"`":
+            end = _skip_quoted(sql, i)
+            out.append(sql[i:end])
+            i = end
+        elif sql.startswith("--", i):
+            end = sql.find("\n", i)
+            end = n if end == -1 else end + 1
+            out.append(sql[i:end])
+            i = end
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            out.append(sql[i:end])
+            i = end
+        else:
+            if not ch.isspace():
+                out.append(ch.lower())
+            i += 1
+    return "".join(out)
+
+
+def format_sql(sql: str | None) -> str | None:
+    """``sql`` laid out for a person to read: one clause per line, keywords in capitals.
+
+    The layout is cosmetic, so it is never allowed to change what the statement says. The formatter's output is accepted
+    only if it has the same fingerprint as the input (same text apart from whitespace and the case of unquoted words;
+    quoted values and names compared exactly). Otherwise, or if the formatter fails, ``sql`` is returned as it was.
+    ``None`` and the empty string pass through.
+    """
+    if not sql:
+        return sql
+    try:
+        laid_out = sqlparse.format(
+            sql, reindent=True, keyword_case="upper", indent_width=2
+        )
+    except Exception:  # noqa: BLE001 - a formatter failure must never lose the statement
+        return sql
+    return laid_out if _fingerprint(laid_out) == _fingerprint(sql) else sql
+
+
 __all__ = [
     "BACKSLASH_ESCAPE_DIALECTS",
     "POSITIONAL_PLACEHOLDERS",
+    "format_sql",
     "inline_params",
     "sql_literal",
 ]

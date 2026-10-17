@@ -463,6 +463,7 @@ from query_builder.exceptions import (
     DialectError,
     QueryBuilderError,
     SecurityError,
+    SpecColumnError,
     ValidationError,
 )
 from query_builder.executor import (
@@ -590,12 +591,13 @@ from query_builder.pool import (
     mask_credentials,
     reset_connection_pool_manager,
 )
-from query_builder.runnable import inline_params, sql_literal
+from query_builder.runnable import format_sql, inline_params, sql_literal
 from query_builder.schema import (
     explore_schema,
     format_schema_tree,
     normalize_schema_snapshot,
 )
+from query_builder.schema_audit import SchemaAudit, audit_schema
 from query_builder.schema_converters import (
     to_drizzle_schema,
     to_prisma_schema,
@@ -629,6 +631,7 @@ from query_builder.server import (
     generate_openapi_spec,
     serve_swagger_ui_html,
 )
+from query_builder.spec_check import check_columns
 from query_builder.telemetry import (
     AuditEvent,
     ExecutionEvent,
@@ -1179,6 +1182,7 @@ __all__ = [
     "set_global_cache",
     "to_drizzle_schema",
     "to_prisma_schema",
+    "format_sql",
     "inline_params",
     "sql_literal",
     "to_sqlalchemy_models",
@@ -1187,6 +1191,10 @@ __all__ = [
     "unregister_filter_operator",
     "validate_network_target",
     "validate_sql_ast",
+    "check_columns",
+    "audit_schema",
+    "SchemaAudit",
+    "SpecColumnError",
     "FluentQuery",
     "query",
 ]

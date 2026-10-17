@@ -45,7 +45,7 @@ describe("useQueryState Standalone Hook & State History", () => {
     );
 
     expect(result.current.state.primaryTable).toBe("orders");
-    expect(result.current.state.activeTables).toEqual(["orders"]);
+    expect(result.current.state.activeTables).toEqual(["orders", "customers"]);
     expect(result.current.state.selectedColumns["orders.id"]).toBeDefined();
     expect(result.current.state.selectedColumns["orders.total"].aggregate).toBe("SUM");
     expect(result.current.state.selectedColumns["orders.total"].alias).toBe("sum_total");
@@ -475,7 +475,7 @@ describe("useQueryState Standalone Hook & State History", () => {
     });
 
     expect(result.current.state.primaryTable).toBe("orders");
-    expect(result.current.state.activeTables).toEqual(["orders"]);
+    expect(result.current.state.activeTables).toEqual(["orders", "users"]);
     expect(result.current.state.limit).toBe(30);
     expect(result.current.state.offset).toBe(10);
     expect(result.current.state.dialect).toBe("sqlite");
@@ -493,7 +493,7 @@ describe("useQueryState Standalone Hook & State History", () => {
       result.current.actions.loadSpec({});
     });
     expect(result.current.state.primaryTable).toBe("orders");
-    expect(result.current.state.activeTables).toEqual(["orders"]);
+    expect(result.current.state.activeTables).toEqual(["orders", "users"]);
 
     // loadSpec with a full new query specification replaces table and resets joins, filters, and sorts
     act(() => {

@@ -2,7 +2,35 @@
 
 ## Unreleased
 
+### Security
+- **The CSV download of `QueryResultsTable` no longer lets a cell run as a spreadsheet formula.** Text that starts with
+  `=`, `+`, `-`, `@`, a tab or a carriage return (in a cell or a column name) is now written with an apostrophe in front.
+  Quoting the cell does not stop Excel evaluating it, and a query can return text someone else typed. Numbers are
+  untouched, so a negative number stays a number. The same helper is exported as `csvCellText(value)`.
+
+### Fixed
+- **Loading a spec into the builder (`loadSpec`, `specToState`)** now matches what the Join step and the column pickers
+  expect:
+  - A join kind in the compiler's form (`"INNER"`, `"left"`, `"FULL OUTER"`, ...) is converted to the builder's form
+    (`"INNER JOIN"`, ...). Before, the kind was copied as written, so no kind was highlighted, and a join loaded as
+    `"inner"` compiled back to SQL as a `LEFT JOIN`.
+  - A spec with no `activeTables` now activates its base table **and every joined table**. Before, only the base table
+    was active, and the builder offers a table's columns only while the table is active, so a joined table's pickers were
+    blank. A spec that lists `activeTables` is unchanged.
+  - A join that names no columns still loads as `id = id` (unchanged, for compatibility).
+
+### Changed
+- **`joinsSummary(joins)`** now says what each join is when it is given more than a table name: the kind and the columns
+  (`Left join customers on orders.customer_id = customers.id`, `choose the matching column` for a half-filled join, and
+  `; and N more` after two). Joins that carry only a `table` (all of what the function took before) are still listed by
+  table name, exactly as before. The kind is read in either form (`"LEFT"` or `"LEFT JOIN"`, any case).
+
 ### Query UI helpers (new, pure, no React)
+- **Join completion:** `completeJoins(spec, links)` fills a join's missing criteria from the one declared link between the
+  joined table and a table already in the query (either direction), and reports the joins it could not complete with
+  the reason (`none` or `several`) instead of guessing. `loadCompleted(actions, spec, links)` loads the completed spec and
+  blanks those joins in the builder (`updateJoin`) so they show as still to be chosen rather than as `id = id`. Opt-in:
+  `loadSpec` still defaults a join that names no columns to `id = id`.
 - New exports for building a query UI on top of the package, extracted from a host application's Query Builder page and
   tested on their own (`src/utils/queryHelpers`):
   - **Filter kinds:** `columnKind(dataType)`, `operatorsFor(kind)`, `operatorHelp(kind, op)`, `coerceValue(kind, op, raw)`

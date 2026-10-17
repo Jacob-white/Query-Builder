@@ -1,4 +1,5 @@
 /** Plain-words summaries of each step of a query, for the summary rows on the page. Pure. */
+import { toBuilderJoinType } from '../joinKind';
 
 interface SelectedColumn {
   table: string;
@@ -27,8 +28,42 @@ export function columnsSummary(selected: Record<string, SelectedColumn>, order: 
   return labels.length === 0 ? 'No columns yet' : `${labels.length} ${labels.length === 1 ? 'column' : 'columns'}: ${listSummary(labels, 4)}`;
 }
 
-export function joinsSummary(joins: { table: string }[]): string {
-  return joins.length === 0 ? 'None' : listSummary(joins.map((j) => j.table));
+/** A join as the summary needs it: the table is required; the rest may be missing while the join is being built. */
+export interface SummarizedJoin {
+  table: string;
+  /** `"LEFT JOIN"` (the builder's form) or `"LEFT"` (the compiler's), in any case. */
+  type?: string;
+  left_table?: string;
+  left_col?: string;
+  right_col?: string;
+}
+
+/** `Left join`, `Inner join`, ...; just `Join` when the join has no kind. */
+function kindWords(type: string | undefined): string {
+  if (!type || type.trim() === '') return 'Join';
+  const bare = toBuilderJoinType(type).replace(/ JOIN$/i, '').toLowerCase();
+  return `${bare.charAt(0).toUpperCase()}${bare.slice(1)} join`;
+}
+
+/** `Left join customers on orders.customer_id = customers.id`, or says the matching column is still to be chosen. */
+function joinSentence(join: SummarizedJoin): string {
+  const kind = kindWords(join.type);
+  if (!join.left_table || !join.left_col || !join.right_col) return `${kind} ${join.table}: choose the matching column`;
+  return `${kind} ${join.table} on ${join.left_table}.${join.left_col} = ${join.table}.${join.right_col}`;
+}
+
+/**
+ * The joins as one line. Joins that carry nothing but a table (all of them, as the function used to take) are listed by
+ * table name. As soon as one carries a kind or a column, every join is written as a sentence: the kind (left, inner,
+ * right, full), the table and the two columns it matches on, "choose the matching column" for a half-filled one, and
+ * `; and N more` after two.
+ */
+export function joinsSummary(joins: SummarizedJoin[]): string {
+  if (joins.length === 0) return 'None';
+  const detailed = joins.some((j) => j.type !== undefined || j.left_table !== undefined || j.left_col !== undefined || j.right_col !== undefined);
+  if (!detailed) return listSummary(joins.map((j) => j.table));
+  const sentences = joins.map(joinSentence);
+  return sentences.length <= 2 ? sentences.join('; ') : `${sentences.slice(0, 2).join('; ')}; and ${sentences.length - 2} more`;
 }
 
 export function sortsSummary(sorts: { column: string | number | symbol; direction: string }[]): string {

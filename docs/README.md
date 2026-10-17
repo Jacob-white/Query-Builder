@@ -9,6 +9,7 @@ Query-Builder is open-source software owned and maintained by **HobbyHabbit LLC*
 - **[5-Minute Quickstart Guide](quickstart.md)** — Step-by-step onboarding for Python backend (FastAPI/Django/Ninja), declarative query compilation, security governance, and the React visual studio.
 - **[Complete API Reference](api_reference.md)** — Exhaustive technical reference for all Python models, functions, classes, CLI commands, MCP server tools, and TypeScript visual components.
 - **[Security Policy & Sandboxing Guide](../SECURITY.md)** — Threat model, AST validation, zero-trust query isolation, network egress checks, and vulnerability disclosure procedures.
+- **[Building an AI Query Helper](AI_HELPER_PATTERNS.md)** — Patterns for a helper that turns plain English into a query spec: shortlisting tables and join routes, a glossary and worked examples as data, checking an answer before the database does, counts-only diagnosis of empty results, and measuring it.
 - **[llms.txt AI Context Guide](../llms.txt)** — Comprehensive cheat sheet and architecture context for LLMs, coding agents, and external application developers.
 
 ---

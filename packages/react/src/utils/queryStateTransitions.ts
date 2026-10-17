@@ -8,6 +8,7 @@
  *
  * Everything here is free of React and of side effects, which keeps it directly unit-testable.
  */
+import { toBuilderJoinType } from "./joinKind";
 import type {
   DatabaseSchemaDefinition,
   LooseQuerySpec,
@@ -348,9 +349,16 @@ export type SpecInput<Schema = DatabaseSchemaDefinition> =
   | Partial<QuerySpec<Schema>>
   | SpecStatePartial<Schema>;
 
+// Re-exported so existing imports of the converter keep working; the parsing lives in ./joinKind.
+export { toBuilderJoinType };
+
 /**
  * Converts a serialized spec (snake_case QuerySpec, camelCase state shape or saved preset) into a
  * partial headless-hook state. Keys absent from the input stay absent.
+ *
+ * A spec with no `activeTables` activates its base table and every joined table, because the visual builder offers a
+ * table's columns only while the table is active. Join kinds are converted to the builder's own form
+ * (see {@link toBuilderJoinType}).
  */
 export function specToState<Schema = DatabaseSchemaDefinition>(
   input: SpecInput<Schema>,
@@ -366,7 +374,8 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
   if (Array.isArray(s.activeTables)) {
     partial.activeTables = s.activeTables as SchemaTableNames<Schema>[];
   } else if (primary) {
-    partial.activeTables = [primary as SchemaTableNames<Schema>];
+    const joined = Array.isArray(s.joins) ? s.joins.map((j) => j.table).filter(Boolean) : [];
+    partial.activeTables = [...new Set([primary, ...joined])] as SchemaTableNames<Schema>[];
   }
 
   if (s.selectedColumns && typeof s.selectedColumns === "object") {
@@ -433,7 +442,7 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
 
       return {
         id: j.id || `join_${idx + 1}`,
-        type: (j.type || "LEFT JOIN") as VisualJoin<Schema>["type"],
+        type: toBuilderJoinType(j.type) as VisualJoin<Schema>["type"],
         left_table: leftTable as SchemaTableNames<Schema> | undefined,
         table: j.table as SchemaTableNames<Schema>,
         left_col: leftCol,

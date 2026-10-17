@@ -397,6 +397,28 @@ def _add_schema_parser(subparsers: Subparsers) -> None:
         action="store_true",
         help="Output schema exploration metrics as structured JSON.",
     )
+    schema_p.add_argument(
+        "--audit",
+        action="store_true",
+        help=(
+            "Audit the schema for id columns that name a table but have no declared link (exit status 1 if any) "
+            "and for tables and columns with no description."
+        ),
+    )
+    schema_p.add_argument(
+        "--known-not-link",
+        action="append",
+        default=[],
+        metavar="TABLE.COLUMN",
+        help="With --audit: an id column that looks like a link but is not one (repeatable).",
+    )
+    schema_p.add_argument(
+        "--ignore-table-prefix",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="With --audit: skip every table whose name starts with PREFIX (repeatable).",
+    )
 
 
 def _add_mcp_parser(subparsers: Subparsers) -> None:
@@ -977,9 +999,49 @@ def _print_schema_overview(exploration: dict[str, Any]) -> None:
     print(f"  Tables: {', '.join(sorted_tables)}")
 
 
+def _audit_schema_command(args: argparse.Namespace, schema_data: Any) -> int:
+    """``schema --audit``: print the audit; exit status 1 when an id column names a table but is not linked to it."""
+    from query_builder.schema_audit import audit_schema
+
+    known: set[tuple[str, str]] = set()
+    for item in getattr(args, "known_not_link", []) or []:
+        table, dot, column = item.partition(".")
+        if not (dot and table and column):
+            raise ValueError(f"--known-not-link must be TABLE.COLUMN, got {item!r}")
+        known.add((table, column))
+    report = audit_schema(
+        schema_data,
+        known_not_links=known,
+        ignore_prefixes=tuple(getattr(args, "ignore_table_prefix", []) or []),
+    )
+    failed = bool(report.missing_links)
+    if _wants_json(args):
+        print(json.dumps({"success": True, "audit": report.to_dict()}, indent=2))
+        return 1 if failed else 0
+    print(f"{report.tables} tables, {report.columns} columns")
+    print(
+        f"{len(report.missing_links)} id columns name a table but have no declared link"
+    )
+    for table, column, target in report.missing_links:
+        print(f"  {table}.{column} -> {target}.id")
+    print(
+        f"{len(report.unexplained_ids)} id columns name no table (a person must say where they point)"
+    )
+    print(
+        f"{len(report.undescribed_tables)} of {report.tables} tables have no description"
+    )
+    print(
+        f"{sum(report.undescribed_columns.values())} of {report.columns} columns have no description"
+    )
+    return 1 if failed else 0
+
+
 def _cmd_schema(args: argparse.Namespace) -> int:
     try:
         schema_data = _load_json_arg(args.schema)
+
+        if getattr(args, "audit", False):
+            return _audit_schema_command(args, schema_data)
 
         from query_builder.schema import explore_schema, format_schema_tree
 
