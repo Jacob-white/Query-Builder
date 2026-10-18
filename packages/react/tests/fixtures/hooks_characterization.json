@@ -10259,7 +10259,8 @@
       "column": "x",
       "operator": "RAW",
       "value": "",
-      "combiner": "OR"
+      "combiner": "OR",
+      "rawExpression": "1=1"
      }
     ],
     "sorts": [],
@@ -10279,7 +10280,7 @@
    "activeTableNames": [
     "orders"
    ],
-   "currentSql": "SELECT *\nFROM \"orders\"\nWHERE \"orders\".\"total\" NOT IN (1) AND \"orders\".\"orders.status\" LIKE 'x' OR \"users\".\"name\" = '' OR x\nLIMIT 50;",
+   "currentSql": "SELECT *\nFROM \"orders\"\nWHERE \"orders\".\"total\" NOT IN (1) AND \"orders\".\"orders.status\" LIKE 'x' OR \"users\".\"name\" = '' OR 1=1\nLIMIT 50;",
    "compiledSpec": {
     "table": "orders",
     "columns": [
@@ -10371,7 +10372,8 @@
       "column": "x",
       "operator": "RAW",
       "value": "",
-      "combiner": "OR"
+      "combiner": "OR",
+      "rawExpression": "1=1"
      }
     ],
     "sorts": [],
@@ -10391,7 +10393,7 @@
    "activeTableNames": [
     "orders"
    ],
-   "currentSql": "SELECT *\nFROM \"orders\"\nWHERE \"orders\".\"total\" NOT IN (1) AND \"orders\".\"orders.status\" LIKE 'x' OR \"users\".\"name\" = '' OR x\nLIMIT 50;",
+   "currentSql": "SELECT *\nFROM \"orders\"\nWHERE \"orders\".\"total\" NOT IN (1) AND \"orders\".\"orders.status\" LIKE 'x' OR \"users\".\"name\" = '' OR 1=1\nLIMIT 50;",
    "compiledSpec": {
     "table": "orders",
     "columns": [
@@ -11387,7 +11389,8 @@
       "column": "x",
       "op": "RAW",
       "value": "",
-      "combiner": "OR"
+      "combiner": "OR",
+      "rawExpression": "1=1"
      }
     ],
     "filter_join": "OR",
@@ -11989,7 +11992,8 @@
       "column": "x",
       "op": "RAW",
       "value": "",
-      "combiner": "OR"
+      "combiner": "OR",
+      "rawExpression": "1=1"
      }
     ],
     "filter_join": "OR",

@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import type { TableMeta, VisualColumnSelect, CustomFieldRenderer, QueryBuilderClassNames } from "../types";
+import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { cx } from "../utils/classNames";
 
 export interface TableCardProps {
@@ -27,6 +28,34 @@ export const TableCard: React.FC<TableCardProps> = ({
   className,
   classNames,
 }) => {
+  const ctx = useQueryBuilderContext();
+  const effectiveFieldRenderers = fieldRenderers ?? ctx?.fieldRenderers;
+  const [columnSearch, setColumnSearch] = useState("");
+
+  const filteredColumns = columnSearch.trim()
+    ? table.columns.filter((c) =>
+        c.name.toLowerCase().includes(columnSearch.trim().toLowerCase()),
+      )
+    : table.columns;
+
+  const handleSelectAll = () => {
+    table.columns.forEach((col) => {
+      const key = `${table.name}.${col.name}`;
+      if (!selectedColumns[key]) {
+        onToggleColumn(col.name);
+      }
+    });
+  };
+
+  const handleClearAll = () => {
+    table.columns.forEach((col) => {
+      const key = `${table.name}.${col.name}`;
+      if (selectedColumns[key]) {
+        onToggleColumn(col.name);
+      }
+    });
+  };
+
   return (
     <div
       role="region"
@@ -81,7 +110,53 @@ export const TableCard: React.FC<TableCardProps> = ({
             {table.name}
           </span>
         </div>
-        <div style={unstyled ? undefined : { display: "flex", gap: "4px" }}>
+        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "4px" }}>
+          <button
+            type="button"
+            onClick={handleSelectAll}
+            aria-label={`Select all columns in ${table.name}`}
+            data-qb="table-card-btn-select-all"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(59, 130, 246, 0.12)",
+                    border: "1px solid rgba(59, 130, 246, 0.3)",
+                    color: "#93c5fd",
+                    cursor: "pointer",
+                    padding: "1px 5px",
+                    borderRadius: "4px",
+                    fontSize: "0.68rem",
+                    fontWeight: 600,
+                  }
+            }
+            title="Select all columns"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={handleClearAll}
+            aria-label={`Clear all columns in ${table.name}`}
+            data-qb="table-card-btn-clear-all"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(148, 163, 184, 0.1)",
+                    border: "1px solid rgba(148, 163, 184, 0.25)",
+                    color: "#94a3b8",
+                    cursor: "pointer",
+                    padding: "1px 5px",
+                    borderRadius: "4px",
+                    fontSize: "0.68rem",
+                    fontWeight: 600,
+                  }
+            }
+            title="Clear all columns"
+          >
+            Clear
+          </button>
           {onAddJoin && (
             <button
               type="button"
@@ -133,6 +208,44 @@ export const TableCard: React.FC<TableCardProps> = ({
         </div>
       </div>
 
+      {/* Column filter search input when > 6 columns */}
+      {table.columns.length > 6 && (
+        <div
+          style={
+            unstyled
+              ? undefined
+              : {
+                  padding: "6px 12px",
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                  background: "rgba(15, 23, 42, 0.5)",
+                }
+          }
+        >
+          <input
+            type="text"
+            value={columnSearch}
+            onChange={(e) => setColumnSearch(e.target.value)}
+            placeholder="Filter columns..."
+            aria-label={`Filter columns in ${table.name}`}
+            data-qb="table-card-column-search"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    width: "100%",
+                    boxSizing: "border-box",
+                    background: "#0f172a",
+                    color: "#f8fafc",
+                    border: "1px solid #334155",
+                    borderRadius: "4px",
+                    padding: "4px 8px",
+                    fontSize: "0.75rem",
+                  }
+            }
+          />
+        </div>
+      )}
+
       {/* Columns list */}
       <div
         data-qb="table-card-columns-list"
@@ -147,14 +260,15 @@ export const TableCard: React.FC<TableCardProps> = ({
               }
         }
       >
-        {table.columns.map((col) => {
+        {filteredColumns.map((col) => {
           const key = `${table.name}.${col.name}`;
           const isColChecked = Boolean(selectedColumns[key]);
+          const isFk = Boolean(col.is_foreign_key || col.foreign_key);
 
           const customRenderer =
-            fieldRenderers?.[col.name] ??
-            fieldRenderers?.[`${table.name}.${col.name}`] ??
-            fieldRenderers?.[col.data_type];
+            effectiveFieldRenderers?.[col.name] ??
+            effectiveFieldRenderers?.[`${table.name}.${col.name}`] ??
+            effectiveFieldRenderers?.[col.data_type];
 
           if (customRenderer) {
             return (
@@ -256,6 +370,26 @@ export const TableCard: React.FC<TableCardProps> = ({
                     }
                   >
                     PK
+                  </span>
+                )}
+                {isFk && (
+                  <span
+                    data-qb="table-card-badge-fk"
+                    className={cx(classNames?.tableCardBadge)}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "rgba(56, 189, 248, 0.18)",
+                            color: "#38bdf8",
+                            fontSize: "0.65rem",
+                            fontWeight: 700,
+                            padding: "1px 4px",
+                            borderRadius: "4px",
+                          }
+                    }
+                  >
+                    FK
                   </span>
                 )}
                 <span

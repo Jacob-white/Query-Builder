@@ -146,6 +146,12 @@ class BaseDialect:
             return f"SHA256(CAST({col_ref} AS VARCHAR))"
         if s == "partial":
             return f"CONCAT(SUBSTR(CAST({col_ref} AS VARCHAR), 1, 2), '***')"
+        if s == "partial_email":
+            return f"CONCAT(SUBSTR(CAST({col_ref} AS VARCHAR), 1, 2), '***@***')"
+        if s == "partial_phone":
+            return f"CONCAT('***-***-', RIGHT(CAST({col_ref} AS VARCHAR), 4))"
+        if s == "last4":
+            return f"CONCAT('****', RIGHT(CAST({col_ref} AS VARCHAR), 4))"
         return "'***REDACTED***'"
 
     def format_ilike(self, col_ref: str) -> str:

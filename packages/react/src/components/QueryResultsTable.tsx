@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { QueryResultData, QueryBuilderClassNames } from "../types";
-import type { CellRenderer } from "../theme/QueryBuilderProvider";
+import { useQueryBuilderContext, type CellRenderer } from "../theme/QueryBuilderProvider";
 import { csvCellText } from "../utils/csvSafe";
 import { cx } from "../utils/classNames";
 
@@ -23,9 +23,11 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   className,
   classNames,
 }) => {
+  const ctx = useQueryBuilderContext();
+  const effectiveCellRenderers = cellRenderers ?? ctx?.cellRenderers;
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage] = useState(pageSize);
+  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
 
   if (isLoading) {
     return (
@@ -76,6 +78,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
 
   const columns = results.columns || [];
   const rows = results.rows || [];
+  const durationMs = results.durationMs ?? results.latency_ms;
 
   const filteredRows = rows.filter((r) => {
     if (!searchTerm) return true;
@@ -178,7 +181,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
           <span style={unstyled ? undefined : { fontSize: "0.82rem", color: "#94a3b8" }}>
             Showing <strong>{filteredRows.length}</strong> of <strong>{results.count}</strong> rows
           </span>
-          {results.latency_ms !== undefined && (
+          {durationMs !== undefined && (
             <span
               style={
                 unstyled
@@ -193,12 +196,41 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                     }
               }
             >
-              ⚡ {results.latency_ms} ms
+              ⚡ {durationMs} ms
             </span>
           )}
         </div>
 
         <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+          <select
+            aria-label="Rows per page"
+            data-qb="select-page-size"
+            value={rowsPerPage}
+            onChange={(e) => {
+              setRowsPerPage(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "#1e293b",
+                    color: "#f8fafc",
+                    border: "1px solid #475569",
+                    borderRadius: "6px",
+                    padding: "4px 8px",
+                    fontSize: "0.78rem",
+                  }
+            }
+          >
+            <option value={10}>10 / page</option>
+            <option value={25}>25 / page</option>
+            <option value={50}>50 / page</option>
+            <option value={100}>100 / page</option>
+            {![10, 25, 50, 100].includes(rowsPerPage) && (
+              <option value={rowsPerPage}>{rowsPerPage} / page</option>
+            )}
+          </select>
           <input
             type="text"
             placeholder="Search results..."
@@ -354,33 +386,38 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                       }
                 }
               >
-                {columns.map((c) => (
-                  <td
-                    key={c}
-                    role="cell"
-                    data-qb="results-td"
-                    className={cx(classNames?.resultsCell)}
-                    style={
-                      unstyled
-                        ? undefined
-                        : {
-                            padding: "6px 12px",
-                            whiteSpace: "nowrap",
-                            maxWidth: "240px",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }
-                    }
-                  >
-                    {cellRenderers && cellRenderers[c] ? (
-                      cellRenderers[c](r[c], r, c)
-                    ) : r[c] !== null && r[c] !== undefined ? (
-                      String(r[c])
-                    ) : (
-                      <span style={unstyled ? undefined : { color: "#64748b" }}>null</span>
-                    )}
-                  </td>
-                ))}
+                {columns.map((c) => {
+                  const shortCol = c.includes(".") ? c.slice(c.lastIndexOf(".") + 1) : c;
+                  const cellRenderer =
+                    effectiveCellRenderers?.[c] ?? effectiveCellRenderers?.[shortCol];
+                  return (
+                    <td
+                      key={c}
+                      role="cell"
+                      data-qb="results-td"
+                      className={cx(classNames?.resultsCell)}
+                      style={
+                        unstyled
+                          ? undefined
+                          : {
+                              padding: "6px 12px",
+                              whiteSpace: "nowrap",
+                              maxWidth: "240px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }
+                      }
+                    >
+                      {cellRenderer ? (
+                        cellRenderer(r[c], r, c)
+                      ) : r[c] !== null && r[c] !== undefined ? (
+                        String(r[c])
+                      ) : (
+                        <span style={unstyled ? undefined : { color: "#64748b" }}>null</span>
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

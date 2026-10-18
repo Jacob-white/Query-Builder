@@ -413,8 +413,11 @@ module = [
     "query_builder.exceptions",
     "query_builder.executor",
     "query_builder.mcp_server",
+    "query_builder.adapters",
     "query_builder.adapters.*",
+    "query_builder.ai",
     "query_builder.ai.*",
+    "query_builder.nlq",
     "query_builder.nlq.*",
     "query_builder.compiler",
     "query_builder.dialects",
@@ -424,8 +427,16 @@ module = [
     "query_builder.server",
     "query_builder.ast_validator",
     "query_builder.sql_ast",
+    "query_builder.integrations",
     "query_builder.integrations.*",
+    "query_builder.connectors",
     "query_builder.connectors.*",
+    "query_builder.egress_guard",
+    "query_builder.fluent",
+    "query_builder.runnable",
+    "query_builder.schema_audit",
+    "query_builder.server_security",
+    "query_builder.spec_check",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

@@ -39,7 +39,7 @@ class TestMcpServer:
         req = {"jsonrpc": "2.0", "id": 3, "method": "tools/list"}
         resp = server.handle_request(req)
         tools = resp["result"]["tools"]
-        assert len(tools) == 7
+        assert len(tools) == 10
         tool_names = [t["name"] for t in tools]
         assert "query_builder_compile" in tool_names
         assert "query_builder_validate" in tool_names
@@ -48,6 +48,9 @@ class TestMcpServer:
         assert "query_builder_introspect" in tool_names
         assert "query_builder_execute" in tool_names
         assert "query_builder_join_path" in tool_names
+        assert "query_builder_parse_sql" in tool_names
+        assert "query_builder_check_columns" in tool_names
+        assert "query_builder_audit_schema" in tool_names
 
     def test_tools_call_compile(self):
         server = McpServer()

@@ -19,7 +19,9 @@ if str(starter_root) not in sys.path:
 
 from database import (
     DEFAULT_DB_PATH,
+    get_starter_schema_snapshot,
     init_database,
+    snapshot_to_dict,
 )
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,11 +32,23 @@ from query_builder import (
     create_query_builder_router,
     get_query_builder_config,
     list_dialects,
+    register_filter_operator,
     reset_query_builder_config,
     reset_security_config,
 )
 
 db_path = DEFAULT_DB_PATH
+
+
+def _register_custom_operators() -> None:
+    """Registers starter custom SQL filter operators on the backend compiler."""
+    register_filter_operator(
+        "TAX_EXEMPT",
+        lambda col_ref, val, dialect: f"{col_ref} IS NOT NULL AND {col_ref} = 0",
+    )
+
+
+_register_custom_operators()
 
 
 @asynccontextmanager
@@ -49,6 +63,7 @@ async def lifespan(app: FastAPI):
         default_dialect="sqlite",
         default_limit=50,
     )
+    _register_custom_operators()
     init_database(db_path)
     try:
         yield
@@ -74,10 +89,75 @@ app.add_middleware(
 )
 
 
+class StarterSQLiteConnector(SQLiteConnector):
+    """SQLiteConnector enriched with starter schema metadata (enums, comments, categories)."""
+
+    def introspect_schema(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        live_schema = super().introspect_schema(*args, **kwargs)
+        rich_snapshot = snapshot_to_dict(get_starter_schema_snapshot())
+        rich_tables = rich_snapshot.get("tables", {})
+        live_tables = live_schema.get("tables", {})
+
+        for table_name, live_table in live_tables.items():
+            rich_table = rich_tables.get(table_name)
+            if not rich_table or not isinstance(live_table, dict):
+                continue
+            rich_comment = (
+                rich_table.get("comment")
+                if isinstance(rich_table, dict)
+                else getattr(rich_table, "comment", None)
+            )
+            if rich_comment and not live_table.get("comment"):
+                live_table["comment"] = rich_comment
+
+            rich_enums = (
+                rich_table.get("enums")
+                if isinstance(rich_table, dict)
+                else getattr(rich_table, "enums", None)
+            )
+            if rich_enums and not live_table.get("enums"):
+                live_table["enums"] = dict(rich_enums)
+
+            raw_rich_cols = (
+                rich_table.get("columns", [])
+                if isinstance(rich_table, dict)
+                else getattr(rich_table, "columns", [])
+            )
+            rich_cols: dict[str, Any] = {}
+            for rc in raw_rich_cols:
+                rc_name = (
+                    rc.get("name")
+                    if isinstance(rc, dict)
+                    else getattr(rc, "name", None)
+                )
+                if rc_name:
+                    rich_cols[rc_name] = rc
+
+            for col in live_table.get("columns", []):
+                if not isinstance(col, dict):
+                    continue
+                rc = rich_cols.get(col.get("name", ""))
+                if not rc:
+                    continue
+                col_enums = (
+                    rc.get("enums")
+                    if isinstance(rc, dict)
+                    else getattr(rc, "enums", None)
+                )
+                if col_enums and not col.get("enums"):
+                    col["enums"] = list(col_enums)
+
+        if rich_snapshot.get("categories") and not live_schema.get("categories"):
+            live_schema["categories"] = rich_snapshot["categories"]
+
+        return live_schema
+
+
 # A factory gives every request its own SQLite connection. A single shared connection is
 # bound to the thread that created it and is not safe to share across concurrent requests.
 def connector() -> SQLiteConnector:
-    return SQLiteConnector(database=str(db_path))
+    _register_custom_operators()
+    return StarterSQLiteConnector(database=str(db_path))
 
 
 # Turnkey Query-Builder APIRouter mounted at /api

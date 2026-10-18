@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { SchemaSnapshot, TableMeta, VisualFilter, VisualJoin, VisualSort } from "../../types";
+import type { CaseWhenSpec, SchemaSnapshot, TableMeta, VisualFilter, VisualJoin, VisualSort } from "../../types";
 import type { QueryState, QueryStateActions } from "../../hooks/useQueryState";
 import { findBestJoinCondition } from "../../utils/joinUtils";
 
@@ -58,6 +58,29 @@ export function useCanvasHandlers({
     actions.setSelectedColumns(nextSelected, nextKeys);
   };
 
+  const handleAddCalculatedField = (spec: {
+    alias: string;
+    expression?: string;
+    case_when?: CaseWhenSpec;
+  }) => {
+    leaveRawMode();
+    const key = `__calc_${spec.alias}`;
+    const nextSelected = {
+      ...state.selectedColumns,
+      [key]: {
+        table: state.primaryTable || state.activeTables[0] || "",
+        name: spec.alias,
+        alias: spec.alias,
+        rawExpression: spec.expression,
+        caseWhen: spec.case_when,
+      },
+    };
+    const nextKeys = state.orderedProjectionKeys.includes(key)
+      ? state.orderedProjectionKeys
+      : [...state.orderedProjectionKeys, key];
+    actions.setSelectedColumns(nextSelected, nextKeys);
+  };
+
   const handleAddTableToCanvas = (tableName: string) => {
     if (!tableName) return;
     leaveRawMode();
@@ -82,10 +105,11 @@ export function useCanvasHandlers({
   };
 
   const handleAddJoinToTable = (tableName: string) => {
-    const allTableNames = normalizedSchema?.tables ? Object.keys(normalizedSchema.tables) : [];
+    const effectiveSchema = augmentedSchema || normalizedSchema;
+    const allTableNames = effectiveSchema?.tables ? Object.keys(effectiveSchema.tables) : [];
     const candidate = allTableNames.find((t) => t !== tableName && !state.activeTables.includes(t));
     if (candidate) {
-      const cond = findBestJoinCondition(tableName, candidate, normalizedSchema);
+      const cond = findBestJoinCondition(tableName, candidate, effectiveSchema);
       const newJoin: VisualJoin = {
         id: `join-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: "LEFT JOIN",
@@ -102,6 +126,7 @@ export function useCanvasHandlers({
     setSorts,
     setFilters,
     handleToggleColumn,
+    handleAddCalculatedField,
     handleAddTableToCanvas,
     handleRemoveTable,
     handleJoinsChange,

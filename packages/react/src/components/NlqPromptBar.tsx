@@ -103,9 +103,10 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
     <div
       className={`qb-nlq-bar ${className}`}
       style={s({
-        border: "1px solid var(--qb-border-color, #e2e8f0)",
+        border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
         borderRadius: "8px",
-        backgroundColor: "var(--qb-bg-primary, #ffffff)",
+        backgroundColor: "var(--qb-color-surface, var(--qb-bg-primary, #ffffff))",
+        color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
         padding: "12px",
         marginBottom: "16px",
         boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
@@ -126,13 +127,27 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
           <span style={s({ fontSize: "16px" })} role="img" aria-label="AI Prompt">
             ✨
           </span>
-          <span style={s({ fontWeight: 600, fontSize: "14px", color: "var(--qb-text-primary, #1e293b)" })}>
+          <span
+            style={s({
+              fontWeight: 600,
+              fontSize: "14px",
+              color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
+            })}
+          >
             Natural Language Query
           </span>
         </div>
 
         <div style={s({ display: "flex", alignItems: "center", gap: "8px" })}>
-          <label style={s({ fontSize: "12px", color: "var(--qb-text-secondary, #64748b)", display: "flex", alignItems: "center", gap: "4px" })}>
+          <label
+            style={s({
+              fontSize: "12px",
+              color: "var(--qb-color-text-muted, var(--qb-text-secondary, #64748b))",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            })}
+          >
             <input
               type="checkbox"
               checked={autoApply}
@@ -149,9 +164,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
               fontSize: "12px",
               padding: "4px 8px",
               borderRadius: "4px",
-              border: "1px solid var(--qb-border-color, #cbd5e1)",
-              backgroundColor: "var(--qb-bg-secondary, #f8fafc)",
-              color: "var(--qb-text-primary, #334155)",
+              border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
+              backgroundColor: "var(--qb-color-background, var(--qb-bg-secondary, #f8fafc))",
+              color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
             })}
             aria-label="NLQ Provider"
           >
@@ -179,7 +194,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
             padding: "8px 12px",
             fontSize: "13px",
             borderRadius: "6px",
-            border: "1px solid var(--qb-border-color, #cbd5e1)",
+            border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
+            backgroundColor: "var(--qb-color-background, var(--qb-bg-secondary, #f8fafc))",
+            color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
             outline: "none",
           })}
           aria-label="NLQ Input"
@@ -195,7 +212,7 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
             fontWeight: 500,
             borderRadius: "6px",
             border: "none",
-            backgroundColor: "var(--qb-accent-color, #3b82f6)",
+            backgroundColor: "var(--qb-color-primary, var(--qb-accent-color, #3b82f6))",
             color: "#ffffff",
             cursor: isLoading || !prompt.trim() ? "not-allowed" : "pointer",
             opacity: isLoading || !prompt.trim() ? 0.6 : 1,
@@ -217,9 +234,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
               padding: "8px 12px",
               fontSize: "13px",
               borderRadius: "6px",
-              border: "1px solid var(--qb-border-color, #cbd5e1)",
-              backgroundColor: "var(--qb-bg-secondary, #f8fafc)",
-              color: "var(--qb-text-primary, #334155)",
+              border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
+              backgroundColor: "var(--qb-color-background, var(--qb-bg-secondary, #f8fafc))",
+              color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
               cursor: isExplaining ? "not-allowed" : "pointer",
             })}
             aria-label="Explain Query Button"
@@ -236,9 +253,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
               padding: "8px 12px",
               fontSize: "13px",
               borderRadius: "6px",
-              border: "1px solid var(--qb-border-color, #cbd5e1)",
-              backgroundColor: "var(--qb-bg-secondary, #f8fafc)",
-              color: "var(--qb-text-primary, #334155)",
+              border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
+              backgroundColor: "var(--qb-color-background, var(--qb-bg-secondary, #f8fafc))",
+              color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
               cursor: "pointer",
             })}
             aria-label="Undo Translation Button"
@@ -251,7 +268,7 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
       {/* Schema Pills */}
       {showSchemaPills && schemaTableNames.length > 0 && (
         <div style={s({ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", flexWrap: "wrap" })}>
-          <span style={s({ fontSize: "11px", color: "var(--qb-text-secondary, #64748b)" })}>Tables:</span>
+          <span style={s({ fontSize: "11px", color: "var(--qb-color-text-muted, var(--qb-text-secondary, #64748b))" })}>Tables:</span>
           {schemaTableNames.map((tbl) => (
             <button
               key={tbl}
@@ -261,9 +278,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
                 fontSize: "11px",
                 padding: "2px 8px",
                 borderRadius: "12px",
-                border: "1px solid var(--qb-border-color, #e2e8f0)",
-                backgroundColor: "var(--qb-bg-secondary, #f1f5f9)",
-                color: "var(--qb-text-primary, #475569)",
+                border: "1px solid var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
+                backgroundColor: "var(--qb-color-background, var(--qb-bg-secondary, #f8fafc))",
+                color: "var(--qb-color-text, var(--qb-text-primary, #0f172a))",
                 cursor: "pointer",
               })}
               aria-label={`Insert table ${tbl}`}
@@ -277,7 +294,7 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
       {/* Suggestion Pills */}
       {showSuggestions && (
         <div style={s({ display: "flex", alignItems: "center", gap: "6px", marginTop: "6px", flexWrap: "wrap" })}>
-          <span style={s({ fontSize: "11px", color: "var(--qb-text-secondary, #64748b)" })}>Suggestions:</span>
+          <span style={s({ fontSize: "11px", color: "var(--qb-color-text-muted, var(--qb-text-secondary, #64748b))" })}>Suggestions:</span>
           {DEFAULT_SUGGESTIONS.map((sug, i) => (
             <button
               key={i}
@@ -290,9 +307,9 @@ export const NlqPromptBar: React.FC<NlqPromptBarProps> = ({
                 fontSize: "11px",
                 padding: "2px 8px",
                 borderRadius: "12px",
-                border: "1px dashed var(--qb-border-color, #cbd5e1)",
+                border: "1px dashed var(--qb-color-border, var(--qb-border-color, #e2e8f0))",
                 backgroundColor: "transparent",
-                color: "var(--qb-accent-color, #2563eb)",
+                color: "var(--qb-color-primary, var(--qb-accent-color, #2563eb))",
                 cursor: "pointer",
               })}
               aria-label={`Suggestion: ${sug}`}

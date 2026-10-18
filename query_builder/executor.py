@@ -87,7 +87,9 @@ def execute_compiled_spec(
         spec=spec,
         schema=schema,
         user_id=user_id,
-        force_user_filter=bool(user_id),
+        force_user_filter=user_id is not None
+        and user_id != ""
+        and user_id is not False,
         dialect=dialect,
         tenant_id=resolved_tenant,
     )
@@ -118,8 +120,10 @@ def execute_compiled_spec(
         cursor, main_sql, main_params
     )
 
-    limit = int(spec_dict.get("limit", 50))
-    offset = int(spec_dict.get("offset", 0))
+    raw_limit = spec_dict.get("limit")
+    raw_offset = spec_dict.get("offset")
+    limit = int(raw_limit) if raw_limit is not None else 50
+    offset = int(raw_offset) if raw_offset is not None else 0
 
     return {
         "sql": main_sql,

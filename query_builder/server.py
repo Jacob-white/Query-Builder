@@ -400,6 +400,11 @@ def _post_execute(h: QueryBuilderHandler, req: Request) -> None:
     connection_id = body.get("connection_id")
     config = body.get("config", {})
     tenant_id = body.get("tenant_id")
+    if tenant_id is None and h.server_security is not None:
+        try:
+            tenant_id = h.server_security.tenant_resolver(dict(h.headers.items()))
+        except Exception:  # noqa: BLE001
+            tenant_id = None
     timeout_ms = body.get("timeout_ms")
     use_cache = body.get("use_cache", False)
     cache_ttl = body.get("cache_ttl")
@@ -662,7 +667,10 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
     connector_name = body.get("connector", "sqlite")
     config = body.get("config", {})
     timeout_ms = body.get("timeout_ms")
-    batch_size = int(body.get("batch_size", 250))
+    try:
+        batch_size = int(body.get("batch_size") or 250)
+    except (ValueError, TypeError):
+        batch_size = 250
     if batch_size <= 0:
         batch_size = 250
 
@@ -731,8 +739,7 @@ def _post_stream(h: QueryBuilderHandler, req: Request) -> None:
         h.send_header("Content-Type", "text/event-stream")
         h.send_header("Cache-Control", "no-cache")
         h.send_header("Connection", "keep-alive")
-        h.send_header("Access-Control-Allow-Origin", "*")
-        h.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        h._send_cors_headers()
         h.end_headers()
 
         def send_event(event_name: str, payload: dict[str, Any]) -> None:
@@ -893,7 +900,10 @@ def _post_export_stream(h: QueryBuilderHandler, req: Request) -> None:
     """POST /api/v1/export/stream (chunked transfer)."""
     body = req.body
     format_name = body.get("format", "csv")
-    chunk_size = int(body.get("chunk_size", 1000))
+    try:
+        chunk_size = int(body.get("chunk_size") or 1000)
+    except (ValueError, TypeError):
+        chunk_size = 1000
     if chunk_size <= 0:
         chunk_size = 1000
 
@@ -963,7 +973,7 @@ def _post_export_stream(h: QueryBuilderHandler, req: Request) -> None:
         h.send_header("Content-Type", mime_type)
         h.send_header("Transfer-Encoding", "chunked")
         h.send_header("Content-Disposition", f'attachment; filename="export.{ext}"')
-        h.send_header("Access-Control-Allow-Origin", "*")
+        h._send_cors_headers()
         h.send_header("Access-Control-Expose-Headers", "Content-Disposition")
         h.end_headers()
 
@@ -1333,6 +1343,9 @@ def generate_openapi_spec() -> dict[str, Any]:
     }
 
 
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+
 class QueryBuilderHandler(BaseHTTPRequestHandler):
     """HTTP request handler for Query-Builder microservice API."""
 
@@ -1409,6 +1422,10 @@ class QueryBuilderHandler(BaseHTTPRequestHandler):
             raise ValueError("Invalid Content-Length header.") from exc
         if length <= 0:
             return {}
+        if length > MAX_REQUEST_BODY_BYTES:
+            raise ValueError(
+                f"Request body exceeds maximum allowed size ({MAX_REQUEST_BODY_BYTES} bytes)."
+            )
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw)
 

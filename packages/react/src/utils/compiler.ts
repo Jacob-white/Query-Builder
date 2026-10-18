@@ -16,6 +16,7 @@ import type {
   SemanticModel,
   QuerySpec,
   SerializedQuerySpec,
+  CaseWhenSpec,
 } from "../types";
 import { narrowSerializedSpec, specToState } from "./queryStateTransitions";
 import { normalizeCombiner, resolveFilterCombiners } from "./filterCombiners";
@@ -29,6 +30,7 @@ export interface CompiledVisualQuery {
       | {
           column?: string;
           expression?: string;
+          case_when?: CaseWhenSpec;
           agg?: string;
           alias?: string;
           time_grain?: string;
@@ -311,6 +313,60 @@ export function formatLimit(limit: number, dialect: SqlDialect = "postgres"): st
   return `LIMIT ${limit};`;
 }
 
+function getVectorDistanceOperator(metric?: string): string {
+  const m = (metric || "cosine").toLowerCase();
+  if (m === "l2" || m === "euclidean") return "<->";
+  if (m === "inner_product" || m === "dot_product") return "<#>";
+  return "<=>";
+}
+
+function compileCaseWhenExpr(
+  cw: CaseWhenSpec,
+  defaultTable: string,
+  dialect: SqlDialect,
+): string {
+  const branchesSql = (cw.branches || [])
+    .map((b) => {
+      const bTbl = cleanTableName(b.condition.tablePrefix || defaultTable);
+      const bCol = sanitizeIdent(b.condition.column);
+      const bColRef = `${quoteIdent(bTbl, dialect)}.${quoteIdent(bCol, dialect)}`;
+      const op = (b.condition.op || "=").toUpperCase();
+      let condSql = "";
+      if (op === "IS NULL" || op === "IS NOT NULL") {
+        condSql = `${bColRef} ${op}`;
+      } else {
+        const rawVal = b.condition.value;
+        const valSql =
+          typeof rawVal === "number" && Number.isFinite(rawVal)
+            ? String(rawVal)
+            : rawVal !== null &&
+                rawVal !== undefined &&
+                !isNaN(Number(rawVal)) &&
+                String(rawVal).trim() !== ""
+              ? String(Number(rawVal))
+              : `'${String(rawVal ?? "").replace(/'/g, "''")}'`;
+        condSql = `${bColRef} ${op} ${valSql}`;
+      }
+      const thenSql = b.then_column
+        ? quoteIdent(sanitizeIdent(b.then_column), dialect)
+        : typeof b.then_value === "number" && Number.isFinite(b.then_value)
+          ? String(b.then_value)
+          : `'${String(b.then_value ?? "").replace(/'/g, "''")}'`;
+      return `WHEN ${condSql} THEN ${thenSql}`;
+    })
+    .join(" ");
+  let elseSql = "";
+  if (cw.else_column) {
+    elseSql = ` ELSE ${quoteIdent(sanitizeIdent(cw.else_column), dialect)}`;
+  } else if (cw.else_value !== undefined && cw.else_value !== null && cw.else_value !== "") {
+    elseSql =
+      typeof cw.else_value === "number" && Number.isFinite(cw.else_value)
+        ? ` ELSE ${cw.else_value}`
+        : ` ELSE '${String(cw.else_value).replace(/'/g, "''")}'`;
+  }
+  return `CASE ${branchesSql}${elseSql} END`;
+}
+
 export function compileVisualState(
   primaryTable: string,
   selectedColumns: Record<string, VisualColumnSelect>,
@@ -319,7 +375,7 @@ export function compileVisualState(
   filters: VisualFilter[],
   sorts: VisualSort[],
   isDistinct: boolean = false,
-  limit: number = 50,
+  limit?: number,
   schemaData?: SchemaSnapshot | null,
   dialect: SqlDialect = "postgres",
   filterJoin: "AND" | "OR" = "AND",
@@ -330,6 +386,8 @@ export function compileVisualState(
   windowFunctions?: WindowFunctionSpec[] | null,
   semanticModels?: SemanticModel[] | null,
 ): CompiledVisualQuery {
+  const effectiveLimit = limit ?? vectorSearch?.top_k ?? hybridSearch?.top_k ?? 50;
+
   if (!primaryTable || typeof primaryTable !== "string") {
     return {
       sql: "",
@@ -341,7 +399,7 @@ export function compileVisualState(
         filter_join: normalizeCombiner(filterJoin),
         order_by: [],
         distinct: false,
-        limit,
+        limit: effectiveLimit,
         vector_search: vectorSearch || undefined,
         hybrid_search: hybridSearch || undefined,
         ctes: ctes && ctes.length > 0 ? ctes : undefined,
@@ -381,17 +439,7 @@ export function compileVisualState(
 
   // Projections
   let selectClause = "*";
-  const specColumns: (
-    | string
-    | {
-        column?: string;
-        expression?: string;
-        agg?: string;
-        alias?: string;
-        time_grain?: string;
-        metric?: string | MetricDefinition;
-      }
-  )[] = [];
+  const specColumns: CompiledVisualQuery["spec"]["columns"] = [];
   const usedAliases = new Set<string>();
 
   if (safeProjectionKeys.length > 0) {
@@ -433,6 +481,29 @@ export function compileVisualState(
               ? `COUNT(DISTINCT ${colRef})`
               : `${aggUpper}(${colRef})`;
           return `${aggSql} AS ${quoteAlias(alias, dialect)}`;
+        }
+
+        if (item.caseWhen && Array.isArray(item.caseWhen.branches) && item.caseWhen.branches.length > 0) {
+          let alias = sanitizeIdent(item.alias || item.caseWhen.alias || item.name || "case_col");
+          if (usedAliases.has(alias)) {
+            let disambiguated = `${alias}_${tableAlias}`;
+            if (usedAliases.has(disambiguated)) {
+              let count = 2;
+              while (usedAliases.has(`${alias}_${count}`)) {
+                count++;
+              }
+              disambiguated = `${alias}_${count}`;
+            }
+            alias = disambiguated;
+          }
+          usedAliases.add(alias);
+
+          const caseExpr = compileCaseWhenExpr(item.caseWhen, tableAlias, dialect);
+          specColumns.push({
+            case_when: item.caseWhen,
+            alias,
+          });
+          return `${caseExpr} AS ${quoteAlias(alias, dialect)}`;
         }
 
         if (item.rawExpression) {
@@ -788,13 +859,55 @@ export function compileVisualState(
   ) {
     const vCol = sanitizeIdent(vectorSearch.column || "embedding");
     const vRef = `${quoteIdent(cleanPrimary, dialect)}.${quoteIdent(vCol, dialect)}`;
+    const vecOp = getVectorDistanceOperator(vectorSearch.metric);
     const vecStr = `'[${vectorSearch.vector.map((n) => (Number.isFinite(Number(n)) ? Number(n) : 0)).join(",")}]'`;
     if (vectorSearch.include_distances) {
-      const distExpr = `(${vRef} <=> ${vecStr}) AS "_distance"`;
+      const distExpr = `(${vRef} ${vecOp} ${vecStr}) AS "_distance"`;
       selectClause = selectClause === "*" ? `*, ${distExpr}` : `${selectClause}, ${distExpr}`;
     }
     if (!orderClause) {
-      orderClause = `ORDER BY ${vRef} <=> ${vecStr} ASC`;
+      orderClause = `ORDER BY ${vRef} ${vecOp} ${vecStr} ASC`;
+    }
+  }
+
+  // Hybrid Search SQL projection, text filtering, and ordering
+  if (hybridSearch) {
+    if (Array.isArray(hybridSearch.vector) && hybridSearch.vector.length > 0) {
+      const vCol = sanitizeIdent(hybridSearch.vector_column || "embedding");
+      const vRef = `${quoteIdent(cleanPrimary, dialect)}.${quoteIdent(vCol, dialect)}`;
+      const vecOp = getVectorDistanceOperator(hybridSearch.metric);
+      const vecStr = `'[${hybridSearch.vector.map((n) => (Number.isFinite(Number(n)) ? Number(n) : 0)).join(",")}]'`;
+      if (hybridSearch.include_scores) {
+        const distExpr = `(${vRef} ${vecOp} ${vecStr}) AS "_hybrid_distance"`;
+        selectClause = selectClause === "*" ? `*, ${distExpr}` : `${selectClause}, ${distExpr}`;
+      }
+      if (!orderClause) {
+        orderClause = `ORDER BY ${vRef} ${vecOp} ${vecStr} ASC`;
+      }
+    }
+    if (
+      hybridSearch.query_text &&
+      Array.isArray(hybridSearch.text_columns) &&
+      hybridSearch.text_columns.length > 0
+    ) {
+      const cleanQ = String(hybridSearch.query_text).replace(/'/g, "''");
+      const textConds = hybridSearch.text_columns
+        .map((tc) => sanitizeIdent(tc))
+        .filter(Boolean)
+        .map((tc) =>
+          formatIlike(
+            `${quoteIdent(cleanPrimary, dialect)}.${quoteIdent(tc, dialect)}`,
+            `'%${cleanQ}%'`,
+            dialect,
+          ),
+        );
+      if (textConds.length > 0) {
+        const textFilterSql =
+          textConds.length === 1 ? textConds[0] : `(${textConds.join(" OR ")})`;
+        whereClause = whereClause
+          ? `${whereClause} AND ${textFilterSql}`
+          : `WHERE ${textFilterSql}`;
+      }
     }
   }
 
@@ -849,6 +962,9 @@ export function compileVisualState(
         const tbl = cleanTableName(item.table || cleanPrimary);
         const colName = sanitizeIdent(item.name);
         const colRef = `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)}`;
+        if (item.caseWhen && Array.isArray(item.caseWhen.branches) && item.caseWhen.branches.length > 0) {
+          return compileCaseWhenExpr(item.caseWhen, tbl, dialect);
+        }
         if (item.rawExpression) {
           return item.rawExpression;
         }
@@ -867,7 +983,7 @@ export function compileVisualState(
   if (whereClause) queryParts.push(whereClause);
   if (groupClause) queryParts.push(groupClause);
   if (orderClause) queryParts.push(orderClause);
-  queryParts.push(formatLimit(limit, dialect));
+  queryParts.push(formatLimit(effectiveLimit, dialect));
 
   let ctePrefix = "";
   if (ctes && ctes.length > 0) {
@@ -892,7 +1008,7 @@ export function compileVisualState(
       filter_join: resolvedFilterJoin,
       order_by: specSorts,
       distinct: isDistinct,
-      limit,
+      limit: effectiveLimit,
       vector_search: vectorSearch || undefined,
       hybrid_search: hybridSearch || undefined,
       ctes: ctes && ctes.length > 0 ? ctes : undefined,
@@ -1029,12 +1145,15 @@ export function compileSpecToSql(
   const filters = state.filters || [];
   const sorts = state.sorts || [];
   const isDistinct = state.isDistinct || false;
-  const limit = typeof state.limit === "number" ? state.limit : (looseSpec.limit ?? 50);
+  const vectorSearch = state.vectorSearch || looseSpec.vector_search;
+  const hybridSearch = state.hybridSearch || looseSpec.hybrid_search;
+  const limit =
+    typeof state.limit === "number"
+      ? state.limit
+      : (looseSpec.limit ?? vectorSearch?.top_k ?? hybridSearch?.top_k ?? 50);
   const filterJoin = normalizeCombiner(looseSpec.filter_join);
   const ctes = looseSpec.ctes;
   const windowFunctions = looseSpec.window_functions;
-  const vectorSearch = looseSpec.vector_search;
-  const hybridSearch = looseSpec.hybrid_search;
   const semanticModels = looseSpec.semantic_models;
 
   const compiled = compileVisualState(

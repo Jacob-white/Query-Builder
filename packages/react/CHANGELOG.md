@@ -8,7 +8,25 @@
   Quoting the cell does not stop Excel evaluating it, and a query can return text someone else typed. Numbers are
   untouched, so a negative number stays a number. The same helper is exported as `csvCellText(value)`.
 
+### Added
+- **`VisualQueryBuilder` Studio tabs & controls:**
+  - Optional **`⚡ Plan & Cost`** (`showPlanTab?: boolean`) and **`🧬 Pipeline`** (`showPipelineTab?: boolean`) tabs in the Visual Studio output dock, wiring `<QueryPlanVisualizer>` and `<MultiStagePipelineBuilder>` directly into the workspace.
+  - Optional **`✨ Ask AI / NLQ`** (`showNlqBar?: boolean`) collapsible natural-language query bar (`<NaturalLanguageBar>`) in the workspace header.
+  - **`➕ Computed / CASE`** button in `<ColumnProjectionList>` opening `<CaseWhenModal>` to author conditional `CASE WHEN ... THEN ... ELSE ... END` expressions or custom SQL projections.
+  - Confirmation prompt (`window.confirm`) before resetting an active query in `<VisualQueryBuilder>`.
+
 ### Fixed
+- **SQL Parser (`parseSqlToSpec`):**
+  - Resolves table aliases (`FROM users u`, `JOIN orders o`) in `SELECT` projections, `WHERE` filters, and `ORDER BY` clauses back to their canonical table names (`users.id`, `orders.total`).
+  - Preserves `COUNT(DISTINCT col)` as `agg: "COUNT_DISTINCT"` (both plain and `FILTER (WHERE ...)` aggregates) instead of collapsing it to `COUNT`.
+- **Joins (`TableJoinEditor`, `addJoin`):**
+  - `addJoin(targetTable)` now inspects `schema` foreign keys and relationships to auto-populate `left_table`, `left_col`, and `right_col` instead of hardcoding `id = id`.
+  - `<TableJoinEditor>`'s `+ Add Join` picker now lists already-active unjoined tables in addition to non-active schema tables, and displays `FK` badges on foreign-key columns.
+- **Computed `CASE WHEN` expressions (`specToState`, `stateToSpec`, `compileStateToSql`):**
+  - Preserves `case_when` / `caseWhen` specs across `loadSpec` -> state -> `compileStateToSql` and renders a `CASE` badge in `<ColumnProjectionList>`.
+- **Results Table (`ResultsTable`, `QueryResultsTable`):**
+  - `cellRenderers` lookup now falls back to the unqualified column suffix (e.g. `"orders.total_amount"` matches `cellRenderers.total_amount`) when an exact qualified key is not present.
+  - Deduplicates identical column names in `ResultsTable` `<th>`/`<td>` React keys and row lookups.
 - **Loading a spec into the builder (`loadSpec`, `specToState`)** now matches what the Join step and the column pickers
   expect:
   - A join kind in the compiler's form (`"INNER"`, `"left"`, `"FULL OUTER"`, ...) is converted to the builder's form

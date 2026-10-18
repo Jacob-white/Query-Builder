@@ -348,6 +348,7 @@ export const QueryBuilderColumns: React.FC<QueryBuilderColumnsProps> = ({
                 >
                   <option value="">(none)</option>
                   <option value="COUNT">COUNT</option>
+                  <option value="COUNT_DISTINCT">COUNT(DISTINCT)</option>
                   <option value="SUM">SUM</option>
                   <option value="AVG">AVG</option>
                   <option value="MIN">MIN</option>

@@ -1,10 +1,18 @@
 import React from "react";
-import type { CteSpec, QueryPlanNode, QueryResultData } from "../../types";
+import type {
+  CteSpec,
+  QueryPlanNode,
+  QueryResultData,
+  QuerySpec,
+  SchemaSnapshot,
+  SqlDialect,
+} from "../../types";
 import type { QueryBuilderClassNames } from "../../types";
 import type { CellRenderer } from "../../theme/QueryBuilderProvider";
 import { QueryResultsTable } from "../QueryResultsTable";
-import { QueryChartPreview } from "../QueryChartPreview";
+import { BiChartVisualizer } from "../BiChartVisualizer";
 import { QueryPlanVisualizer } from "../QueryPlanVisualizer";
+import { QueryPerformanceAdvisor } from "../QueryPerformanceAdvisor";
 import { PipelineDagCanvas } from "../PipelineDagCanvas";
 import type { ActiveTab } from "./types";
 
@@ -46,15 +54,37 @@ export function ResultsPanel(props: {
 export function ChartPanel(props: { results: QueryResultData | null; unstyled: boolean }) {
   return (
     <Panel tab="chart">
-      <QueryChartPreview results={props.results} unstyled={props.unstyled} />
+      <BiChartVisualizer results={props.results} unstyled={props.unstyled} />
     </Panel>
   );
 }
 
-export function PlanPanel(props: { plan: QueryPlanNode; unstyled: boolean }) {
+export function PlanPanel(props: {
+  plan: QueryPlanNode;
+  spec?: Partial<QuerySpec>;
+  sql?: string;
+  dialect?: SqlDialect;
+  schema?: SchemaSnapshot | null;
+  unstyled: boolean;
+}) {
   return (
     <Panel tab="plan">
-      <QueryPlanVisualizer plan={props.plan} unstyled={props.unstyled} />
+      <div
+        style={
+          props.unstyled
+            ? undefined
+            : { display: "flex", flexDirection: "column", gap: "12px" }
+        }
+      >
+        <QueryPlanVisualizer plan={props.plan} unstyled={props.unstyled} />
+        <QueryPerformanceAdvisor
+          querySpec={props.spec || { table: props.plan.table }}
+          sql={props.sql || ""}
+          dialect={props.dialect}
+          schema={props.schema}
+          unstyled={props.unstyled}
+        />
+      </div>
     </Panel>
   );
 }

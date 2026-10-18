@@ -23,7 +23,17 @@ from typing import Any
 # Constants & Defaults
 # ---------------------------------------------------------------------------
 
-VALID_MASKING_STRATEGIES: set[str] = {"hash", "partial", "redact"}
+VALID_MASKING_STRATEGIES: set[str] = {
+    "hash",
+    "md5",
+    "sha256",
+    "null",
+    "partial",
+    "partial_email",
+    "partial_phone",
+    "last4",
+    "redact",
+}
 
 DEFAULT_SENSITIVE_COLUMN_PATTERNS: list[str] = [
     r"(?i)(password|passwd|pwd|secret|token|ssn|credit_card|api[_-]?key|auth)"

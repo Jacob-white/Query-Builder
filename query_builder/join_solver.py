@@ -22,6 +22,7 @@ CANONICAL_ENTITY_COLUMNS: list[str] = [
     "task_id",
     "session_id",
     "project_id",
+    "project_id",
     "customer_master_id",
     "firm_id",
     "contact_master_id",
@@ -210,14 +211,22 @@ def find_best_join_condition(
     # 4. Primary key or fallback column
     left_pk = "id"
     for c in left_cols:
-        if isinstance(c, dict) and c.get("is_primary"):
-            left_pk = c.get("name", "id")
+        if (isinstance(c, dict) and c.get("is_primary")) or getattr(
+            c, "is_primary", False
+        ):
+            left_pk = (
+                c.get("name", "id") if isinstance(c, dict) else getattr(c, "name", "id")
+            )
             break
 
     right_pk = "id"
     for c in right_cols:
-        if isinstance(c, dict) and c.get("is_primary"):
-            right_pk = c.get("name", "id")
+        if (isinstance(c, dict) and c.get("is_primary")) or getattr(
+            c, "is_primary", False
+        ):
+            right_pk = (
+                c.get("name", "id") if isinstance(c, dict) else getattr(c, "name", "id")
+            )
             break
 
     return {

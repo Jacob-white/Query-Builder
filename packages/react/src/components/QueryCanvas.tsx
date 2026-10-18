@@ -12,12 +12,15 @@ import type {
   HybridSearchSpec,
   QueryBuilderClassNames,
   TimeGrain,
+  CalculatedFieldSpec,
+  WindowFunctionSpec,
 } from "../types";
 import { TableCard } from "./TableCard";
 import { TableFiltersEditor } from "./TableFiltersEditor";
 import { TableJoinEditor } from "./TableJoinEditor";
 import { TableSortsEditor } from "./TableSortsEditor";
 import { VectorHybridControl } from "./VectorHybridControl";
+import { CalculatedFieldEditor } from "./CalculatedFieldEditor";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { cx } from "../utils/classNames";
 
@@ -34,6 +37,8 @@ export interface QueryCanvasProps {
   limit: number;
   vectorSearch?: VectorSearchSpec | null;
   hybridSearch?: HybridSearchSpec | null;
+  windowFunctions?: WindowFunctionSpec[];
+  compiledSql?: string;
   onToggleColumn: (tableName: string, colName: string) => void;
   onRemoveTable: (tableName: string) => void;
   onAddTableToCanvas: (tableName: string) => void;
@@ -41,6 +46,9 @@ export interface QueryCanvasProps {
   onReorderProjections?: (keys: string[]) => void;
   onUpdateColumnSelect: (key: string, updates: Partial<VisualColumnSelect>) => void;
   onRemoveColumnProjection: (key: string) => void;
+  onAddCalculatedField?: (field: CalculatedFieldSpec) => void;
+  onRemoveWindowFunction?: (index: number) => void;
+  onOpenWindowFunctions?: () => void;
   onJoinsChange: (joins: VisualJoin[]) => void;
   onFiltersChange: (filters: VisualFilter[]) => void;
   onSortsChange: (sorts: VisualSort[]) => void;
@@ -68,6 +76,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   limit,
   vectorSearch,
   hybridSearch,
+  windowFunctions = [],
+  compiledSql,
   onToggleColumn,
   onRemoveTable,
   onAddTableToCanvas,
@@ -75,6 +85,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onReorderProjections,
   onUpdateColumnSelect,
   onRemoveColumnProjection,
+  onAddCalculatedField,
+  onRemoveWindowFunction,
   onJoinsChange,
   onFiltersChange,
   onSortsChange,
@@ -89,11 +101,19 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   fieldRenderers,
 }) => {
   const ctx = useQueryBuilderContext();
+  const isProjectionsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("projections") : true;
+  const isCalculatedFieldsVisible = ctx?.isFeatureVisible
+    ? ctx.isFeatureVisible("calculated_fields")
+    : true;
   const isVectorSearchVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("vector_search") : true;
   const isJoinsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("joins") : true;
   const isFiltersVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("filters") : true;
   const isSortsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("sorts") : true;
   const isDistinctLimitVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("distinct_limit") : true;
+
+  const [isCalcEditorOpen, setIsCalcEditorOpen] = React.useState(false);
+  const [isSqlPreviewOpen, setIsSqlPreviewOpen] = React.useState(false);
+  const [copiedSql, setCopiedSql] = React.useState(false);
 
   const allTables = Object.values(schema?.tables || {});
   const availableToAdd = allTables.filter(
@@ -110,6 +130,15 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     if (onReorderProjections) {
       onReorderProjections(newKeys);
     }
+  };
+
+  const handleCopyLiveSql = () => {
+    if (!compiledSql) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(compiledSql);
+    }
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 1500);
   };
 
   return (
@@ -141,6 +170,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
+                  gap: "8px",
+                  flexWrap: "wrap",
                 }
           }
         >
@@ -154,42 +185,67 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           >
             📋 Active Tables in Query ({activeTables.length})
           </span>
-          {availableToAdd.length > 0 && (
-            <select
-              defaultValue=""
-              aria-label="Add table to canvas"
-              data-qb="select-add-table"
-              onChange={(e) => {
-                if (e.target.value) {
-                  onAddTableToCanvas(e.target.value);
-                  e.target.value = "";
+          <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+            {isCalculatedFieldsVisible && activeTables.length > 0 && onAddCalculatedField && (
+              <button
+                type="button"
+                data-qb="btn-open-calculated-field"
+                onClick={() => setIsCalcEditorOpen(true)}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "rgba(139, 92, 246, 0.15)",
+                        color: "#c4b5fd",
+                        border: "1px solid rgba(139, 92, 246, 0.4)",
+                        borderRadius: "6px",
+                        padding: "4px 10px",
+                        fontSize: "0.78rem",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }
                 }
-              }}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#60a5fa",
-                      border: "1px solid rgba(59, 130, 246, 0.4)",
-                      borderRadius: "6px",
-                      padding: "4px 10px",
-                      fontSize: "0.78rem",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                    }
-              }
-            >
-              <option value="" disabled>
-                + Add Table to Canvas...
-              </option>
-              {availableToAdd.map((t) => (
-                <option key={t.name} value={t.name}>
-                  + {t.name}
+              >
+                + Calculated Field
+              </button>
+            )}
+            {availableToAdd.length > 0 && (
+              <select
+                defaultValue=""
+                aria-label="Add table to canvas"
+                data-qb="select-add-table"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onAddTableToCanvas(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "#1e293b",
+                        color: "#60a5fa",
+                        border: "1px solid rgba(59, 130, 246, 0.4)",
+                        borderRadius: "6px",
+                        padding: "4px 10px",
+                        fontSize: "0.78rem",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }
+                }
+              >
+                <option value="" disabled>
+                  + Add Table to Canvas...
                 </option>
-              ))}
-            </select>
-          )}
+                {availableToAdd.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    + {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         {activeTables.length === 0 ? (
@@ -248,7 +304,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       </div>
 
       {/* Projection fields manager */}
-      {orderedProjectionKeys.length > 0 && (
+      {isProjectionsVisible && (orderedProjectionKeys.length > 0 || windowFunctions.length > 0) && (
         <div
           data-qb="canvas-projections"
           className={cx(classNames?.columns)}
@@ -371,6 +427,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             {orderedProjectionKeys.map((key, idx) => {
               const item = selectedColumns[key];
               if (!item) return null;
+              const isCalculated = Boolean(item.rawExpression || item.caseWhen);
 
               return (
                 <div
@@ -421,10 +478,12 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     style={
                       unstyled
                         ? undefined
-                        : { color: "#93c5fd", fontWeight: 600 }
+                        : { color: isCalculated ? "#c4b5fd" : "#93c5fd", fontWeight: 600 }
                     }
                   >
-                    {item.table}.{item.name}
+                    {isCalculated
+                      ? `fx ${item.name || item.alias || key}`
+                      : `${item.table}.${item.name}`}
                   </span>
 
                   <input
@@ -472,7 +531,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     </span>
                   )}
 
-                  {!item.metric && (
+                  {!item.metric && !isCalculated && (
                     <select
                       value={item.timeGrain || ""}
                       data-qb="projection-timegrain-select"
@@ -508,7 +567,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     </select>
                   )}
 
-                  {!item.metric && !item.timeGrain && (
+                  {!item.metric && !item.timeGrain && !isCalculated && (
                     <select
                       value={item.aggregate || ""}
                       data-qb="projection-aggregate-select"
@@ -534,6 +593,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     >
                       <option value="">(none)</option>
                       <option value="COUNT">COUNT</option>
+                      <option value="COUNT_DISTINCT">COUNT(DISTINCT)</option>
                       <option value="SUM">SUM</option>
                       <option value="AVG">AVG</option>
                       <option value="MIN">MIN</option>
@@ -587,6 +647,52 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 </div>
               );
             })}
+
+            {windowFunctions.map((wf, idx) => (
+              <div
+                key={`wf_${wf.alias || idx}`}
+                data-qb="window-function-chip"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        background: "rgba(88, 28, 135, 0.35)",
+                        border: "1px solid rgba(168, 85, 247, 0.4)",
+                        borderRadius: "6px",
+                        padding: "4px 8px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontSize: "0.78rem",
+                      }
+                }
+              >
+                <span style={unstyled ? undefined : { color: "#d8b4fe", fontWeight: 600 }}>
+                  🪟 {wf.function}({wf.column || ""}) AS {wf.alias}
+                </span>
+                {onRemoveWindowFunction && (
+                  <button
+                    type="button"
+                    aria-label={`Remove window function ${wf.alias}`}
+                    onClick={() => onRemoveWindowFunction(idx)}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "transparent",
+                            border: "none",
+                            color: "#cbd5e1",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                          }
+                    }
+                    title="Remove window function"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -612,6 +718,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           onChange={onFiltersChange}
           unstyled={unstyled}
           customOperators={customOperators}
+          fieldRenderers={fieldRenderers}
           classNames={classNames}
         />
       )}
@@ -621,6 +728,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         <TableSortsEditor
           sorts={sorts}
           activeTables={activeTables}
+          selectedColumns={selectedColumns}
           onChange={onSortsChange}
           unstyled={unstyled}
           classNames={classNames}
@@ -635,6 +743,140 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
           activeTables={activeTables}
           onVectorChange={onVectorChange}
           onHybridChange={onHybridChange}
+          unstyled={unstyled}
+        />
+      )}
+
+      {/* Collapsible Live SQL Preview Bar */}
+      {compiledSql && (
+        <div
+          data-qb="live-sql-preview"
+          style={
+            unstyled
+              ? undefined
+              : {
+                  background: "rgba(15, 23, 42, 0.75)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }
+          }
+        >
+          <div
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "8px",
+                  }
+            }
+          >
+            <button
+              type="button"
+              data-qb="btn-toggle-live-sql"
+              onClick={() => setIsSqlPreviewOpen((prev) => !prev)}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "transparent",
+                      border: "none",
+                      color: "#94a3b8",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }
+              }
+            >
+              <span>{isSqlPreviewOpen ? "▼" : "▶"}</span>
+              <span>Live SQL Preview</span>
+              {!isSqlPreviewOpen && (
+                <code
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          color: "#38bdf8",
+                          fontSize: "0.74rem",
+                          maxWidth: "480px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          display: "inline-block",
+                          verticalAlign: "bottom",
+                        }
+                  }
+                >
+                  {compiledSql.replace(/\s+/g, " ")}
+                </code>
+              )}
+            </button>
+            <button
+              type="button"
+              data-qb="btn-copy-live-sql"
+              onClick={handleCopyLiveSql}
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      background: "rgba(59, 130, 246, 0.15)",
+                      color: "#60a5fa",
+                      border: "1px solid rgba(59, 130, 246, 0.35)",
+                      borderRadius: "4px",
+                      padding: "2px 8px",
+                      fontSize: "0.72rem",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }
+              }
+            >
+              {copiedSql ? "✓ Copied" : "Copy SQL"}
+            </button>
+          </div>
+          {isSqlPreviewOpen && (
+            <pre
+              data-qb="live-sql-preview-code"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      margin: 0,
+                      padding: "8px 10px",
+                      background: "#0f172a",
+                      color: "#38bdf8",
+                      borderRadius: "6px",
+                      fontSize: "0.78rem",
+                      fontFamily: "monospace",
+                      overflowX: "auto",
+                      whiteSpace: "pre-wrap",
+                    }
+              }
+            >
+              {compiledSql}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {onAddCalculatedField && (
+        <CalculatedFieldEditor
+          isOpen={isCalcEditorOpen}
+          onClose={() => setIsCalcEditorOpen(false)}
+          onSave={(field) => {
+            onAddCalculatedField(field);
+            setIsCalcEditorOpen(false);
+          }}
+          tables={activeTables}
           unstyled={unstyled}
         />
       )}

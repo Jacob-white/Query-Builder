@@ -70,6 +70,7 @@ interface PlanTreeNodeProps {
   depth?: number;
   selectedNode: QueryPlanNode | null;
   onSelect: (node: QueryPlanNode) => void;
+  unstyled?: boolean;
 }
 
 const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
@@ -77,6 +78,7 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
   depth = 0,
   selectedNode,
   onSelect,
+  unstyled = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const costPct = node.cost_percentage ?? 0;
@@ -84,23 +86,32 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
   const isSelected = selectedNode === node;
   const hasChildren = node.children && node.children.length > 0;
   const hasWarnings = node.warnings && node.warnings.length > 0;
+  const s = (st: React.CSSProperties): React.CSSProperties | undefined =>
+    unstyled ? undefined : st;
 
   return (
-    <div style={{ marginLeft: depth > 0 ? "18px" : "0px", marginTop: "8px" }} data-testid={`plan-node-${node.node_type}`}>
+    <div
+      style={s({ marginLeft: depth > 0 ? "18px" : "0px", marginTop: "8px" })}
+      data-testid={`plan-node-${node.node_type}`}
+    >
       <div
         onClick={() => onSelect(node)}
-        style={{
+        style={s({
           display: "flex",
           alignItems: "center",
           gap: "8px",
           padding: "8px 12px",
           borderRadius: "6px",
-          backgroundColor: isSelected ? "#eff6ff" : "#ffffff",
-          border: isSelected ? "1px solid #3b82f6" : "1px solid #e5e7eb",
+          backgroundColor: isSelected
+            ? "var(--qb-color-surface-hover, rgba(59, 130, 246, 0.12))"
+            : "var(--qb-color-surface, #ffffff)",
+          border: isSelected
+            ? "1px solid #3b82f6"
+            : "1px solid var(--qb-color-border, #e2e8f0)",
           cursor: "pointer",
           transition: "all 0.15s ease",
           boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-        }}
+        })}
       >
         {hasChildren ? (
           <button
@@ -109,7 +120,7 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
               e.stopPropagation();
               setIsExpanded(!isExpanded);
             }}
-            style={{
+            style={s({
               background: "none",
               border: "none",
               cursor: "pointer",
@@ -117,41 +128,81 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#6b7280",
-            }}
+              color: "var(--qb-color-text-muted, #64748b)",
+            })}
             aria-label={isExpanded ? "Collapse node" : "Expand node"}
           >
-            <span style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block", transition: "transform 0.15s" }}>
+            <span
+              style={s({
+                transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                display: "inline-block",
+                transition: "transform 0.15s",
+              })}
+            >
               ▶
             </span>
           </button>
         ) : (
-          <span style={{ width: "16px", display: "inline-block", color: "#9ca3af" }}>•</span>
+          <span
+            style={s({
+              width: "16px",
+              display: "inline-block",
+              color: "var(--qb-color-text-muted, #64748b)",
+            })}
+          >
+            •
+          </span>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexGrow: 1, flexWrap: "wrap" }}>
-          <strong style={{ fontSize: "14px", color: "#111827" }}>{node.node_type}</strong>
+        <div
+          style={s({
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flexGrow: 1,
+            flexWrap: "wrap",
+          })}
+        >
+          <strong style={s({ fontSize: "14px", color: "var(--qb-color-text, #0f172a)" })}>
+            {node.node_type}
+          </strong>
           {node.table && (
-            <span style={{ fontSize: "12px", color: "#4b5563", backgroundColor: "#f3f4f6", padding: "2px 6px", borderRadius: "4px" }}>
+            <span
+              style={s({
+                fontSize: "12px",
+                color: "var(--qb-color-text-muted, #64748b)",
+                backgroundColor: "var(--qb-color-background, #f8fafc)",
+                padding: "2px 6px",
+                borderRadius: "4px",
+              })}
+            >
               on <code>{node.table}</code>
             </span>
           )}
           {node.index_name && (
-            <span style={{ fontSize: "11px", color: "#1d4ed8", backgroundColor: "#dbeafe", padding: "2px 6px", borderRadius: "4px" }}>
+            <span
+              style={s({
+                fontSize: "11px",
+                color: "#1d4ed8",
+                backgroundColor: "#dbeafe",
+                padding: "2px 6px",
+                borderRadius: "4px",
+              })}
+            >
               index: {node.index_name}
             </span>
           )}
           {hasWarnings && (
             <span
               title={node.warnings?.join("\n")}
-              style={{
+              style={s({
                 fontSize: "11px",
                 color: "#b45309",
                 backgroundColor: "#fef3c7",
                 padding: "2px 6px",
                 borderRadius: "4px",
                 fontWeight: 600,
-              }}
+              })}
             >
               ⚠️ {node.warnings?.length} {node.warnings?.length === 1 ? "warning" : "warnings"}
             </span>
@@ -160,7 +211,7 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
 
         {/* Cost Badge */}
         <div
-          style={{
+          style={s({
             display: "flex",
             alignItems: "center",
             gap: "5px",
@@ -171,28 +222,55 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
             borderRadius: "9999px",
             fontSize: "12px",
             fontWeight: 600,
-          }}
+          })}
           title={badge.label}
         >
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: badge.dot }} />
+          <span
+            style={s({
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              backgroundColor: badge.dot,
+            })}
+          />
           <span>{costPct.toFixed(1)}% cost</span>
         </div>
 
-        <div style={{ fontSize: "12px", color: "#6b7280", minWidth: "90px", textAlign: "right" }}>
+        <div
+          style={s({
+            fontSize: "12px",
+            color: "var(--qb-color-text-muted, #64748b)",
+            minWidth: "90px",
+            textAlign: "right",
+          })}
+        >
           est. {node.rows_estimated?.toLocaleString() ?? 0} rows
         </div>
       </div>
 
       {/* Predicate detail preview if selected or present */}
       {node.filter_predicate && (
-        <div style={{ marginLeft: "28px", marginTop: "4px", fontSize: "11px", color: "#6b7280" }}>
-          <span style={{ fontWeight: 600 }}>Filter:</span> <code>{node.filter_predicate}</code>
+        <div
+          style={s({
+            marginLeft: "28px",
+            marginTop: "4px",
+            fontSize: "11px",
+            color: "var(--qb-color-text-muted, #64748b)",
+          })}
+        >
+          <span style={s({ fontWeight: 600 })}>Filter:</span> <code>{node.filter_predicate}</code>
         </div>
       )}
 
       {/* Children */}
       {hasChildren && isExpanded && (
-        <div style={{ borderLeft: "2px dashed #e5e7eb", marginLeft: "14px", paddingLeft: "4px" }}>
+        <div
+          style={s({
+            borderLeft: "2px dashed var(--qb-color-border, #e2e8f0)",
+            marginLeft: "14px",
+            paddingLeft: "4px",
+          })}
+        >
           {node.children!.map((child, idx) => (
             <PlanTreeNode
               key={`${child.node_type}-${child.table ?? idx}`}
@@ -200,6 +278,7 @@ const PlanTreeNode: React.FC<PlanTreeNodeProps> = ({
               depth={depth + 1}
               selectedNode={selectedNode}
               onSelect={onSelect}
+              unstyled={unstyled}
             />
           ))}
         </div>
@@ -234,38 +313,47 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
     });
   };
 
-  const baseContainerStyle: React.CSSProperties = unstyled
-    ? {}
-    : {
-        border: "1px solid #e5e7eb",
-        borderRadius: "8px",
-        backgroundColor: "#fafafa",
-        padding: "16px",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      };
+  const s = (st: React.CSSProperties): React.CSSProperties | undefined =>
+    unstyled ? undefined : st;
+
+  const baseContainerStyle: React.CSSProperties | undefined = s({
+    border: "1px solid var(--qb-color-border, #e2e8f0)",
+    borderRadius: "8px",
+    backgroundColor: "var(--qb-color-background, #f8fafc)",
+    color: "var(--qb-color-text, #0f172a)",
+    padding: "16px",
+    fontFamily: "system-ui, -apple-system, sans-serif",
+  });
 
   return (
     <div className={`qb-plan-visualizer ${className}`} style={baseContainerStyle}>
       {/* Header & Tabs */}
       <div
-        style={{
+        style={s({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--qb-color-border, #e2e8f0)",
           paddingBottom: "12px",
           marginBottom: "16px",
           flexWrap: "wrap",
           gap: "8px",
-        }}
+        })}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#111827" }}>
+        <div style={s({ display: "flex", alignItems: "center", gap: "10px" })}>
+          <h3
+            style={s({
+              margin: 0,
+              fontSize: "16px",
+              fontWeight: 700,
+              color: "var(--qb-color-text, #0f172a)",
+            })}
+          >
             Visual Query Execution Plan
           </h3>
           {allWarnings.length > 0 && (
             <span
-              style={{
+              style={s({
                 backgroundColor: "#fef3c7",
                 color: "#b45309",
                 border: "1px solid #fde68a",
@@ -273,59 +361,71 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
                 padding: "2px 8px",
                 fontSize: "12px",
                 fontWeight: 600,
-              }}
+              })}
             >
               ⚠️ {allWarnings.length} {allWarnings.length === 1 ? "advisory hint" : "advisory hints"}
             </span>
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "4px" }}>
+        <div style={s({ display: "flex", gap: "4px" })}>
           <button
             type="button"
             onClick={() => setActiveTab("tree")}
-            style={{
+            style={s({
               padding: "6px 12px",
               borderRadius: "6px",
               fontSize: "13px",
               fontWeight: 500,
               cursor: "pointer",
-              border: activeTab === "tree" ? "1px solid #3b82f6" : "1px solid #d1d5db",
-              backgroundColor: activeTab === "tree" ? "#3b82f6" : "#ffffff",
-              color: activeTab === "tree" ? "#ffffff" : "#374151",
-            }}
+              border:
+                activeTab === "tree"
+                  ? "1px solid #3b82f6"
+                  : "1px solid var(--qb-color-border, #e2e8f0)",
+              backgroundColor:
+                activeTab === "tree" ? "#3b82f6" : "var(--qb-color-surface, #ffffff)",
+              color: activeTab === "tree" ? "#ffffff" : "var(--qb-color-text, #0f172a)",
+            })}
           >
             Visual Tree
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("insights")}
-            style={{
+            style={s({
               padding: "6px 12px",
               borderRadius: "6px",
               fontSize: "13px",
               fontWeight: 500,
               cursor: "pointer",
-              border: activeTab === "insights" ? "1px solid #3b82f6" : "1px solid #d1d5db",
-              backgroundColor: activeTab === "insights" ? "#3b82f6" : "#ffffff",
-              color: activeTab === "insights" ? "#ffffff" : "#374151",
-            }}
+              border:
+                activeTab === "insights"
+                  ? "1px solid #3b82f6"
+                  : "1px solid var(--qb-color-border, #e2e8f0)",
+              backgroundColor:
+                activeTab === "insights" ? "#3b82f6" : "var(--qb-color-surface, #ffffff)",
+              color: activeTab === "insights" ? "#ffffff" : "var(--qb-color-text, #0f172a)",
+            })}
           >
             Optimization Insights ({allWarnings.length})
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("raw")}
-            style={{
+            style={s({
               padding: "6px 12px",
               borderRadius: "6px",
               fontSize: "13px",
               fontWeight: 500,
               cursor: "pointer",
-              border: activeTab === "raw" ? "1px solid #3b82f6" : "1px solid #d1d5db",
-              backgroundColor: activeTab === "raw" ? "#3b82f6" : "#ffffff",
-              color: activeTab === "raw" ? "#ffffff" : "#374151",
-            }}
+              border:
+                activeTab === "raw"
+                  ? "1px solid #3b82f6"
+                  : "1px solid var(--qb-color-border, #e2e8f0)",
+              backgroundColor:
+                activeTab === "raw" ? "#3b82f6" : "var(--qb-color-surface, #ffffff)",
+              color: activeTab === "raw" ? "#ffffff" : "var(--qb-color-text, #0f172a)",
+            })}
           >
             Raw Plan
           </button>
@@ -337,70 +437,112 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
         <div>
           {/* Legend */}
           <div
-            style={{
+            style={s({
               display: "flex",
               gap: "12px",
               marginBottom: "12px",
               fontSize: "11px",
-              color: "#6b7280",
-            }}
+              color: "var(--qb-color-text-muted, #64748b)",
+            })}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#10b981" }} />
+            <span style={s({ display: "flex", alignItems: "center", gap: "4px" })}>
+              <span
+                style={s({
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  backgroundColor: "#10b981",
+                })}
+              />
               Optimal (&lt;10%)
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#f59e0b" }} />
+            <span style={s({ display: "flex", alignItems: "center", gap: "4px" })}>
+              <span
+                style={s({
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  backgroundColor: "#f59e0b",
+                })}
+              />
               Moderate (10%–30%)
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+            <span style={s({ display: "flex", alignItems: "center", gap: "4px" })}>
+              <span
+                style={s({
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  backgroundColor: "#ef4444",
+                })}
+              />
               Bottleneck (&gt;30%)
             </span>
           </div>
 
           <div
-            style={{
-              backgroundColor: "#ffffff",
-              border: "1px solid #e5e7eb",
+            style={s({
+              backgroundColor: "var(--qb-color-surface, #ffffff)",
+              border: "1px solid var(--qb-color-border, #e2e8f0)",
               borderRadius: "6px",
               padding: "16px",
               maxHeight: "450px",
               overflowY: "auto",
-            }}
+            })}
           >
             <PlanTreeNode
               node={plan}
               depth={0}
               selectedNode={selectedNode}
               onSelect={handleNodeClick}
+              unstyled={unstyled}
             />
           </div>
 
           {/* Selected Node Details Drawer */}
           {selectedNode && (
             <div
-              style={{
+              style={s({
                 marginTop: "14px",
                 padding: "12px",
                 borderRadius: "6px",
-                backgroundColor: "#f8fafc",
-                border: "1px solid #cbd5e1",
-              }}
+                backgroundColor: "var(--qb-color-background, #f8fafc)",
+                border: "1px solid var(--qb-color-border, #e2e8f0)",
+              })}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <strong style={{ fontSize: "13px", color: "#0f172a" }}>
+              <div
+                style={s({
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                })}
+              >
+                <strong style={s({ fontSize: "13px", color: "var(--qb-color-text, #0f172a)" })}>
                   Selected Node: {selectedNode.node_type}
                 </strong>
                 <button
                   type="button"
                   onClick={() => setSelectedNode(null)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}
+                  style={s({
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--qb-color-text-muted, #64748b)",
+                  })}
                 >
                   ✕
                 </button>
               </div>
-              <div style={{ marginTop: "6px", fontSize: "12px", color: "#334155", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "6px" }}>
+              <div
+                style={s({
+                  marginTop: "6px",
+                  fontSize: "12px",
+                  color: "var(--qb-color-text, #0f172a)",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "6px",
+                })}
+              >
                 <div><strong>Cost Estimate:</strong> {selectedNode.cost_estimate ?? 0}</div>
                 <div><strong>Cost Ratio:</strong> {selectedNode.cost_percentage ?? 0}%</div>
                 <div><strong>Est. Rows:</strong> {selectedNode.rows_estimated?.toLocaleString() ?? 0}</div>
@@ -415,21 +557,27 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
 
       {/* Tab 2: Optimization Insights */}
       {activeTab === "insights" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={s({ display: "flex", flexDirection: "column", gap: "10px" })}>
           {allWarnings.length === 0 ? (
             <div
-              style={{
+              style={s({
                 padding: "24px",
                 textAlign: "center",
-                backgroundColor: "#ffffff",
+                backgroundColor: "var(--qb-color-surface, #ffffff)",
                 borderRadius: "6px",
-                border: "1px solid #e5e7eb",
+                border: "1px solid var(--qb-color-border, #e2e8f0)",
                 color: "#166534",
-              }}
+              })}
             >
-              <div style={{ fontSize: "24px", marginBottom: "6px" }}>✅</div>
-              <strong style={{ fontSize: "14px" }}>Optimal Plan Efficiency</strong>
-              <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#4b5563" }}>
+              <div style={s({ fontSize: "24px", marginBottom: "6px" })}>✅</div>
+              <strong style={s({ fontSize: "14px" })}>Optimal Plan Efficiency</strong>
+              <p
+                style={s({
+                  margin: "4px 0 0 0",
+                  fontSize: "12px",
+                  color: "var(--qb-color-text-muted, #64748b)",
+                })}
+              >
                 All query nodes operate within normal cost bounds. No table scan or missing index bottlenecks detected.
               </p>
             </div>
@@ -437,23 +585,29 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
             allWarnings.map((item, idx) => (
               <div
                 key={idx}
-                style={{
+                style={s({
                   padding: "12px 16px",
                   borderRadius: "6px",
-                  backgroundColor: "#ffffff",
+                  backgroundColor: "var(--qb-color-surface, #ffffff)",
                   border: "1px solid #fde68a",
                   borderLeft: "4px solid #f59e0b",
                   display: "flex",
                   gap: "12px",
                   alignItems: "flex-start",
-                }}
+                })}
               >
-                <span style={{ fontSize: "18px" }}>⚠️</span>
+                <span style={s({ fontSize: "18px" })}>⚠️</span>
                 <div>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#92400e" }}>
+                  <div style={s({ fontSize: "13px", fontWeight: 600, color: "#f59e0b" })}>
                     {item.nodeType} {item.table ? `on ${item.table}` : ""}
                   </div>
-                  <div style={{ fontSize: "12px", color: "#374151", marginTop: "2px" }}>
+                  <div
+                    style={s({
+                      fontSize: "12px",
+                      color: "var(--qb-color-text, #0f172a)",
+                      marginTop: "2px",
+                    })}
+                  >
                     {item.warning}
                   </div>
                 </div>
@@ -466,25 +620,25 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
       {/* Tab 3: Raw Plan */}
       {activeTab === "raw" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
+          <div style={s({ display: "flex", justifyContent: "flex-end", marginBottom: "8px" })}>
             <button
               type="button"
               onClick={handleCopyJson}
-              style={{
+              style={s({
                 padding: "4px 10px",
                 fontSize: "12px",
                 borderRadius: "4px",
-                border: "1px solid #d1d5db",
-                backgroundColor: "#ffffff",
+                border: "1px solid var(--qb-color-border, #e2e8f0)",
+                backgroundColor: "var(--qb-color-surface, #ffffff)",
                 cursor: "pointer",
-                color: copied ? "#166534" : "#374151",
-              }}
+                color: copied ? "#10b981" : "var(--qb-color-text, #0f172a)",
+              })}
             >
               {copied ? "✓ Copied!" : "Copy JSON"}
             </button>
           </div>
           <pre
-            style={{
+            style={s({
               backgroundColor: "#1e293b",
               color: "#f8fafc",
               padding: "14px",
@@ -493,7 +647,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
               lineHeight: 1.5,
               overflowX: "auto",
               maxHeight: "400px",
-            }}
+            })}
           >
             <code>{JSON.stringify(rawPlan || plan, null, 2)}</code>
           </pre>

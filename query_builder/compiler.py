@@ -109,8 +109,11 @@ ALLOWED_JOIN_KEYS = {
     "type",
     "on",
     "left_table",
+    "leftTable",
     "left_col",
+    "leftCol",
     "right_col",
+    "rightCol",
     "id",
     "alias",
 }
@@ -127,6 +130,8 @@ ALLOWED_FILTER_KEYS = {
     "combiner",
     "parenOpen",
     "parenClose",
+    "paren_open",
+    "paren_close",
     "_enforced",
 }
 ALLOWED_HAVING_KEYS = {
@@ -144,6 +149,7 @@ ALLOWED_HAVING_KEYS = {
 ALLOWED_ORDER_BY_KEYS = {
     "column",
     "direction",
+    "nulls",
     "tablePrefix",
     "table_prefix",
     "table",
@@ -589,6 +595,16 @@ def _validate_order_by_item(raw: Any, allow_unknown_keys: bool) -> None:
     )
     if o_pfx is not None:
         _check_ident(o_pfx, "order_by table prefix")
+    o_nulls = o_dict.get("nulls")
+    if o_nulls is not None and str(o_nulls).strip().upper() not in {
+        "FIRST",
+        "LAST",
+        "NULLS FIRST",
+        "NULLS LAST",
+    }:
+        raise ValidationError(
+            f"Invalid order_by 'nulls': '{o_nulls}'. Must be 'FIRST' or 'LAST'."
+        )
 
 
 def _validate_order_by(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
@@ -895,7 +911,22 @@ def _validate_table(spec: dict[str, Any], allow_unknown_keys: bool) -> None:
         )
     if isinstance(table, dict) or hasattr(table, "__dict__"):
         sub_dict = table if isinstance(table, dict) else table.__dict__
-        validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
+        if "subquery" in sub_dict and "table" not in sub_dict:
+            inner_sub = sub_dict["subquery"]
+            inner_dict: Any = (
+                inner_sub
+                if isinstance(inner_sub, dict)
+                else getattr(inner_sub, "__dict__", None)
+            )
+            if not isinstance(inner_dict, dict):
+                raise ValidationError(
+                    "Derived table 'subquery' must be a QuerySpec or dictionary."
+                )
+            if sub_dict.get("alias") is not None:
+                _check_ident(sub_dict["alias"], "subquery alias")
+            validate_query_spec(inner_dict, allow_unknown_keys=allow_unknown_keys)
+        else:
+            validate_query_spec(sub_dict, allow_unknown_keys=allow_unknown_keys)
     else:
         _check_ident(table, "table")
 
@@ -1152,12 +1183,15 @@ class QueryCompiler:
         self._base_alias = ""
         self._from_str = ""
         self._from_params: list[Any] = []
+        self._group_by_params: list[Any] = []
+        self._joined_targets: list[tuple[str, str]] = []
         self._is_subquery_from = False
         self._count_params_end = 0
         self.has_vector_search = False
         self.vector_distance_expr: str | None = None
         self._vector_include_dist = True
         self._vector_param_val: Any = None
+        self._vector_min_score: float | None = None
         self.has_hybrid_search = False
         self.hybrid_score_expr: str | None = None
         self._hybrid_include_scores = True
@@ -1435,16 +1469,16 @@ class QueryCompiler:
             self.spec = self.middleware.run_pre_compile(self.spec, ctx)
 
         self._compile_from()
-        self._compile_base_isolation()
         self._compile_joins()
         self._compile_projections()
         self._compile_top_level_metrics()
         self._compile_vector_search()
         self._compile_hybrid_search()
         self._compile_window_functions()
+        self._compile_base_isolation()
+        self._compile_join_isolation()
+        self._compile_vector_where()
         self._compile_filters()
-        self._compile_having()
-        self._compile_order_by()
 
         # Assemble SQL parts
         is_distinct = self.spec.get("distinct", False) and not self.has_aggregation
@@ -1455,11 +1489,19 @@ class QueryCompiler:
             f"WHERE {' AND '.join(self.where_clauses)}" if self.where_clauses else ""
         )
         group_by_str = self._build_group_by()
+        if (
+            group_by_str
+            and self._group_by_params
+            and any(item in group_by_str for item in self.group_by_items)
+        ):
+            self.params.extend(self._group_by_params)
+        self._compile_having()
         having_str = (
             f"HAVING {' AND '.join(self.having_clauses)}" if self.having_clauses else ""
         )
 
         self._count_params_end = len(self.params)
+        self._compile_order_by()
         order_by_str = self._build_order_by_clause()
         limit_offset_str, limit_params = self._build_pagination()
 
@@ -1647,11 +1689,25 @@ class QueryCompiler:
             base_table, "__dict__"
         )
         if self._is_subquery_from:
-            sub_sql, self._from_params = self._sub_compile(base_table)
-            self._clean_base = "subquery"
-            self._base_alias = self._generate_unique_alias()
+            sub_dict = (
+                base_table if isinstance(base_table, dict) else base_table.__dict__
+            )
+            if "subquery" in sub_dict and "table" not in sub_dict:
+                sub_target = sub_dict["subquery"]
+                explicit_alias = sub_dict.get("alias")
+            else:
+                sub_target = base_table
+                explicit_alias = (
+                    sub_dict.get("alias") if isinstance(sub_dict, dict) else None
+                )
+            sub_sql, self._from_params = self._sub_compile(sub_target)
+            self._clean_base = str(explicit_alias) if explicit_alias else "subquery"
+            self._base_alias = (
+                str(explicit_alias) if explicit_alias else self._generate_unique_alias()
+            )
             self.table_aliases[self._base_alias] = self._base_alias
             self.table_aliases[self._clean_base] = self._base_alias
+            self.table_aliases["subquery"] = self._base_alias
             self._from_str = (
                 f"FROM ({sub_sql}) {getattr(self.dialect, 'subquery_alias_keyword', 'AS ')}"
                 f"{self.dialect.quote_identifier(self._base_alias)}"
@@ -1674,14 +1730,18 @@ class QueryCompiler:
             return
         self._from_str = f"FROM {self.dialect.quote_identifier(base_table)} {self.dialect.quote_identifier(self._base_alias)}"
 
+    @staticmethod
+    def _has_id(val: Any) -> bool:
+        return val is not None and val != "" and val is not False
+
     def _compile_base_isolation(self) -> None:
         """User / tenant isolation on the base table (skipped for a subquery FROM)."""
         if self._is_subquery_from:
             return
-        if self.force_user_filter and self.user_id:
+        if self.force_user_filter and self._has_id(self.user_id):
             self._append_ownership_predicate(self._base_alias, self._clean_base)
 
-        if not self.tenant_id:
+        if not self._has_id(self.tenant_id):
             return
         tbl_info = self.tables_meta.get(self._base_table) or self.tables_meta.get(
             self._clean_base, {}
@@ -1703,6 +1763,13 @@ class QueryCompiler:
             f"{self._qualified(self._base_alias, col_name)} = {self.dialect.placeholder}"
         )
         self.params.append(self.tenant_id)
+
+    def _compile_join_isolation(self) -> None:
+        """User ownership isolation on joined tables."""
+        if not (self.force_user_filter and self._has_id(self.user_id)):
+            return
+        for target_alias, clean_target in self._joined_targets:
+            self._append_ownership_predicate(target_alias, clean_target)
 
     # ---- JOINs -------------------------------------------------------
     def _compile_joins(self) -> None:
@@ -1737,10 +1804,7 @@ class QueryCompiler:
         self.join_clauses.append(
             f"{join_type} {self.dialect.quote_identifier(target_table)} {self.dialect.quote_identifier(target_alias)} ON {on_clause_str}"
         )
-
-        # Tenant isolation on joined table
-        if self.force_user_filter and self.user_id:
-            self._append_ownership_predicate(target_alias, clean_target)
+        self._joined_targets.append((target_alias, clean_target))
 
     @staticmethod
     def _normalise_join_type(raw_type: str) -> str:
@@ -1792,8 +1856,10 @@ class QueryCompiler:
                 conditions.append(f"{quoted_left} = {quoted_right}")
             return conditions
 
-        if join.get("left_col") and join.get("right_col"):
-            left_tbl = join.get("left_table", clean_base)
+        left_col = join.get("left_col") or join.get("leftCol")
+        right_col = join.get("right_col") or join.get("rightCol")
+        if left_col and right_col:
+            left_tbl = join.get("left_table") or join.get("leftTable") or clean_base
             left_clean = left_tbl.split(".")[-1]
             if (
                 left_tbl not in self.table_aliases
@@ -1804,9 +1870,9 @@ class QueryCompiler:
                 raise CompilationError(
                     f"Join left_table '{left_tbl}' is not part of the query."
                 )
-            _, _, quoted_left = self._resolve_column_ref(join["left_col"], left_tbl)
+            _, _, quoted_left = self._resolve_column_ref(left_col, left_tbl)
             _, _, quoted_right = self._resolve_column_ref(
-                join["right_col"], clean_target, target_alias=target_alias
+                right_col, clean_target, target_alias=target_alias
             )
             return [f"{quoted_left} = {quoted_right}"]
 
@@ -1908,11 +1974,16 @@ class QueryCompiler:
     def _compile_dict_column(self, col_item: dict[str, Any]) -> None:
         case_when = col_item.get("case_when")
         if case_when is not None:
+            params_before = len(self.params)
             case_body = self._compile_case_when(case_when, self._clean_base)
+            case_params = list(self.params[params_before:])
+            self._count_skip_lead += len(case_params)
             alias_label = (
                 col_item.get("alias") or f"case_{len(self.select_clause_items) + 1}"
             )
             self._add_select(case_body, alias_label, group_by=case_body)
+            if case_params:
+                self._group_by_params.extend(case_params)
             return
 
         expr = col_item.get("expression") or col_item.get("raw_expression")
@@ -1942,7 +2013,11 @@ class QueryCompiler:
             )
             import re
 
-            if re.search(r"\b(SUM|COUNT|AVG|MIN|MAX)\b", expr, re.IGNORECASE):
+            if re.search(
+                r"\b(SUM|COUNT|AVG|MIN|MAX|STRING_AGG|ARRAY_AGG|GROUP_CONCAT|LISTAGG|STDDEV|STDDEV_POP|STDDEV_SAMP|VARIANCE|VAR_POP|VAR_SAMP|MEDIAN|PERCENTILE_CONT|PERCENTILE_DISC|BOOL_AND|BOOL_OR|ANY_VALUE|BIT_AND|BIT_OR|BIT_XOR)\b",
+                expr,
+                re.IGNORECASE,
+            ):
                 self.has_aggregation = True
                 self._add_select(expr, expr_alias)
             else:
@@ -2096,6 +2171,7 @@ class QueryCompiler:
         self.vector_distance_expr = None
         self._vector_include_dist = True
         self._vector_param_val = None
+        self._vector_min_score = None
         if not vs_spec:
             return
         self.has_vector_search = True
@@ -2105,6 +2181,7 @@ class QueryCompiler:
         metric = str(vs_dict.get("metric", "cosine")).lower()
         self._vector_include_dist = vs_dict.get("include_distances", True)
         min_score = vs_dict.get("min_score")
+        self._vector_min_score = float(min_score) if min_score is not None else None
 
         _, _, vs_quoted_ref = self._resolve_column_ref(
             vs_col, default_table=self._clean_base, target_alias=self._base_alias
@@ -2118,10 +2195,13 @@ class QueryCompiler:
             self.params.append(self._vector_param_val)
             self._count_skip_lead += 1
 
-        if min_score is not None:
-            self.where_clauses.append(f"{dist_expr} <= {self.dialect.placeholder}")
+    def _compile_vector_where(self) -> None:
+        if self.has_vector_search and self._vector_min_score is not None:
+            self.where_clauses.append(
+                f"{self.vector_distance_expr} <= {self.dialect.placeholder}"
+            )
             self.params.append(self._vector_param_val)
-            self.params.append(float(min_score))
+            self.params.append(self._vector_min_score)
 
     def _compile_hybrid_search(self) -> None:
         hs_spec = self.spec.get("hybrid_search")
@@ -2331,17 +2411,19 @@ class QueryCompiler:
                 comb = filter_join
 
             open_p = ""
-            if flt.get("parenOpen"):
-                n_open = min(self._paren_count(flt["parenOpen"], "("), 16)
+            raw_open = flt.get("parenOpen") or flt.get("paren_open")
+            if raw_open:
+                n_open = min(self._paren_count(raw_open, "("), 16)
                 open_p = "(" * n_open
                 paren_depth += n_open
 
             close_p = ""
-            if flt.get("parenClose"):
+            raw_close = flt.get("parenClose") or flt.get("paren_close")
+            if raw_close:
                 # Never close more groups than are open: an unbalanced ')' would
                 # terminate the wrapping client group and let a trailing OR
                 # escape the enforced (tenant/RLS) predicates.
-                n_close = min(self._paren_count(flt["parenClose"], ")"), paren_depth)
+                n_close = min(self._paren_count(raw_close, ")"), paren_depth)
                 close_p = ")" * n_close
                 paren_depth -= n_close
 
@@ -2569,6 +2651,15 @@ class QueryCompiler:
             if direction not in ("ASC", "DESC"):
                 direction = "ASC"
 
+            raw_nulls = ord_item.get("nulls")
+            nulls_suffix = ""
+            if isinstance(raw_nulls, str):
+                norm_nulls = raw_nulls.strip().upper()
+                if norm_nulls in ("FIRST", "NULLS FIRST"):
+                    nulls_suffix = " NULLS FIRST"
+                elif norm_nulls in ("LAST", "NULLS LAST"):
+                    nulls_suffix = " NULLS LAST"
+
             prefix = (
                 ord_item.get("tablePrefix")
                 or ord_item.get("table_prefix")
@@ -2590,12 +2681,12 @@ class QueryCompiler:
                 # An aggregate has no column to qualify, and an alias is not a column of any table: ORDER BY names the
                 # output label. A name that is a real column of the base table keeps meaning that column.
                 self.order_by_items.append(
-                    f"{self.dialect.quote_alias(col_ref)} {direction}"
+                    f"{self.dialect.quote_alias(col_ref)} {direction}{nulls_suffix}"
                 )
                 continue
             _, _, quoted_ref = self._resolve_column_ref(col_ref, prefix)
             quoted_ref = self._distinct_order_ref(quoted_ref)
-            self.order_by_items.append(f"{quoted_ref} {direction}")
+            self.order_by_items.append(f"{quoted_ref} {direction}{nulls_suffix}")
 
     def _base_has_column(self, name: str) -> bool:
         """Whether the schema lists ``name`` as a column of the base table (an unprefixed ORDER BY name is read there)."""
@@ -2703,7 +2794,8 @@ class QueryCompiler:
         return ""
 
     def _resolve_limit_offset(self) -> tuple[int, int]:
-        limit_val = int(self.spec.get("limit", 50))
+        raw_limit = self.spec.get("limit")
+        limit_val = int(raw_limit) if raw_limit is not None else 50
         if self.has_vector_search or self.has_hybrid_search:
             search_spec_val = self.spec.get("vector_search") or self.spec.get(
                 "hybrid_search"
@@ -2714,7 +2806,7 @@ class QueryCompiler:
                 top_k_val = int(getattr(search_spec_val, "top_k", 10))
             else:
                 top_k_val = 10
-            if "limit" not in self.spec:
+            if "limit" not in self.spec or raw_limit is None:
                 limit_val = top_k_val
             else:
                 limit_val = min(limit_val, top_k_val)
@@ -2750,18 +2842,23 @@ class QueryCompiler:
             for part in (joins_str, where_str, group_by_str, having_str, order_by_str)
             if part
         ]
+        select_params = list(self.params[: self._count_skip_lead])
+        post_from_params = list(self.params[self._count_skip_lead :])
         if getattr(self.dialect, "pagination_placement", "suffix") == "prefix":
             select_pfx = (
                 f"SELECT {limit_offset_str} " if limit_offset_str else "SELECT "
             )
             parts = [f"{select_pfx}{select_str}", self._from_str, *tail]
             return "\n".join(parts), (
-                limit_params + self._from_params + list(self.params)
+                limit_params + select_params + self._from_params + post_from_params
             )
         parts = [f"SELECT {select_str}", self._from_str, *tail]
         if limit_offset_str:
             parts.append(limit_offset_str)
-        return "\n".join(parts), self._from_params + list(self.params) + limit_params
+        return (
+            "\n".join(parts),
+            select_params + self._from_params + post_from_params + limit_params,
+        )
 
     def _build_count_query(
         self, joins_str: str, where_str: str, group_by_str: str, having_str: str

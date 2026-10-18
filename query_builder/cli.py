@@ -548,8 +548,33 @@ def _add_verify_connectors_parser(subparsers: Subparsers) -> None:
     )
 
 
+def _add_parse_parser(subparsers: Subparsers) -> None:
+    parse_p = subparsers.add_parser(
+        "parse",
+        help="Parse a raw SQL SELECT statement into a declarative QuerySpec JSON.",
+    )
+    parse_p.add_argument("target", help="Raw SQL query string or path to a .sql file.")
+    parse_p.add_argument(
+        "--dialect",
+        "-d",
+        default="postgres",
+        help="SQL dialect (default: postgres).",
+    )
+    parse_p.add_argument(
+        "--output",
+        "-o",
+        help="Optional output file path to write parsed QuerySpec JSON.",
+    )
+    parse_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output parsed QuerySpec as structured JSON.",
+    )
+
+
 _PARSER_BUILDERS: tuple[Callable[[Subparsers], None], ...] = (
     _add_compile_parser,
+    _add_parse_parser,
     _add_validate_parser,
     _add_test_connection_parser,
     _add_introspect_parser,
@@ -1054,8 +1079,14 @@ def _cmd_schema(args: argparse.Namespace) -> int:
         exploration = explore_schema(schema_data, filter_sensitive=filter_sensitive)
 
         if getattr(args, "table", None):
-            target_table = args.table.lower().strip()
+            target_table = args.table.strip()
             tbl_info = exploration["tables"].get(target_table)
+            if not tbl_info:
+                target_lower = target_table.lower()
+                for t_key, t_val in exploration["tables"].items():
+                    if str(t_key).lower() == target_lower:
+                        tbl_info = t_val
+                        break
             if not tbl_info:
                 msg = f"Table '{args.table}' not found in schema snapshot."
                 if _wants_json(args):
@@ -1642,11 +1673,48 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_parse(args: argparse.Namespace) -> int:
+    try:
+        from query_builder.parser import parse_sql_to_dict
+
+        target: str = args.target
+        if os.path.isfile(target):
+            with open(target, encoding="utf-8") as fh:
+                sql_str = fh.read()
+        else:
+            sql_str = target
+
+        spec_dict = parse_sql_to_dict(
+            sql_str, dialect=getattr(args, "dialect", "postgres")
+        )
+        if spec_dict is None:
+            msg = "Unable to parse SQL statement into a valid SELECT QuerySpec."
+            if _wants_json(args):
+                print(json.dumps({"success": False, "error": msg}, indent=2))
+            else:
+                sys.stderr.write(f"Parse error: {msg}\n")
+            return 1
+
+        out_json = json.dumps(spec_dict, indent=2)
+        if getattr(args, "output", None):
+            with open(args.output, "w", encoding="utf-8") as fh:
+                fh.write(out_json + "\n")
+        print(out_json)
+        return 0
+    except Exception as e:  # noqa: BLE001
+        if _wants_json(args):
+            print(json.dumps({"success": False, "error": str(e)}, indent=2))
+        else:
+            sys.stderr.write(f"Parse error: {e}\n")
+        return 1
+
+
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "compile": _cmd_compile,
+    "parse": _cmd_parse,
     "validate": _cmd_validate,
     "test-connection": _cmd_test_connection,
     "test": _cmd_test_connection,

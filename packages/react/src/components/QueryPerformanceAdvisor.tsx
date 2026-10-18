@@ -56,20 +56,21 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
     }
   };
 
-  const containerStyle: React.CSSProperties = unstyled
-    ? {}
-    : {
-        backgroundColor: "#1e1e2e",
-        border: "1px solid #313244",
-        borderRadius: "8px",
-        padding: "0.75rem 1rem",
-        color: "#cdd6f4",
-        fontSize: "0.85rem",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.6rem",
-        ...style,
-      };
+  const s = (styleObj: React.CSSProperties): React.CSSProperties | undefined =>
+    unstyled ? undefined : styleObj;
+
+  const containerStyle: React.CSSProperties | undefined = s({
+    backgroundColor: "#1e1e2e",
+    border: "1px solid #313244",
+    borderRadius: "8px",
+    padding: "0.75rem 1rem",
+    color: "#cdd6f4",
+    fontSize: "0.85rem",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.6rem",
+    ...style,
+  });
 
   return (
     <div
@@ -79,28 +80,28 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
     >
       {/* Top Summary Bar */}
       <div
-        style={{
+        style={s({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
           gap: "0.5rem",
-        }}
+        })}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <span style={{ fontSize: "1rem" }}>💡</span>
-          <span style={{ fontWeight: 600, color: "#89b4fa" }}>
+        <div style={s({ display: "flex", alignItems: "center", gap: "0.6rem" })}>
+          <span style={s({ fontSize: "1rem" })}>💡</span>
+          <span style={s({ fontWeight: 600, color: "#89b4fa" })}>
             Performance & Cost Advisor:
           </span>
           {costInsight && (
             <span
-              style={{
+              style={s({
                 fontSize: "0.8rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
                 backgroundColor: "rgba(137, 180, 250, 0.15)",
                 color: "#89b4fa",
-              }}
+              })}
               data-testid="cost-estimate-badge"
             >
               {costInsight.title}
@@ -108,13 +109,13 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
           )}
           {warnings.length > 0 && (
             <span
-              style={{
+              style={s({
                 fontSize: "0.75rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
                 backgroundColor: "rgba(249, 226, 175, 0.15)",
                 color: "#f9e2af",
-              }}
+              })}
               data-testid="warning-count-badge"
             >
               ⚠️ {warnings.length} warning{warnings.length === 1 ? "" : "s"}
@@ -122,13 +123,13 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
           )}
           {indexRecs.length > 0 && (
             <span
-              style={{
+              style={s({
                 fontSize: "0.75rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
                 backgroundColor: "rgba(166, 227, 161, 0.15)",
                 color: "#a6e3a1",
-              }}
+              })}
               data-testid="index-rec-count-badge"
             >
               ⚡ {indexRecs.length} index recommendation{indexRecs.length === 1 ? "" : "s"}
@@ -138,7 +139,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
 
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          style={{
+          style={s({
             background: "transparent",
             border: "1px solid #45475a",
             borderRadius: "4px",
@@ -146,7 +147,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
             padding: "0.25rem 0.6rem",
             fontSize: "0.75rem",
             cursor: "pointer",
-          }}
+          })}
           data-testid="toggle-advisor-details-btn"
         >
           {isExpanded ? "Hide Insights ▲" : "View Insights ▼"}
@@ -156,27 +157,27 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
       {/* Expanded Insights Panel */}
       {isExpanded && (
         <div
-          style={{
+          style={s({
             display: "flex",
             flexDirection: "column",
             gap: "0.75rem",
             paddingTop: "0.5rem",
             borderTop: "1px solid #313244",
-          }}
+          })}
           data-testid="advisor-expanded-panel"
         >
           {/* Cloud Cost Details */}
           {costInsight && (
             <div
-              style={{
+              style={s({
                 padding: "0.5rem 0.75rem",
                 backgroundColor: "#181825",
                 borderRadius: "6px",
                 borderLeft: "3px solid #89b4fa",
-              }}
+              })}
             >
-              <div style={{ fontWeight: 600, color: "#89b4fa" }}>{costInsight.title}</div>
-              <div style={{ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" }}>
+              <div style={s({ fontWeight: 600, color: "#89b4fa" })}>{costInsight.title}</div>
+              <div style={s({ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" })}>
                 {costInsight.message}
               </div>
             </div>
@@ -186,16 +187,16 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
           {warnings.map((w, idx) => (
             <div
               key={idx}
-              style={{
+              style={s({
                 padding: "0.5rem 0.75rem",
                 backgroundColor: "#181825",
                 borderRadius: "6px",
                 borderLeft: "3px solid #f9e2af",
-              }}
+              })}
               data-testid={`advisor-warning-${idx}`}
             >
-              <div style={{ fontWeight: 600, color: "#f9e2af" }}>⚠️ {w.title}</div>
-              <div style={{ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" }}>
+              <div style={s({ fontWeight: 600, color: "#f9e2af" })}>⚠️ {w.title}</div>
+              <div style={s({ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" })}>
                 {w.message}
               </div>
             </div>
@@ -209,7 +210,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
             return (
               <div
                 key={idx}
-                style={{
+                style={s({
                   padding: "0.6rem 0.75rem",
                   backgroundColor: "#181825",
                   borderRadius: "6px",
@@ -217,16 +218,16 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                   display: "flex",
                   flexDirection: "column",
                   gap: "0.4rem",
-                }}
+                })}
                 data-testid={`advisor-index-rec-${idx}`}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontWeight: 600, color: "#a6e3a1" }}>
+                <div style={s({ display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+                  <div style={s({ fontWeight: 600, color: "#a6e3a1" })}>
                     🚀 Index Recommendation: {r.indexName}
                   </div>
                   <button
                     onClick={() => handleCopyDdl(r.id, r.ddl)}
-                    style={{
+                    style={s({
                       padding: "0.25rem 0.6rem",
                       backgroundColor: isCopied ? "#a6e3a1" : "#313244",
                       color: isCopied ? "#11111b" : "#cdd6f4",
@@ -236,15 +237,15 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                       fontWeight: 600,
                       cursor: "pointer",
                       transition: "all 0.2s ease",
-                    }}
+                    })}
                     data-testid={`copy-ddl-btn-${idx}`}
                   >
                     {isCopied ? "✓ Copied" : "Copy DDL"}
                   </button>
                 </div>
-                <div style={{ color: "#a6adc8", fontSize: "0.8rem" }}>{r.rationale}</div>
+                <div style={s({ color: "#a6adc8", fontSize: "0.8rem" })}>{r.rationale}</div>
                 <code
-                  style={{
+                  style={s({
                     backgroundColor: "#11111b",
                     padding: "0.35rem 0.5rem",
                     borderRadius: "4px",
@@ -252,7 +253,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                     fontFamily: "monospace",
                     fontSize: "0.8rem",
                     wordBreak: "break-all",
-                  }}
+                  })}
                 >
                   {r.ddl}
                 </code>

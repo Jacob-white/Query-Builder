@@ -254,18 +254,36 @@ export interface SpecSourceState<Schema = DatabaseSchemaDefinition> {
 
 /** Converts internal query state to a serializable QuerySpec. */
 export function stateToSpec<Schema = DatabaseSchemaDefinition>(state: SpecSourceState<Schema>): QuerySpec<Schema> {
-  const columns: (string | { column: string; agg?: string; alias?: string })[] = [];
+  const columns: QuerySpec<Schema>["columns"] = [];
   const keys =
     state.orderedProjectionKeys.length > 0 ? state.orderedProjectionKeys : Object.keys(state.selectedColumns);
 
   for (const k of keys) {
     const col = state.selectedColumns[k];
     if (col) {
-      if (col.aggregate || col.alias) {
+      const hasExtra = Boolean(
+        col.aggregate ||
+          col.alias ||
+          col.timeGrain ||
+          col.metric !== undefined ||
+          col.rawExpression ||
+          col.caseWhen,
+      );
+      if (hasExtra) {
+        const isSyntheticCalc =
+          k.startsWith("__calc_") && !col.aggregate && !col.timeGrain && col.metric === undefined;
         columns.push({
-          column: `${col.table}.${col.name}`,
-          agg: col.aggregate || undefined,
-          alias: col.alias || undefined,
+          ...(isSyntheticCalc && (col.rawExpression || col.caseWhen)
+            ? {}
+            : { column: `${col.table}.${col.name}` }),
+          ...(col.aggregate ? { agg: col.aggregate } : {}),
+          ...(col.alias ? { alias: col.alias } : {}),
+          ...(col.timeGrain ? { time_grain: col.timeGrain } : {}),
+          ...(col.metric !== undefined ? { metric: col.metric } : {}),
+          ...(col.rawExpression
+            ? { expression: col.rawExpression, raw_expression: col.rawExpression }
+            : {}),
+          ...(col.caseWhen ? { case_when: col.caseWhen } : {}),
         });
       } else {
         columns.push(`${col.table}.${col.name}`);
@@ -288,7 +306,7 @@ export function stateToSpec<Schema = DatabaseSchemaDefinition>(state: SpecSource
   // Resolve combiners ONCE so per-filter combiners and the aggregate filter_join always agree.
   const resolvedCombiners = resolveFilterCombiners(state.filters || []);
   const hasOrFilter = resolvedCombiners.hasOr;
-  const filters = (state.filters || []).map((f, i) => ({
+  const filters: QuerySpec<Schema>["filters"] = (state.filters || []).map((f, i) => ({
     column: f.column,
     op: f.operator,
     value: f.value,
@@ -296,6 +314,9 @@ export function stateToSpec<Schema = DatabaseSchemaDefinition>(state: SpecSource
     // With any OR present every filter states its combiner (see compileVisualState); AND-only
     // specs carry none, which keeps their round-trip exact.
     ...(hasOrFilter ? { combiner: resolvedCombiners.combiners[i] } : {}),
+    ...(f.rawExpression ? { rawExpression: f.rawExpression } : {}),
+    ...(f.parenOpen ? { parenOpen: f.parenOpen } : {}),
+    ...(f.parenClose ? { parenClose: f.parenClose } : {}),
   }));
 
   const order_by = (state.sorts || []).map((s) => ({
@@ -387,7 +408,7 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
     const selected: Record<string, VisualColumnSelect<Schema>> = {};
     const keys: string[] = [];
 
-    for (const c of s.columns) {
+    s.columns.forEach((c, idx) => {
       if (typeof c === "string") {
         const parts = c.split(".");
         const table = parts.length > 1 ? parts[0] : primary;
@@ -395,12 +416,17 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
         const key = `${table}.${col}`;
         selected[key] = { table: table as SchemaTableNames<Schema>, name: col };
         keys.push(key);
-      } else if (c && typeof c === "object" && typeof c.column === "string") {
+      } else if (c && typeof c === "object" && typeof c.column === "string" && c.column.length > 0) {
         const parts = c.column.split(".");
         const table = parts.length > 1 ? parts[0] : primary;
         const col = parts.length > 1 ? parts.slice(1).join(".") : parts[0];
-        const rawExpr = c.raw_expression || c.rawExpression;
-        const key = rawExpr ? `raw_${keys.length + 1}` : `${table}.${col}`;
+        const rawExpr = c.raw_expression || c.rawExpression || c.expression;
+        const caseWhen = c.case_when || c.caseWhen;
+        const key = rawExpr
+          ? `raw_${keys.length + 1}`
+          : caseWhen
+            ? `__calc_${c.alias || idx}`
+            : `${table}.${col}`;
         selected[key] = {
           table: table as SchemaTableNames<Schema>,
           name: col,
@@ -409,10 +435,29 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
           timeGrain: (c.time_grain || c.timeGrain) as TimeGrain | undefined,
           metric: c.metric,
           rawExpression: rawExpr,
+          caseWhen,
         };
         keys.push(key);
+      } else if (c && typeof c === "object") {
+        const rawExpr = c.raw_expression || c.rawExpression || c.expression;
+        const caseWhen = c.case_when || c.caseWhen;
+        const tg = (c.time_grain || c.timeGrain) as TimeGrain | undefined;
+        if (rawExpr || caseWhen || tg || c.metric !== undefined) {
+          const key = `__calc_${c.alias || idx}`;
+          selected[key] = {
+            table: primary as SchemaTableNames<Schema>,
+            name: c.alias || `calc_${idx}`,
+            aggregate: (c.agg as VisualColumnSelect["aggregate"]) || undefined,
+            alias: c.alias,
+            timeGrain: tg,
+            metric: c.metric,
+            rawExpression: rawExpr,
+            caseWhen,
+          };
+          keys.push(key);
+        }
       }
-    }
+    });
     partial.selectedColumns = selected;
     partial.orderedProjectionKeys = keys;
   }
@@ -463,6 +508,8 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
         prefix = parts[0];
         col = parts.slice(1).join(".");
       }
+      const parenOpen = f.paren_open || f.parenOpen;
+      const parenClose = f.paren_close || f.parenClose;
       return {
         id: f.id || `filter_${idx + 1}`,
         combiner: normalizeCombiner(f.combiner, specFilterJoin),
@@ -471,6 +518,8 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
         operator: (f.operator || f.op || "=").toUpperCase() === "RAW" ? "RAW" : f.operator || f.op || "=",
         value: f.value ?? "",
         rawExpression: f.raw_expression || f.rawExpression,
+        ...(parenOpen ? { parenOpen } : {}),
+        ...(parenClose ? { parenClose } : {}),
       };
     });
   }
@@ -569,7 +618,7 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
   } else if (Array.isArray(s.columns)) {
     const newSelected: Record<string, VisualColumnSelect<Schema>> = {};
     const newKeys: string[] = [];
-    s.columns.forEach((colItem) => {
+    s.columns.forEach((colItem, idx) => {
       if (!colItem || colItem === "*") return;
       if (typeof colItem === "string") {
         let tbl = pTable as string;
@@ -590,14 +639,39 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
           tbl = col.substring(0, lastDot);
           col = col.substring(lastDot + 1);
         }
-        const key = `${tbl}.${col}`;
+        const rawExpr = colItem.raw_expression || colItem.rawExpression || colItem.expression;
+        const caseWhen = colItem.case_when || colItem.caseWhen;
+        const tg = (colItem.time_grain || colItem.timeGrain) as TimeGrain | undefined;
+        const key = rawExpr || caseWhen ? `__calc_${colItem.alias || idx}` : `${tbl}.${col}`;
         newSelected[key] = {
           table: tbl as SchemaTableNames<Schema>,
           name: col,
           aggregate: colItem.agg ? (colItem.agg.toUpperCase() as VisualColumnSelect<Schema>["aggregate"]) : undefined,
           alias: colItem.alias,
+          ...(tg ? { timeGrain: tg } : {}),
+          ...(colItem.metric !== undefined ? { metric: colItem.metric } : {}),
+          ...(rawExpr ? { rawExpression: rawExpr } : {}),
+          ...(caseWhen ? { caseWhen } : {}),
         };
         newKeys.push(key);
+      } else if (typeof colItem === "object") {
+        const rawExpr = colItem.raw_expression || colItem.rawExpression || colItem.expression;
+        const caseWhen = colItem.case_when || colItem.caseWhen;
+        const tg = (colItem.time_grain || colItem.timeGrain) as TimeGrain | undefined;
+        if (rawExpr || caseWhen || tg || colItem.metric !== undefined) {
+          const key = `__calc_${colItem.alias || idx}`;
+          newSelected[key] = {
+            table: pTable,
+            name: colItem.alias || `calc_${idx}`,
+            aggregate: colItem.agg ? (colItem.agg.toUpperCase() as VisualColumnSelect<Schema>["aggregate"]) : undefined,
+            alias: colItem.alias,
+            ...(tg ? { timeGrain: tg } : {}),
+            ...(colItem.metric !== undefined ? { metric: colItem.metric } : {}),
+            ...(rawExpr ? { rawExpression: rawExpr } : {}),
+            ...(caseWhen ? { caseWhen } : {}),
+          };
+          newKeys.push(key);
+        }
       }
     });
     patch.selectedColumns = newSelected;
@@ -644,6 +718,9 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
   if (Array.isArray(s.filters)) {
     patch.filters = s.filters.map((f, idx): VisualFilter<Schema> => {
       const op = (f.operator || f.op || "=").toUpperCase().replace(/_/g, " ");
+      const rawExpr = f.raw_expression || f.rawExpression;
+      const parenOpen = f.paren_open || f.parenOpen;
+      const parenClose = f.paren_close || f.parenClose;
       return {
         id: f.id || `filter_${idx + 1}`,
         tablePrefix: (f.tablePrefix || f.table || pTable) as SchemaTableNames<Schema>,
@@ -651,6 +728,9 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
         operator: op,
         value: f.value ?? "",
         combiner: normalizeCombiner(f.combiner, specFilterJoin),
+        ...(rawExpr ? { rawExpression: rawExpr } : {}),
+        ...(parenOpen ? { parenOpen } : {}),
+        ...(parenClose ? { parenClose } : {}),
       };
     });
   }

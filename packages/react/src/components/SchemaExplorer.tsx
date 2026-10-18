@@ -40,7 +40,20 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
     }
     if (propTheme === "light") return lightTheme;
     if (propTheme === "dark") return darkTheme;
-    return contextTheme;
+    return {
+      ...contextTheme,
+      colors: {
+        ...contextTheme.colors,
+        background: `var(--qb-color-background, ${contextTheme.colors.background})`,
+        surface: `var(--qb-color-surface, ${contextTheme.colors.surface})`,
+        surfaceHover: `var(--qb-color-surface-hover, ${contextTheme.colors.surfaceHover})`,
+        surfaceActive: `var(--qb-color-surface-active, ${contextTheme.colors.surfaceActive})`,
+        text: `var(--qb-color-text, ${contextTheme.colors.text})`,
+        textSecondary: `var(--qb-color-text-secondary, ${contextTheme.colors.textSecondary})`,
+        textMuted: `var(--qb-color-text-muted, ${contextTheme.colors.textMuted})`,
+        border: `var(--qb-color-border, ${contextTheme.colors.border})`,
+      },
+    };
   }, [propTheme, contextTheme]);
 
   const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);

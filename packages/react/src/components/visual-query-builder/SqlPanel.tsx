@@ -31,6 +31,15 @@ export function SqlPanel({
   classNames,
 }: SqlPanelProps) {
   const isSynced = isRawMode ? Boolean(parseSqlToSpec(rawSql, schema)) : false;
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopySql = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(currentSql);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <div
@@ -99,7 +108,7 @@ export function SqlPanel({
         >
           Live SQL Code Editor
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
           {isRawMode && (
             <span
               data-qb="sql-sync-badge"
@@ -125,6 +134,28 @@ export function SqlPanel({
                 : "Custom Raw SQL (Visual Canvas Unsynced)"}
             </span>
           )}
+          <button
+            type="button"
+            aria-label="Copy SQL"
+            data-qb="btn-copy-sql"
+            onClick={handleCopySql}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: "rgba(59, 130, 246, 0.15)",
+                    border: "1px solid rgba(59, 130, 246, 0.35)",
+                    borderRadius: "4px",
+                    padding: "2px 8px",
+                    color: theme.colors.primary,
+                    cursor: "pointer",
+                    fontSize: theme.typography.fontSizeXs,
+                    fontWeight: 600,
+                  }
+            }
+          >
+            {copied ? "✓ Copied" : "📋 Copy SQL"}
+          </button>
           <button
             type="button"
             aria-label="Sync with visual canvas"
