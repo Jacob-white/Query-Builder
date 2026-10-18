@@ -32,7 +32,9 @@ ALLOWED_OPERATORS = [
     "NOT IN",
     "IN",
     "BETWEEN",
+    "NOT ILIKE",
     "ILIKE",
+    "NOT LIKE",
     "LIKE",
     "STARTS_WITH",
     "ENDS_WITH",
@@ -691,7 +693,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         else:
             clause_map[curr.keyword] = content
 
-    # 1. Primary Table (FROM)
+    # 1. Primary Table (FROM) & Table Alias Map
     from_content = clause_map.get("FROM")
     if not from_content:
         return None
@@ -700,6 +702,31 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
     primary_table = clean_identifier(from_tokens[0])
     if not primary_table:
         return None
+
+    alias_to_table: dict[str, str] = {}
+    if len(from_tokens) >= 2:
+        from_alias = clean_identifier(from_tokens[-1])
+        if from_alias and from_alias.upper() != "AS":
+            alias_to_table[from_alias] = primary_table
+
+    for jc in join_clauses:
+        on_idx = jc["content"].upper().find(" ON ")
+        if on_idx != -1:
+            table_part = jc["content"][:on_idx].strip()
+            target_tokens = table_part.split()
+            if target_tokens:
+                t_name = clean_identifier(target_tokens[0])
+                if len(target_tokens) >= 2:
+                    t_alias = clean_identifier(target_tokens[-1])
+                    if t_alias and t_alias.upper() != "AS":
+                        alias_to_table[t_alias] = t_name
+
+    def _resolve_col_alias(col_ident: str) -> str:
+        if "." in col_ident:
+            prefix, rest = col_ident.split(".", 1)
+            if prefix in alias_to_table:
+                return f"{alias_to_table[prefix]}.{rest}"
+        return col_ident
 
     # 2. Projections & DISTINCT (SELECT)
     select_content = clause_map.get("SELECT", "")
@@ -726,7 +753,10 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 func_name = win_match.func.upper()
                 args_str = win_match.args.strip()
                 args = (
-                    [clean_identifier(a.strip()) for a in args_str.split(",")]
+                    [
+                        _resolve_col_alias(clean_identifier(a.strip()))
+                        for a in args_str.split(",")
+                    ]
                     if args_str
                     else []
                 )
@@ -743,7 +773,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 )
                 if p_match is not None:
                     partition_by = [
-                        clean_identifier(c.strip())
+                        _resolve_col_alias(clean_identifier(c.strip()))
                         for c in p_match.split(",")
                         if c.strip()
                     ]
@@ -754,14 +784,19 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     order_chunks = split_top_level(o_match.strip(), r"^,")
                     for oc in order_chunks:
                         parts = oc["value"].strip().split()
-                        col_s = clean_identifier(parts[0])
-                        direction = (
-                            parts[1].lower()
-                            if len(parts) > 1 and parts[1].upper() == "DESC"
-                            else "asc"
-                        )
+                        col_s = _resolve_col_alias(clean_identifier(parts[0]))
+                        upper_parts = [p.upper() for p in parts[1:]]
+                        direction = "desc" if "DESC" in upper_parts else "asc"
+                        win_nulls: str | None = None
+                        for p_idx, up in enumerate(upper_parts):
+                            if up == "NULLS" and p_idx + 1 < len(upper_parts):
+                                if upper_parts[p_idx + 1] in ("FIRST", "LAST"):
+                                    win_nulls = upper_parts[p_idx + 1]
+                                    break
                         order_by_specs.append(
-                            OrderBySpec(column=col_s, direction=direction)
+                            OrderBySpec(
+                                column=col_s, direction=direction, nulls=win_nulls
+                            )
                         )
 
                 window_functions.append(
@@ -779,8 +814,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             date_trunc_match = _DATE_TRUNC_RE.match(col_expr)
             if date_trunc_match:
                 grain = date_trunc_match.group(1).lower()
-                inner_col = clean_identifier(
-                    _arg_after_comma(date_trunc_match.group(2))
+                inner_col = _resolve_col_alias(
+                    clean_identifier(_arg_after_comma(date_trunc_match.group(2)))
                 )
                 alias = (
                     clean_identifier(date_trunc_match.group(3))
@@ -796,8 +831,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             datetrunc_mssql_match = _DATETRUNC_RE.match(col_expr)
             if datetrunc_mssql_match:
                 grain = datetrunc_mssql_match.group(1).lower()
-                inner_col = clean_identifier(
-                    _arg_after_comma(datetrunc_mssql_match.group(2))
+                inner_col = _resolve_col_alias(
+                    clean_identifier(_arg_after_comma(datetrunc_mssql_match.group(2)))
                 )
                 alias = (
                     clean_identifier(datetrunc_mssql_match.group(3))
@@ -817,7 +852,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 filter_agg_match = None
             if filter_agg_match:
                 agg_name = filter_agg_match.group(1).upper()
-                inner_col = clean_identifier(_agg_argument(filter_agg_match.group(2)))
+                inner_col = _resolve_col_alias(
+                    clean_identifier(_agg_argument(filter_agg_match.group(2)))
+                )
                 alias = (
                     clean_identifier(filter_agg_match.group(4))
                     if filter_agg_match.group(4)
@@ -842,7 +879,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     r"^DISTINCT\b", inner_raw, re.IGNORECASE
                 ):
                     agg_name = "count_distinct"
-                inner_col = clean_identifier(_agg_argument(agg_match.group(2)))
+                inner_col = _resolve_col_alias(
+                    clean_identifier(_agg_argument(agg_match.group(2)))
+                )
                 alias = (
                     clean_identifier(agg_match.group(3)) if agg_match.group(3) else None
                 )
@@ -859,7 +898,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 re.IGNORECASE,
             )
             if col_alias_match and "(" not in col_expr and ")" not in col_expr:
-                col_name = clean_identifier(col_alias_match.group(1))
+                col_name = _resolve_col_alias(
+                    clean_identifier(col_alias_match.group(1))
+                )
                 alias = (
                     clean_identifier(col_alias_match.group(2))
                     if col_alias_match.group(2)
@@ -914,8 +955,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         right_col = "id"
 
         if on_match:
-            left_expr = clean_identifier(on_match.group(1))
-            right_expr = clean_identifier(on_match.group(2))
+            left_expr = _resolve_col_alias(clean_identifier(on_match.group(1)))
+            right_expr = _resolve_col_alias(clean_identifier(on_match.group(2)))
 
             l_parts = left_expr.split(".")
             r_parts = right_expr.split(".")
@@ -970,7 +1011,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             found_op = find_top_level_operator(cond_str)
             if found_op:
                 matched_op, op_index, op_length = found_op
-                col_str = clean_identifier(cond_str[:op_index].strip())
+                col_str = _resolve_col_alias(
+                    clean_identifier(cond_str[:op_index].strip())
+                )
                 after_op = cond_str[op_index + op_length :].strip()
 
                 val: Any = ""
@@ -1026,12 +1069,15 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         sort_chunks = split_top_level(order_content, r"^,")
         for sc in sort_chunks:
             parts = sc["value"].strip().split()
-            col_str = clean_identifier(parts[0])
-            dir_str = (
-                parts[1].lower()
-                if len(parts) > 1 and parts[1].upper() == "DESC"
-                else "asc"
-            )
+            col_str = _resolve_col_alias(clean_identifier(parts[0]))
+            upper_parts = [p.upper() for p in parts[1:]]
+            dir_str = "desc" if "DESC" in upper_parts else "asc"
+            nulls_val: str | None = None
+            for p_idx, up in enumerate(upper_parts):
+                if up == "NULLS" and p_idx + 1 < len(upper_parts):
+                    if upper_parts[p_idx + 1] in ("FIRST", "LAST"):
+                        nulls_val = upper_parts[p_idx + 1]
+                        break
 
             col_parts = col_str.split(".")
             table_prefix = primary_table
@@ -1045,6 +1091,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     column=col_name,
                     direction=dir_str,
                     table_prefix=table_prefix,
+                    nulls=nulls_val,
                 )
             )
 

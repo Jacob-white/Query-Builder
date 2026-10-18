@@ -231,6 +231,54 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["active_tables", "target_table"],
         },
     },
+    {
+        "name": "query_builder_parse_sql",
+        "description": "Parses a raw read-only SQL SELECT statement back into a declarative QuerySpec dictionary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "Raw SQL SELECT query string to parse into QuerySpec.",
+                },
+                "dialect": {
+                    "type": "string",
+                    "description": "SQL dialect (default: 'postgres').",
+                    "default": "postgres",
+                },
+            },
+            "required": ["sql"],
+        },
+    },
+    {
+        "name": "query_builder_check_columns",
+        "description": "Validates every column referenced in a QuerySpec against a schema snapshot and returns unknown (table, column) pairs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "spec": _SPEC_SCHEMA,
+                "schema": {
+                    "type": "object",
+                    "description": "Database schema snapshot dictionary.",
+                },
+            },
+            "required": ["spec", "schema"],
+        },
+    },
+    {
+        "name": "query_builder_audit_schema",
+        "description": "Audits a database schema snapshot for unlinked ID columns and missing table/column descriptions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "schema": {
+                    "type": "object",
+                    "description": "Database schema snapshot dictionary.",
+                },
+            },
+            "required": ["schema"],
+        },
+    },
 ]
 
 
@@ -312,10 +360,10 @@ class McpServer:
             else:
                 snapshot = connector.introspect_schema(filter_sensitive=True)
 
-            if is_dataclass(snapshot) and not isinstance(snapshot, type):
-                snap_dict = asdict(snapshot)
-            elif hasattr(snapshot, "to_dict"):
+            if hasattr(snapshot, "to_dict"):
                 snap_dict = snapshot.to_dict()
+            elif is_dataclass(snapshot) and not isinstance(snapshot, type):
+                snap_dict = asdict(snapshot)
             elif isinstance(snapshot, dict):
                 snap_dict = snapshot
             else:
@@ -572,10 +620,10 @@ class McpServer:
                     filter_sensitive=filter_sensitive
                 )
 
-            if is_dataclass(snapshot) and not isinstance(snapshot, type):
-                snap_dict = asdict(snapshot)
-            elif hasattr(snapshot, "to_dict"):
+            if hasattr(snapshot, "to_dict"):
                 snap_dict = snapshot.to_dict()
+            elif is_dataclass(snapshot) and not isinstance(snapshot, type):
+                snap_dict = asdict(snapshot)
             elif isinstance(snapshot, dict):
                 snap_dict = snapshot
             else:
@@ -698,6 +746,48 @@ class McpServer:
                 "active_tables": active_tables,
                 "target_table": target_table,
             }
+
+        if name == "query_builder_parse_sql":
+            from query_builder.parser import parse_sql_to_dict
+
+            sql_str = str(args.get("sql") or "")
+            dialect = str(args.get("dialect") or "postgres")
+            parsed_spec = parse_sql_to_dict(sql_str, dialect=dialect)
+            if parsed_spec is None:
+                raise QueryBuilderError(
+                    "Unable to parse SQL statement into a valid SELECT QuerySpec."
+                )
+            return {"spec": parsed_spec, "dialect": dialect}
+
+        if name == "query_builder_check_columns":
+            from query_builder.spec_check import SpecColumnError, check_columns
+
+            spec = args.get("spec", {})
+            schema_data = args.get("schema", {})
+            if isinstance(spec, str):
+                spec = json.loads(spec)
+            if isinstance(schema_data, str):
+                schema_data = json.loads(schema_data)
+            try:
+                check_columns(spec, schema_data)
+                return {"valid": True, "error": None}
+            except SpecColumnError as exc:
+                return {
+                    "valid": False,
+                    "error": str(exc),
+                    "column": exc.column,
+                    "table": exc.table,
+                    "suggestions": list(exc.suggestions),
+                }
+
+        if name == "query_builder_audit_schema":
+            from query_builder.schema_audit import audit_schema
+
+            schema_data = args.get("schema", {})
+            if isinstance(schema_data, str):
+                schema_data = json.loads(schema_data)
+            report = audit_schema(schema_data)
+            return report.to_dict()
 
         raise QueryBuilderError(f"Unknown tool name: '{name}'")
 

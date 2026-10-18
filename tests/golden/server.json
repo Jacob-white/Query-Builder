@@ -2163,7 +2163,8 @@
    "content-type": "text/event-stream",
    "cache-control": "no-cache",
    "access-control-allow-origin": "*",
-   "access-control-allow-headers": "Content-Type, Authorization"
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
   },
   "body": "event: metadata\ndata: {\"columns\": [\"id\", \"name\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\", \\\"t1\\\".\\\"name\\\" AS \\\"name\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}], \"batch_index\": 0, \"batch_size\": 2}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 3, \"name\": \"Cy\"}], \"batch_index\": 1, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
@@ -2173,7 +2174,8 @@
    "content-type": "text/event-stream",
    "cache-control": "no-cache",
    "access-control-allow-origin": "*",
-   "access-control-allow-headers": "Content-Type, Authorization"
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
   },
   "body": "event: metadata\ndata: {\"columns\": [\"a\"], \"total_estimated\": 1, \"dialect\": \"sqlite\", \"sql\": \"SELECT 1 AS a\"}\n\nevent: batch\ndata: {\"rows\": [{\"a\": 1}], \"batch_index\": 0, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 1, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
@@ -2231,7 +2233,8 @@
    "content-type": "text/event-stream",
    "cache-control": "no-cache",
    "access-control-allow-origin": "*",
-   "access-control-allow-headers": "Content-Type, Authorization"
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
   },
   "body": "event: metadata\ndata: {\"columns\": [\"id\", \"name\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\", \\\"t1\\\".\\\"name\\\" AS \\\"name\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}], \"batch_index\": 0, \"batch_size\": 2}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 3, \"name\": \"Cy\"}], \"batch_index\": 1, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
@@ -2241,7 +2244,8 @@
    "content-type": "text/event-stream",
    "cache-control": "no-cache",
    "access-control-allow-origin": "*",
-   "access-control-allow-headers": "Content-Type, Authorization"
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
   },
   "body": "event: metadata\ndata: {\"columns\": [\"a\"], \"total_estimated\": 1, \"dialect\": \"sqlite\", \"sql\": \"SELECT 1 AS a\"}\n\nevent: batch\ndata: {\"rows\": [{\"a\": 1}], \"batch_index\": 0, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 1, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
@@ -2299,14 +2303,21 @@
    "content-type": "text/event-stream",
    "cache-control": "no-cache",
    "access-control-allow-origin": "*",
-   "access-control-allow-headers": "Content-Type, Authorization"
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
   },
   "body": "event: metadata\ndata: {\"columns\": [\"id\"], \"total_estimated\": 3, \"dialect\": \"sqlite\", \"sql\": \"SELECT \\\"t1\\\".\\\"id\\\" AS \\\"id\\\"\\nFROM \\\"users\\\" \\\"t1\\\"\\nLIMIT ? OFFSET ?\"}\n\nevent: batch\ndata: {\"rows\": [{\"id\": 1}, {\"id\": 2}, {\"id\": 3}], \"batch_index\": 0, \"batch_size\": 3}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 3, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
  "stream_batch_bad": {
-  "status": "disconnected",
-  "headers": {},
-  "body": null
+  "status": 200,
+  "headers": {
+   "content-type": "text/event-stream",
+   "cache-control": "no-cache",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID"
+  },
+  "body": "event: metadata\ndata: {\"columns\": [\"1\"], \"total_estimated\": 1, \"dialect\": \"sqlite\", \"sql\": \"SELECT 1\"}\n\nevent: batch\ndata: {\"rows\": [{\"1\": 1}], \"batch_index\": 0, \"batch_size\": 1}\n\nevent: stats\ndata: {\"elapsed_ms\": <V>, \"rows_received\": 1, \"cache_hit\": false}\n\nevent: done\ndata: {\"status\": \"complete\"}\n\n"
  },
  "stream_tenant": {
   "status": 400,
@@ -2861,6 +2872,8 @@
    "content-disposition": "attachment; filename=\"export.csv\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "id,name\n1,\"a,b\"\n2,c\n"
@@ -2872,6 +2885,8 @@
    "content-disposition": "attachment; filename=\"export.json\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "[\n  {\"id\": 1, \"name\": \"a,b\"}\n  ,{\"id\": 2, \"name\": \"c\"}\n]\n"
@@ -2883,6 +2898,8 @@
    "content-disposition": "attachment; filename=\"export.jsonl\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "{\"id\": 1, \"name\": \"a,b\"}\n{\"id\": 2, \"name\": \"c\"}\n"
@@ -2904,14 +2921,24 @@
    "content-disposition": "attachment; filename=\"export.csv\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "id,name\n1,\"a,b\"\n2,c\n"
  },
  "export_stream_chunk_bad": {
-  "status": "disconnected",
-  "headers": {},
-  "body": null
+  "status": 200,
+  "headers": {
+   "content-type": "text/csv; charset=utf-8",
+   "content-disposition": "attachment; filename=\"export.csv\"",
+   "transfer-encoding": "chunked",
+   "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
+   "access-control-expose-headers": "Content-Disposition"
+  },
+  "body": "id,name\n1,\"a,b\"\n2,c\n"
  },
  "export_stream_spec": {
   "status": 200,
@@ -2920,6 +2947,8 @@
    "content-disposition": "attachment; filename=\"export.csv\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "id\n1\n2\n3\n"
@@ -2931,6 +2960,8 @@
    "content-disposition": "attachment; filename=\"export.csv\"",
    "transfer-encoding": "chunked",
    "access-control-allow-origin": "*",
+   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+   "access-control-allow-headers": "Content-Type, Authorization, X-Tenant-ID",
    "access-control-expose-headers": "Content-Disposition"
   },
   "body": "id\n2\n3\n"

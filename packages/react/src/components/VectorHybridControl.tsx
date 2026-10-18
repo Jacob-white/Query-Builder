@@ -95,6 +95,43 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
   const [alpha, setAlpha] = useState<number>(hybridSearch?.alpha ?? 0.5);
   const [rrfK, setRrfK] = useState<number>(hybridSearch?.rrf_k ?? 60);
 
+  // Sync state when external vectorSearch / hybridSearch props change (e.g. Undo/Redo, loadSpec, clear)
+  const prevPropsRef = React.useRef({ vectorSearch, hybridSearch });
+  React.useEffect(() => {
+    if (
+      prevPropsRef.current.vectorSearch === vectorSearch &&
+      prevPropsRef.current.hybridSearch === hybridSearch
+    ) {
+      return;
+    }
+    prevPropsRef.current = { vectorSearch, hybridSearch };
+    if (hybridSearch) {
+      setMode("hybrid");
+      setVectorColumn(hybridSearch.vector_column || defaultVectorCol);
+      setVectorInput(
+        hybridSearch.vector ? JSON.stringify(hybridSearch.vector) : "[0.12, 0.45, -0.23, 0.88, 0.05]"
+      );
+      setMetric(hybridSearch.metric || "cosine");
+      setTopK(hybridSearch.top_k || 10);
+      setQueryText(hybridSearch.query_text || "");
+      setTextColumns(hybridSearch.text_columns || [defaultTextCol]);
+      setFusion(hybridSearch.fusion || "rrf");
+      setAlpha(hybridSearch.alpha ?? 0.5);
+      setRrfK(hybridSearch.rrf_k ?? 60);
+    } else if (vectorSearch) {
+      setMode("vector");
+      setVectorColumn(vectorSearch.column || defaultVectorCol);
+      setVectorInput(
+        vectorSearch.vector ? JSON.stringify(vectorSearch.vector) : "[0.12, 0.45, -0.23, 0.88, 0.05]"
+      );
+      setMetric(vectorSearch.metric || "cosine");
+      setTopK(vectorSearch.top_k || 10);
+      setIncludeDistances(vectorSearch.include_distances ?? true);
+    } else {
+      setMode("off");
+    }
+  }, [vectorSearch, hybridSearch, defaultVectorCol, defaultTextCol]);
+
   // Parse vector string safely
   const parseVector = (str: string): number[] => {
     try {
@@ -148,29 +185,51 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
     }
   };
 
-  const notifyChange = () => {
-    const vec = parseVector(vectorInput);
+  const emitChange = (overrides: {
+    vectorColumn?: string;
+    vectorInput?: string;
+    metric?: "cosine" | "euclidean" | "l2" | "dot_product" | "inner_product";
+    topK?: number;
+    includeDistances?: boolean;
+    queryText?: string;
+    textColumns?: string[];
+    fusion?: "rrf" | "linear";
+    alpha?: number;
+    rrfK?: number;
+  }) => {
+    const nextVectorCol = overrides.vectorColumn ?? vectorColumn;
+    const nextVectorInput = overrides.vectorInput ?? vectorInput;
+    const nextMetric = overrides.metric ?? metric;
+    const nextTopK = overrides.topK ?? topK;
+    const nextIncludeDist = overrides.includeDistances ?? includeDistances;
+    const nextQueryText = overrides.queryText ?? queryText;
+    const nextTextCols = overrides.textColumns ?? textColumns;
+    const nextFusion = overrides.fusion ?? fusion;
+    const nextAlpha = overrides.alpha ?? alpha;
+    const nextRrfK = overrides.rrfK ?? rrfK;
+
+    const vec = parseVector(nextVectorInput);
     const validVec = vec.length > 0 ? vec : [0.1, 0.2, 0.3];
     if (mode === "vector") {
       onVectorChange({
-        column: vectorColumn,
+        column: nextVectorCol,
         vector: validVec,
-        metric,
-        top_k: topK,
-        include_distances: includeDistances,
+        metric: nextMetric,
+        top_k: nextTopK,
+        include_distances: nextIncludeDist,
         min_score: minScore,
       });
     } else if (mode === "hybrid") {
       onHybridChange({
-        vector_column: vectorColumn,
+        vector_column: nextVectorCol,
         vector: validVec,
-        query_text: queryText,
-        text_columns: textColumns.length > 0 ? textColumns : [defaultTextCol],
-        alpha,
-        fusion,
-        rrf_k: rrfK,
-        top_k: topK,
-        metric,
+        query_text: nextQueryText,
+        text_columns: nextTextCols.length > 0 ? nextTextCols : [defaultTextCol],
+        alpha: nextAlpha,
+        fusion: nextFusion,
+        rrf_k: nextRrfK,
+        top_k: nextTopK,
+        metric: nextMetric,
         include_scores: true,
       });
     }
@@ -188,30 +247,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
     );
     const str = JSON.stringify(normalized);
     setVectorInput(str);
-    const validVec = normalized;
-    if (mode === "vector") {
-      onVectorChange({
-        column: vectorColumn,
-        vector: validVec,
-        metric,
-        top_k: topK,
-        include_distances: includeDistances,
-        min_score: minScore,
-      });
-    } else if (mode === "hybrid") {
-      onHybridChange({
-        vector_column: vectorColumn,
-        vector: validVec,
-        query_text: queryText,
-        text_columns: textColumns.length > 0 ? textColumns : [defaultTextCol],
-        alpha,
-        fusion,
-        rrf_k: rrfK,
-        top_k: topK,
-        metric,
-        include_scores: true,
-      });
-    }
+    emitChange({ vectorInput: str });
   };
 
   const toggleTextColumn = (col: string) => {
@@ -223,21 +259,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
       next = [...textColumns, col];
     }
     setTextColumns(next);
-    if (mode === "hybrid") {
-      const vec = parseVector(vectorInput);
-      onHybridChange({
-        vector_column: vectorColumn,
-        vector: vec.length > 0 ? vec : [0.1, 0.2, 0.3],
-        query_text: queryText,
-        text_columns: next,
-        alpha,
-        fusion,
-        rrf_k: rrfK,
-        top_k: topK,
-        metric,
-        include_scores: true,
-      });
-    }
+    emitChange({ textColumns: next });
   };
 
   return (
@@ -370,8 +392,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                 data-qb="vector-column-select"
                 value={vectorColumn}
                 onChange={(e) => {
-                  setVectorColumn(e.target.value);
-                  setTimeout(notifyChange, 0);
+                  const nextCol = e.target.value;
+                  setVectorColumn(nextCol);
+                  emitChange({ vectorColumn: nextCol });
                 }}
                 style={
                   unstyled
@@ -414,15 +437,14 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                 data-qb="metric-select"
                 value={metric}
                 onChange={(e) => {
-                  setMetric(
-                    e.target.value as
-                      | "cosine"
-                      | "euclidean"
-                      | "l2"
-                      | "dot_product"
-                      | "inner_product"
-                  );
-                  setTimeout(notifyChange, 0);
+                  const nextMetric = e.target.value as
+                    | "cosine"
+                    | "euclidean"
+                    | "l2"
+                    | "dot_product"
+                    | "inner_product";
+                  setMetric(nextMetric);
+                  emitChange({ metric: nextMetric });
                 }}
                 style={
                   unstyled
@@ -487,8 +509,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
               rows={2}
               value={vectorInput}
               onChange={(e) => {
-                setVectorInput(e.target.value);
-                setTimeout(notifyChange, 0);
+                const nextInput = e.target.value;
+                setVectorInput(nextInput);
+                emitChange({ vectorInput: nextInput });
               }}
               placeholder="[0.1, 0.4, -0.2, ...]"
               style={
@@ -533,7 +556,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                 onChange={(e) => {
                   const val = Math.max(1, parseInt(e.target.value) || 10);
                   setTopK(val);
-                  setTimeout(notifyChange, 0);
+                  emitChange({ topK: val });
                 }}
                 style={
                   unstyled
@@ -570,8 +593,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                 type="checkbox"
                 checked={includeDistances}
                 onChange={(e) => {
-                  setIncludeDistances(e.target.checked);
-                  setTimeout(notifyChange, 0);
+                  const checked = e.target.checked;
+                  setIncludeDistances(checked);
+                  emitChange({ includeDistances: checked });
                 }}
               />
               Include distance column (_distance)
@@ -632,8 +656,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   placeholder="e.g. distributed vector database clustering"
                   value={queryText}
                   onChange={(e) => {
-                    setQueryText(e.target.value);
-                    setTimeout(notifyChange, 0);
+                    const nextText = e.target.value;
+                    setQueryText(nextText);
+                    emitChange({ queryText: nextText });
                   }}
                   style={
                     unstyled
@@ -739,8 +764,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     data-qb="fusion-select"
                     value={fusion}
                     onChange={(e) => {
-                      setFusion(e.target.value as "rrf" | "linear");
-                      setTimeout(notifyChange, 0);
+                      const nextFusion = e.target.value as "rrf" | "linear";
+                      setFusion(nextFusion);
+                      emitChange({ fusion: nextFusion });
                     }}
                     style={
                       unstyled
@@ -786,7 +812,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       onChange={(e) => {
                         const val = Math.max(1, parseInt(e.target.value) || 60);
                         setRrfK(val);
-                        setTimeout(notifyChange, 0);
+                        emitChange({ rrfK: val });
                       }}
                       style={
                         unstyled
@@ -831,7 +857,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
                         setAlpha(val);
-                        setTimeout(notifyChange, 0);
+                        emitChange({ alpha: val });
                       }}
                       style={unstyled ? undefined : { width: "100%" }}
                     />

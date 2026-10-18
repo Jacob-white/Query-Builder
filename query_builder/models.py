@@ -366,12 +366,21 @@ class OrderBySpec:
     direction: str = "asc"  # asc, desc
     table_prefix: str | None = None
     table: str | None = None
+    nulls: str | None = None  # FIRST, LAST, NULLS FIRST, NULLS LAST
     id: str | None = None
     tablePrefix: InitVar[str | None] = None
 
     def __post_init__(self, tablePrefix: str | None = None) -> None:
         if tablePrefix is not None and self.table_prefix is None:
             self.table_prefix = tablePrefix
+        if self.nulls is not None:
+            norm = self.nulls.strip().upper()
+            if norm in ("FIRST", "NULLS FIRST"):
+                self.nulls = "FIRST"
+            elif norm in ("LAST", "NULLS LAST"):
+                self.nulls = "LAST"
+            else:
+                self.nulls = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -382,6 +391,8 @@ class OrderBySpec:
             d["table_prefix"] = self.table_prefix
         if self.table is not None:
             d["table"] = self.table
+        if self.nulls is not None:
+            d["nulls"] = self.nulls
         if self.id is not None:
             d["id"] = self.id
         return d

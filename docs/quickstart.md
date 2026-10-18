@@ -157,8 +157,9 @@ spec = {
     "joins": [
         {
             "table": "users",
-            "type": "LEFT JOIN",
-            "on": [{"left": "orders.user_id", "right": "users.id"}],
+            "type": "LEFT",
+            "left_col": "orders.user_id",
+            "right_col": "users.id",
         }
     ],
     "filters": [

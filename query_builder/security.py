@@ -1082,10 +1082,25 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
         return 0
 
     table = spec_dict.get("table")
-    if not table or not isinstance(table, str) or not table.strip():
+    if isinstance(table, (dict, QuerySpec)) or hasattr(table, "__dataclass_fields__"):
+        subq_tbl: Any = (
+            table.get("subquery", table)
+            if isinstance(table, dict) and "subquery" in table
+            else table
+        )
+        sub_score = (
+            calculate_ast_complexity(subq_tbl)
+            if isinstance(subq_tbl, (dict, QuerySpec))
+            or hasattr(subq_tbl, "__dataclass_fields__")
+            else 0
+        )
+        if sub_score == 0:
+            return 0
+        score = 5 + sub_score
+    elif isinstance(table, str) and table.strip():
+        score = 1  # Base query table
+    else:
         return 0
-
-    score = 1  # Base query table
 
     # Projections / columns
     for col in spec_dict.get("columns", []):
@@ -1121,8 +1136,18 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
         if str(op).lower() in ("like", "ilike", "regex", "matches"):
             score += 3
         val = flt.get("value") if isinstance(flt, dict) else getattr(flt, "value", None)
-        if isinstance(val, (dict, QuerySpec)):
-            score += 10 + calculate_ast_complexity(val)
+        subq = (
+            flt.get("subquery")
+            if isinstance(flt, dict)
+            else getattr(flt, "subquery", None)
+        )
+        target_subq = (
+            subq
+            if isinstance(subq, (dict, QuerySpec))
+            else (val if isinstance(val, (dict, QuerySpec)) else None)
+        )
+        if target_subq is not None:
+            score += 10 + calculate_ast_complexity(target_subq)
 
     # Group By
     group_by = spec_dict.get("group_by", [])
@@ -1143,12 +1168,21 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
     ctes = spec_dict.get("ctes") or spec_dict.get("subqueries") or []
     for cte in ctes:
         score += 10
-        if isinstance(cte, (dict, QuerySpec)):
+        if isinstance(cte, dict):
+            cte_query = cte.get("query") or cte
+            if isinstance(cte_query, (dict, QuerySpec)):
+                score += calculate_ast_complexity(cte_query)
+        elif isinstance(cte, QuerySpec):
             score += calculate_ast_complexity(cte)
+        elif hasattr(cte, "query"):
+            cte_query = getattr(cte, "query", None)
+            if isinstance(cte_query, (dict, QuerySpec)):
+                score += calculate_ast_complexity(cte_query)
 
     # Window functions
-    if spec_dict.get("window"):
-        score += 5
+    win_funcs = spec_dict.get("window_functions") or spec_dict.get("window")
+    if win_funcs:
+        score += 5 * len(win_funcs) if isinstance(win_funcs, list) else 5
 
     # Vector search
     if spec_dict.get("vector_search"):
@@ -1245,10 +1279,8 @@ def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
 
 def apply_column_masking(value: Any, strategy: str = "redact") -> Any:
     """
-    Applies data masking strategy ('redact', 'hash', 'partial') to a given value.
-    - 'redact': Replaces value with '[REDACTED]'.
-    - 'hash': Returns SHA-256 hex digest string.
-    - 'partial': Masks middle of the string (e.g. 'ab***yz').
+    Applies data masking strategy ('redact', 'hash', 'md5', 'sha256', 'null',
+    'partial', 'partial_email', 'partial_phone', 'last4') to a given value.
     """
     if value is None:
         return None
@@ -1256,9 +1288,14 @@ def apply_column_masking(value: Any, strategy: str = "redact") -> Any:
     strat = strategy.lower().strip()
     if strat == "redact":
         return "[REDACTED]"
-    if strat == "hash":
+    if strat == "null":
+        return None
+    if strat in ("hash", "sha256"):
         val_str = str(value)
         return hashlib.sha256(val_str.encode("utf-8")).hexdigest()
+    if strat == "md5":
+        val_str = str(value)
+        return hashlib.md5(val_str.encode("utf-8"), usedforsecurity=False).hexdigest()
     if strat == "partial":
         val_str = str(value)
         if len(val_str) <= 2:
@@ -1266,6 +1303,20 @@ def apply_column_masking(value: Any, strategy: str = "redact") -> Any:
         if len(val_str) <= 4:
             return f"{val_str[0]}***{val_str[-1]}"
         return f"{val_str[:2]}***{val_str[-2:]}"
+    if strat == "partial_email":
+        val_str = str(value)
+        if "@" in val_str:
+            local, domain = val_str.split("@", 1)
+            prefix = local[:2] if len(local) >= 2 else local[:1]
+            return f"{prefix}***@{domain}"
+        return f"{val_str[:2]}***@***" if len(val_str) >= 2 else "***@***"
+    if strat == "partial_phone":
+        val_str = str(value)
+        return f"***-***-{val_str[-4:]}" if len(val_str) >= 4 else "***"
+    if strat == "last4":
+        val_str = str(value)
+        return f"****{val_str[-4:]}" if len(val_str) >= 4 else "****"
     raise ValueError(
-        f"Unknown masking strategy: '{strategy}'. Supported strategies: 'redact', 'hash', 'partial'."
+        f"Unknown masking strategy: '{strategy}'. Supported strategies: "
+        "'redact', 'hash', 'md5', 'sha256', 'null', 'partial', 'partial_email', 'partial_phone', 'last4'."
     )

@@ -80,3 +80,35 @@ def test_committed_list_has_no_stale_entries() -> None:
         f"graduated modules still listed in docs/typing_baseline.txt: {stale}. "
         "Delete those lines to lock the gain in."
     )
+
+
+def test_every_module_is_covered() -> None:
+    strict_entries = set(_with_flag("disallow_untyped_defs"))
+    ignored_entries = set(_with_flag("ignore_errors"))
+    all_entries = strict_entries | ignored_entries
+
+    def _is_covered(mod_name: str) -> bool:
+        if mod_name in all_entries:
+            return True
+        parts = mod_name.split(".")
+        for i in range(1, len(parts)):
+            if ".".join(parts[:i]) + ".*" in all_entries:
+                return True
+        return False
+
+    pkg_dir = ROOT / "query_builder"
+    uncovered: list[str] = []
+    for py_file in sorted(pkg_dir.rglob("*.py")):
+        if "__pycache__" in py_file.parts:
+            continue
+        rel = py_file.relative_to(ROOT).with_suffix("")
+        parts = list(rel.parts)
+        if parts[-1] == "__init__":
+            parts.pop()
+        mod_name = ".".join(parts)
+        if not _is_covered(mod_name):
+            uncovered.append(mod_name)
+
+    assert not uncovered, (
+        f"Modules in query_builder/ not covered by strict mypy overrides: {uncovered}"
+    )

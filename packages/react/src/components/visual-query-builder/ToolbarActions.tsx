@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { FeatureTier, ResolvedFeatureMap, SqlDialect } from "../../types";
+import type { FeatureTier, ResolvedFeatureMap, SqlDialect, SqlPreset } from "../../types";
 import { FeatureSettingsPopover } from "./FeatureSettingsPopover";
 import type { ThemedProps } from "./types";
 
@@ -16,8 +16,8 @@ export interface ToolbarActionsProps extends Pick<ThemedProps, "unstyled" | "the
   onFeatureOverride: (key: string, tier: FeatureTier) => void;
   dialect: SqlDialect;
   onOpenTemplates: (mode: "library" | "save") => void;
-  presets: ReadonlyArray<{ id: string; title: string; sql?: string }>;
-  onSelectPreset: (sql: string) => void;
+  presets: ReadonlyArray<SqlPreset>;
+  onSelectPreset: (preset: SqlPreset) => void;
   readOnly: boolean;
   isRunning: boolean;
   isSafe: boolean;
@@ -259,10 +259,10 @@ export function ToolbarActions({
       {presets.length > 0 && (
         <select
           aria-label="Starter query presets"
-          defaultValue=""
+          value=""
           onChange={(e) => {
             const preset = presets.find((p) => p.id === e.target.value);
-            if (preset?.sql) onSelectPreset(preset.sql);
+            if (preset) onSelectPreset(preset);
           }}
           style={
             unstyled

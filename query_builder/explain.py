@@ -126,7 +126,8 @@ def estimate_plan_from_spec(
         spec_dict = {}
 
     table_name = spec_dict.get("table", "unknown_table")
-    limit = int(spec_dict.get("limit", 50))
+    raw_limit = spec_dict.get("limit")
+    limit = int(raw_limit) if raw_limit is not None else 50
     filters = spec_dict.get("filters", [])
     joins = spec_dict.get("joins", [])
     vector_search = spec_dict.get("vector_search")

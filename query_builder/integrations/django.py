@@ -215,10 +215,10 @@ def _filter_schema_tables(
 
 def _normalize_schema_snapshot(snapshot: Any) -> dict[str, Any]:
     """Converts a schema snapshot (dataclass, dict, or to_dict object) into a standard dictionary."""
-    if is_dataclass(snapshot) and not isinstance(snapshot, type):
-        return asdict(snapshot)
     if hasattr(snapshot, "to_dict"):
         return snapshot.to_dict()
+    if is_dataclass(snapshot) and not isinstance(snapshot, type):
+        return asdict(snapshot)
     if isinstance(snapshot, dict):
         return dict(snapshot)
     try:
@@ -981,6 +981,8 @@ def create_django_urls(
                 },
                 safe=False,
             )
+        except PermissionError as exc:
+            return JsonResponse({"error": _unauthorized_message(exc)}, status=401)
         except SecurityError as exc:
             return JsonResponse({"error": str(exc)}, status=403)
         except Exception as exc:  # noqa: BLE001
@@ -1497,16 +1499,20 @@ def create_ninja_router(
 
     @router.post("/compile")
     def compile_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        conn = _resolve_conn(connector)
-        tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-        spec = payload.get("spec")
-        if not spec:
-            raise HttpError(400, "Missing required 'spec'")
-        active_spec = spec
-        if policy is not None or tenant_ctx is not None:
-            active_spec = apply_security_policy(spec, context=tenant_ctx, policy=policy)
-        dialect = payload.get("dialect") or getattr(conn, "dialect_name", "postgres")
         try:
+            conn = _resolve_conn(connector)
+            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
+            spec = payload.get("spec")
+            if not spec:
+                raise HttpError(400, "Missing required 'spec'")
+            active_spec = spec
+            if policy is not None or tenant_ctx is not None:
+                active_spec = apply_security_policy(
+                    spec, context=tenant_ctx, policy=policy
+                )
+            dialect = payload.get("dialect") or getattr(
+                conn, "dialect_name", "postgres"
+            )
             compiler = QueryCompiler(
                 active_spec,
                 schema=payload.get("schema"),
@@ -1520,6 +1526,10 @@ def create_ninja_router(
                     "violations", ["Query failed AST safety validation."]
                 )
                 raise HttpError(403, f"Security violation: {'; '.join(violations)}")
+        except PermissionError as exc:
+            raise HttpError(401, _unauthorized_message(exc)) from exc
+        except SecurityError as exc:
+            raise HttpError(403, str(exc)) from exc
         except DisabledFeatureError as exc:
             raise HttpError(
                 403, disabled_feature_message(exc, effective_capabilities)
@@ -1541,127 +1551,145 @@ def create_ninja_router(
 
     @router.post("/execute")
     def execute_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        conn = _resolve_conn(connector)
-        tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-        spec = payload.get("spec") or payload.get("query")
-        sql = payload.get("sql")
-        if not spec and not sql:
-            raise HttpError(400, "Either 'spec' or 'sql' must be provided")
+        try:
+            conn = _resolve_conn(connector)
+            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
+            spec = payload.get("spec") or payload.get("query")
+            sql = payload.get("sql")
+            if not spec and not sql:
+                raise HttpError(400, "Either 'spec' or 'sql' must be provided")
 
-        if spec is not None:
-            if spec.get("ctes"):
-                effective_capabilities.require_feature("ctes")
-            if spec.get("window_functions"):
-                effective_capabilities.require_feature("window_functions")
-            if (
-                spec.get("rollup")
-                or spec.get("cube")
-                or spec.get("grouping_sets")
-                or spec.get("pivot")
-            ):
-                effective_capabilities.require_feature("analytical_grouping")
-            if spec.get("vector_search") or spec.get("hybrid_search"):
-                effective_capabilities.require_feature("vector_search")
+            if spec is not None:
+                if spec.get("ctes"):
+                    effective_capabilities.require_feature("ctes")
+                if spec.get("window_functions"):
+                    effective_capabilities.require_feature("window_functions")
+                if (
+                    spec.get("rollup")
+                    or spec.get("cube")
+                    or spec.get("grouping_sets")
+                    or spec.get("pivot")
+                ):
+                    effective_capabilities.require_feature("analytical_grouping")
+                if spec.get("vector_search") or spec.get("hybrid_search"):
+                    effective_capabilities.require_feature("vector_search")
 
-            active_spec = spec
-            if policy is not None or tenant_ctx is not None:
-                active_spec = apply_security_policy(
-                    spec, context=tenant_ctx, policy=policy
+                active_spec = spec
+                if policy is not None or tenant_ctx is not None:
+                    active_spec = apply_security_policy(
+                        spec, context=tenant_ctx, policy=policy
+                    )
+                res = _exec_conn_method(
+                    conn,
+                    "execute",
+                    active_spec,
+                    statement_timeout_ms=payload.get("timeout_ms"),
                 )
-            res = _exec_conn_method(
-                conn,
-                "execute",
-                active_spec,
-                statement_timeout_ms=payload.get("timeout_ms"),
-            )
-            return res.to_dict() if hasattr(res, "to_dict") else res
+                return res.to_dict() if hasattr(res, "to_dict") else res
 
-        if not isinstance(sql, str):
-            raise HttpError(400, "'sql' must be a string")
-
-        if not effective_capabilities.is_enabled("raw_sql"):
-            raise HttpError(
-                403, "Feature 'raw_sql' is disabled in engine capabilities."
-            )
-
-        if _is_tenant_isolation_active(policy, tenant_ctx, payload):
-            raise HttpError(403, "Raw SQL execution restricted under tenant isolation.")
-
-        val_res = validate_sql_ast(sql, allowed_schemas=payload.get("allowed_schemas"))
-        if not val_res.get("valid") or not val_res.get("is_read_only"):
-            violations = val_res.get(
-                "violations", ["Query failed AST safety validation."]
-            )
-            raise HttpError(403, f"Security violation: {'; '.join(violations)}")
-
-        cols, rows, latency = _exec_conn_method(
-            conn, "execute_raw", sql, payload.get("params") or []
-        )
-        return {
-            "columns": cols,
-            "rows": rows,
-            "count": len(rows),
-            "latency_ms": round(latency, 2),
-            "dialect": getattr(conn, "dialect_name", "sqlite"),
-            "sql": sql,
-        }
-
-    @router.post("/export")
-    def export_query(request: HttpRequest, payload: dict[str, Any]) -> HttpResponse:
-        conn = _resolve_conn(connector)
-        tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-        fmt = payload.get("format", "csv")
-
-        if payload.get("rows") is not None:
-            export_data = {
-                "rows": payload["rows"],
-                "columns": payload.get("columns", []),
-            }
-        elif payload.get("spec") is not None:
-            active_spec = payload["spec"]
-            if policy is not None or tenant_ctx is not None:
-                active_spec = apply_security_policy(
-                    active_spec, context=tenant_ctx, policy=policy
-                )
-            res = _exec_conn_method(conn, "execute", active_spec)
-            export_data = {
-                "rows": res.get("rows", [])
-                if isinstance(res, dict)
-                else getattr(res, "rows", []),
-                "columns": res.get("columns", [])
-                if isinstance(res, dict)
-                else getattr(res, "columns", []),
-            }
-        elif payload.get("sql") is not None:
-            sql_val = payload["sql"]
-            if not isinstance(sql_val, str):
+            if not isinstance(sql, str):
                 raise HttpError(400, "'sql' must be a string")
+
             if not effective_capabilities.is_enabled("raw_sql"):
                 raise HttpError(
                     403, "Feature 'raw_sql' is disabled in engine capabilities."
                 )
+
             if _is_tenant_isolation_active(policy, tenant_ctx, payload):
                 raise HttpError(
-                    403, "Raw SQL export restricted under tenant isolation."
+                    403, "Raw SQL execution restricted under tenant isolation."
                 )
+
             val_res = validate_sql_ast(
-                sql_val, allowed_schemas=payload.get("allowed_schemas")
+                sql, allowed_schemas=payload.get("allowed_schemas")
             )
             if not val_res.get("valid") or not val_res.get("is_read_only"):
                 violations = val_res.get(
                     "violations", ["Query failed AST safety validation."]
                 )
                 raise HttpError(403, f"Security violation: {'; '.join(violations)}")
-            cols, rows, _ = _exec_conn_method(
-                conn, "execute_raw", sql_val, payload.get("params") or []
-            )
-            export_data = {"rows": rows, "columns": cols}
-        else:
-            raise HttpError(400, "Missing export data source")
 
-        content_bytes, mime_type, ext = export_dataset(export_data, format=fmt)
-        resp = HttpResponse(content_bytes, content_type=mime_type)
-        resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
-        return resp
+            cols, rows, latency = _exec_conn_method(
+                conn, "execute_raw", sql, payload.get("params") or []
+            )
+            return {
+                "columns": cols,
+                "rows": rows,
+                "count": len(rows),
+                "latency_ms": round(latency, 2),
+                "dialect": getattr(conn, "dialect_name", "sqlite"),
+                "sql": sql,
+            }
+        except PermissionError as exc:
+            raise HttpError(401, _unauthorized_message(exc)) from exc
+        except SecurityError as exc:
+            raise HttpError(403, str(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise HttpError(
+                403, disabled_feature_message(exc, effective_capabilities)
+            ) from exc
+
+    @router.post("/export")
+    def export_query(request: HttpRequest, payload: dict[str, Any]) -> HttpResponse:
+        try:
+            conn = _resolve_conn(connector)
+            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
+            fmt = payload.get("format", "csv")
+
+            if payload.get("rows") is not None:
+                export_data = {
+                    "rows": payload["rows"],
+                    "columns": payload.get("columns", []),
+                }
+            elif payload.get("spec") is not None:
+                active_spec = payload["spec"]
+                if policy is not None or tenant_ctx is not None:
+                    active_spec = apply_security_policy(
+                        active_spec, context=tenant_ctx, policy=policy
+                    )
+                res = _exec_conn_method(conn, "execute", active_spec)
+                export_data = {
+                    "rows": res.get("rows", [])
+                    if isinstance(res, dict)
+                    else getattr(res, "rows", []),
+                    "columns": res.get("columns", [])
+                    if isinstance(res, dict)
+                    else getattr(res, "columns", []),
+                }
+            elif payload.get("sql") is not None:
+                sql_val = payload["sql"]
+                if not isinstance(sql_val, str):
+                    raise HttpError(400, "'sql' must be a string")
+                if not effective_capabilities.is_enabled("raw_sql"):
+                    raise HttpError(
+                        403, "Feature 'raw_sql' is disabled in engine capabilities."
+                    )
+                if _is_tenant_isolation_active(policy, tenant_ctx, payload):
+                    raise HttpError(
+                        403, "Raw SQL export restricted under tenant isolation."
+                    )
+                val_res = validate_sql_ast(
+                    sql_val, allowed_schemas=payload.get("allowed_schemas")
+                )
+                if not val_res.get("valid") or not val_res.get("is_read_only"):
+                    violations = val_res.get(
+                        "violations", ["Query failed AST safety validation."]
+                    )
+                    raise HttpError(403, f"Security violation: {'; '.join(violations)}")
+                cols, rows, _ = _exec_conn_method(
+                    conn, "execute_raw", sql_val, payload.get("params") or []
+                )
+                export_data = {"rows": rows, "columns": cols}
+            else:
+                raise HttpError(400, "Missing export data source")
+
+            content_bytes, mime_type, ext = export_dataset(export_data, format=fmt)
+            resp = HttpResponse(content_bytes, content_type=mime_type)
+            resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+            return resp
+        except PermissionError as exc:
+            raise HttpError(401, _unauthorized_message(exc)) from exc
+        except SecurityError as exc:
+            raise HttpError(403, str(exc)) from exc
 
     return router

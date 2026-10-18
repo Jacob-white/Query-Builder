@@ -97,10 +97,11 @@ export function AdvancedClausesBanner({
 export interface SafetyBadgeProps extends BannerProps {
   valid: boolean;
   message?: string;
+  dialect?: string;
 }
 
 /** Read-only protection / security notice badge. */
-export function SafetyBadge({ valid, message, unstyled, theme }: SafetyBadgeProps) {
+export function SafetyBadge({ valid, message, dialect, unstyled, theme }: SafetyBadgeProps) {
   return (
     <div
       role="status"
@@ -127,7 +128,7 @@ export function SafetyBadge({ valid, message, unstyled, theme }: SafetyBadgeProp
     >
       <span>{valid ? "🛡️ Read-Only Protected (AST Verified)" : `⚠️ Security Notice: ${message}`}</span>
       <span style={unstyled ? undefined : { color: theme.colors.textMuted }}>
-        Dialect: ANSI / PostgreSQL
+        Dialect: {(dialect || "postgres").toUpperCase()}
       </span>
     </div>
   );

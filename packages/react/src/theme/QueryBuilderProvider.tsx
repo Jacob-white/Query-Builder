@@ -28,6 +28,8 @@ export interface QueryBuilderContextValue {
   setIsAdvancedMode?: (isAdvanced: boolean) => void;
   features?: ResolvedFeatureMap;
   isFeatureVisible?: (feature: FeatureKey) => boolean;
+  readOnly?: boolean;
+  dialect?: string;
 }
 
 export const QueryBuilderContext = createContext<QueryBuilderContextValue | null>(null);

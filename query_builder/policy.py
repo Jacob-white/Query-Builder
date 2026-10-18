@@ -638,6 +638,39 @@ def apply_security_policy(
 
                 filters.append(rule_copy)
 
+    def _schema_columns_for_table(tbl_name: str) -> list[str]:
+        if schema is None:
+            return []
+        tables_map = getattr(schema, "tables", None) or (
+            schema.get("tables") if isinstance(schema, dict) else None
+        )
+        if not tables_map or not isinstance(tables_map, dict):
+            return []
+        clean_t = tbl_name.split(".")[-1].lower()
+        tbl_info = tables_map.get(tbl_name) or tables_map.get(clean_t)
+        if tbl_info is None:
+            for k, v in tables_map.items():
+                if str(k).split(".")[-1].lower() == clean_t:
+                    tbl_info = v
+                    break
+        if tbl_info is None:
+            return []
+        raw_cols = (
+            tbl_info.get("columns", [])
+            if isinstance(tbl_info, dict)
+            else getattr(tbl_info, "columns", [])
+        )
+        if isinstance(raw_cols, dict):
+            return [str(k) for k in raw_cols]
+        return [
+            str(
+                c.name
+                if hasattr(c, "name")
+                else (c.get("name") if isinstance(c, dict) else c)
+            )
+            for c in raw_cols
+        ]
+
     # 4.5. Column-Level Access Control (CLAC)
     col_perms = getattr(active_policy, "column_permissions", None)
     if col_perms:
@@ -653,6 +686,14 @@ def apply_security_policy(
                     c.lower() for c in perm.get("restricted_columns", [])
                 }
                 if restricted_cols and not (user_roles & allowed_roles):
+                    if not spec_dict.get("columns"):
+                        schema_cols = _schema_columns_for_table(tbl)
+                        if schema_cols:
+                            spec_dict["columns"] = [
+                                c
+                                for c in schema_cols
+                                if c.lower() not in restricted_cols
+                            ]
 
                     def _check_clac_restricted(
                         raw_tbl: str | None,
@@ -674,9 +715,14 @@ def apply_security_policy(
                             clean_col_tbl is None
                             or clean_col_tbl == _clean_tbl
                             or clean_col_tbl == "*"
-                        ) and col_lower in _restricted_cols:
+                        ) and (col_lower in _restricted_cols or col_lower == "*"):
+                            target_col = (
+                                sorted(_restricted_cols)[0]
+                                if col_lower == "*"
+                                else col_lower
+                            )
                             raise SecurityError(
-                                f"Access to restricted column '{col_lower}' on table '{_orig_tbl}' requires roles: {sorted(_allowed_roles)}."
+                                f"Access to restricted column '{target_col}' on table '{_orig_tbl}' requires roles: {sorted(_allowed_roles)}."
                             )
 
                     for c in spec_dict.get("columns", []):
@@ -777,11 +823,66 @@ def apply_security_policy(
             and any(r.lower() == "admin" for r in context.roles if isinstance(r, str))
         )
         if not is_admin:
-            cols = spec_dict.get("columns", [])
-            new_cols: list[Any] = []
+            cols = list(spec_dict.get("columns", []))
             compiled_patterns = [
                 re.compile(p) for p in active_policy.sensitive_column_patterns
             ]
+            # Expand empty or wildcard columns when schema is provided and table has masked columns
+            if not cols and base_table != "subquery":
+                schema_cols = _schema_columns_for_table(base_table)
+                if schema_cols and any(
+                    _is_column_masked(
+                        base_table,
+                        sc,
+                        base_table,
+                        active_policy,
+                        compiled_patterns,
+                        alias_map=alias_map,
+                        referenced_tables=referenced_tables,
+                    )
+                    for sc in schema_cols
+                ):
+                    cols = list(schema_cols)
+            elif any(
+                (isinstance(c, str) and c.split(".")[-1] == "*")
+                or (
+                    isinstance(c, dict)
+                    and str(c.get("column") or c.get("name", "")).split(".")[-1] == "*"
+                )
+                for c in cols
+            ):
+                expanded_cols: list[Any] = []
+                for c in cols:
+                    is_star = (isinstance(c, str) and c.split(".")[-1] == "*") or (
+                        isinstance(c, dict)
+                        and str(c.get("column") or c.get("name", "")).split(".")[-1]
+                        == "*"
+                    )
+                    if is_star:
+                        star_tbl = (
+                            c.split(".")[-2]
+                            if isinstance(c, str) and "." in c
+                            else (
+                                (
+                                    c.get("table")
+                                    or c.get("tablePrefix")
+                                    or c.get("table_prefix")
+                                )
+                                if isinstance(c, dict)
+                                else None
+                            )
+                        )
+                        resolved_star_tbl = _resolve_table(star_tbl) or base_table
+                        schema_cols = _schema_columns_for_table(resolved_star_tbl)
+                        if schema_cols:
+                            expanded_cols.extend(schema_cols)
+                        else:
+                            expanded_cols.append(c)
+                    else:
+                        expanded_cols.append(c)
+                cols = expanded_cols
+
+            new_cols: list[Any] = []
             for c in cols:
                 if isinstance(c, str):
                     parts = c.split(".")

@@ -8,6 +8,9 @@ export interface ColumnMeta {
   is_nullable: boolean;
   is_primary: boolean;
   comment?: string;
+  enums?: string[];
+  is_foreign_key?: boolean;
+  foreign_key?: string | ForeignKey;
 }
 
 export interface TableMeta {
@@ -330,6 +333,7 @@ export interface VisualColumnSelect<Schema = DatabaseSchemaDefinition> {
   metric?: boolean | string | MetricDefinition;
   format?: string;
   rawExpression?: string;
+  caseWhen?: CaseWhenSpec;
 }
 
 export interface VectorSearchSpec {
@@ -422,7 +426,13 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
         agg?: string;
         alias?: string;
         case_when?: CaseWhenSpec;
+        caseWhen?: CaseWhenSpec;
         expression?: string;
+        raw_expression?: string;
+        rawExpression?: string;
+        time_grain?: TimeGrain | string;
+        timeGrain?: TimeGrain | string;
+        metric?: boolean | string | MetricDefinition;
       }
   )[];
   joins: {
@@ -440,8 +450,11 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
     tablePrefix?: SchemaTableNames<Schema>;
     combiner?: "AND" | "OR";
     rawExpression?: string;
+    raw_expression?: string;
     parenOpen?: string;
+    paren_open?: string;
     parenClose?: string;
+    paren_close?: string;
   }[];
   filter_join: "AND" | "OR";
   order_by: {
@@ -471,8 +484,11 @@ export interface LooseSpecColumn {
   column?: string;
   agg?: string;
   alias?: string;
+  expression?: string;
   raw_expression?: string;
   rawExpression?: string;
+  case_when?: CaseWhenSpec;
+  caseWhen?: CaseWhenSpec;
   time_grain?: string;
   timeGrain?: string;
   metric?: boolean | string | MetricDefinition;
@@ -500,7 +516,9 @@ export interface LooseSpecFilter {
   raw_expression?: string;
   rawExpression?: string;
   parenOpen?: string;
+  paren_open?: string;
   parenClose?: string;
+  paren_close?: string;
 }
 
 export interface LooseSpecSort {
@@ -556,6 +574,7 @@ export interface WindowFrameSpec {
 
 export interface WindowFunctionSpec {
   function: string;
+  column?: string;
   arguments?: (string | number)[];
   partition_by?: string[];
   order_by?: {

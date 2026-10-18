@@ -34,7 +34,11 @@ import { validateSqlSafety } from "../utils/safety";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { useQueryState } from "../hooks/useQueryState";
 import { cx } from "../utils/classNames";
-import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
+import {
+   QueryBuilderContext,
+  useQueryBuilderContext,
+  type QueryBuilderContextValue,
+} from "../theme/QueryBuilderProvider";
 import { fastCanonicalSpec } from "../utils/canonicalSpec";
 import { useBuilderTheme, rootStyle } from "./visual-query-builder/useBuilderTheme";
 import { useClientBootstrap } from "./visual-query-builder/useClientBootstrap";
@@ -152,6 +156,36 @@ export const VisualQueryBuilder = React.forwardRef<
   const isFeatureVisible = useCallback(
     (feat: FeatureKey) => checkFeatureVisible(feat, resolvedFeatures, isAdvancedMode),
     [resolvedFeatures, isAdvancedMode],
+  );
+
+  const contextValue = useMemo<QueryBuilderContextValue>(
+    () => ({
+      mode: effectiveMode,
+      customOperators,
+      fieldRenderers,
+      cellRenderers,
+      onExecuteQuery: propExecuteQuery ?? qbContext?.onExecuteQuery,
+      isAdvancedMode,
+      setIsAdvancedMode: (val: boolean) => toggleAdvanced(val),
+      features: resolvedFeatures,
+      isFeatureVisible,
+      readOnly,
+      dialect,
+    }),
+    [
+      effectiveMode,
+      customOperators,
+      fieldRenderers,
+      cellRenderers,
+      propExecuteQuery,
+      qbContext?.onExecuteQuery,
+      isAdvancedMode,
+      toggleAdvanced,
+      resolvedFeatures,
+      isFeatureVisible,
+      readOnly,
+      dialect,
+    ],
   );
 
   const effectiveSchema = propSchema || clientSchema;
@@ -287,8 +321,14 @@ export const VisualQueryBuilder = React.forwardRef<
     modals,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
-    undo: actions.undo,
-    redo: actions.redo,
+    undo: () => {
+      leaveRawMode();
+      actions.undo();
+    },
+    redo: () => {
+      leaveRawMode();
+      actions.redo();
+    },
   });
 
   useControlledSpecSync({ value, onChange, loadSpec: actions.loadSpec, getActiveSpec, currentSql });
@@ -358,294 +398,358 @@ export const VisualQueryBuilder = React.forwardRef<
   };
 
   return (
-    <div
-      data-qb="root"
-      data-qb-mode={activeTab}
-      data-qb-unstyled={unstyled ? "true" : undefined}
-      className={cx(className, classNames?.root)}
-      style={rootStyle(activeTheme, cssVars, unstyled)}
-    >
-      {/* Top Controls Bar */}
+    <QueryBuilderContext.Provider value={contextValue}>
       <div
-        data-qb="top-bar"
-        className={cx(classNames?.header)}
-        style={
-          unstyled
-            ? undefined
-            : {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: "10px",
-                paddingBottom: "12px",
-                borderBottom: `1px solid ${activeTheme.colors.border}`,
-              }
-        }
+        data-qb="root"
+        data-qb-mode={activeTab}
+        data-qb-unstyled={unstyled ? "true" : undefined}
+        className={cx(className, classNames?.root)}
+        style={rootStyle(activeTheme, cssVars, unstyled)}
       >
-        <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
-          <TabBar
-            activeTab={activeTab}
-            tabs={visibleTabs({ hasRawSqlTab, hasVisualChartTab, hasPipelineTab, hasPlanTab })}
-            resultCount={queryResults ? queryResults.count : null}
-            cteCount={ctes.length}
-            onSelectTab={handleSelectTab}
+        {/* Top Controls Bar */}
+        <div
+          data-qb="top-bar"
+          className={cx(classNames?.header)}
+          style={
+            unstyled
+              ? undefined
+              : {
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "10px",
+                  paddingBottom: "12px",
+                  borderBottom: `1px solid ${activeTheme.colors.border}`,
+                }
+          }
+        >
+          <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+            <TabBar
+              activeTab={activeTab}
+              tabs={visibleTabs({ hasRawSqlTab, hasVisualChartTab, hasPipelineTab, hasPlanTab })}
+              resultCount={queryResults ? queryResults.count : null}
+              cteCount={ctes.length}
+              onSelectTab={handleSelectTab}
+              unstyled={unstyled}
+              theme={activeTheme}
+              classNames={classNames}
+            />
+            <ToolButtons
+              unstyled={unstyled}
+              theme={activeTheme}
+              showWindowFunctions={isFeatureVisible("window_functions")}
+              windowFunctionCount={windowFunctions.length}
+              onOpenWindowFunctions={() => setIsWfBuilderOpen(true)}
+              showSchemaTools={isFeatureVisible("schema_tools")}
+              onOpenSchemaExplorer={() => setIsSchemaExplorerOpen(true)}
+              onOpenErd={() => setIsErdOpen(true)}
+            />
+          </div>
+
+          <ToolbarActions
+            canUndo={history.canUndo}
+            canRedo={history.canRedo}
+            onUndo={() => {
+              leaveRawMode();
+              actions.undo();
+            }}
+            onRedo={() => {
+              leaveRawMode();
+              actions.redo();
+            }}
+            allowToggleAdvanced={allowToggleAdvanced}
+            isAdvancedMode={isAdvancedMode}
+            onToggleAdvanced={() => toggleAdvanced()}
+            resolvedFeatures={resolvedFeatures}
+            featureOverrides={featureOverrides}
+            onFeatureOverride={(key, tier) => setFeatureOverrides((prev) => ({ ...prev, [key]: tier }))}
+            dialect={dialect}
+            onOpenTemplates={(mode) => {
+              setTemplateManagerMode(mode);
+              setIsTemplateManagerOpen(true);
+            }}
+            presets={presets}
+            onSelectPreset={(preset) => {
+              if (preset.spec && Object.keys(preset.spec).length > 0) {
+                actions.loadSpec(preset.spec);
+                leaveRawMode();
+                setActiveTab("visual");
+              } else if (preset.sql) {
+                raw.enterRawSql(preset.sql);
+                setActiveTab("sql");
+              }
+            }}
+            readOnly={readOnly}
+            isRunning={isRunning}
+            isSafe={safety.valid}
+            onRun={handleRunQuery}
+            unstyled={unstyled}
+            theme={activeTheme}
+          />
+        </div>
+
+        {!isAdvancedMode && activeAdvancedClauses.length > 0 && (
+          <AdvancedClausesBanner
+            labels={activeAdvancedClauses.map((c) => c.label)}
+            onViewAdvanced={() => toggleAdvanced(true)}
+            onClear={() => {
+              leaveRawMode();
+              clearAdvancedClauses();
+            }}
+            unstyled={unstyled}
+            theme={activeTheme}
+          />
+        )}
+
+        <SafetyBadge
+          valid={safety.valid}
+          message={safety.message}
+          dialect={dialect}
+          unstyled={unstyled}
+          theme={activeTheme}
+        />
+
+        {executionError && (
+          <ExecutionErrorBanner message={executionError} unstyled={unstyled} theme={activeTheme} />
+        )}
+
+        {showLiveExecutionBar && (
+          <LiveExecutionBar
+            connectionId={liveExecutionConnectionId}
+            connectionStatus={liveExec.connectionStatus}
+            connectionLatencyMs={liveExec.connectionLatencyMs}
+            isExecuting={liveExec.isExecuting}
+            executionTimeMs={liveExec.executionTimeMs}
+            rowCount={liveExec.results?.rowCount ?? null}
+            error={liveExec.error}
+            onDismissError={liveExec.clearResults}
+            onTestConnection={() => void liveExec.testConnection()}
+            onExecute={() => {
+              const activeSpec = getActiveSpec();
+              if (activeSpec) void liveExec.executeQuery(activeSpec);
+            }}
+            onCancel={() => void liveExec.cancelExecution()}
+            unstyled={unstyled}
+          />
+        )}
+
+        {/* Tab Panels */}
+        {activeTab === "visual" && (
+          <VisualPanel
+            nlq={
+              showNlqBar
+                ? {
+                    schema: augmentedSchema,
+                    currentSpec: compiled.spec,
+                    onApplySpec: handleApplyNlqSpec,
+                    apiUrl: nlqApiUrl,
+                    defaultProvider: nlqDefaultProvider,
+                    dialect,
+                    unstyled,
+                  }
+                : undefined
+            }
+            canvas={{
+              schema: augmentedSchema,
+              activeTables,
+              primaryTable,
+              selectedColumns: state.selectedColumns,
+              orderedProjectionKeys: state.orderedProjectionKeys,
+              joins: state.joins,
+              filters: state.filters,
+              sorts: state.sorts,
+              isDistinct: state.isDistinct,
+              limit: state.limit,
+              windowFunctions,
+              compiledSql: compiled.sql,
+              onToggleColumn: canvasHandlers.handleToggleColumn,
+              onRemoveTable: canvasHandlers.handleRemoveTable,
+              onAddTableToCanvas: canvasHandlers.handleAddTableToCanvas,
+              onUpdateColumnSelect: (key, updates) => {
+                leaveRawMode();
+                actions.updateColumnSelect(key, updates);
+              },
+              onRemoveColumnProjection: (key) => {
+                leaveRawMode();
+                actions.removeColumnProjection(key);
+              },
+              onAddCalculatedField: canvasHandlers.handleAddCalculatedField,
+              onRemoveWindowFunction: (idx) => {
+                leaveRawMode();
+                actions.setWindowFunctions(windowFunctions.filter((_, i) => i !== idx));
+              },
+              onOpenWindowFunctions: () => setIsWfBuilderOpen(true),
+              onJoinsChange: canvasHandlers.handleJoinsChange,
+              onAddJoin: canvasHandlers.handleAddJoinToTable,
+              onReorderProjections: (keys) => {
+                leaveRawMode();
+                actions.setOrderedProjectionKeys(keys);
+              },
+              onFiltersChange: canvasHandlers.setFilters,
+              onSortsChange: canvasHandlers.setSorts,
+              onDistinctChange: (distinct) => {
+                leaveRawMode();
+                actions.setDistinct(distinct);
+              },
+              onLimitChange: (limit) => {
+                leaveRawMode();
+                actions.setLimit(limit);
+              },
+              vectorSearch,
+              hybridSearch,
+              onVectorChange: (vs) => {
+                leaveRawMode();
+                actions.setVectorSearch(vs);
+              },
+              onHybridChange: (hs) => {
+                leaveRawMode();
+                actions.setHybridSearch(hs);
+              },
+              unstyled,
+              classNames,
+              customOperators,
+              fieldRenderers,
+            }}
+          />
+        )}
+
+        {activeTab === "sql" && (
+          <SqlPanel
+            currentSql={currentSql}
+            rawSql={raw.rawSql}
+            isRawMode={raw.isRawMode}
+            schema={augmentedSchema}
+            discardedRawSql={raw.discardedRawSql}
+            onRawSqlChange={raw.handleRawSqlChange}
+            onDismissDiscarded={() => raw.setDiscardedRawSql(null)}
+            onSyncWithVisualCanvas={raw.handleSyncWithVisualCanvas}
             unstyled={unstyled}
             theme={activeTheme}
             classNames={classNames}
           />
-          <ToolButtons
-            unstyled={unstyled}
-            theme={activeTheme}
-            showWindowFunctions={isFeatureVisible("window_functions")}
-            windowFunctionCount={windowFunctions.length}
-            onOpenWindowFunctions={() => setIsWfBuilderOpen(true)}
-            showSchemaTools={isFeatureVisible("schema_tools")}
-            onOpenSchemaExplorer={() => setIsSchemaExplorerOpen(true)}
-            onOpenErd={() => setIsErdOpen(true)}
-          />
-        </div>
-
-        <ToolbarActions
-          canUndo={history.canUndo}
-          canRedo={history.canRedo}
-          onUndo={() => actions.undo()}
-          onRedo={() => actions.redo()}
-          allowToggleAdvanced={allowToggleAdvanced}
-          isAdvancedMode={isAdvancedMode}
-          onToggleAdvanced={() => toggleAdvanced()}
-          resolvedFeatures={resolvedFeatures}
-          featureOverrides={featureOverrides}
-          onFeatureOverride={(key, tier) => setFeatureOverrides((prev) => ({ ...prev, [key]: tier }))}
-          dialect={dialect}
-          onOpenTemplates={(mode) => {
-            setTemplateManagerMode(mode);
-            setIsTemplateManagerOpen(true);
-          }}
-          presets={presets}
-          onSelectPreset={(sql) => {
-            raw.enterRawSql(sql);
-            setActiveTab("sql");
-          }}
-          readOnly={readOnly}
-          isRunning={isRunning}
-          isSafe={safety.valid}
-          onRun={handleRunQuery}
-          unstyled={unstyled}
-          theme={activeTheme}
-        />
-      </div>
-
-      {!isAdvancedMode && activeAdvancedClauses.length > 0 && (
-        <AdvancedClausesBanner
-          labels={activeAdvancedClauses.map((c) => c.label)}
-          onViewAdvanced={() => toggleAdvanced(true)}
-          onClear={clearAdvancedClauses}
-          unstyled={unstyled}
-          theme={activeTheme}
-        />
-      )}
-
-      <SafetyBadge
-        valid={safety.valid}
-        message={safety.message}
-        unstyled={unstyled}
-        theme={activeTheme}
-      />
-
-      {executionError && (
-        <ExecutionErrorBanner message={executionError} unstyled={unstyled} theme={activeTheme} />
-      )}
-
-      {showLiveExecutionBar && (
-        <LiveExecutionBar
-          connectionId={liveExecutionConnectionId}
-          connectionStatus={liveExec.connectionStatus}
-          connectionLatencyMs={liveExec.connectionLatencyMs}
-          isExecuting={liveExec.isExecuting}
-          executionTimeMs={liveExec.executionTimeMs}
-          rowCount={liveExec.results?.rowCount ?? null}
-          error={liveExec.error}
-          onDismissError={liveExec.clearResults}
-          onTestConnection={() => void liveExec.testConnection()}
-          onExecute={() => {
-            const activeSpec = getActiveSpec();
-            if (activeSpec) void liveExec.executeQuery(activeSpec);
-          }}
-          onCancel={() => void liveExec.cancelExecution()}
-          unstyled={unstyled}
-        />
-      )}
-
-      {/* Tab Panels */}
-      {activeTab === "visual" && (
-        <VisualPanel
-          nlq={
-            showNlqBar
-              ? {
-                  schema: normalizedSchema,
-                  currentSpec: compiled.spec,
-                  onApplySpec: handleApplyNlqSpec,
-                  apiUrl: nlqApiUrl,
-                  defaultProvider: nlqDefaultProvider,
-                  dialect,
-                  unstyled,
-                }
-              : undefined
-          }
-          canvas={{
-            schema: normalizedSchema,
-            activeTables,
-            primaryTable,
-            selectedColumns: state.selectedColumns,
-            orderedProjectionKeys: state.orderedProjectionKeys,
-            joins: state.joins,
-            filters: state.filters,
-            sorts: state.sorts,
-            isDistinct: state.isDistinct,
-            limit: state.limit,
-            onToggleColumn: canvasHandlers.handleToggleColumn,
-            onRemoveTable: canvasHandlers.handleRemoveTable,
-            onAddTableToCanvas: canvasHandlers.handleAddTableToCanvas,
-            onUpdateColumnSelect: actions.updateColumnSelect,
-            onRemoveColumnProjection: actions.removeColumnProjection,
-            onJoinsChange: canvasHandlers.handleJoinsChange,
-            onAddJoin: canvasHandlers.handleAddJoinToTable,
-            onReorderProjections: actions.setOrderedProjectionKeys,
-            onFiltersChange: canvasHandlers.setFilters,
-            onSortsChange: canvasHandlers.setSorts,
-            onDistinctChange: actions.setDistinct,
-            onLimitChange: actions.setLimit,
-            vectorSearch,
-            hybridSearch,
-            onVectorChange: actions.setVectorSearch,
-            onHybridChange: actions.setHybridSearch,
-            unstyled,
-            classNames,
-            customOperators,
-            fieldRenderers,
-          }}
-        />
-      )}
-
-      {activeTab === "sql" && (
-        <SqlPanel
-          currentSql={currentSql}
-          rawSql={raw.rawSql}
-          isRawMode={raw.isRawMode}
-          schema={normalizedSchema}
-          discardedRawSql={raw.discardedRawSql}
-          onRawSqlChange={raw.handleRawSqlChange}
-          onDismissDiscarded={() => raw.setDiscardedRawSql(null)}
-          onSyncWithVisualCanvas={raw.handleSyncWithVisualCanvas}
-          unstyled={unstyled}
-          theme={activeTheme}
-          classNames={classNames}
-        />
-      )}
-
-      {activeTab === "results" && (
-        <ResultsPanel
-          results={queryResults}
-          isLoading={isRunning}
-          unstyled={unstyled}
-          cellRenderers={cellRenderers}
-          classNames={classNames}
-        />
-      )}
-
-      {activeTab === "chart" && <ChartPanel results={queryResults} unstyled={unstyled} />}
-
-      {hasPlanTab && activeTab === "plan" && (
-        <PlanPanel plan={queryPlan || estimateClientPlan(compiled.spec)} unstyled={unstyled} />
-      )}
-
-      {hasPipelineTab && activeTab === "pipeline" && (
-        <PipelinePanel
-          ctes={ctes}
-          onCtesChange={actions.setCtes}
-          onSelectStage={(stage) => {
-            setActiveStageName(stage);
-            if (stage) {
-              actions.setPrimaryTable(stage);
-              if (!activeTableNames.includes(stage)) {
-                actions.addTable(stage);
-              }
-            }
-            setActiveTab("visual");
-          }}
-          selectedStage={activeStageName}
-          unstyled={unstyled}
-        />
-      )}
-
-      {/* Window Function Builder Modal */}
-      <WindowFunctionBuilder
-        isOpen={isWfBuilderOpen}
-        onClose={() => setIsWfBuilderOpen(false)}
-        onSave={(wf) => actions.setWindowFunctions([...windowFunctions, wf])}
-        availableColumns={allTables.flatMap((t) =>
-          t.columns.map((c) => ({ table: t.name, name: c.name })),
         )}
-        unstyled={unstyled}
-      />
 
-      {/* Schema ERD Modal */}
-      <SchemaErdModal
-        isOpen={isErdOpen}
-        onClose={() => setIsErdOpen(false)}
-        schema={normalizedSchema}
-        onSelectTable={(tbl) => canvasHandlers.handleAddTableToCanvas(tbl)}
-        onAddJoins={(newJoins) => canvasHandlers.handleJoinsChange([...state.joins, ...newJoins])}
-      />
+        {activeTab === "results" && (
+          <ResultsPanel
+            results={queryResults}
+            isLoading={isRunning}
+            unstyled={unstyled}
+            cellRenderers={cellRenderers}
+            classNames={classNames}
+          />
+        )}
 
-      {/* Schema Explorer Modal */}
-      <SchemaExplorerModal
-        isOpen={isSchemaExplorerOpen}
-        onClose={() => setIsSchemaExplorerOpen(false)}
-        schema={normalizedSchema}
-        selectedTable={primaryTable}
-        onSelectTable={(tbl) => actions.setPrimaryTable(tbl)}
-        onAddToCanvas={(tbl) => {
-          canvasHandlers.handleAddTableToCanvas(tbl);
-          setIsSchemaExplorerOpen(false);
-        }}
-        onOpenErd={() => {
-          setIsSchemaExplorerOpen(false);
-          setIsErdOpen(true);
-        }}
-        onQuickQuery={(tbl) => {
-          canvasHandlers.handleAddTableToCanvas(tbl);
-          setIsSchemaExplorerOpen(false);
-        }}
-        theme={activeTheme}
-        unstyled={unstyled}
-      />
+        {activeTab === "chart" && <ChartPanel results={queryResults} unstyled={unstyled} />}
 
-      {/* Query Template Manager Modal */}
-      <QueryTemplateManager
-        isOpen={isTemplateManagerOpen}
-        onClose={() => setIsTemplateManagerOpen(false)}
-        currentSql={currentSql}
-        currentSpec={compiled.spec}
-        onLoadTemplate={handleLoadTemplate}
-        onSaveTemplate={handleSaveTemplate}
-        defaultMode={templateManagerMode}
-        unstyled={unstyled}
-      />
+        {hasPlanTab && activeTab === "plan" && (
+          <PlanPanel
+            plan={queryPlan || estimateClientPlan(compiled.spec)}
+            spec={compiled.spec}
+            sql={currentSql}
+            dialect={dialect}
+            schema={augmentedSchema}
+            unstyled={unstyled}
+          />
+        )}
 
-      {/* Bring Your Own AI (BYO-AI) Assistant Widget */}
-      {ai && (
-        <AiAssistantWidget
-          {...ai}
-          schema={normalizedSchema}
-          currentSpec={compiled.spec}
-          dialect={dialect}
-          onApplySpec={handleApplyNlqSpec}
+        {hasPipelineTab && activeTab === "pipeline" && (
+          <PipelinePanel
+            ctes={ctes}
+            onCtesChange={(newCtes) => {
+              leaveRawMode();
+              actions.setCtes(newCtes);
+            }}
+            onSelectStage={(stage) => {
+              leaveRawMode();
+              setActiveStageName(stage);
+              if (stage) {
+                actions.setPrimaryTable(stage);
+                if (!activeTableNames.includes(stage)) {
+                  actions.addTable(stage);
+                }
+              }
+              setActiveTab("visual");
+            }}
+            selectedStage={activeStageName}
+            unstyled={unstyled}
+          />
+        )}
+
+        {/* Window Function Builder Modal */}
+        <WindowFunctionBuilder
+          isOpen={isWfBuilderOpen}
+          onClose={() => setIsWfBuilderOpen(false)}
+          onSave={(wf) => {
+            leaveRawMode();
+            actions.setWindowFunctions([...windowFunctions, wf]);
+          }}
+          availableColumns={allTables.flatMap((t) =>
+            t.columns.map((c) => ({ table: t.name, name: c.name })),
+          )}
           unstyled={unstyled}
         />
-      )}
-    </div>
+
+        {/* Schema ERD Modal */}
+        <SchemaErdModal
+          isOpen={isErdOpen}
+          onClose={() => setIsErdOpen(false)}
+          schema={augmentedSchema}
+          onSelectTable={(tbl) => canvasHandlers.handleAddTableToCanvas(tbl)}
+          onAddJoins={(newJoins) => canvasHandlers.handleJoinsChange([...state.joins, ...newJoins])}
+        />
+
+        {/* Schema Explorer Modal */}
+        <SchemaExplorerModal
+          isOpen={isSchemaExplorerOpen}
+          onClose={() => setIsSchemaExplorerOpen(false)}
+          schema={augmentedSchema}
+          selectedTable={primaryTable}
+          onSelectTable={(tbl) => {
+            leaveRawMode();
+            actions.setPrimaryTable(tbl);
+          }}
+          onAddToCanvas={(tbl) => {
+            canvasHandlers.handleAddTableToCanvas(tbl);
+            setIsSchemaExplorerOpen(false);
+          }}
+          onOpenErd={() => {
+            setIsSchemaExplorerOpen(false);
+            setIsErdOpen(true);
+          }}
+          onQuickQuery={(tbl) => {
+            canvasHandlers.handleAddTableToCanvas(tbl);
+            setIsSchemaExplorerOpen(false);
+          }}
+          theme={activeTheme}
+          unstyled={unstyled}
+        />
+
+        {/* Query Template Manager Modal */}
+        <QueryTemplateManager
+          isOpen={isTemplateManagerOpen}
+          onClose={() => setIsTemplateManagerOpen(false)}
+          currentSql={currentSql}
+          currentSpec={compiled.spec}
+          onLoadTemplate={handleLoadTemplate}
+          onSaveTemplate={handleSaveTemplate}
+          defaultMode={templateManagerMode}
+          unstyled={unstyled}
+        />
+
+        {/* Bring Your Own AI (BYO-AI) Assistant Widget */}
+        {ai && (
+          <AiAssistantWidget
+            {...ai}
+            schema={augmentedSchema}
+            currentSpec={compiled.spec}
+            dialect={dialect}
+            onApplySpec={handleApplyNlqSpec}
+            unstyled={unstyled}
+          />
+        )}
+      </div>
+    </QueryBuilderContext.Provider>
   );
 }) as <Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition>(
   props: ExtendedVisualQueryBuilderProps<Schema> & { ref?: React.Ref<VisualQueryBuilderRef> },

@@ -67,9 +67,13 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _column_names(meta: Mapping[str, Any]) -> list[tuple[str, str]]:
+def _column_names(meta: Any) -> list[tuple[str, str]]:
     """``[(column name, description)]`` from the shapes a table's columns come in."""
-    columns = meta.get("columns", [])
+    columns = (
+        meta.get("columns", [])
+        if isinstance(meta, Mapping)
+        else getattr(meta, "columns", [])
+    )
     out: list[tuple[str, str]] = []
     if isinstance(columns, Mapping):
         return [(str(name), "") for name in columns]
@@ -82,24 +86,38 @@ def _column_names(meta: Mapping[str, Any]) -> list[tuple[str, str]]:
                 out.append((column["name"], described))
             elif isinstance(column, str):
                 out.append((column, ""))
+            elif hasattr(column, "name") and isinstance(column.name, str):
+                described = _text(getattr(column, "description", None)) or _text(
+                    getattr(column, "comment", None)
+                )
+                out.append((column.name, described))
     return out
 
 
 def _declared_links(
-    schema_tables: Mapping[str, Mapping[str, Any]], schema: Any
+    schema_tables: Mapping[str, Any], schema: Any
 ) -> set[tuple[str, str]]:
     """Every ``(table, column)`` that holds a declared link: a per-table foreign key, a top-level one, or a relationship."""
     links: set[tuple[str, str]] = set()
-    for name, meta in schema_tables.items():  # every meta here is already a mapping
-        for fk in meta.get("foreign_keys", []) or []:
+    for name, meta in schema_tables.items():
+        fks = (
+            meta.get("foreign_keys", [])
+            if isinstance(meta, Mapping)
+            else getattr(meta, "foreign_keys", [])
+        )
+        for fk in fks or []:
             if isinstance(fk, Mapping) and isinstance(fk.get("column"), str):
                 links.add((name, fk["column"]))
+            elif hasattr(fk, "column") and isinstance(fk.column, str):
+                links.add((name, fk.column))
     top: Iterable[Any] = getattr(schema, "foreign_keys", None) or (
         schema.get("foreign_keys", []) if isinstance(schema, Mapping) else []
     )
     for fk in top or []:
         if isinstance(fk, Mapping):
             links.add((str(fk.get("table", "")), str(fk.get("column", ""))))
+        elif hasattr(fk, "table") and hasattr(fk, "column"):
+            links.add((str(fk.table), str(fk.column)))
     relationships: Iterable[Any] = getattr(schema, "relationships", None) or (
         schema.get("relationships", []) if isinstance(schema, Mapping) else []
     )
@@ -108,6 +126,8 @@ def _declared_links(
             links.add(
                 (str(rel.get("source_table", "")), str(rel.get("source_column", "")))
             )
+        elif hasattr(rel, "source_table") and hasattr(rel, "source_column"):
+            links.add((str(rel.source_table), str(rel.source_column)))
     return links
 
 
@@ -150,12 +170,17 @@ def audit_schema(
     tables_raw: Any = getattr(schema, "tables", None)
     if tables_raw is None and isinstance(schema, Mapping):
         tables_raw = schema.get("tables")
+        if tables_raw is None and any(
+            isinstance(v, Mapping) or hasattr(v, "columns") for v in schema.values()
+        ):
+            tables_raw = schema
     if not isinstance(tables_raw, Mapping):
         return SchemaAudit()
     tables = {
         name: meta
         for name, meta in tables_raw.items()
-        if isinstance(name, str) and isinstance(meta, Mapping)
+        if isinstance(name, str)
+        and (isinstance(meta, Mapping) or hasattr(meta, "columns"))
     }
     declared = _declared_links(tables, schema)
     skip_tables = tuple(ignore_prefixes)
@@ -184,7 +209,15 @@ def audit_schema(
                     report.missing_links.append((name, column, target))
                 else:
                     report.unexplained_ids.append((name, column))
-        if not (_text(meta.get("description")) or _text(meta.get("comment"))):
+        table_desc = (
+            (_text(meta.get("description")) or _text(meta.get("comment")))
+            if isinstance(meta, Mapping)
+            else (
+                _text(getattr(meta, "description", None))
+                or _text(getattr(meta, "comment", None))
+            )
+        )
+        if not table_desc:
             report.undescribed_tables.append(name)
         missing = sum(1 for _, described in columns if not described)
         if missing:

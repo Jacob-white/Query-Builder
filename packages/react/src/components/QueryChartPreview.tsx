@@ -165,21 +165,25 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
         role="region"
         aria-label="Visual Chart Preview"
         className={className}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "260px",
-          color: "#64748b",
-          fontStyle: "italic",
-          fontSize: "0.85rem",
-          background: "rgba(15, 23, 42, 0.5)",
-          borderRadius: "8px",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          padding: "16px",
-          ...style,
-        }}
+        style={
+          unstyled
+            ? style
+            : {
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "260px",
+                color: "#64748b",
+                fontStyle: "italic",
+                fontSize: "0.85rem",
+                background: "rgba(15, 23, 42, 0.5)",
+                borderRadius: "8px",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                padding: "16px",
+                ...style,
+              }
+        }
       >
         <span>No data available to chart. Run a query to preview charts.</span>
       </div>
@@ -480,6 +484,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
           unstyled
             ? undefined
             : {
+                position: "relative",
                 width: "100%",
                 overflowX: "auto",
                 display: "flex",

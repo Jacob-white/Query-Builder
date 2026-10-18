@@ -445,10 +445,10 @@ def create_query_builder_router(
         conn = await _resolve_conn(connector)
         try:
             snapshot = await _exec_conn_method(conn, "introspect_schema")
-            if is_dataclass(snapshot) and not isinstance(snapshot, type):
-                data = asdict(snapshot)
-            elif hasattr(snapshot, "to_dict"):
+            if hasattr(snapshot, "to_dict"):
                 data = snapshot.to_dict()
+            elif is_dataclass(snapshot) and not isinstance(snapshot, type):
+                data = asdict(snapshot)
             elif isinstance(snapshot, dict):
                 data = dict(snapshot)
             else:
@@ -878,11 +878,11 @@ def create_query_builder_router(
             if schema_data is None:
                 raw_schema = await _exec_conn_method(conn, "introspect_schema")
                 schema_data = (
-                    asdict(raw_schema)
-                    if is_dataclass(raw_schema) and not isinstance(raw_schema, type)
+                    raw_schema.to_dict()
+                    if hasattr(raw_schema, "to_dict")
                     else (
-                        raw_schema.to_dict()
-                        if hasattr(raw_schema, "to_dict")
+                        asdict(raw_schema)
+                        if is_dataclass(raw_schema) and not isinstance(raw_schema, type)
                         else dict(raw_schema)
                     )
                 )
@@ -935,11 +935,11 @@ def create_query_builder_router(
             if schema_data is None:
                 raw_schema = await _exec_conn_method(conn, "introspect_schema")
                 schema_data = (
-                    asdict(raw_schema)
-                    if is_dataclass(raw_schema) and not isinstance(raw_schema, type)
+                    raw_schema.to_dict()
+                    if hasattr(raw_schema, "to_dict")
                     else (
-                        raw_schema.to_dict()
-                        if hasattr(raw_schema, "to_dict")
+                        asdict(raw_schema)
+                        if is_dataclass(raw_schema) and not isinstance(raw_schema, type)
                         else dict(raw_schema)
                     )
                 )
@@ -966,16 +966,42 @@ def create_query_builder_router(
                 or getattr(conn, "dialect_name", "postgres")
                 or "postgres"
             )
-            from query_builder.ai.client import ask_ai
+            if (
+                nlq_service is not None
+                and ai_provider is None
+                and hasattr(nlq_service, "translate")
+            ):
+                nlq_res = nlq_service.translate(
+                    {
+                        "prompt": payload.prompt,
+                        "schema": schema_data,
+                        "dialect": dialect_str,
+                        "provider": payload.provider,
+                        "options": payload.options,
+                    }
+                )
+                res_dict = (
+                    nlq_res.to_dict() if hasattr(nlq_res, "to_dict") else dict(nlq_res)
+                )
+                raw_spec = dict(res_dict.get("spec") or res_dict.get("query") or {})
+                explanation = res_dict.get("explanation") or ""
+                confidence = res_dict.get("confidence", 1.0)
+                warnings_list = res_dict.get("warnings", [])
+            else:
+                from query_builder.ai.client import ask_ai
 
-            ai_res = ask_ai(
-                prompt=payload.prompt,
-                ai=ai_provider,
-                schema=schema_data,
-                dialect=dialect_str,
-                options=payload.options,
-            )
-            raw_spec = dict(ai_res.spec)
+                ai_res = ask_ai(
+                    prompt=payload.prompt,
+                    ai=ai_provider,
+                    schema=schema_data,
+                    dialect=dialect_str,
+                    options=payload.options,
+                )
+                raw_spec = dict(ai_res.spec)
+                explanation = ai_res.explanation
+                confidence = ai_res.confidence
+                warnings_list = ai_res.warnings
+
             if policy is not None or tenant_ctx is not None:
                 raw_spec = apply_security_policy(
                     raw_spec,
@@ -995,9 +1021,9 @@ def create_query_builder_router(
                 "spec": raw_spec,
                 "sql": final_sql,
                 "params": final_params,
-                "explanation": ai_res.explanation,
-                "confidence": ai_res.confidence,
-                "warnings": ai_res.warnings,
+                "explanation": explanation,
+                "confidence": confidence,
+                "warnings": warnings_list,
             }
         except HTTPException:
             raise

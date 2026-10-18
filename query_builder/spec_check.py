@@ -32,9 +32,14 @@ def _tables_of(schema: Any) -> dict[str, list[str]]:
         return {}
     out: dict[str, list[str]] = {}
     for name, meta in tables.items():
-        if not isinstance(name, str) or not isinstance(meta, Mapping):
+        if not isinstance(name, str):
             continue
-        columns = meta.get("columns", [])
+        if isinstance(meta, Mapping):
+            columns = meta.get("columns", [])
+        elif hasattr(meta, "columns"):
+            columns = getattr(meta, "columns", [])
+        else:
+            continue
         names: list[str] = []
         if isinstance(columns, Mapping):
             names = [str(c) for c in columns]
@@ -44,6 +49,8 @@ def _tables_of(schema: Any) -> dict[str, list[str]]:
                     names.append(column["name"])
                 elif isinstance(column, str):
                     names.append(column)
+                elif hasattr(column, "name") and isinstance(column.name, str):
+                    names.append(column.name)
         out[name] = names
     return out
 
@@ -79,6 +86,8 @@ def check_columns(spec: Any, schema: Any) -> None:
     a sort, a sub-query's columns (the schema does not list them), a filter on a sub-query, and any table the schema does
     not list. A spec or schema of an unexpected shape checks nothing: the compiler reports shape problems.
     """
+    if hasattr(spec, "to_dict") and not isinstance(spec, dict):
+        spec = spec.to_dict()
     if not isinstance(spec, dict):
         return
     tables = _tables_of(schema)
@@ -143,7 +152,9 @@ def check_columns(spec: Any, schema: Any) -> None:
         elif (
             isinstance(column, dict)
             and not column.get("expression")
+            and not column.get("raw_expression")
             and not column.get("case_when")
+            and not column.get("metric")
         ):
             check(column.get("column") or column.get("name"), column.get("table"))
     for flt in _items(spec.get("filters")):

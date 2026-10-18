@@ -458,6 +458,9 @@ if TYPE_CHECKING:
         register_dialect,
         unregister_dialect,
     )
+from query_builder.egress_guard import (
+    EgressPolicy,
+)
 from query_builder.exceptions import (
     CompilationError,
     DialectError,
@@ -629,7 +632,14 @@ from query_builder.semantic import (
 from query_builder.server import (
     create_server,
     generate_openapi_spec,
+    register_connection,
     serve_swagger_ui_html,
+)
+from query_builder.server_security import (
+    SecureRequestError,
+    ServerSecurity,
+    header_tenant_resolver,
+    secure_request,
 )
 from query_builder.spec_check import check_columns
 from query_builder.telemetry import (
@@ -648,6 +658,13 @@ from query_builder.templates import (
 
 __all__ = [
     "AGGREGATE_MAP",
+    "EgressPolicy",
+    "egress_guard",
+    "SecureRequestError",
+    "ServerSecurity",
+    "header_tenant_resolver",
+    "register_connection",
+    "secure_request",
     "EXTENSIONS",
     "MIME_TYPES",
     "OPERATOR_MAP",

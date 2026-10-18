@@ -155,7 +155,7 @@ describe("Milestone 3 Empirical Stress & Adversarial Verification Suite", () => 
 
       // Verify aggregates
       expect(spec?.columns[0]).toEqual({ column: "*", agg: "COUNT", alias: "total_count" });
-      expect(spec?.columns[1]).toEqual({ column: "users.email", agg: "COUNT", alias: "unique_emails" });
+      expect(spec?.columns[1]).toEqual({ column: "users.email", agg: "COUNT_DISTINCT", alias: "unique_emails" });
       expect(spec?.columns[2]).toEqual({ column: "orders.amount", agg: "SUM", alias: "total_revenue" });
       expect(spec?.columns[3]).toEqual({ column: "orders.amount", agg: "AVG", alias: "avg_revenue" });
       expect(spec?.columns[4]).toEqual({ column: "orders.amount", agg: "MIN", alias: "min_amount" });

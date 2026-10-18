@@ -43,6 +43,10 @@ function isWs(code: number): boolean {
   );
 }
 
+function isWsAt(s: string, idx: number): boolean {
+  return idx >= 0 && idx < s.length && isWs(s.charCodeAt(idx));
+}
+
 /** Index of the first non-whitespace character at or after `from` (or `s.length`). */
 function skipWs(s: string, from: number): number {
   let i = from;
@@ -52,6 +56,7 @@ function skipWs(s: string, from: number): number {
 
 /** ASCII case-insensitive match of the upper-case `word` at `s[i]`. */
 function matchWordCI(s: string, i: number, word: string): boolean {
+  if (i < 0 || i + word.length > s.length) return false;
   for (let k = 0; k < word.length; k++) {
     let c = s.charCodeAt(i + k);
     if (c >= 97 && c <= 122) c -= 32;
@@ -76,14 +81,6 @@ function matchWordsCI(s: string, i: number, words: string[]): number {
     }
   }
   return pos;
-}
-
-/** Index of the first case-insensitive occurrence of `word` at or after `from`, or -1. */
-function findWordCI(s: string, word: string, from: number): number {
-  for (let i = from; i + word.length <= s.length; i++) {
-    if (matchWordCI(s, i, word)) return i;
-  }
-  return -1;
 }
 
 /** Removes `-- ...` line comments (up to, not including, the line terminator). */
@@ -156,7 +153,7 @@ function matchColumnEquality(s: string): [string, string] | null {
     let end = i;
     while (end < s.length && isColumnRefChar(s.charCodeAt(end))) end++;
     const eq = skipWs(s, end);
-    if (s.charCodeAt(eq) === 61) {
+    if (eq < s.length && s.charCodeAt(eq) === 61) {
       const rhs = skipWs(s, eq + 1);
       let rhsEnd = rhs;
       while (rhsEnd < s.length && isColumnRefChar(s.charCodeAt(rhsEnd))) rhsEnd++;
@@ -170,23 +167,31 @@ function matchColumnEquality(s: string): [string, string] | null {
 
 /** Equivalent of `/PARTITION\s+BY\s+(.*?)(?=\s+ORDER\s+BY|$)/i` for text without line terminators. */
 function extractPartitionBy(over: string): string | undefined {
+  const upper = over.toUpperCase();
   let from = 0;
   for (;;) {
-    const at = findWordCI(over, "PARTITION", from);
+    const at = upper.indexOf("PARTITION", from);
     if (at === -1) return undefined;
     const afterBy = matchWordsCI(over, at, ["PARTITION", "BY"]);
     const start = afterBy === -1 ? -1 : skipWs(over, afterBy);
     if (start === -1 || start === afterBy) {
-      from = at + 1;
+      from = at + 9;
       continue;
     }
-    for (let j = start; j < over.length; j++) {
-      if (isWs(over.charCodeAt(j)) && !isWs(over.charCodeAt(j - 1))) {
-        const orderAt = skipWs(over, j);
-        if (matchWordCI(over, orderAt, "ORDER") && matchWordsCI(over, orderAt, ["ORDER", "BY"]) !== -1) {
-          return over.slice(start, j);
-        }
+    let ordSearch = start;
+    while (ordSearch < over.length) {
+      const ordAt = upper.indexOf("ORDER", ordSearch);
+      if (ordAt === -1 || upper.indexOf("BY", ordAt + 5) === -1) break;
+      if (
+        ordAt > start &&
+        isWs(over.charCodeAt(ordAt - 1)) &&
+        matchWordsCI(over, ordAt, ["ORDER", "BY"]) !== -1
+      ) {
+        let wsStart = ordAt - 1;
+        while (wsStart > start && isWs(over.charCodeAt(wsStart - 1))) wsStart--;
+        return over.slice(start, wsStart);
       }
+      ordSearch = ordAt + 5;
     }
     return over.slice(start);
   }
@@ -194,16 +199,17 @@ function extractPartitionBy(over: string): string | undefined {
 
 /** Equivalent of `/ORDER\s+BY\s+(.*?)$/i` for text without line terminators. */
 function extractOrderBy(over: string): string | undefined {
+  const upper = over.toUpperCase();
   let from = 0;
   for (;;) {
-    const at = findWordCI(over, "ORDER", from);
-    if (at === -1) return undefined;
+    const at = upper.indexOf("ORDER", from);
+    if (at === -1 || upper.indexOf("BY", at + 5) === -1) return undefined;
     const afterBy = matchWordsCI(over, at, ["ORDER", "BY"]);
     if (afterBy !== -1) {
       const start = skipWs(over, afterBy);
       if (start > afterBy) return over.slice(start);
     }
-    from = at + 1;
+    from = at + 5;
   }
 }
 
@@ -377,6 +383,14 @@ interface ClauseToken {
   length: number;
 }
 
+function isClauseBoundaryChar(ch: string): boolean {
+  if (!ch) return true;
+  const code = ch.charCodeAt(0);
+  return isWs(code) || code === 40 || code === 41 || code === 44;
+}
+
+const PAREN_SCAN_RE = /[()'"`]/g;
+
 function findTopLevelClauses(sql: string): ClauseToken[] {
   const tokens: ClauseToken[] = [];
   const upper = sql.toUpperCase();
@@ -405,7 +419,7 @@ function findTopLevelClauses(sql: string): ClauseToken[] {
 
     if (inString) {
       if (char === stringChar) {
-        if (sql[i + 1] === stringChar) {
+        if (i + 1 < sql.length && sql[i + 1] === stringChar) {
           i++; // Escaped quote
         } else {
           inString = false;
@@ -422,6 +436,28 @@ function findTopLevelClauses(sql: string): ClauseToken[] {
 
     if (char === "(") {
       parenDepth++;
+      PAREN_SCAN_RE.lastIndex = i + 1;
+      while (parenDepth > 0) {
+        const m = PAREN_SCAN_RE.exec(sql);
+        if (!m) {
+          i = sql.length;
+          break;
+        }
+        const ch = m[0];
+        const idx = m.index;
+        if (ch === "(") {
+          parenDepth++;
+        } else if (ch === ")") {
+          parenDepth--;
+          if (parenDepth === 0) {
+            i = idx;
+            break;
+          }
+        } else {
+          i = idx - 1;
+          break;
+        }
+      }
       continue;
     }
     if (char === ")") {
@@ -430,13 +466,20 @@ function findTopLevelClauses(sql: string): ClauseToken[] {
     }
 
     if (parenDepth === 0) {
+      const code = upper.charCodeAt(i);
+      if (isWs(code)) {
+        i = skipWs(sql, i + 1) - 1;
+        continue;
+      }
+      if (code < 65 || code > 90) continue;
+      const prevChar = i > 0 ? sql[i - 1] : " ";
+      if (!isClauseBoundaryChar(prevChar)) continue;
+
       // Check for keywords
       for (const kw of KEYWORDS) {
         if (upper.startsWith(kw, i)) {
-          // Verify word boundary before and after
-          const prevChar = i > 0 ? sql[i - 1] : " ";
           const nextChar = i + kw.length < sql.length ? sql[i + kw.length] : " ";
-          if (/\s|[(),]/.test(prevChar) && /\s|[(),]/.test(nextChar)) {
+          if (isClauseBoundaryChar(nextChar)) {
             tokens.push({
               keyword: kw,
               index: i,
@@ -462,13 +505,14 @@ function splitTopLevel(text: string, delimiterRegex: RegExp): { value: string; d
   let stringChar = "";
   let parenDepth = 0;
   let lastIndex = 0;
+  const isCommaDelim = delimiterRegex.source === "^,";
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
 
     if (inString) {
       if (char === stringChar) {
-        if (text[i + 1] === stringChar) {
+        if (i + 1 < text.length && text[i + 1] === stringChar) {
           i++;
         } else {
           inString = false;
@@ -485,6 +529,28 @@ function splitTopLevel(text: string, delimiterRegex: RegExp): { value: string; d
 
     if (char === "(") {
       parenDepth++;
+      PAREN_SCAN_RE.lastIndex = i + 1;
+      while (parenDepth > 0) {
+        const m = PAREN_SCAN_RE.exec(text);
+        if (!m) {
+          i = text.length;
+          break;
+        }
+        const ch = m[0];
+        const idx = m.index;
+        if (ch === "(") {
+          parenDepth++;
+        } else if (ch === ")") {
+          parenDepth--;
+          if (parenDepth === 0) {
+            i = idx;
+            break;
+          }
+        } else {
+          i = idx - 1;
+          break;
+        }
+      }
       continue;
     }
     if (char === ")") {
@@ -493,15 +559,25 @@ function splitTopLevel(text: string, delimiterRegex: RegExp): { value: string; d
     }
 
     if (parenDepth === 0) {
-      const rest = text.slice(i);
-      const match = rest.match(delimiterRegex);
-      if (match && match.index === 0) {
-        parts.push({
-          value: text.slice(lastIndex, i).trim(),
-          delimiter: match[0].trim(),
-        });
-        i += match[0].length - 1;
-        lastIndex = i + 1;
+      if (isCommaDelim) {
+        if (char === ",") {
+          parts.push({
+            value: text.slice(lastIndex, i).trim(),
+            delimiter: ",",
+          });
+          lastIndex = i + 1;
+        }
+      } else {
+        const rest = text.slice(i);
+        const match = rest.match(delimiterRegex);
+        if (match && match.index === 0) {
+          parts.push({
+            value: text.slice(lastIndex, i).trim(),
+            delimiter: match[0].trim(),
+          });
+          i += match[0].length - 1;
+          lastIndex = i + 1;
+        }
       }
     }
   }
@@ -533,7 +609,7 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
 
     if (inString) {
       if (char === stringChar) {
-        if (text[i + 1] === stringChar) {
+        if (i + 1 < text.length && text[i + 1] === stringChar) {
           i++;
         } else {
           inString = false;
@@ -558,7 +634,7 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
     }
 
     if (parenDepth === 0) {
-      if (!inBetween && matchWordCI(text, i, "BETWEEN") && isWs(text.charCodeAt(i + 7))) {
+      if (!inBetween && matchWordCI(text, i, "BETWEEN") && isWsAt(text, i + 7)) {
         inBetween = true;
         i += 7;
         continue;
@@ -569,14 +645,15 @@ export function splitWhereConditions(text: string): { value: string; delimiter?:
         const wordAt = skipWs(text, i);
         let delim = "";
         let delimEnd = -1;
-        if (matchWordCI(text, wordAt, "AND") && isWs(text.charCodeAt(wordAt + 3))) {
+        if (matchWordCI(text, wordAt, "AND") && isWsAt(text, wordAt + 3)) {
           delim = "AND";
           delimEnd = skipWs(text, wordAt + 3);
-        } else if (matchWordCI(text, wordAt, "OR") && isWs(text.charCodeAt(wordAt + 2))) {
+        } else if (matchWordCI(text, wordAt, "OR") && isWsAt(text, wordAt + 2)) {
           delim = "OR";
           delimEnd = skipWs(text, wordAt + 2);
         } else {
           noDelimiterUntil = wordAt;
+          if (wordAt > i) i = wordAt - 1;
         }
         if (delimEnd !== -1) {
           if (inBetween && delim === "AND") {
@@ -618,8 +695,15 @@ const OPERATOR_PATTERNS = ALLOWED_OPERATORS.map((op) => ({
 function findTopLevelOperator(
   condStr: string,
 ): { op: string; opIndex: number; opLength: number } | null {
-  if (/^\s*(NOT\s+)?EXISTS\s*\(/i.test(condStr)) {
-    return null;
+  const startIdx = skipWs(condStr, 0);
+  const afterNot = matchWordCI(condStr, startIdx, "NOT") && isWsAt(condStr, startIdx + 3)
+    ? skipWs(condStr, startIdx + 3)
+    : startIdx;
+  if (matchWordCI(condStr, afterNot, "EXISTS")) {
+    const afterExists = skipWs(condStr, afterNot + 6);
+    if (afterExists < condStr.length && condStr.charCodeAt(afterExists) === 40) {
+      return null;
+    }
   }
 
   let inString = false;
@@ -631,7 +715,7 @@ function findTopLevelOperator(
 
     if (inString) {
       if (char === stringChar) {
-        if (condStr[i + 1] === stringChar) {
+        if (i + 1 < condStr.length && condStr[i + 1] === stringChar) {
           i++;
         } else {
           inString = false;
@@ -658,12 +742,14 @@ function findTopLevelOperator(
     if (parenDepth === 0) {
       // Operators may be preceded by whitespace; `opStart` is where the operator text would begin.
       const opStart = skipWs(condStr, i);
+      if (opStart >= condStr.length) break;
       for (const { op, isSymbol, words } of OPERATOR_PATTERNS) {
         let matched = false;
         let matchLen = 0;
 
         if (isSymbol) {
-          const after = condStr[opStart + op.length];
+          const afterIdx = opStart + op.length;
+          const after = afterIdx < condStr.length ? condStr[afterIdx] : "";
           if (condStr.startsWith(op, opStart) && after !== ">" && after !== "<" && after !== "=") {
             matchLen = op.length;
             matched = true;
@@ -836,6 +922,29 @@ export function parseSqlToSpec(
   const { table: primaryTable, alias: primaryAlias } = parseTableRef(fromContent);
   if (!primaryTable) return null;
 
+  const aliasToTable: Record<string, string> = {};
+  if (primaryAlias) {
+    aliasToTable[primaryAlias] = primaryTable;
+  }
+  aliasToTable[primaryTable] = primaryTable;
+
+  for (const jc of joinClauses) {
+    const onIndex = jc.content.toUpperCase().indexOf(" ON ");
+    if (onIndex === -1) continue;
+    const tablePart = jc.content.slice(0, onIndex).trim();
+    const { table: targetTable, alias: als } = parseTableRef(tablePart);
+    aliasToTable[targetTable] = targetTable;
+    if (als) aliasToTable[als] = targetTable;
+  }
+
+  const hasAliases = Boolean(primaryAlias) || joinClauses.length > 0;
+  const resolveColAlias = (colRef: string): string => {
+    if (!hasAliases || !colRef || !colRef.includes(".")) return colRef;
+    const parts = colRef.split(".");
+    const resolvedTbl = aliasToTable[parts[0]] || parts[0];
+    return `${resolvedTbl}.${parts.slice(1).join(".")}`;
+  };
+
   // 2. Projections & DISTINCT (SELECT)
   let selectContent = clauseMap["SELECT"] || "";
   let isDistinct = false;
@@ -911,7 +1020,7 @@ export function parseSqlToSpec(
       );
       if (dateTruncMatch) {
         const grain = dateTruncMatch[1].toLowerCase();
-        const innerCol = cleanIdentifier(dateTruncMatch[2]);
+        const innerCol = resolveColAlias(cleanIdentifier(dateTruncMatch[2]));
         const alias = dateTruncMatch[3] ? cleanIdentifier(dateTruncMatch[3]) : `${innerCol}_${grain}`;
         columns.push({
           column: innerCol,
@@ -927,7 +1036,7 @@ export function parseSqlToSpec(
       );
       if (datetruncMssqlMatch) {
         const grain = datetruncMssqlMatch[1].toLowerCase();
-        const innerCol = cleanIdentifier(datetruncMssqlMatch[2]);
+        const innerCol = resolveColAlias(cleanIdentifier(datetruncMssqlMatch[2]));
         const alias = datetruncMssqlMatch[3] ? cleanIdentifier(datetruncMssqlMatch[3]) : `${innerCol}_${grain}`;
         columns.push({
           column: innerCol,
@@ -943,9 +1052,11 @@ export function parseSqlToSpec(
         /^(COUNT|SUM|AVG|MIN|MAX)\s*\((?:\s*DISTINCT\s)?([^\)]+)\)\s+FILTER\s*\(\s*WHERE\s([^\)]+)\)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`\[\]]+))?$/i,
       );
       if (filterAggMatch) {
-        const aggName = filterAggMatch[1].toUpperCase();
-        const innerCol = cleanIdentifier(filterAggMatch[2]);
-        const alias = filterAggMatch[4] ? cleanIdentifier(filterAggMatch[4]) : `${aggName.toLowerCase()}_${innerCol}`;
+        const baseAgg = filterAggMatch[1].toUpperCase();
+        const innerCol = resolveColAlias(cleanIdentifier(filterAggMatch[2]));
+        const isDist = baseAgg === "COUNT" && /^COUNT\s*\(\s*DISTINCT\s+[^\s\)]/i.test(colExpr);
+        const aggName = isDist && innerCol !== "" ? "COUNT_DISTINCT" : baseAgg;
+        const alias = filterAggMatch[4] ? cleanIdentifier(filterAggMatch[4]) : `${baseAgg.toLowerCase()}_${innerCol}`;
         columns.push({
           column: innerCol,
           agg: aggName,
@@ -961,8 +1072,10 @@ export function parseSqlToSpec(
       );
 
       if (aggMatch) {
-        const aggName = aggMatch[1].toUpperCase();
-        const innerCol = cleanIdentifier(aggMatch[2]);
+        const baseAgg = aggMatch[1].toUpperCase();
+        const innerCol = resolveColAlias(cleanIdentifier(aggMatch[2]));
+        const isDist = baseAgg === "COUNT" && /^COUNT\s*\(\s*DISTINCT\s+[^\s\)]/i.test(colExpr);
+        const aggName = isDist && innerCol !== "" ? "COUNT_DISTINCT" : baseAgg;
         const alias = aggMatch[3] ? cleanIdentifier(aggMatch[3]) : undefined;
         columns.push({
           column: innerCol,
@@ -978,7 +1091,7 @@ export function parseSqlToSpec(
       );
 
       if (colAliasMatch && !colExpr.includes("(") && !colExpr.includes(")")) {
-        const colName = cleanIdentifier(colAliasMatch[1]);
+        const colName = resolveColAlias(cleanIdentifier(colAliasMatch[1]));
         const alias = colAliasMatch[2] ? cleanIdentifier(colAliasMatch[2]) : undefined;
         if (alias) {
           columns.push({
@@ -1013,20 +1126,6 @@ export function parseSqlToSpec(
 
   // 3. Joins
   const joins: QuerySpec["joins"] = [];
-  const aliasToTable: Record<string, string> = {};
-  if (primaryAlias) {
-    aliasToTable[primaryAlias] = primaryTable;
-  }
-  aliasToTable[primaryTable] = primaryTable;
-
-  for (const jc of joinClauses) {
-    const onIndex = jc.content.toUpperCase().indexOf(" ON ");
-    if (onIndex === -1) continue;
-    const tablePart = jc.content.slice(0, onIndex).trim();
-    const { table: targetTable, alias: als } = parseTableRef(tablePart);
-    aliasToTable[targetTable] = targetTable;
-    if (als) aliasToTable[als] = targetTable;
-  }
 
   for (const jc of joinClauses) {
     // Expected format: <tableName> [AS <alias>] ON <left> = <right>
@@ -1125,7 +1224,7 @@ export function parseSqlToSpec(
         let colName = colStr;
 
         if (colParts.length > 1) {
-          tablePrefix = colParts[0];
+          tablePrefix = hasAliases ? (aliasToTable[colParts[0]] || colParts[0]) : colParts[0];
           colName = colParts.slice(1).join(".");
         }
 
@@ -1163,7 +1262,7 @@ export function parseSqlToSpec(
       let tablePrefix = primaryTable;
       let colName = colStr;
       if (colParts.length > 1) {
-        tablePrefix = colParts[0];
+        tablePrefix = hasAliases ? (aliasToTable[colParts[0]] || colParts[0]) : colParts[0];
         colName = colParts.slice(1).join(".");
       }
 
