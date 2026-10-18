@@ -58,6 +58,13 @@ The full suite takes about 8-13 minutes. Run the files you touched first, then e
    no mock showed.
 5. **Declared limitations need probes.** If an engine cannot do something, declare it with a probe that
    proves the engine rejects it; a bare skip hides real gaps.
+6. **Never push directly to `main` or the default branch.** Always create a feature branch, push the
+   branch, and open a GitHub Pull Request (`gh pr create`) for the user to review.
+7. **Every PR must have a detailed, structured description** containing:
+   - Summary & high-level architecture decisions
+   - Granular breakdown of changes (backend, frontend/UI, CLI/tools, docs)
+   - Verification evidence (exact test commands run, coverage numbers, lint/typecheck results, CI run link)
+   - Breaking changes or migration notes (if any)
 
 ## Things that bite
 
@@ -96,6 +103,7 @@ The full suite takes about 8-13 minutes. Run the files you touched first, then e
 - Heavy engines (Doris, OceanBase, Db2, Vertica) need several GB of free RAM; check before starting.
 - Never point the live suite, or a connector you are testing, at a database you do not own.
 - Work on a branch and open a pull request; CI must be green before merging.
+- In automated/headless environments, run `gh auth setup-git` before pushing and set `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` to prevent interactive credential and package manager prompts from hanging tasks.
 
 ## Definition of done
 
