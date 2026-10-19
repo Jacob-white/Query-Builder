@@ -85,10 +85,10 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
               background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
               borderRadius: "var(--qb-radius-md, 8px)",
               border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
-              padding: "12px",
+              padding: sorts.length === 0 ? "8px 12px" : "12px",
               display: "flex",
               flexDirection: "column",
-              gap: "10px",
+              gap: sorts.length === 0 ? "6px" : "10px",
               color: "var(--qb-color-text, #f8fafc)",
             }
       }
@@ -102,19 +102,44 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                flexWrap: "wrap",
+                gap: "8px",
               }
         }
       >
-        <span
-          className={cx(classNames?.title)}
+        <div
           style={
             unstyled
               ? undefined
-              : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
+              : { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }
           }
         >
-          ↕️ Order & Sorts ({sorts.length})
-        </span>
+          <span
+            className={cx(classNames?.title)}
+            style={
+              unstyled
+                ? undefined
+                : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
+            }
+          >
+            ↕️ Order & Sorts ({sorts.length})
+          </span>
+          {sorts.length === 0 && (
+            <span
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      fontSize: "0.78rem",
+                      color: "var(--qb-color-text-muted, #64748b)",
+                      fontStyle: "italic",
+                    }
+              }
+            >
+              Default database ordering. Add sort columns to order results.
+            </span>
+          )}
+        </div>
         <button
           type="button"
           aria-label="Add sort"
@@ -141,23 +166,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
         </button>
       </div>
 
-      {sorts.length === 0 ? (
-        <div
-          style={
-            unstyled
-              ? undefined
-              : {
-                  fontSize: "0.78rem",
-                  color: "var(--qb-color-text-muted, #64748b)",
-                  fontStyle: "italic",
-                  textAlign: "center",
-                  padding: "14px 0",
-                }
-          }
-        >
-          Default database ordering. Add sort columns to order results.
-        </div>
-      ) : (
+      {sorts.length > 0 && (
         <div
           style={
             unstyled

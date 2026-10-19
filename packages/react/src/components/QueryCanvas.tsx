@@ -21,6 +21,8 @@ import { TableJoinEditor } from "./TableJoinEditor";
 import { TableSortsEditor } from "./TableSortsEditor";
 import { VectorHybridControl } from "./VectorHybridControl";
 import { CalculatedFieldEditor } from "./CalculatedFieldEditor";
+import { QuerySummaryBar } from "./QuerySummaryBar";
+import { directLinks, describeLink } from "../utils/queryHelpers/joinLinks";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 import { cx } from "../utils/classNames";
 
@@ -120,6 +122,81 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     (t) => !activeTables.some((a) => a.name === t.name),
   );
 
+  const activeTableNames = activeTables.map((t) => t.name);
+  const foreignKeys = schema?.foreign_keys || [];
+
+  // Compute 1-click FK join suggestions for tables in schema not yet on the canvas
+  const suggestedJoins = React.useMemo(() => {
+    if (activeTableNames.length === 0 || foreignKeys.length === 0) return [];
+    const suggestions: { candidate: string; edge: (typeof foreignKeys)[0] }[] = [];
+    for (const cand of availableToAdd) {
+      const links = directLinks(cand.name, activeTableNames, foreignKeys);
+      if (links.length > 0) {
+        suggestions.push({ candidate: cand.name, edge: links[0] });
+      }
+    }
+    return suggestions;
+  }, [activeTableNames, foreignKeys, availableToAdd]);
+
+  const handleQuickFilter = (tableName: string, colName: string, dataType: string) => {
+    const newFilter: VisualFilter = {
+      id: `filter-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      tablePrefix: tableName,
+      column: colName,
+      operator: "=",
+      value: "",
+    };
+    onFiltersChange([...filters, newFilter]);
+  };
+
+  const handleQuickSort = (tableName: string, colName: string) => {
+    const existingIdx = sorts.findIndex(
+      (s) => (s.tablePrefix === tableName || !s.tablePrefix) && s.column === colName,
+    );
+    if (existingIdx >= 0) {
+      const existing = sorts[existingIdx];
+      if (existing.direction === "ASC") {
+        const next = [...sorts];
+        next[existingIdx] = { ...existing, direction: "DESC" };
+        onSortsChange(next);
+      } else {
+        onSortsChange(sorts.filter((_, idx) => idx !== existingIdx));
+      }
+    } else {
+      const newSort: VisualSort = {
+        id: `sort-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tablePrefix: tableName,
+        column: colName,
+        direction: "ASC",
+      };
+      onSortsChange([...sorts, newSort]);
+    }
+  };
+
+  const handleQuickAggregate = (tableName: string, colName: string, currentAgg?: string) => {
+    const key = `${tableName}.${colName}`;
+    if (!selectedColumns[key]) {
+      onToggleColumn(tableName, colName);
+    }
+    const cycle: ("" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX")[] = ["COUNT", "SUM", "AVG", "MIN", "MAX", ""];
+    const nextAgg = cycle[(cycle.indexOf((currentAgg as "" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX") || "") + 1) % cycle.length] || undefined;
+    onUpdateColumnSelect(key, { aggregate: nextAgg });
+  };
+
+  const handleQuickJoinFk = (targetTable: string) => {
+    if (onAddJoin) {
+      onAddJoin(targetTable);
+    } else {
+      onAddTableToCanvas(targetTable);
+    }
+  };
+
+  const handleClearAllClauses = () => {
+    onJoinsChange([]);
+    onFiltersChange([]);
+    onSortsChange([]);
+  };
+
   const handleMoveProjection = (index: number, direction: -1 | 1) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= orderedProjectionKeys.length) return;
@@ -156,6 +233,21 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             }
       }
     >
+      {/* Plain-English query breadcrumb & clause summary bar */}
+      <QuerySummaryBar
+        primaryTable={primaryTable}
+        activeTables={activeTableNames}
+        selectedColumns={selectedColumns}
+        orderedProjectionKeys={orderedProjectionKeys}
+        joins={joins}
+        filters={filters}
+        sorts={sorts}
+        limit={limit}
+        isDistinct={isDistinct}
+        windowFunctions={windowFunctions}
+        onClearClauses={handleClearAllClauses}
+        unstyled={unstyled}
+      />
       {/* Tables row / workspace */}
       <div
         data-qb="canvas-tables"
@@ -271,38 +363,113 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             No tables in query. Select a table to start building.
           </div>
         ) : (
-          <div
-            data-qb="table-cards-list"
-            style={
-              unstyled
-                ? undefined
-                : {
-                    display: "flex",
-                    gap: "16px",
-                    overflowX: "auto",
-                    paddingBottom: "8px",
+          <>
+            <div
+              data-qb="table-cards-list"
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      display: "flex",
+                      gap: "16px",
+                      overflowX: "auto",
+                      paddingBottom: "8px",
+                    }
+              }
+            >
+              {activeTables.map((t) => (
+                <TableCard
+                  key={t.name}
+                  table={t}
+                  isSelected={t.name === primaryTable}
+                  selectedColumns={selectedColumns}
+                  onToggleColumn={(col) => onToggleColumn(t.name, col)}
+                  onRemoveTable={() => onRemoveTable(t.name)}
+                  onAddJoin={
+                    isJoinsVisible
+                      ? () => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))
+                      : undefined
                   }
-            }
-          >
-            {activeTables.map((t) => (
-              <TableCard
-                key={t.name}
-                table={t}
-                isSelected={t.name === primaryTable}
-                selectedColumns={selectedColumns}
-                onToggleColumn={(col) => onToggleColumn(t.name, col)}
-                onRemoveTable={() => onRemoveTable(t.name)}
-                onAddJoin={
-                  isJoinsVisible
-                    ? () => (onAddJoin ? onAddJoin(t.name) : onAddTableToCanvas(t.name))
-                    : undefined
+                  onQuickFilterColumn={handleQuickFilter}
+                  onQuickSortColumn={handleQuickSort}
+                  onQuickAggregateColumn={handleQuickAggregate}
+                  onQuickJoinForeignKey={handleQuickJoinFk}
+                  activeFilterColumns={
+                    new Set(
+                      filters
+                        .filter(
+                          (f) =>
+                            f.tablePrefix === t.name || (!f.tablePrefix && t.name === primaryTable),
+                        )
+                        .map((f) => f.column),
+                    )
+                  }
+                  activeSortMap={Object.fromEntries(
+                    sorts
+                      .filter(
+                        (s) =>
+                          s.tablePrefix === t.name || (!s.tablePrefix && t.name === primaryTable),
+                      )
+                      .map((s) => [s.column, s.direction as "ASC" | "DESC"]),
+                  )}
+                  foreignKeys={foreignKeys}
+                  unstyled={unstyled}
+                  fieldRenderers={fieldRenderers}
+                  classNames={classNames}
+                />
+              ))}
+            </div>
+
+            {/* Smart 1-click Foreign Key Join Suggestions */}
+            {suggestedJoins.length > 0 && (
+              <div
+                data-qb="suggested-joins-bar"
+                style={
+                  unstyled
+                    ? undefined
+                    : {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                        padding: "6px 12px",
+                        background: "rgba(56, 189, 248, 0.08)",
+                        border: "1px dashed rgba(56, 189, 248, 0.3)",
+                        borderRadius: "6px",
+                        fontSize: "0.78rem",
+                      }
                 }
-                unstyled={unstyled}
-                fieldRenderers={fieldRenderers}
-                classNames={classNames}
-              />
-            ))}
-          </div>
+              >
+                <span style={unstyled ? undefined : { color: "#38bdf8", fontWeight: 600 }}>💡 Suggested Joins:</span>
+                {suggestedJoins.map(({ candidate, edge }) => (
+                  <button
+                    key={candidate}
+                    type="button"
+                    data-testid={`fk-join-suggestion-${candidate}`}
+                    onClick={() => handleQuickJoinFk(candidate)}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "rgba(56, 189, 248, 0.16)",
+                            color: "#38bdf8",
+                            border: "1px solid rgba(56, 189, 248, 0.35)",
+                            borderRadius: "4px",
+                            padding: "3px 8px",
+                            fontSize: "0.74rem",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            transition: "all 0.15s ease",
+                          }
+                    }
+                    title={`Join ${candidate} on ${describeLink(edge)}`}
+                  >
+                    + Join {candidate} ({describeLink(edge)})
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 import React from "react";
 import type { VisualJoin, TableMeta, SchemaSnapshot, QueryBuilderClassNames } from "../types";
 import { findBestJoinCondition } from "../utils/joinUtils";
+import { isProvenJoin } from "../utils/queryHelpers/joinLinks";
 import { cx } from "../utils/classNames";
 
 export interface TableJoinEditorProps {
@@ -196,6 +197,15 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
             const rightColumnSuggestions = (rightTableMeta?.columns || []).map(
               (c) => `${j.table}.${c.name}`,
             );
+            const isProven = isProvenJoin(
+              {
+                left_table: j.left_table,
+                left_col: j.left_col || "",
+                table: j.table,
+                right_col: j.right_col || "",
+              },
+              effectiveSchema.foreign_keys || [],
+            );
 
             return (
               <div
@@ -248,6 +258,28 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                   <option value="RIGHT JOIN">RIGHT JOIN</option>
                   <option value="FULL JOIN">FULL JOIN</option>
                 </select>
+
+                {isProven && (
+                  <span
+                    data-qb="badge-fk-verified"
+                    title="Foreign key constraint verified in database schema"
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "rgba(16, 185, 129, 0.15)",
+                            color: "#34d399",
+                            border: "1px solid rgba(16, 185, 129, 0.3)",
+                            borderRadius: "4px",
+                            padding: "2px 6px",
+                            fontSize: "0.68rem",
+                            fontWeight: 600,
+                          }
+                    }
+                  >
+                    ✓ FK Verified
+                  </span>
+                )}
 
                 <span
                   style={

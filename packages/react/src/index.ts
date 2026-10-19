@@ -22,6 +22,8 @@ export { TableCard } from "./components/TableCard";
 export { TableFiltersEditor } from "./components/TableFiltersEditor";
 export { TableJoinEditor } from "./components/TableJoinEditor";
 export { TableSortsEditor } from "./components/TableSortsEditor";
+export { QuerySummaryBar, type QuerySummaryBarProps } from "./components/QuerySummaryBar";
+export { WorkspaceDock, type WorkspaceDockProps, type DockTab } from "./components/visual-query-builder/WorkspaceDock";
 export {
   NlqPromptBar,
   type NlqPromptBarProps,

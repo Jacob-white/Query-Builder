@@ -9,6 +9,24 @@
   untouched, so a negative number stays a number. The same helper is exported as `csvCellText(value)`.
 
 ### Added
+- **Split-View / Docked Workspace (`<WorkspaceDock>`)**:
+  - Keeps the Visual Canvas visible when queries are executed, rendering live Results, Charts, and SQL in an integrated collapsible bottom drawer.
+  - Supports sub-tab switching (`📊 Results`, `📈 Visual Chart`, `📝 Live SQL`), full-height expansion mode, and quick dock collapse/expand toggling.
+- **Live Plain-English Query Summary Bar (`<QuerySummaryBar>`)**:
+  - Dynamically synthesizes the entire active query into an English sentence breadcrumb across projection, joins, filters, grouping, and ordering.
+  - Includes interactive clause status chips with item counts and quick-clear controls, plus a 1-click Reset button with confirmation.
+- **One-Click Foreign Key Join Suggestions**:
+  - Automatically identifies available foreign keys and relationships between active query tables and unjoined schema tables.
+  - Displays a dedicated recommendation strip with 1-click action chips (`+ Join <table> (<left_col> = <right_col>)`) to link tables instantly.
+- **Inline Column Quick-Actions on `<TableCard>`**:
+  - Direct micro-actions on column rows for instant interaction: filter (`🔍`), sort (`⇅`), aggregate (`Σ`), and foreign-key link (`🔗`).
+  - Highlights columns with active filters or sort criteria, avoiding manual scrolling through separate clause lists.
+- **Progressive Disclosure Clause Strips**:
+  - Compact, single-row summary bars for empty Joins (`<TableJoinEditor>`), Filters (`<TableFiltersEditor>`), and Sorts (`<TableSortsEditor>`) to maximize canvas workspace.
+  - Automatically expands into full editing cards once items are added.
+- **Two-Tier Decluttered Studio Toolbar in `<VisualQueryBuilder>`**:
+  - Primary tier dedicated to main view navigation tabs and execution controls (Run, Cancel, Undo, Redo).
+  - Secondary tier for schema explorer toggling, sample query presets, and layout tools.
 - **`VisualQueryBuilder` Studio tabs & controls:**
   - Optional **`⚡ Plan & Cost`** (`showPlanTab?: boolean`) and **`🧬 Pipeline`** (`showPipelineTab?: boolean`) tabs in the Visual Studio output dock, wiring `<QueryPlanVisualizer>` and `<MultiStagePipelineBuilder>` directly into the workspace.
   - Optional **`✨ Ask AI / NLQ`** (`showNlqBar?: boolean`) collapsible natural-language query bar (`<NaturalLanguageBar>`) in the workspace header.

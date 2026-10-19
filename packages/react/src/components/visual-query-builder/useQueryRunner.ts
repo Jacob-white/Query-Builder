@@ -3,6 +3,7 @@ import type { ExecuteQueryHandler, QueryResultData, QuerySpec } from "../../type
 import type { QueryBuilderClient } from "../../client";
 import { useLiveExecution, type LiveExecutionResult } from "../../hooks/useLiveExecution";
 import type { ActiveTab } from "./types";
+import type { DockTab } from "./WorkspaceDock";
 
 export interface UseQueryRunnerOptions {
   propExecuteQuery?: ExecuteQueryHandler;
@@ -10,6 +11,7 @@ export interface UseQueryRunnerOptions {
   client?: QueryBuilderClient;
   getActiveSpec: () => QuerySpec | null;
   currentSql: string;
+  activeTab?: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   dialect?: string;
   liveExecutionApiUrl?: string;
@@ -18,13 +20,14 @@ export interface UseQueryRunnerOptions {
   onLiveExecutionError?: (error: Error) => void;
 }
 
-/** Query execution (host handler or client) plus live-execution wiring and result/error state. */
+/** Query execution (host handler or client) plus live-execution wiring and result/error/dock state. */
 export function useQueryRunner({
   propExecuteQuery,
   contextExecuteQuery,
   client,
   getActiveSpec,
   currentSql,
+  activeTab = "visual",
   setActiveTab,
   dialect,
   liveExecutionApiUrl,
@@ -35,6 +38,8 @@ export function useQueryRunner({
   const [queryResults, setQueryResults] = useState<QueryResultData | null>(null);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
+  const [dockTab, setDockTab] = useState<DockTab>("results");
 
   // Auto-wire client query execution if a client is provided and no handler is.
   const effectiveOnExecuteQuery = useMemo<ExecuteQueryHandler | undefined>(
@@ -58,7 +63,12 @@ export function useQueryRunner({
         count: res.rowCount,
         durationMs: res.executionTimeMs,
       });
-      setActiveTab("results");
+      if (activeTab === "visual") {
+        setIsDockOpen(true);
+        setDockTab("results");
+      } else {
+        setActiveTab("results");
+      }
       onLiveExecutionSuccess?.(res);
     },
     onError: onLiveExecutionError,
@@ -73,7 +83,12 @@ export function useQueryRunner({
       const result = await effectiveOnExecuteQuery(currentSql, parsedSpec);
       if (result) {
         setQueryResults(result);
-        setActiveTab("results");
+        if (activeTab === "visual") {
+          setIsDockOpen(true);
+          setDockTab("results");
+        } else {
+          setActiveTab("results");
+        }
       }
       return result;
     } catch (err: unknown) {
@@ -82,7 +97,17 @@ export function useQueryRunner({
     } finally {
       setIsRunning(false);
     }
-  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, setActiveTab]);
+  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, activeTab, setActiveTab]);
 
-  return { queryResults, isRunning, executionError, liveExec, handleRunQuery };
+  return {
+    queryResults,
+    isRunning,
+    executionError,
+    liveExec,
+    handleRunQuery,
+    isDockOpen,
+    setIsDockOpen,
+    dockTab,
+    setDockTab,
+  };
 }
