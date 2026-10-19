@@ -65,7 +65,8 @@ dist-ssr/
 *.swo
 
 # Agents scratch & teamwork logs
-.agents/
+.agents/*
+!.agents/rules/
 
 # SQLite / Local Databases
 *.db
