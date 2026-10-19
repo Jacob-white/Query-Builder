@@ -136,7 +136,10 @@ def test_only_the_requested_tenant_s_rows_come_back(
     status, text = client.post(path, {**body, "tenant_id": "acme"})
     assert status == 200, text
     assert "acme" in text
-    assert "rival" not in text and "999" not in text
+    assert "rival" not in text
+    # Check that rival's amount (999) is not in returned rows, avoiding false positives from
+    # random hex in execution_id UUIDs (e.g. "...-4999-...")
+    assert ": 999" not in text and ",999," not in text
 
 
 @pytest.mark.parametrize("name", ENDPOINTS)
