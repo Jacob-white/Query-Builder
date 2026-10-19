@@ -82,13 +82,14 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
         unstyled
           ? undefined
           : {
-              background: "rgba(15, 23, 42, 0.6)",
-              borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
+              borderRadius: "var(--qb-radius-md, 8px)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               padding: "12px",
               display: "flex",
               flexDirection: "column",
               gap: "10px",
+              color: "var(--qb-color-text, #f8fafc)",
             }
       }
     >
@@ -109,7 +110,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
           style={
             unstyled
               ? undefined
-              : { fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }
+              : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
           }
         >
           ↕️ Order & Sorts ({sorts.length})
@@ -124,14 +125,15 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
             unstyled
               ? undefined
               : {
-                  background: "rgba(168, 85, 247, 0.2)",
+                  background: "var(--qb-color-accent, rgba(168, 85, 247, 0.2))",
                   color: "#c084fc",
                   border: "1px solid rgba(168, 85, 247, 0.4)",
-                  borderRadius: "6px",
+                  borderRadius: "var(--qb-radius-sm, 6px)",
                   padding: "4px 10px",
                   fontSize: "0.75rem",
                   cursor: "pointer",
                   fontWeight: 600,
+                  transition: "all 0.15s ease",
                 }
           }
         >
@@ -146,10 +148,10 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
               ? undefined
               : {
                   fontSize: "0.78rem",
-                  color: "#64748b",
+                  color: "var(--qb-color-text-muted, #64748b)",
                   fontStyle: "italic",
                   textAlign: "center",
-                  padding: "12px 0",
+                  padding: "14px 0",
                 }
           }
         >
@@ -185,9 +187,10 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
-                        background: "rgba(30, 41, 59, 0.5)",
+                        background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.5))",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.04))",
                         padding: "8px 10px",
-                        borderRadius: "6px",
+                        borderRadius: "var(--qb-radius-sm, 6px)",
                       }
                 }
               >
@@ -210,13 +213,14 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#f8fafc",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-text, #f8fafc)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 8px",
                           fontSize: "0.78rem",
                           flex: 1,
+                          outline: "none",
                         }
                   }
                 >
@@ -245,15 +249,16 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                       : {
                           background:
                             s.direction === "ASC"
-                              ? "rgba(34, 197, 94, 0.2)"
-                              : "rgba(239, 68, 68, 0.2)",
+                              ? "rgba(34, 197, 94, 0.18)"
+                              : "rgba(239, 68, 68, 0.18)",
                           color: s.direction === "ASC" ? "#4ade80" : "#f87171",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          border: `1px solid ${s.direction === "ASC" ? "rgba(34, 197, 94, 0.4)" : "rgba(239, 68, 68, 0.4)"}`,
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 10px",
                           fontSize: "0.75rem",
                           fontWeight: 700,
                           cursor: "pointer",
+                          transition: "all 0.15s ease",
                         }
                   }
                 >
@@ -271,7 +276,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "#ef4444",
+                          color: "var(--qb-color-error, #ef4444)",
                           cursor: "pointer",
                           fontSize: "0.9rem",
                           padding: "2px 6px",

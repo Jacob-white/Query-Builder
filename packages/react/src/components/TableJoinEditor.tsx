@@ -84,13 +84,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
         unstyled
           ? undefined
           : {
-              background: "rgba(15, 23, 42, 0.6)",
-              borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
+              borderRadius: "var(--qb-radius-md, 8px)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               padding: "12px",
               display: "flex",
               flexDirection: "column",
               gap: "10px",
+              color: "var(--qb-color-text, #f8fafc)",
             }
       }
     >
@@ -111,7 +112,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
           style={
             unstyled
               ? undefined
-              : { fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }
+              : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
           }
         >
           🔗 Table Relationships & Joins ({joins.length})
@@ -139,14 +140,15 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: "#1e293b",
-                      color: "#60a5fa",
-                      border: "1px solid rgba(59, 130, 246, 0.4)",
-                      borderRadius: "6px",
+                      background: "var(--qb-color-background, #1e293b)",
+                      color: "var(--qb-color-primary, #60a5fa)",
+                      border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.4))",
+                      borderRadius: "var(--qb-radius-sm, 6px)",
                       padding: "4px 8px",
                       fontSize: "0.75rem",
                       cursor: "pointer",
                       fontWeight: 600,
+                      outline: "none",
                     }
               }
             >
@@ -170,10 +172,10 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               ? undefined
               : {
                   fontSize: "0.78rem",
-                  color: "#64748b",
+                  color: "var(--qb-color-text-muted, #64748b)",
                   fontStyle: "italic",
                   textAlign: "center",
-                  padding: "12px 0",
+                  padding: "14px 0",
                 }
           }
         >
@@ -209,9 +211,10 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                         alignItems: "center",
                         gap: "8px",
                         flexWrap: "wrap",
-                        background: "rgba(30, 41, 59, 0.5)",
+                        background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.5))",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.04))",
                         padding: "8px 10px",
-                        borderRadius: "6px",
+                        borderRadius: "var(--qb-radius-sm, 6px)",
                       }
                 }
               >
@@ -229,13 +232,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#38bdf8",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-primary, #38bdf8)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 8px",
                           fontSize: "0.75rem",
                           fontWeight: 600,
+                          outline: "none",
                         }
                   }
                 >
@@ -249,13 +253,13 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                   style={
                     unstyled
                       ? undefined
-                      : { fontWeight: 600, color: "#f8fafc", fontSize: "0.8rem" }
+                      : { fontWeight: 600, color: "var(--qb-color-text, #f8fafc)", fontSize: "0.8rem" }
                   }
                 >
                   {j.table}
                 </span>
 
-                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
                   ON
                 </span>
 
@@ -280,13 +284,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#cbd5e1",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-text-secondary, #cbd5e1)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 6px",
                           fontSize: "0.75rem",
                           width: "140px",
+                          outline: "none",
                         }
                   }
                 />
@@ -296,7 +301,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                   ))}
                 </datalist>
 
-                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
                   =
                 </span>
 
@@ -318,13 +323,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#cbd5e1",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-text-secondary, #cbd5e1)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 6px",
                           fontSize: "0.75rem",
                           width: "140px",
+                          outline: "none",
                         }
                   }
                 />
@@ -345,7 +351,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "#ef4444",
+                          color: "var(--qb-color-error, #ef4444)",
                           cursor: "pointer",
                           fontSize: "0.9rem",
                           padding: "2px 6px",

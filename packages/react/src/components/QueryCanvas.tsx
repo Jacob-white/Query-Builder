@@ -180,7 +180,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             style={
               unstyled
                 ? undefined
-                : { fontSize: "0.88rem", fontWeight: 700, color: "#cbd5e1" }
+                : { fontSize: "0.88rem", fontWeight: 700, color: "var(--qb-color-text-secondary, #cbd5e1)" }
             }
           >
             📋 Active Tables in Query ({activeTables.length})
@@ -195,14 +195,15 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   unstyled
                     ? undefined
                     : {
-                        background: "rgba(139, 92, 246, 0.15)",
+                        background: "var(--qb-color-accent, rgba(139, 92, 246, 0.15))",
                         color: "#c4b5fd",
                         border: "1px solid rgba(139, 92, 246, 0.4)",
-                        borderRadius: "6px",
+                        borderRadius: "var(--qb-radius-sm, 6px)",
                         padding: "4px 10px",
                         fontSize: "0.78rem",
                         cursor: "pointer",
                         fontWeight: 600,
+                        transition: "all 0.15s ease",
                       }
                 }
               >
@@ -224,14 +225,15 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   unstyled
                     ? undefined
                     : {
-                        background: "#1e293b",
-                        color: "#60a5fa",
-                        border: "1px solid rgba(59, 130, 246, 0.4)",
-                        borderRadius: "6px",
+                        background: "var(--qb-color-surface, #1e293b)",
+                        color: "var(--qb-color-primary, #60a5fa)",
+                        border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.4))",
+                        borderRadius: "var(--qb-radius-sm, 6px)",
                         padding: "4px 10px",
                         fontSize: "0.78rem",
                         cursor: "pointer",
                         fontWeight: 600,
+                        outline: "none",
                       }
                 }
               >
@@ -256,11 +258,12 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
               unstyled
                 ? undefined
                 : {
-                    padding: "32px",
+                    padding: "36px",
                     textAlign: "center",
-                    color: "#94a3b8",
-                    border: "2px dashed rgba(255, 255, 255, 0.1)",
-                    borderRadius: "10px",
+                    color: "var(--qb-color-text-muted, #94a3b8)",
+                    border: "2px dashed var(--qb-color-border, rgba(255, 255, 255, 0.15))",
+                    borderRadius: "var(--qb-radius-lg, 10px)",
+                    background: "var(--qb-color-surface, rgba(15, 23, 42, 0.4))",
                     width: "100%",
                   }
             }
@@ -312,9 +315,9 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             unstyled
               ? undefined
               : {
-                  background: "rgba(15, 23, 42, 0.6)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderRadius: "8px",
+                  background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                  borderRadius: "var(--qb-radius-md, 8px)",
                   padding: "12px",
                   display: "flex",
                   flexDirection: "column",
@@ -340,7 +343,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }
+                  : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
               }
             >
               ✨ Selected Columns & Projections ({orderedProjectionKeys.length})
@@ -359,7 +362,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       ? undefined
                       : {
                           fontSize: "0.78rem",
-                          color: "#cbd5e1",
+                          color: "var(--qb-color-text-secondary, #cbd5e1)",
                           display: "flex",
                           alignItems: "center",
                           gap: "6px",
@@ -372,6 +375,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     data-qb="checkbox-distinct"
                     checked={isDistinct}
                     onChange={(e) => onDistinctChange(e.target.checked)}
+                    style={{ accentColor: "var(--qb-color-primary, #3b82f6)" }}
                   />
                   DISTINCT
                 </label>
@@ -382,7 +386,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       : { display: "flex", alignItems: "center", gap: "6px" }
                   }
                 >
-                  <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+                  <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
                     Limit:
                   </span>
                   <select
@@ -394,12 +398,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "#1e293b",
-                            color: "#f8fafc",
-                            border: "1px solid #475569",
-                            borderRadius: "4px",
+                            background: "var(--qb-color-background, #1e293b)",
+                            color: "var(--qb-color-text, #f8fafc)",
+                            border: "1px solid var(--qb-color-border, #475569)",
+                            borderRadius: "var(--qb-radius-sm, 4px)",
                             padding: "2px 6px",
                             fontSize: "0.75rem",
+                            outline: "none",
                           }
                     }
                   >
@@ -439,9 +444,9 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "rgba(30, 41, 59, 0.7)",
-                          border: "1px solid rgba(255, 255, 255, 0.1)",
-                          borderRadius: "6px",
+                          background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.7))",
+                          border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                          borderRadius: "var(--qb-radius-sm, 6px)",
                           padding: "4px 8px",
                           display: "flex",
                           alignItems: "center",
@@ -462,7 +467,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                           : {
                               background: "transparent",
                               border: "none",
-                              color: "#94a3b8",
+                              color: "var(--qb-color-text-muted, #94a3b8)",
                               cursor: "pointer",
                               padding: "1px 3px",
                               fontSize: "0.7rem",
@@ -478,7 +483,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     style={
                       unstyled
                         ? undefined
-                        : { color: isCalculated ? "#c4b5fd" : "#93c5fd", fontWeight: 600 }
+                        : { color: isCalculated ? "#c4b5fd" : "var(--qb-color-primary, #93c5fd)", fontWeight: 600 }
                     }
                   >
                     {isCalculated
@@ -500,13 +505,14 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "#0f172a",
-                            border: "1px solid #334155",
+                            background: "var(--qb-color-background, #0f172a)",
+                            border: "1px solid var(--qb-color-border, #334155)",
                             borderRadius: "4px",
                             padding: "1px 6px",
-                            color: "#38bdf8",
+                            color: "var(--qb-color-primary, #38bdf8)",
                             fontSize: "0.7rem",
                             width: "60px",
+                            outline: "none",
                           }
                     }
                   />
@@ -546,12 +552,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                         unstyled
                           ? undefined
                           : {
-                              background: "#0f172a",
-                              color: item.timeGrain ? "#a78bfa" : "#64748b",
-                              border: "1px solid #334155",
+                              background: "var(--qb-color-background, #0f172a)",
+                              color: item.timeGrain ? "#a78bfa" : "var(--qb-color-text-muted, #64748b)",
+                              border: "1px solid var(--qb-color-border, #334155)",
                               borderRadius: "4px",
                               padding: "1px 4px",
                               fontSize: "0.7rem",
+                              outline: "none",
                             }
                       }
                     >
@@ -582,12 +589,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                         unstyled
                           ? undefined
                           : {
-                              background: "#0f172a",
-                              color: item.aggregate ? "#f59e0b" : "#64748b",
-                              border: "1px solid #334155",
+                              background: "var(--qb-color-background, #0f172a)",
+                              color: item.aggregate ? "var(--qb-color-warning, #f59e0b)" : "var(--qb-color-text-muted, #64748b)",
+                              border: "1px solid var(--qb-color-border, #334155)",
                               borderRadius: "4px",
                               padding: "1px 4px",
                               fontSize: "0.7rem",
+                              outline: "none",
                             }
                       }
                     >
@@ -755,9 +763,9 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             unstyled
               ? undefined
               : {
-                  background: "rgba(15, 23, 42, 0.75)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderRadius: "8px",
+                  background: "var(--qb-color-surface, rgba(15, 23, 42, 0.75))",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                  borderRadius: "var(--qb-radius-md, 8px)",
                   padding: "8px 12px",
                   display: "flex",
                   flexDirection: "column",
@@ -787,7 +795,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   : {
                       background: "transparent",
                       border: "none",
-                      color: "#94a3b8",
+                      color: "var(--qb-color-text-muted, #94a3b8)",
                       fontSize: "0.78rem",
                       fontWeight: 600,
                       cursor: "pointer",
@@ -806,7 +814,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          color: "#38bdf8",
+                          color: "var(--qb-color-primary, #38bdf8)",
                           fontSize: "0.74rem",
                           maxWidth: "480px",
                           overflow: "hidden",
@@ -829,14 +837,15 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: "rgba(59, 130, 246, 0.15)",
-                      color: "#60a5fa",
-                      border: "1px solid rgba(59, 130, 246, 0.35)",
-                      borderRadius: "4px",
+                      background: "var(--qb-color-primary-light, rgba(59, 130, 246, 0.15))",
+                      color: "var(--qb-color-primary, #60a5fa)",
+                      border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.35))",
+                      borderRadius: "var(--qb-radius-sm, 4px)",
                       padding: "2px 8px",
                       fontSize: "0.72rem",
                       cursor: "pointer",
                       fontWeight: 600,
+                      transition: "all 0.15s ease",
                     }
               }
             >
@@ -851,12 +860,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   ? undefined
                   : {
                       margin: 0,
-                      padding: "8px 10px",
-                      background: "#0f172a",
-                      color: "#38bdf8",
-                      borderRadius: "6px",
+                      padding: "10px 12px",
+                      background: "var(--qb-color-background, #0f172a)",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      border: "1px solid var(--qb-color-border, #1e293b)",
+                      borderRadius: "var(--qb-radius-sm, 6px)",
                       fontSize: "0.78rem",
-                      fontFamily: "monospace",
+                      fontFamily: "var(--qb-font-mono, monospace)",
                       overflowX: "auto",
                       whiteSpace: "pre-wrap",
                     }

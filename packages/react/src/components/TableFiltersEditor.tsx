@@ -75,13 +75,14 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
         unstyled
           ? undefined
           : {
-              background: "rgba(15, 23, 42, 0.6)",
-              borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
+              borderRadius: "var(--qb-radius-md, 8px)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               padding: "12px",
               display: "flex",
               flexDirection: "column",
               gap: "10px",
+              color: "var(--qb-color-text, #f8fafc)",
             }
       }
     >
@@ -102,7 +103,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
           style={
             unstyled
               ? undefined
-              : { fontSize: "0.85rem", fontWeight: 600, color: "#94a3b8" }
+              : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
           }
         >
           ⚡ Filter Conditions ({filters.length})
@@ -116,14 +117,15 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
             unstyled
               ? undefined
               : {
-                  background: "rgba(59, 130, 246, 0.2)",
-                  color: "#60a5fa",
-                  border: "1px solid rgba(59, 130, 246, 0.4)",
-                  borderRadius: "6px",
+                  background: "var(--qb-color-primary-light, rgba(59, 130, 246, 0.2))",
+                  color: "var(--qb-color-primary, #60a5fa)",
+                  border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.4))",
+                  borderRadius: "var(--qb-radius-sm, 6px)",
                   padding: "4px 10px",
                   fontSize: "0.75rem",
                   cursor: "pointer",
                   fontWeight: 600,
+                  transition: "all 0.15s ease",
                 }
           }
         >
@@ -138,10 +140,10 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
               ? undefined
               : {
                   fontSize: "0.78rem",
-                  color: "#64748b",
+                  color: "var(--qb-color-text-muted, #64748b)",
                   fontStyle: "italic",
                   textAlign: "center",
-                  padding: "12px 0",
+                  padding: "14px 0",
                 }
           }
         >
@@ -181,9 +183,10 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                         alignItems: "center",
                         gap: "8px",
                         flexWrap: "wrap",
-                        background: "rgba(30, 41, 59, 0.5)",
+                        background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.5))",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.04))",
                         padding: "8px 10px",
-                        borderRadius: "6px",
+                        borderRadius: "var(--qb-radius-sm, 6px)",
                       }
                 }
               >
@@ -205,12 +208,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                             fontSize: "0.7rem",
                             fontWeight: 700,
                             color: f.combiner === "OR" ? "#ec4899" : "#f59e0b",
-                            background: "rgba(255, 255, 255, 0.05)",
-                            border: "1px solid rgba(255, 255, 255, 0.1)",
+                            background: f.combiner === "OR" ? "rgba(236, 72, 153, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                            border: `1px solid ${f.combiner === "OR" ? "rgba(236, 72, 153, 0.35)" : "rgba(245, 158, 11, 0.35)"}`,
                             borderRadius: "4px",
-                            padding: "2px 6px",
+                            padding: "2px 7px",
                             cursor: "pointer",
-                            minWidth: "36px",
+                            minWidth: "38px",
+                            transition: "all 0.15s ease",
                           }
                     }
                   >
@@ -234,13 +238,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                       : {
                           fontSize: "0.72rem",
                           fontWeight: 700,
-                          color: f.parenOpen ? "#38bdf8" : "#64748b",
+                          color: f.parenOpen ? "#38bdf8" : "var(--qb-color-text-muted, #64748b)",
                           background: f.parenOpen
                             ? "rgba(56, 189, 248, 0.18)"
-                            : "rgba(255, 255, 255, 0.03)",
+                            : "var(--qb-color-surface, rgba(255, 255, 255, 0.03))",
                           border: f.parenOpen
                             ? "1px solid rgba(56, 189, 248, 0.45)"
-                            : "1px solid rgba(255, 255, 255, 0.08)",
+                            : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                           borderRadius: "4px",
                           padding: "2px 6px",
                           cursor: "pointer",
@@ -268,12 +272,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#f8fafc",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-text, #f8fafc)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 8px",
                           fontSize: "0.78rem",
+                          outline: "none",
                         }
                   }
                 >
@@ -300,12 +305,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          background: "#1e293b",
-                          color: "#f8fafc",
-                          border: "1px solid #475569",
-                          borderRadius: "4px",
+                          background: "var(--qb-color-background, #1e293b)",
+                          color: "var(--qb-color-text, #f8fafc)",
+                          border: "1px solid var(--qb-color-border, #475569)",
+                          borderRadius: "var(--qb-radius-sm, 4px)",
                           padding: "4px 8px",
                           fontSize: "0.78rem",
+                          outline: "none",
                         }
                   }
                 >
@@ -365,14 +371,15 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                           unstyled
                             ? undefined
                             : {
-                                background: "#1e293b",
-                                color: "#f8fafc",
-                                border: "1px solid #475569",
-                                borderRadius: "4px",
+                                background: "var(--qb-color-background, #1e293b)",
+                                color: "var(--qb-color-text, #f8fafc)",
+                                border: "1px solid var(--qb-color-border, #475569)",
+                                borderRadius: "var(--qb-radius-sm, 4px)",
                                 padding: "4px 8px",
                                 fontSize: "0.78rem",
                                 flex: 1,
                                 minWidth: "120px",
+                                outline: "none",
                               }
                         }
                       />
@@ -403,13 +410,13 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                       : {
                           fontSize: "0.72rem",
                           fontWeight: 700,
-                          color: f.parenClose ? "#38bdf8" : "#64748b",
+                          color: f.parenClose ? "#38bdf8" : "var(--qb-color-text-muted, #64748b)",
                           background: f.parenClose
                             ? "rgba(56, 189, 248, 0.18)"
-                            : "rgba(255, 255, 255, 0.03)",
+                            : "var(--qb-color-surface, rgba(255, 255, 255, 0.03))",
                           border: f.parenClose
                             ? "1px solid rgba(56, 189, 248, 0.45)"
-                            : "1px solid rgba(255, 255, 255, 0.08)",
+                            : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                           borderRadius: "4px",
                           padding: "2px 6px",
                           cursor: "pointer",
@@ -430,7 +437,7 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "#ef4444",
+                          color: "var(--qb-color-error, #ef4444)",
                           cursor: "pointer",
                           fontSize: "0.9rem",
                           padding: "2px 6px",
