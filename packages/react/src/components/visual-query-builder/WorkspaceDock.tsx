@@ -37,7 +37,7 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
   cellRenderers,
   classNames,
   unstyled = false,
-  theme,
+  theme: _theme,
 }) => {
   const [copied, setCopied] = useState(false);
 

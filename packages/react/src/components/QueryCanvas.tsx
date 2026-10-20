@@ -117,13 +117,14 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   const [isSqlPreviewOpen, setIsSqlPreviewOpen] = React.useState(false);
   const [copiedSql, setCopiedSql] = React.useState(false);
 
-  const allTables = Object.values(schema?.tables || {});
-  const availableToAdd = allTables.filter(
-    (t) => !activeTables.some((a) => a.name === t.name),
+  const allTables = React.useMemo(() => Object.values(schema?.tables || {}), [schema?.tables]);
+  const availableToAdd = React.useMemo(
+    () => allTables.filter((t) => !activeTables.some((a) => a.name === t.name)),
+    [allTables, activeTables],
   );
 
-  const activeTableNames = activeTables.map((t) => t.name);
-  const foreignKeys = schema?.foreign_keys || [];
+  const activeTableNames = React.useMemo(() => activeTables.map((t) => t.name), [activeTables]);
+  const foreignKeys = React.useMemo(() => schema?.foreign_keys || [], [schema?.foreign_keys]);
 
   // Compute 1-click FK join suggestions for tables in schema not yet on the canvas
   const suggestedJoins = React.useMemo(() => {
@@ -138,7 +139,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     return suggestions;
   }, [activeTableNames, foreignKeys, availableToAdd]);
 
-  const handleQuickFilter = (tableName: string, colName: string, dataType: string) => {
+  const handleQuickFilter = (tableName: string, colName: string, _dataType: string) => {
     const newFilter: VisualFilter = {
       id: `filter-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       tablePrefix: tableName,

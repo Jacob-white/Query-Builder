@@ -1,7 +1,6 @@
 import React from "react";
 import {
   columnsSummary,
-  joinsSummary,
   sortsSummary,
   conditionsSummary,
   type SummarizedJoin,
@@ -50,7 +49,6 @@ export const QuerySummaryBar: React.FC<QuerySummaryBarProps> = ({
   }
 
   const colSummary = columnsSummary(selectedColumns, orderedProjectionKeys);
-  const joinSummary = joinsSummary(joins);
   const describedConditions = filters.map((f) => {
     const kind = f.dataType ? columnKind(f.dataType) : "text";
     try {

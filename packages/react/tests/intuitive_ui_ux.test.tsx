@@ -63,7 +63,7 @@ describe("QuerySummaryBar (Plain-English breadcrumb)", () => {
       />
     );
 
-    const summaryEl = screen.getByTestId ? document.querySelector('[data-qb="query-summary-bar"]') : null;
+    const summaryEl = document.querySelector('[data-qb="query-summary-bar"]');
     expect(summaryEl).toBeTruthy();
     expect(screen.getByText(/from orders/i)).toBeTruthy();
     expect(screen.getByText(/joined with users/i)).toBeTruthy();
