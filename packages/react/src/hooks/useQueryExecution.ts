@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { QueryResultData, ExecuteQueryHandler, QuerySpec } from "../types";
+import type { QueryResultData, ExecuteQueryHandler, QuerySpec, SerializedQuerySpec } from "../types";
 import { useQueryBuilderContext } from "../theme/QueryBuilderProvider";
 
 export interface UseQueryExecutionOptions {
@@ -16,7 +16,10 @@ export interface UseQueryExecutionReturn {
   isLoading: boolean;
   error: string | null;
   latencyMs: number | null;
-  executeQuery: (sql: string, spec?: QuerySpec | null) => Promise<QueryResultData | null>;
+  executeQuery: (
+    sql: string,
+    spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
+  ) => Promise<QueryResultData | null>;
   cancelExecution: () => void;
   clearResults: () => void;
   setResults: (data: QueryResultData | null) => void;
@@ -67,7 +70,10 @@ export function useQueryExecution(
   }, []);
 
   const executeQuery = useCallback(
-    async (sql: string, spec?: QuerySpec | null): Promise<QueryResultData | null> => {
+    async (
+      sql: string,
+      spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
+    ): Promise<QueryResultData | null> => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }

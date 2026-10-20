@@ -214,12 +214,13 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
-                    borderRadius: "6px",
+                    background: "var(--qb-color-surface, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
+                    borderRadius: "var(--qb-radius-sm, 6px)",
                     padding: "4px 8px",
                     fontSize: "0.78rem",
+                    outline: "none",
                   }
             }
           >
@@ -244,13 +245,14 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
-                    borderRadius: "6px",
+                    background: "var(--qb-color-background, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
+                    borderRadius: "var(--qb-radius-sm, 6px)",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
                     width: "160px",
+                    outline: "none",
                   }
             }
           />
@@ -263,14 +265,15 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(59, 130, 246, 0.15)",
-                    color: "#60a5fa",
-                    border: "1px solid rgba(59, 130, 246, 0.3)",
-                    borderRadius: "6px",
+                    background: "var(--qb-color-primary-light, rgba(59, 130, 246, 0.15))",
+                    color: "var(--qb-color-primary, #60a5fa)",
+                    border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.3))",
+                    borderRadius: "var(--qb-radius-sm, 6px)",
                     padding: "4px 12px",
                     fontSize: "0.78rem",
                     cursor: "pointer",
                     fontWeight: 600,
+                    transition: "all 0.15s ease",
                   }
             }
           >
@@ -285,14 +288,15 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(16, 185, 129, 0.15)",
-                    color: "#34d399",
-                    border: "1px solid rgba(16, 185, 129, 0.3)",
-                    borderRadius: "6px",
+                    background: "var(--qb-color-success-light, rgba(16, 185, 129, 0.15))",
+                    color: "var(--qb-color-success, #34d399)",
+                    border: "1px solid var(--qb-color-success, rgba(16, 185, 129, 0.3))",
+                    borderRadius: "var(--qb-radius-sm, 6px)",
                     padding: "4px 12px",
                     fontSize: "0.78rem",
                     cursor: "pointer",
                     fontWeight: 600,
+                    transition: "all 0.15s ease",
                   }
             }
           >
@@ -310,9 +314,9 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                 overflowX: "auto",
                 overflowY: "auto",
                 maxHeight: "360px",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
-                borderRadius: "8px",
-                background: "rgba(15, 23, 42, 0.6)",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                borderRadius: "var(--qb-radius-md, 8px)",
+                background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
               }
         }
       >
@@ -328,7 +332,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                   width: "100%",
                   borderCollapse: "collapse",
                   fontSize: "0.78rem",
-                  color: "#e2e8f0",
+                  color: "var(--qb-color-text, #e2e8f0)",
                   textAlign: "left",
                 }
           }
@@ -340,9 +344,10 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: "rgba(30, 41, 59, 0.9)",
+                      background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.9))",
                       position: "sticky",
                       top: 0,
+                      zIndex: 1,
                     }
               }
             >
@@ -357,9 +362,9 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                       : {
                           padding: "8px 12px",
                           fontWeight: 600,
-                          borderBottom: "1px solid #334155",
+                          borderBottom: "1px solid var(--qb-color-border, #334155)",
                           whiteSpace: "nowrap",
-                          color: "#93c5fd",
+                          color: "var(--qb-color-primary, #93c5fd)",
                         }
                   }
                 >
@@ -380,9 +385,9 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                     : {
                         background:
                           idx % 2 === 0
-                            ? "rgba(15, 23, 42, 0.4)"
-                            : "rgba(30, 41, 59, 0.3)",
-                        borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
+                            ? "var(--qb-color-background, rgba(15, 23, 42, 0.4))"
+                            : "var(--qb-color-surface, rgba(30, 41, 59, 0.3))",
+                        borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.04))",
                       }
                 }
               >
@@ -413,7 +418,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                       ) : r[c] !== null && r[c] !== undefined ? (
                         String(r[c])
                       ) : (
-                        <span style={unstyled ? undefined : { color: "#64748b" }}>null</span>
+                        <span style={unstyled ? undefined : { color: "var(--qb-color-text-muted, #64748b)" }}>null</span>
                       )}
                     </td>
                   );
@@ -437,7 +442,7 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                   alignItems: "center",
                   padding: "6px 2px",
                   fontSize: "0.8rem",
-                  color: "#94a3b8",
+                  color: "var(--qb-color-text-muted, #94a3b8)",
                 }
           }
         >
@@ -455,13 +460,17 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: effectivePage <= 1 ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
-                      color: effectivePage <= 1 ? "#64748b" : "#f8fafc",
-                      border: "1px solid rgba(255, 255, 255, 0.15)",
-                      borderRadius: "4px",
+                      background:
+                        effectivePage <= 1
+                          ? "var(--qb-color-surface, rgba(255, 255, 255, 0.05))"
+                          : "var(--qb-color-surface-hover, rgba(255, 255, 255, 0.1))",
+                      color: effectivePage <= 1 ? "var(--qb-color-text-muted, #64748b)" : "var(--qb-color-text, #f8fafc)",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
+                      borderRadius: "var(--qb-radius-sm, 4px)",
                       padding: "3px 10px",
                       cursor: effectivePage <= 1 ? "not-allowed" : "pointer",
                       fontSize: "0.78rem",
+                      transition: "all 0.15s ease",
                     }
               }
             >
@@ -477,13 +486,17 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: effectivePage >= totalPages ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
-                      color: effectivePage >= totalPages ? "#64748b" : "#f8fafc",
-                      border: "1px solid rgba(255, 255, 255, 0.15)",
-                      borderRadius: "4px",
+                      background:
+                        effectivePage >= totalPages
+                          ? "var(--qb-color-surface, rgba(255, 255, 255, 0.05))"
+                          : "var(--qb-color-surface-hover, rgba(255, 255, 255, 0.1))",
+                      color: effectivePage >= totalPages ? "var(--qb-color-text-muted, #64748b)" : "var(--qb-color-text, #f8fafc)",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
+                      borderRadius: "var(--qb-radius-sm, 4px)",
                       padding: "3px 10px",
                       cursor: effectivePage >= totalPages ? "not-allowed" : "pointer",
                       fontSize: "0.78rem",
+                      transition: "all 0.15s ease",
                     }
               }
             >

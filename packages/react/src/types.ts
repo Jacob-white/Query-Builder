@@ -256,7 +256,10 @@ export type CellRenderer = {
  * QuerySpec. Method-bivariant so handlers declared with a narrower `spec` type remain assignable.
  */
 export type ExecuteQueryHandler = {
-  bivarianceHack(sql: string, spec?: QuerySpec | null): Promise<QueryResultData> | void;
+  bivarianceHack(
+    sql: string,
+    spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
+  ): Promise<QueryResultData> | void;
 }["bivarianceHack"];
 
 export interface MetricFilter {
@@ -853,12 +856,12 @@ export type ResolvedFeatureMap = Record<FeatureKey, FeatureTier>;
 export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition = DatabaseSchemaDefinition> {
   schema?: SchemaSnapshot | Schema | TableSchema[] | null;
   presets?: SqlPreset[];
-  initialTable?: SchemaTableNames<Schema>;
+  initialTable?: SchemaTableNames<Schema> | string;
   dialect?: SqlDialect;
   value?: QuerySpec<Schema>;
   /** `spec` is `null` when raw-SQL mode holds SQL that cannot be mapped to a QuerySpec. */
   onChange?: (spec: QuerySpec<Schema> | null, sql: string) => void;
-  initialSpec?: QuerySpec<Schema>;
+  initialSpec?: QuerySpec<Schema> | SerializedQuerySpec;
   client?: import("./client").QueryBuilderClient;
   onExecuteQuery?: ExecuteQueryHandler;
   onSaveQuery?: {

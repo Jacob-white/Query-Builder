@@ -44,6 +44,11 @@
 - **SQL Reverse Parser Enhancements (`SQLParser`)**: Added table alias resolution (`FROM users AS u`, `JOIN orders o ON ...`) across `SELECT`, `WHERE`, `JOIN`, `GROUP BY`, `HAVING`, and `ORDER BY`, plus `NOT LIKE` and `NOT ILIKE` operator parsing.
 - **CLI & MCP Server Tooling**: Added `query-builder parse "<SQL>"` CLI subcommand, case-insensitive `query-builder schema --table` lookup, and `query_builder_parse_sql`, `query_builder_check_columns`, and `query_builder_audit_schema` MCP tools.
 - **100% Strict Mypy Coverage Ratchet**: Added all remaining `query_builder` modules (`agent_tools`, `cli`, `egress_guard`, `mcp_server`, `runnable`, `schema_audit`, `server`, `server_security`, `spec_check`, `integrations.django`, `integrations.fastapi`, `nlq.self_healing`) to the strict mypy override list in `pyproject.toml` and enforced full-package coverage in `tests/test_typing_ratchet.py`.
+- **React Visual Studio UI/UX Overhaul** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`):
+  split-view docked workspace drawer (`<WorkspaceDock>`) keeping the visual canvas visible alongside live query results,
+  live plain-English query summary bar (`<QuerySummaryBar>`) with interactive clause chips, 1-click FK join suggestions,
+  inline column micro-actions (`<TableCard>`), compact progressive disclosure clause strips (`<TableJoinEditor>`,
+  `<TableFiltersEditor>`, `<TableSortsEditor>`), and two-tier decluttered studio toolbar.
 - **React helpers** (`@jacob-white/query-builder-react`, see `packages/react/CHANGELOG.md`): pure filter-kind, HAVING,
   join-proof, summary and SQL-file helpers extracted from a host application's Query Builder page; `completeJoins` /
   `loadCompleted` fill a loaded join's missing columns from the one declared link instead of letting it default to

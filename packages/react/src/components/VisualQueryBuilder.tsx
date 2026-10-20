@@ -295,12 +295,23 @@ export const VisualQueryBuilder = React.forwardRef<
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState<boolean>(false);
   const [templateManagerMode, setTemplateManagerMode] = useState<"library" | "save">("library");
 
-  const { queryResults, isRunning, executionError, liveExec, handleRunQuery } = useQueryRunner({
+  const {
+    queryResults,
+    isRunning,
+    executionError,
+    liveExec,
+    handleRunQuery,
+    isDockOpen,
+    setIsDockOpen,
+    dockTab,
+    setDockTab,
+  } = useQueryRunner({
     propExecuteQuery,
     contextExecuteQuery: qbContext?.onExecuteQuery,
     client,
     getActiveSpec,
     currentSql,
+    activeTab,
     setActiveTab,
     dialect,
     liveExecutionApiUrl,
@@ -415,16 +426,27 @@ export const VisualQueryBuilder = React.forwardRef<
               ? undefined
               : {
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
+                  flexDirection: "column",
                   gap: "10px",
                   paddingBottom: "12px",
                   borderBottom: `1px solid ${activeTheme.colors.border}`,
                 }
           }
         >
-          <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* Tier 1: Primary Mode Tabs & Execution CTA */}
+          <div
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "10px",
+                  }
+            }
+          >
             <TabBar
               activeTab={activeTab}
               tabs={visibleTabs({ hasRawSqlTab, hasVisualChartTab, hasPipelineTab, hasPlanTab })}
@@ -435,6 +457,64 @@ export const VisualQueryBuilder = React.forwardRef<
               theme={activeTheme}
               classNames={classNames}
             />
+
+            <ToolbarActions
+              canUndo={history.canUndo}
+              canRedo={history.canRedo}
+              onUndo={() => {
+                leaveRawMode();
+                actions.undo();
+              }}
+              onRedo={() => {
+                leaveRawMode();
+                actions.redo();
+              }}
+              allowToggleAdvanced={allowToggleAdvanced}
+              isAdvancedMode={isAdvancedMode}
+              onToggleAdvanced={() => toggleAdvanced()}
+              resolvedFeatures={resolvedFeatures}
+              featureOverrides={featureOverrides}
+              onFeatureOverride={(key, tier) => setFeatureOverrides((prev) => ({ ...prev, [key]: tier }))}
+              dialect={dialect}
+              onOpenTemplates={(mode) => {
+                setTemplateManagerMode(mode);
+                setIsTemplateManagerOpen(true);
+              }}
+              presets={presets}
+              onSelectPreset={(preset) => {
+                if (preset.spec && Object.keys(preset.spec).length > 0) {
+                  actions.loadSpec(preset.spec);
+                  leaveRawMode();
+                  setActiveTab("visual");
+                } else if (preset.sql) {
+                  raw.enterRawSql(preset.sql);
+                  setActiveTab("sql");
+                }
+              }}
+              readOnly={readOnly}
+              isRunning={isRunning}
+              isSafe={safety.valid}
+              onRun={handleRunQuery}
+              unstyled={unstyled}
+              theme={activeTheme}
+            />
+          </div>
+
+          {/* Tier 2: Secondary Schema & Tools Ribbon */}
+          <div
+            data-qb="secondary-tools-ribbon"
+            style={
+              unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                    paddingTop: "2px",
+                  }
+            }
+          >
             <ToolButtons
               unstyled={unstyled}
               theme={activeTheme}
@@ -446,47 +526,6 @@ export const VisualQueryBuilder = React.forwardRef<
               onOpenErd={() => setIsErdOpen(true)}
             />
           </div>
-
-          <ToolbarActions
-            canUndo={history.canUndo}
-            canRedo={history.canRedo}
-            onUndo={() => {
-              leaveRawMode();
-              actions.undo();
-            }}
-            onRedo={() => {
-              leaveRawMode();
-              actions.redo();
-            }}
-            allowToggleAdvanced={allowToggleAdvanced}
-            isAdvancedMode={isAdvancedMode}
-            onToggleAdvanced={() => toggleAdvanced()}
-            resolvedFeatures={resolvedFeatures}
-            featureOverrides={featureOverrides}
-            onFeatureOverride={(key, tier) => setFeatureOverrides((prev) => ({ ...prev, [key]: tier }))}
-            dialect={dialect}
-            onOpenTemplates={(mode) => {
-              setTemplateManagerMode(mode);
-              setIsTemplateManagerOpen(true);
-            }}
-            presets={presets}
-            onSelectPreset={(preset) => {
-              if (preset.spec && Object.keys(preset.spec).length > 0) {
-                actions.loadSpec(preset.spec);
-                leaveRawMode();
-                setActiveTab("visual");
-              } else if (preset.sql) {
-                raw.enterRawSql(preset.sql);
-                setActiveTab("sql");
-              }
-            }}
-            readOnly={readOnly}
-            isRunning={isRunning}
-            isSafe={safety.valid}
-            onRun={handleRunQuery}
-            unstyled={unstyled}
-            theme={activeTheme}
-          />
         </div>
 
         {!isAdvancedMode && activeAdvancedClauses.length > 0 && (
@@ -610,6 +649,20 @@ export const VisualQueryBuilder = React.forwardRef<
               classNames,
               customOperators,
               fieldRenderers,
+            }}
+            dock={{
+              results: queryResults,
+              isLoading: isRunning,
+              currentSql,
+              isOpen: isDockOpen,
+              onToggleOpen: () => setIsDockOpen((prev) => !prev),
+              dockTab,
+              onSelectDockTab: (t) => setDockTab(t),
+              onExpandFullTab: (t) => setActiveTab(t),
+              cellRenderers,
+              classNames,
+              unstyled,
+              theme: activeTheme,
             }}
           />
         )}
