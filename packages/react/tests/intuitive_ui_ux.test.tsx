@@ -85,6 +85,42 @@ describe("QuerySummaryBar (Plain-English breadcrumb)", () => {
     // Chip navigation
     fireEvent.click(screen.getByText("🔗 1 join"));
     expect(handleNav).toHaveBeenCalledWith("joins");
+
+    fireEvent.click(screen.getByText("📋 orders"));
+    expect(handleNav).toHaveBeenCalledWith("tables");
+
+    fireEvent.click(screen.getByText("✨ 2 columns"));
+    expect(handleNav).toHaveBeenCalledWith("columns");
+
+    fireEvent.click(screen.getByText("🔍 1 filter"));
+    expect(handleNav).toHaveBeenCalledWith("filters");
+
+    fireEvent.click(screen.getByText("⚡ 1 sort"));
+    expect(handleNav).toHaveBeenCalledWith("sorts");
+  });
+
+  it("handles unstyled mode, window functions, and empty projection fallback", () => {
+    const handleClear = vi.fn();
+    const { rerender } = render(
+      <QuerySummaryBar
+        primaryTable="orders"
+        joins={[{ table: "users" }]}
+        filters={[{ column: "active", operator: "=", value: true }]}
+        sorts={[{ column: "created_at", direction: "ASC" }]}
+        windowFunctions={[{ function: "ROW_NUMBER", alias: "rn" }]}
+        onClearClauses={handleClear}
+        unstyled={true}
+      />
+    );
+
+    expect(screen.getByText(/All columns from orders/i)).toBeTruthy();
+    const resetBtn = screen.getByText("Reset clauses");
+    fireEvent.click(resetBtn);
+    expect(handleClear).toHaveBeenCalledOnce();
+
+    // Empty state returns null
+    rerender(<QuerySummaryBar activeTables={[]} orderedProjectionKeys={[]} />);
+    expect(document.querySelector('[data-qb="query-summary-bar"]')).toBeNull();
   });
 });
 
@@ -134,6 +170,48 @@ describe("TableCard inline column quick-actions", () => {
     expect(fkBtn).toBeTruthy();
     fireEvent.click(fkBtn);
     expect(handleQuickJoinFk).toHaveBeenCalledWith("users");
+  });
+
+  it("handles TableCard column search, clear search, and selection counter", () => {
+    const tableWithManyCols: TableMeta = {
+      name: "orders",
+      columns: [
+        { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+        { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+        { name: "total", data_type: "numeric", is_nullable: false, is_primary: false },
+        { name: "status", data_type: "text", is_nullable: false, is_primary: false },
+        { name: "created_at", data_type: "timestamp", is_nullable: false, is_primary: false },
+        { name: "updated_at", data_type: "timestamp", is_nullable: false, is_primary: false },
+        { name: "notes", data_type: "text", is_nullable: true, is_primary: false },
+      ],
+    };
+    const handleToggle = vi.fn();
+
+    render(
+      <TableCard
+        table={tableWithManyCols}
+        selectedColumns={{
+          "orders.id": { table: "orders", name: "id" },
+          "orders.total": { table: "orders", name: "total" },
+        }}
+        onToggleColumn={handleToggle}
+      />
+    );
+
+    // Counter shows 2 of 7 selected
+    expect(screen.getByTitle("2 of 7 columns selected")).toBeTruthy();
+    expect(screen.getByText("2/7")).toBeTruthy();
+
+    // Search filter (appears when > 6 columns)
+    const searchInput = screen.getByPlaceholderText(/Filter columns/);
+    fireEvent.change(searchInput, { target: { value: "tot" } });
+    expect(screen.getByText("total")).toBeTruthy();
+    expect(screen.queryByText("user_id")).toBeNull();
+
+    // Clear search
+    const clearBtn = screen.getByLabelText("Clear filter search");
+    fireEvent.click(clearBtn);
+    expect(screen.getByText("user_id")).toBeTruthy();
   });
 });
 
@@ -249,5 +327,69 @@ describe("Split-View WorkspaceDock & 1-Click FK Suggestions", () => {
     const collapseBtn = screen.getByRole("button", { name: /Collapse/ });
     fireEvent.click(collapseBtn);
     expect(screen.queryByRole("region", { name: "Visual Chart Preview" })).toBeNull();
+  });
+
+  it("handles WorkspaceDock unstyled mode, copy SQL, full view, and dormant state", () => {
+    const handleToggle = vi.fn();
+    const handleSelectTab = vi.fn();
+    const handleExpandFull = vi.fn();
+
+    // 1. Dormant state when no results, not loading, and not open
+    const { rerender } = render(
+      <WorkspaceDock
+        results={null}
+        isLoading={false}
+        currentSql="SELECT 1"
+        isOpen={false}
+        onToggleOpen={handleToggle}
+        dockTab="results"
+        onSelectDockTab={handleSelectTab}
+        onExpandFullTab={handleExpandFull}
+      />
+    );
+    expect(document.querySelector('[data-qb="workspace-dock"]')).toBeNull();
+
+    // 2. Unstyled mode
+    const mockResults: QueryResultData = {
+      columns: ["id"],
+      rows: [{ id: 1 }],
+      count: 1,
+      durationMs: 4,
+    };
+    rerender(
+      <WorkspaceDock
+        results={mockResults}
+        isLoading={false}
+        currentSql="SELECT id FROM users"
+        isOpen={true}
+        onToggleOpen={handleToggle}
+        dockTab="sql"
+        onSelectDockTab={handleSelectTab}
+        onExpandFullTab={handleExpandFull}
+        unstyled={true}
+      />
+    );
+
+    expect(screen.getByText("Live SQL")).toBeTruthy();
+    expect(screen.getByText("Full View")).toBeTruthy();
+    fireEvent.click(screen.getByText("Full View"));
+    expect(handleExpandFull).toHaveBeenCalledWith("sql");
+
+    // Copy SQL
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const copyBtn = screen.getByText("Copy SQL");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("SELECT id FROM users");
+
+    // Tab switching
+    fireEvent.click(screen.getByText(/Results \(1\)/));
+    expect(handleSelectTab).toHaveBeenCalledWith("results");
+
+    fireEvent.click(screen.getByText("Chart"));
+    expect(handleSelectTab).toHaveBeenCalledWith("chart");
   });
 });
