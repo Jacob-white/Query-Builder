@@ -10,6 +10,13 @@ export interface TableCardProps {
   onToggleColumn: (colName: string) => void;
   onRemoveTable?: () => void;
   onAddJoin?: () => void;
+  onQuickFilterColumn?: (tableName: string, colName: string, dataType: string) => void;
+  onQuickSortColumn?: (tableName: string, colName: string) => void;
+  onQuickAggregateColumn?: (tableName: string, colName: string, currentAgg?: string) => void;
+  onQuickJoinForeignKey?: (foreignTable: string) => void;
+  activeFilterColumns?: Set<string>;
+  activeSortMap?: Record<string, "ASC" | "DESC">;
+  foreignKeys?: { table: string; column: string; foreign_table: string; foreign_column: string }[];
   unstyled?: boolean;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   className?: string;
@@ -23,6 +30,13 @@ export const TableCard: React.FC<TableCardProps> = ({
   onToggleColumn,
   onRemoveTable,
   onAddJoin,
+  onQuickFilterColumn,
+  onQuickSortColumn,
+  onQuickAggregateColumn,
+  onQuickJoinForeignKey,
+  activeFilterColumns,
+  activeSortMap,
+  foreignKeys,
   unstyled = false,
   fieldRenderers,
   className,
@@ -31,6 +45,10 @@ export const TableCard: React.FC<TableCardProps> = ({
   const ctx = useQueryBuilderContext();
   const effectiveFieldRenderers = fieldRenderers ?? ctx?.fieldRenderers;
   const [columnSearch, setColumnSearch] = useState("");
+
+  const selectedCount = table.columns.filter(
+    (c) => Boolean(selectedColumns[`${table.name}.${c.name}`]),
+  ).length;
 
   const filteredColumns = columnSearch.trim()
     ? table.columns.filter((c) =>
@@ -68,17 +86,23 @@ export const TableCard: React.FC<TableCardProps> = ({
         unstyled
           ? undefined
           : {
-              background: "rgba(30, 41, 59, 0.8)",
-              backdropFilter: "blur(8px)",
-              borderRadius: "10px",
-              border: isSelected ? "1.5px solid #3b82f6" : "1px solid rgba(255, 255, 255, 0.1)",
-              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.3)",
+              background: "var(--qb-color-surface, rgba(30, 41, 59, 0.85))",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              borderRadius: "var(--qb-radius-lg, 10px)",
+              border: isSelected
+                ? "1.5px solid #3b82f6"
+                : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+              boxShadow: isSelected
+                ? "0 0 0 2px rgba(59, 130, 246, 0.25), var(--qb-shadow-lg, 0 10px 24px rgba(0, 0, 0, 0.3))"
+                : "var(--qb-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.18))",
               overflow: "hidden",
-              width: "280px",
+              width: "290px",
               display: "flex",
               flexDirection: "column",
-              color: "#f8fafc",
-              fontFamily: "system-ui, -apple-system, sans-serif",
+              color: "var(--qb-color-text, #f8fafc)",
+              fontFamily: "var(--qb-font-family, system-ui, -apple-system, sans-serif)",
+              transition: "border-color 0.15s ease, box-shadow 0.15s ease",
             }
       }
     >
@@ -91,8 +115,8 @@ export const TableCard: React.FC<TableCardProps> = ({
             ? undefined
             : {
                 padding: "10px 14px",
-                background: "rgba(15, 23, 42, 0.9)",
-                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                background: "var(--qb-color-surface-hover, rgba(15, 23, 42, 0.9))",
+                borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -109,6 +133,25 @@ export const TableCard: React.FC<TableCardProps> = ({
           >
             {table.name}
           </span>
+          {table.columns.length > 0 && (
+            <span
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      fontSize: "0.68rem",
+                      padding: "1px 6px",
+                      borderRadius: "10px",
+                      background: "var(--qb-color-primary-light, rgba(59, 130, 246, 0.15))",
+                      color: "var(--qb-color-primary, #60a5fa)",
+                      fontWeight: 600,
+                    }
+              }
+              title={`${selectedCount} of ${table.columns.length} columns selected`}
+            >
+              {selectedCount}/{table.columns.length}
+            </span>
+          )}
         </div>
         <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "4px" }}>
           <button
@@ -120,14 +163,15 @@ export const TableCard: React.FC<TableCardProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(59, 130, 246, 0.12)",
-                    border: "1px solid rgba(59, 130, 246, 0.3)",
-                    color: "#93c5fd",
+                    background: "var(--qb-color-primary-light, rgba(59, 130, 246, 0.12))",
+                    border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.3))",
+                    color: "var(--qb-color-primary, #93c5fd)",
                     cursor: "pointer",
-                    padding: "1px 5px",
+                    padding: "2px 6px",
                     borderRadius: "4px",
                     fontSize: "0.68rem",
                     fontWeight: 600,
+                    transition: "all 0.15s ease",
                   }
             }
             title="Select all columns"
@@ -143,14 +187,15 @@ export const TableCard: React.FC<TableCardProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(148, 163, 184, 0.1)",
-                    border: "1px solid rgba(148, 163, 184, 0.25)",
-                    color: "#94a3b8",
+                    background: "var(--qb-color-surface-active, rgba(148, 163, 184, 0.1))",
+                    border: "1px solid var(--qb-color-border, rgba(148, 163, 184, 0.25))",
+                    color: "var(--qb-color-text-muted, #94a3b8)",
                     cursor: "pointer",
-                    padding: "1px 5px",
+                    padding: "2px 6px",
                     borderRadius: "4px",
                     fontSize: "0.68rem",
                     fontWeight: 600,
+                    transition: "all 0.15s ease",
                   }
             }
             title="Clear all columns"
@@ -166,15 +211,15 @@ export const TableCard: React.FC<TableCardProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : {
-                      background: "transparent",
-                      border: "none",
-                      color: "#60a5fa",
-                      cursor: "pointer",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                      fontSize: "0.75rem",
-                    }
+                : {
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--qb-color-primary, #60a5fa)",
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                    fontSize: "0.75rem",
+                  }
               }
               title="Add Join to this table"
             >
@@ -193,7 +238,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                   : {
                       background: "transparent",
                       border: "none",
-                      color: "#ef4444",
+                      color: "var(--qb-color-error, #ef4444)",
                       cursor: "pointer",
                       padding: "2px 6px",
                       borderRadius: "4px",
@@ -216,8 +261,11 @@ export const TableCard: React.FC<TableCardProps> = ({
               ? undefined
               : {
                   padding: "6px 12px",
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-                  background: "rgba(15, 23, 42, 0.5)",
+                  borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.06))",
+                  background: "var(--qb-color-surface, rgba(15, 23, 42, 0.5))",
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
                 }
           }
         >
@@ -234,15 +282,35 @@ export const TableCard: React.FC<TableCardProps> = ({
                 : {
                     width: "100%",
                     boxSizing: "border-box",
-                    background: "#0f172a",
-                    color: "#f8fafc",
-                    border: "1px solid #334155",
-                    borderRadius: "4px",
-                    padding: "4px 8px",
+                    background: "var(--qb-color-background, #0f172a)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #334155)",
+                    borderRadius: "6px",
+                    padding: columnSearch ? "4px 24px 4px 8px" : "4px 8px",
                     fontSize: "0.75rem",
+                    outline: "none",
                   }
             }
           />
+          {columnSearch && (
+            <button
+              type="button"
+              onClick={() => setColumnSearch("")}
+              aria-label="Clear filter search"
+              style={{
+                position: "absolute",
+                right: "18px",
+                background: "transparent",
+                border: "none",
+                color: "var(--qb-color-text-muted, #94a3b8)",
+                cursor: "pointer",
+                padding: "2px 4px",
+                fontSize: "0.75rem",
+              }}
+            >
+              ✕
+            </button>
+          )}
         </div>
       )}
 
@@ -264,6 +332,19 @@ export const TableCard: React.FC<TableCardProps> = ({
           const key = `${table.name}.${col.name}`;
           const isColChecked = Boolean(selectedColumns[key]);
           const isFk = Boolean(col.is_foreign_key || col.foreign_key);
+          const fkMatch = foreignKeys?.find(
+            (fk) =>
+              (fk.table === table.name && fk.column === col.name) ||
+              (fk.foreign_table === table.name && fk.foreign_column === col.name),
+          );
+          const targetFkTable = fkMatch
+            ? fkMatch.table === table.name
+              ? fkMatch.foreign_table
+              : fkMatch.table
+            : undefined;
+          const isFiltered = activeFilterColumns?.has(col.name);
+          const sortDirection = activeSortMap?.[col.name];
+          const currentAgg = selectedColumns[key]?.aggregate;
 
           const customRenderer =
             effectiveFieldRenderers?.[col.name] ??
@@ -307,9 +388,12 @@ export const TableCard: React.FC<TableCardProps> = ({
                       alignItems: "center",
                       justifyContent: "space-between",
                       cursor: "pointer",
-                      background: isColChecked ? "rgba(59, 130, 246, 0.12)" : "transparent",
+                      background: isColChecked
+                        ? "var(--qb-color-primary-light, rgba(59, 130, 246, 0.12))"
+                        : "transparent",
                       transition: "background 0.15s ease",
                       fontSize: "0.8rem",
+                      borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.03))",
                     }
               }
             >
@@ -328,7 +412,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                   onChange={() => onToggleColumn(col.name)}
                   aria-label={`Select column ${table.name}.${col.name}`}
                   className={cx(classNames?.columnCheckbox)}
-                  style={unstyled ? undefined : { cursor: "pointer" }}
+                  style={unstyled ? undefined : { cursor: "pointer", accentColor: "var(--qb-color-primary, #3b82f6)" }}
                 />
                 <span
                   data-qb="table-card-column-name"
@@ -337,7 +421,9 @@ export const TableCard: React.FC<TableCardProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          color: isColChecked ? "#93c5fd" : "#cbd5e1",
+                          color: isColChecked
+                            ? "var(--qb-color-primary, #93c5fd)"
+                            : "var(--qb-color-text-secondary, #cbd5e1)",
                           fontWeight: isColChecked ? 600 : 400,
                         }
                   }
@@ -352,6 +438,129 @@ export const TableCard: React.FC<TableCardProps> = ({
                     : { display: "flex", alignItems: "center", gap: "4px" }
                 }
               >
+                {/* Column quick-action buttons */}
+                {onQuickFilterColumn && (
+                  <button
+                    type="button"
+                    aria-label={`Filter by ${col.name}`}
+                    data-qb="col-btn-filter"
+                    title={isFiltered ? `Filtered by ${col.name}` : `Filter by ${col.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuickFilterColumn(table.name, col.name, col.data_type);
+                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: isFiltered ? "rgba(245, 158, 11, 0.2)" : "transparent",
+                            color: isFiltered ? "#fbbf24" : "var(--qb-color-text-muted, #94a3b8)",
+                            border: isFiltered ? "1px solid rgba(245, 158, 11, 0.4)" : "none",
+                            borderRadius: "4px",
+                            padding: "1px 4px",
+                            fontSize: "0.72rem",
+                            cursor: "pointer",
+                            lineHeight: 1,
+                          }
+                    }
+                  >
+                    🔍
+                  </button>
+                )}
+
+                {onQuickSortColumn && (
+                  <button
+                    type="button"
+                    aria-label={`Sort by ${col.name}`}
+                    data-qb="col-btn-sort"
+                    title={sortDirection ? `Sorted ${sortDirection}` : `Sort by ${col.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuickSortColumn(table.name, col.name);
+                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: sortDirection ? "rgba(59, 130, 246, 0.2)" : "transparent",
+                            color:
+                              sortDirection === "ASC"
+                                ? "#60a5fa"
+                                : sortDirection === "DESC"
+                                  ? "#f472b6"
+                                  : "var(--qb-color-text-muted, #94a3b8)",
+                            border: sortDirection ? "1px solid rgba(59, 130, 246, 0.4)" : "none",
+                            borderRadius: "4px",
+                            padding: "1px 4px",
+                            fontSize: "0.72rem",
+                            cursor: "pointer",
+                            lineHeight: 1,
+                          }
+                    }
+                  >
+                    {sortDirection === "ASC" ? "↑" : sortDirection === "DESC" ? "↓" : "⇅"}
+                  </button>
+                )}
+
+                {onQuickAggregateColumn && (
+                  <button
+                    type="button"
+                    aria-label={`Aggregate ${col.name}`}
+                    data-qb="col-btn-aggregate"
+                    title={currentAgg ? `Aggregate: ${currentAgg}` : `Cycle aggregate for ${col.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuickAggregateColumn(table.name, col.name, currentAgg);
+                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: currentAgg ? "rgba(16, 185, 129, 0.2)" : "transparent",
+                            color: currentAgg ? "#34d399" : "var(--qb-color-text-muted, #94a3b8)",
+                            border: currentAgg ? "1px solid rgba(16, 185, 129, 0.4)" : "none",
+                            borderRadius: "4px",
+                            padding: "1px 4px",
+                            fontSize: "0.72rem",
+                            cursor: "pointer",
+                            lineHeight: 1,
+                          }
+                    }
+                  >
+                    {currentAgg ? currentAgg : "Σ"}
+                  </button>
+                )}
+
+                {targetFkTable && onQuickJoinForeignKey && (
+                  <button
+                    type="button"
+                    aria-label={`Join table ${targetFkTable}`}
+                    data-qb="col-btn-fk-join"
+                    title={`Join ${targetFkTable}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuickJoinForeignKey(targetFkTable);
+                    }}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "rgba(56, 189, 248, 0.15)",
+                            color: "#38bdf8",
+                            border: "1px solid rgba(56, 189, 248, 0.35)",
+                            borderRadius: "4px",
+                            padding: "1px 5px",
+                            fontSize: "0.68rem",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            lineHeight: 1,
+                          }
+                    }
+                  >
+                    🔗 {targetFkTable}
+                  </button>
+                )}
+
                 {col.is_primary && (
                   <span
                     data-qb="table-card-badge-pk"
@@ -361,10 +570,11 @@ export const TableCard: React.FC<TableCardProps> = ({
                         ? undefined
                         : {
                             background: "rgba(245, 158, 11, 0.2)",
-                            color: "#fbbf24",
+                            color: "var(--qb-color-warning, #fbbf24)",
+                            border: "1px solid rgba(245, 158, 11, 0.4)",
                             fontSize: "0.65rem",
                             fontWeight: 700,
-                            padding: "1px 4px",
+                            padding: "1px 5px",
                             borderRadius: "4px",
                           }
                     }
@@ -372,7 +582,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                     PK
                   </span>
                 )}
-                {isFk && (
+                {isFk && !targetFkTable && (
                   <span
                     data-qb="table-card-badge-fk"
                     className={cx(classNames?.tableCardBadge)}
@@ -382,9 +592,10 @@ export const TableCard: React.FC<TableCardProps> = ({
                         : {
                             background: "rgba(56, 189, 248, 0.18)",
                             color: "#38bdf8",
+                            border: "1px solid rgba(56, 189, 248, 0.4)",
                             fontSize: "0.65rem",
                             fontWeight: 700,
-                            padding: "1px 4px",
+                            padding: "1px 5px",
                             borderRadius: "4px",
                           }
                     }
@@ -398,7 +609,11 @@ export const TableCard: React.FC<TableCardProps> = ({
                   style={
                     unstyled
                       ? undefined
-                      : { color: "#64748b", fontSize: "0.7rem" }
+                      : {
+                          color: "var(--qb-color-text-muted, #64748b)",
+                          fontSize: "0.7rem",
+                          fontFamily: "var(--qb-font-mono, monospace)",
+                        }
                   }
                 >
                   {col.data_type}
@@ -417,9 +632,9 @@ export const TableCard: React.FC<TableCardProps> = ({
             unstyled
               ? undefined
               : {
-                  borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderTop: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                   padding: "6px 0",
-                  background: "rgba(15, 23, 42, 0.4)",
+                  background: "var(--qb-color-surface, rgba(15, 23, 42, 0.4))",
                 }
           }
         >
@@ -433,7 +648,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                     fontWeight: 700,
                     textTransform: "uppercase",
                     letterSpacing: "0.05em",
-                    color: "#94a3b8",
+                    color: "var(--qb-color-text-muted, #94a3b8)",
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
@@ -463,7 +678,7 @@ export const TableCard: React.FC<TableCardProps> = ({
                         justifyContent: "space-between",
                         cursor: "pointer",
                         background: isMetricChecked
-                          ? "rgba(16, 185, 129, 0.15)"
+                          ? "var(--qb-color-success-light, rgba(16, 185, 129, 0.15))"
                           : "transparent",
                         transition: "background 0.15s ease",
                         fontSize: "0.8rem",
