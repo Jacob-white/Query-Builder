@@ -422,7 +422,7 @@ def test_fastapi_nlq_routes_and_sqlite_introspection_edges(tmp_path) -> None:
         raw_conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
         raw_conn.commit()
 
-    conn = SQLiteConnector(database=str(db_file))
+    conn = SQLiteConnector(database=str(db_file), check_same_thread=False)
     app = FastAPI()
     app.include_router(
         create_query_builder_router(connector=conn, nlq_service=NlqService())
