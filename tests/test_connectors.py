@@ -1217,7 +1217,7 @@ def test_introspection_error_handling():
     with pytest.raises(
         IntrospectionError, match="Failed to introspect schema via SQLAlchemy"
     ):
-        introspect_via_sqlalchemy(MagicMock(side_effect=RuntimeError("Fail")))
+        introspect_via_sqlalchemy(MagicMock(spec=[], side_effect=RuntimeError("Fail")))
 
 
 # ============================================================================

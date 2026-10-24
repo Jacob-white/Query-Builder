@@ -575,3 +575,215 @@ def test_fastapi_nlq_routes_and_sqlite_introspection_edges(tmp_path) -> None:
         pytest.raises(ConnectionFailedError),
     ):
         mem_conn.connect()
+
+
+def test_cli_mcp_parse_fluent_cratedb_and_mcp_server_edges(tmp_path) -> None:
+    import argparse
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import pytest
+
+    from query_builder.cli import _cmd_mcp, _cmd_parse
+    from query_builder.connectors.base import IntrospectionError
+    from query_builder.connectors.cratedb import AsyncCrateDBConnector
+    from query_builder.exceptions import QueryBuilderError
+    from query_builder.fluent import FluentQuery
+    from query_builder.mcp_server import McpServer
+
+    # 1. FluentQuery metrics, cube, grouping_sets
+    fq = (
+        FluentQuery("orders")
+        .metrics(["total_sales"], "avg_order")
+        .cube()
+        .grouping_sets(["region"], ["category"])
+    )
+    built = fq.to_dict()
+    assert built["metrics"] == ["total_sales", "avg_order"]
+    assert built["grouping_type"] == "grouping_sets"
+    assert built["grouping_sets"] == [["region"], ["category"]]
+
+    # 2. _cmd_mcp with connections file, config fallback, tenant_id
+    conn_file = tmp_path / "connections.json"
+    conn_file.write_text(
+        json.dumps({"c1": {"connector": "sqlite", "config": {"database": ":memory:"}}}),
+        encoding="utf-8",
+    )
+    cfg_file = tmp_path / "cfg.json"
+    cfg_file.write_text(json.dumps({"database": ":memory:"}), encoding="utf-8")
+
+    with patch("query_builder.mcp_server.McpServer") as mock_mcp_cls:
+        mock_srv = MagicMock()
+        mock_mcp_cls.return_value = mock_srv
+        args = argparse.Namespace(
+            profile=None,
+            connector=None,
+            connections=str(conn_file),
+            config=str(cfg_file),
+            tenant_id="t_123",
+            lock_connection=True,
+            no_security_notice=True,
+        )
+        assert _cmd_mcp(args) == 0
+
+        # Also test config fallback when connections is not set
+        args2 = argparse.Namespace(
+            profile=None,
+            connector="sqlite",
+            connections=None,
+            config=str(cfg_file),
+            tenant_id=None,
+            lock_connection=False,
+            no_security_notice=True,
+        )
+        assert _cmd_mcp(args2) == 0
+
+    # 3. _cmd_parse with SQL file, output file, invalid SQL (json & text), and error (json & text)
+    sql_file = tmp_path / "query.sql"
+    sql_file.write_text(
+        "SELECT id, name FROM users WHERE id = 1 LIMIT 10;", encoding="utf-8"
+    )
+    out_file = tmp_path / "out.json"
+    assert (
+        _cmd_parse(
+            argparse.Namespace(
+                target=str(sql_file),
+                dialect="postgres",
+                output=str(out_file),
+                json=False,
+            )
+        )
+        == 0
+    )
+    assert out_file.exists()
+
+    # Invalid SQL returning None from parse_sql_to_dict
+    with patch("query_builder.parser.parse_sql_to_dict", return_value=None):
+        assert (
+            _cmd_parse(
+                argparse.Namespace(
+                    target="INVALID", dialect="postgres", output=None, json=True
+                )
+            )
+            == 1
+        )
+        assert (
+            _cmd_parse(
+                argparse.Namespace(
+                    target="INVALID", dialect="postgres", output=None, json=False
+                )
+            )
+            == 1
+        )
+
+    # Exception inside _cmd_parse
+    with patch(
+        "query_builder.parser.parse_sql_to_dict", side_effect=RuntimeError("boom")
+    ):
+        assert (
+            _cmd_parse(
+                argparse.Namespace(
+                    target="SELECT 1", dialect="postgres", output=None, json=True
+                )
+            )
+            == 1
+        )
+        assert (
+            _cmd_parse(
+                argparse.Namespace(
+                    target="SELECT 1", dialect="postgres", output=None, json=False
+                )
+            )
+            == 1
+        )
+
+    # 4. AsyncCrateDBConnector.introspect_schema
+    crate = AsyncCrateDBConnector(host="localhost")
+    fake_conn = MagicMock()
+    fake_cur = MagicMock()
+    fake_conn.cursor.return_value = fake_cur
+    with (
+        patch.object(crate, "connect", new=AsyncMock(return_value=fake_conn)),
+        patch(
+            "query_builder.connectors.cratedb.introspect_cratedb",
+            return_value={"tables": {"t": {}}},
+        ),
+    ):
+        res = asyncio.run(crate.introspect_schema())
+        assert "tables" in res
+
+    with (
+        patch.object(crate, "connect", new=AsyncMock(return_value=fake_conn)),
+        patch(
+            "query_builder.connectors.cratedb.introspect_cratedb",
+            side_effect=RuntimeError("crate fail"),
+        ),
+        pytest.raises(IntrospectionError),
+    ):
+        asyncio.run(crate.introspect_schema())
+
+    # 5. McpServer tool branches (parse_sql error, check_columns, audit_schema, locked _resolve_connector)
+    srv = McpServer(lock_connection=True, connector=None)
+    resolved_default = srv._resolve_connector()
+    assert resolved_default is not None
+
+    with (
+        patch("query_builder.parser.parse_sql_to_dict", return_value=None),
+        pytest.raises(QueryBuilderError, match="Unable to parse SQL"),
+    ):
+        srv._dispatch_tool("query_builder_parse_sql", {"sql": "BAD SQL"})
+
+    schema_json = json.dumps(
+        {"tables": {"users": {"columns": [{"name": "id", "data_type": "integer"}]}}}
+    )
+    valid_chk = srv._dispatch_tool(
+        "query_builder_check_columns",
+        {
+            "spec": json.dumps({"table": "users", "columns": ["id"]}),
+            "schema": schema_json,
+        },
+    )
+    assert valid_chk["valid"] is True
+
+    invalid_chk = srv._dispatch_tool(
+        "query_builder_check_columns",
+        {
+            "spec": json.dumps({"table": "users", "columns": ["id_typoo"]}),
+            "schema": schema_json,
+        },
+    )
+    assert invalid_chk["valid"] is False
+
+    audit_res = srv._dispatch_tool(
+        "query_builder_audit_schema",
+        {"schema": schema_json},
+    )
+    assert isinstance(audit_res, dict)
+
+    # 6. advisor.recommend_indexes edge cases (alias, tuple filter, non-dict filter/order_by, object with to_dict)
+    from query_builder.advisor import recommend_indexes
+    from query_builder.models import FilterSpec, OrderBySpec
+
+    recs = recommend_indexes(
+        {
+            "table": "users",
+            "alias": "u",
+            "joins": [{"table": "orders", "alias": "o", "right_col": "user_id"}],
+            "filters": [
+                ("status", "eq", "active"),
+                FilterSpec(column="age", op="gt", value=18),
+                123,
+            ],
+            "order_by": [OrderBySpec(column="created_at", direction="DESC")],
+        }
+    )
+    assert len(recs) >= 2
+    recs2 = recommend_indexes(
+        {
+            "table": "users",
+            "filters": [{"column": "status", "op": "eq", "value": "active"}],
+            "order_by": [123],
+        }
+    )
+    assert len(recs2) >= 1

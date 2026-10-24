@@ -578,6 +578,39 @@ def apply_security_policy(
                     }
                 )
 
+    def _schema_columns_for_table(tbl_name: str) -> list[str]:
+        if schema is None:
+            return []
+        tables_map = getattr(schema, "tables", None) or (
+            schema.get("tables") if isinstance(schema, dict) else None
+        )
+        if not tables_map or not isinstance(tables_map, dict):
+            return []
+        clean_t = tbl_name.split(".")[-1].lower()
+        tbl_info = tables_map.get(tbl_name) or tables_map.get(clean_t)
+        if tbl_info is None:
+            for k, v in tables_map.items():
+                if str(k).split(".")[-1].lower() == clean_t:
+                    tbl_info = v
+                    break
+        if tbl_info is None:
+            return []
+        raw_cols = (
+            tbl_info.get("columns", [])
+            if isinstance(tbl_info, dict)
+            else getattr(tbl_info, "columns", [])
+        )
+        if isinstance(raw_cols, dict):
+            return [str(k) for k in raw_cols]
+        return [
+            str(
+                c.name
+                if hasattr(c, "name")
+                else (c.get("name") if isinstance(c, dict) else c)
+            )
+            for c in raw_cols
+        ]
+
     # 4. Row-Level Security (RLS) Filter Injection
     if active_policy.row_level_filters:
         for tbl in referenced_tables:
@@ -616,60 +649,11 @@ def apply_security_policy(
 
                 col_name = rule_copy.get("column")
                 if schema is not None and col_name:
-                    tables_map = getattr(schema, "tables", None) or (
-                        schema.get("tables") if isinstance(schema, dict) else None
-                    )
-                    if tables_map and isinstance(tables_map, dict):
-                        tbl_info = tables_map.get(tbl) or tables_map.get(clean_tbl)
-                        if tbl_info is not None:
-                            t_cols = (
-                                tbl_info.get("columns", [])
-                                if isinstance(tbl_info, dict)
-                                else getattr(tbl_info, "columns", [])
-                            )
-                            c_names = [
-                                c.name
-                                if hasattr(c, "name")
-                                else (c.get("name") if isinstance(c, dict) else str(c))
-                                for c in t_cols
-                            ]
-                            if col_name not in c_names:
-                                continue
+                    c_names = _schema_columns_for_table(tbl)
+                    if c_names and col_name not in c_names:
+                        continue
 
                 filters.append(rule_copy)
-
-    def _schema_columns_for_table(tbl_name: str) -> list[str]:
-        if schema is None:
-            return []
-        tables_map = getattr(schema, "tables", None) or (
-            schema.get("tables") if isinstance(schema, dict) else None
-        )
-        if not tables_map or not isinstance(tables_map, dict):
-            return []
-        clean_t = tbl_name.split(".")[-1].lower()
-        tbl_info = tables_map.get(tbl_name) or tables_map.get(clean_t)
-        if tbl_info is None:
-            for k, v in tables_map.items():
-                if str(k).split(".")[-1].lower() == clean_t:
-                    tbl_info = v
-                    break
-        if tbl_info is None:
-            return []
-        raw_cols = (
-            tbl_info.get("columns", [])
-            if isinstance(tbl_info, dict)
-            else getattr(tbl_info, "columns", [])
-        )
-        if isinstance(raw_cols, dict):
-            return [str(k) for k in raw_cols]
-        return [
-            str(
-                c.name
-                if hasattr(c, "name")
-                else (c.get("name") if isinstance(c, dict) else c)
-            )
-            for c in raw_cols
-        ]
 
     # 4.5. Column-Level Access Control (CLAC)
     col_perms = getattr(active_policy, "column_permissions", None)
@@ -772,49 +756,13 @@ def apply_security_policy(
                         _check_filter_clac(f)
 
                     for h in spec_dict.get("having", []):
-                        hd = dict(h.__dict__) if hasattr(h, "__dict__") else h
-                        if isinstance(hd, dict):
-                            expr = hd.get("expression") or hd.get("raw_expression")
-                            if expr and isinstance(expr, str):
-                                for e_tbl, e_col in _extract_columns_from_expression(
-                                    expr, clean_base_table
-                                ):
-                                    _check_clac_restricted(e_tbl, e_col)
-                            c_col = hd.get("column") or hd.get("field")
-                            if c_col and isinstance(c_col, str):
-                                c_t = (
-                                    hd.get("table")
-                                    or hd.get("tablePrefix")
-                                    or hd.get("table_prefix")
-                                )
-                                _check_clac_restricted(c_t, c_col)
+                        _check_filter_clac(h)
 
                     for ob in spec_dict.get("order_by", []):
                         if isinstance(ob, str):
-                            ob_col = ob.split()[0]
-                            _check_clac_restricted(None, ob_col)
+                            _check_clac_restricted(None, ob.split()[0])
                         else:
-                            obd = dict(ob.__dict__) if hasattr(ob, "__dict__") else ob
-                            if isinstance(obd, dict):
-                                expr = obd.get("expression") or obd.get(
-                                    "raw_expression"
-                                )
-                                if expr and isinstance(expr, str):
-                                    for (
-                                        e_tbl,
-                                        e_col,
-                                    ) in _extract_columns_from_expression(
-                                        expr, clean_base_table
-                                    ):
-                                        _check_clac_restricted(e_tbl, e_col)
-                                c_col = obd.get("column") or obd.get("field")
-                                if c_col and isinstance(c_col, str):
-                                    c_t = (
-                                        obd.get("table")
-                                        or obd.get("tablePrefix")
-                                        or obd.get("table_prefix")
-                                    )
-                                    _check_clac_restricted(c_t, c_col)
+                            _check_filter_clac(ob)
 
     # 5. Column Masking
     if active_policy.column_masking or active_policy.sensitive_column_patterns:
