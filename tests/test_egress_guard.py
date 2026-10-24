@@ -781,12 +781,20 @@ def test_redis_driver_dns_rebinding_is_blocked(fake_net: FakeNet, rebind: None) 
 def test_control_redis_driver_reaches_the_rebound_address_without_the_guard(
     fake_net: FakeNet, rebind: None
 ) -> None:
-    pytest.importorskip("redis")
+    redis = pytest.importorskip("redis")
+    from redis.backoff import NoBackoff
+    from redis.retry import Retry
+
     off = NetworkSecurityConfig(
         allow_private_networks=True, enforce_tls=False, connect_time_guard=False
     )
-    conn = _REDIS_CLASS(host="rebind.test", port=6379, security=_sec(off))  # type: ignore[misc]
-    with pytest.raises(Exception):  # noqa: B017, PT011 - refused by the fake network
+    conn = _REDIS_CLASS(
+        host="rebind.test",
+        port=6379,
+        retry=Retry(NoBackoff(), 0),
+        security=_sec(off),
+    )  # type: ignore[misc]
+    with pytest.raises(redis.RedisError):
         conn.test_connection()
     assert fake_net.reached(META)
 

@@ -514,31 +514,13 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                     draggable={!unstyled}
                     onDragStart={(e) => {
                       setDraggedColIdx(colIdx);
-                      if (e.dataTransfer) {
-                        e.dataTransfer.effectAllowed = "move";
-                        try {
-                          e.dataTransfer.setData("text/plain", String(colIdx));
-                        } catch {
-                          // Ignore in synthetic test environments
-                        }
-                      }
+                      e.dataTransfer?.setData?.("text/plain", String(colIdx));
                     }}
                     onDragOver={(e) => {
                       e.preventDefault();
-                      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
                       if (dragOverColIdx !== colIdx) setDragOverColIdx(colIdx);
                     }}
-                    onDragEnter={(e) => {
-                      e.preventDefault();
-                      setDragOverColIdx(colIdx);
-                    }}
-                    onDragLeave={(e) => {
-                      if (
-                        e.relatedTarget instanceof Node &&
-                        e.currentTarget.contains(e.relatedTarget)
-                      ) {
-                        return;
-                      }
+                    onDragLeave={() => {
                       if (dragOverColIdx === colIdx) setDragOverColIdx(null);
                     }}
                     onDrop={(e) => {

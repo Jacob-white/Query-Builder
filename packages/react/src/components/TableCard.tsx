@@ -85,28 +85,20 @@ export const TableCard: React.FC<TableCardProps> = ({
     return t.slice(0, 4);
   };
 
+  const FRIENDLY_BY_SHORT: Record<string, string> = {
+    uid: "ID",
+    bool: "Yes/No",
+    json: "Data",
+    time: "Date",
+    num: "Number",
+    str: "Text",
+    enum: "Option",
+    arr: "List",
+  };
+
   const formatFriendlyType = (rawType?: string): string => {
-    if (!rawType) return "";
-    const t = rawType.toLowerCase();
-    if (t.includes("uuid")) return "ID";
-    if (t.includes("bool")) return "Yes/No";
-    if (t.includes("json")) return "Data";
-    if (t.includes("time") || t.includes("date")) return "Date";
-    if (
-      t.includes("int") ||
-      t.includes("num") ||
-      t.includes("dec") ||
-      t.includes("float") ||
-      t.includes("double") ||
-      t.includes("real") ||
-      t.includes("serial")
-    ) {
-      return "Number";
-    }
-    if (t.includes("char") || t.includes("text") || t.includes("citext")) return "Text";
-    if (t.includes("user-defined") || t.includes("enum")) return "Option";
-    if (t.includes("array")) return "List";
-    return "Field";
+    const short = formatShortType(rawType);
+    return short ? FRIENDLY_BY_SHORT[short] || "Field" : "";
   };
 
   const selectedCount = table.columns.filter(
@@ -596,38 +588,19 @@ export const TableCard: React.FC<TableCardProps> = ({
               }}
               onDragStart={(e) => {
                 setDraggedColName(col.name);
-                if (e.dataTransfer) {
-                  e.dataTransfer.effectAllowed = "move";
-                  try {
-                    e.dataTransfer.setData("text/plain", col.name);
-                  } catch {
-                    // Ignore in synthetic test environments
-                  }
-                }
+                e.dataTransfer?.setData?.("text/plain", col.name);
               }}
               onDragOver={(e) => {
                 e.preventDefault();
-                if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
                 if (dragOverColName !== col.name) setDragOverColName(col.name);
               }}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                setDragOverColName(col.name);
-              }}
-              onDragLeave={(e) => {
-                if (
-                  e.relatedTarget instanceof Node &&
-                  e.currentTarget.contains(e.relatedTarget)
-                ) {
-                  return;
-                }
+              onDragLeave={() => {
                 if (dragOverColName === col.name) setDragOverColName(null);
               }}
               onDrop={(e) => {
                 e.preventDefault();
                 const rawFrom = e.dataTransfer?.getData?.("text/plain");
-                const resolvedFrom = draggedColName || rawFrom || null;
-                handleDropTableColumn(resolvedFrom, col.name);
+                handleDropTableColumn(draggedColName || rawFrom || null, col.name);
               }}
               onDragEnd={() => {
                 setDraggedColName(null);

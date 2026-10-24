@@ -1050,110 +1050,18 @@ def create_query_builder_router(
                         ),
                         next(iter(tables_dict)),
                     )
-                    warnings_list = list(warnings_list) + [
-                        f"Mapped ungrounded table '{base_tbl}' to '{fallback_tbl}'."
+                    warnings_list = [
+                        *warnings_list,
+                        f"Mapped ungrounded table '{base_tbl}' to '{fallback_tbl}'.",
                     ]
-                    raw_spec["table"] = fallback_tbl
-                    raw_spec["columns"] = []
-                    raw_spec["joins"] = []
-                    raw_spec["filters"] = []
-                    raw_spec["having"] = []
-                    raw_spec["order_by"] = []
-                else:
-                    if isinstance(raw_spec.get("joins"), list):
-                        raw_spec["joins"] = [
-                            j
-                            for j in raw_spec["joins"]
-                            if isinstance(j, dict)
-                            and (
-                                j.get("table") in tables_dict
-                                or str(j.get("table") or "").split(".")[-1]
-                                in tables_dict
-                            )
-                        ]
-                    active_tbl_names = [
-                        base_tbl if base_tbl in tables_dict else clean_base_tbl,
-                        *(
-                            j.get("table")
-                            if j.get("table") in tables_dict
-                            else str(j.get("table") or "").split(".")[-1]
-                            for j in (raw_spec.get("joins") or [])
-                            if isinstance(j, dict)
-                        ),
-                    ]
-                    valid_cols_map: dict[str, str] = {}
-                    for t_name in active_tbl_names:
-                        t_meta = tables_dict.get(t_name)
-                        if isinstance(t_meta, dict):
-                            raw_c = t_meta.get("columns", {})
-                            if isinstance(raw_c, dict):
-                                for cn in raw_c:
-                                    valid_cols_map[str(cn).lower()] = str(cn)
-                            elif isinstance(raw_c, list):
-                                for c_item in raw_c:
-                                    cn = (
-                                        c_item.get("name")
-                                        if isinstance(c_item, dict)
-                                        else str(c_item)
-                                    )
-                                    if cn:
-                                        valid_cols_map[str(cn).lower()] = str(cn)
-                    if valid_cols_map:
-                        first_valid_col = next(iter(valid_cols_map.values()))
-                        col_aliases: set[str] = set()
-                        cleaned_cols: list[Any] = []
-                        for col_entry in raw_spec.get("columns") or []:
-                            if isinstance(col_entry, str):
-                                bare_c = col_entry.split(".")[-1].strip()
-                                if bare_c == "*" or bare_c.lower() in valid_cols_map:
-                                    cleaned_cols.append(col_entry)
-                            elif isinstance(col_entry, dict):
-                                if col_entry.get("alias"):
-                                    col_aliases.add(str(col_entry["alias"]).lower())
-                                c_ref = str(col_entry.get("column") or "").strip()
-                                bare_c = c_ref.split(".")[-1]
-                                if (
-                                    not c_ref
-                                    or bare_c == "*"
-                                    or bare_c.lower() in valid_cols_map
-                                ):
-                                    cleaned_cols.append(col_entry)
-                                elif col_entry.get("agg"):
-                                    patched_col = dict(col_entry)
-                                    patched_col["column"] = first_valid_col
-                                    cleaned_cols.append(patched_col)
-                        raw_spec["columns"] = cleaned_cols
-                        if isinstance(raw_spec.get("filters"), list):
-                            raw_spec["filters"] = [
-                                f
-                                for f in raw_spec["filters"]
-                                if isinstance(f, dict)
-                                and str(f.get("column") or "").split(".")[-1].lower()
-                                in valid_cols_map
-                            ]
-                        if isinstance(raw_spec.get("having"), list):
-                            raw_spec["having"] = [
-                                h
-                                for h in raw_spec["having"]
-                                if isinstance(h, dict)
-                                and (
-                                    str(h.get("column") or "").split(".")[-1] == "*"
-                                    or str(h.get("column") or "").split(".")[-1].lower()
-                                    in valid_cols_map
-                                    or str(h.get("column") or "").lower() in col_aliases
-                                )
-                            ]
-                        if isinstance(raw_spec.get("order_by"), list):
-                            raw_spec["order_by"] = [
-                                o
-                                for o in raw_spec["order_by"]
-                                if isinstance(o, dict)
-                                and (
-                                    str(o.get("column") or "").split(".")[-1].lower()
-                                    in valid_cols_map
-                                    or str(o.get("column") or "").lower() in col_aliases
-                                )
-                            ]
+                    raw_spec.update(
+                        table=fallback_tbl,
+                        columns=[],
+                        joins=[],
+                        filters=[],
+                        having=[],
+                        order_by=[],
+                    )
 
             compiler = QueryCompiler(
                 raw_spec,

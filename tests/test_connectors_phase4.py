@@ -648,6 +648,7 @@ def test_bigtable_adapter_specialized():
 _DRIVER_FALLBACKS = {
     "google.cloud.firestore": ("google.cloud.firestore_v1",),
     "google.cloud.bigtable": ("google.cloud.bigtable_v2",),
+    "redis": ("redis.client", "redis.asyncio", "aioredis"),
 }
 
 
@@ -793,7 +794,17 @@ def _test_async_lifecycle(async_conn_cls, driver_path, mock_client, introspect_f
             mock_drv.asyncio.from_url.side_effect = RuntimeError("Async redis fail")
 
         with (
-            patch.dict(sys.modules, {driver_path: mock_drv}),
+            patch.dict(
+                sys.modules,
+                {
+                    driver_path: mock_drv,
+                    **{
+                        m: mock_drv.asyncio
+                        for m in _DRIVER_FALLBACKS.get(driver_path, ())
+                        if m.endswith(".asyncio")
+                    },
+                },
+            ),
             pytest.raises(ConnectionFailedError),
         ):
             await conn.connect()
@@ -1623,7 +1634,7 @@ def test_redis_search_coverage_branches():
         mock_drv = MagicMock()
         mock_client = MagicMock()
         mock_drv.Redis.return_value = mock_client
-        with patch.dict(sys.modules, {"redis": mock_drv}):
+        with patch.dict(sys.modules, {"redis": mock_drv, "redis.asyncio": None}):
             c_async = AsyncRedisSearchConnector()
             assert await c_async.connect() is mock_client
 

@@ -36,13 +36,14 @@ Empirically tests deep boundary conditions and hostile edge cases for Milestone 
 
 from __future__ import annotations
 
+import atexit
 import json
 import re
 import shutil
 import sqlite3
 import subprocess
-import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -69,57 +70,85 @@ _TS_MODULE_PATH = str(
     / "node_modules"
     / "typescript"
 )
+_TS_WORKER: subprocess.Popen[str] | None = None
+
+
+def _get_ts_worker() -> subprocess.Popen[str]:
+    global _TS_WORKER
+    if _TS_WORKER is not None and _TS_WORKER.poll() is None:
+        return _TS_WORKER
+    worker_script = f"""
+    const ts = require({json.dumps(_TS_MODULE_PATH)});
+    const rl = require('readline').createInterface({{ input: process.stdin, terminal: false }});
+    rl.on('line', (line) => {{
+        try {{
+            const code = JSON.parse(line);
+            const sf = ts.createSourceFile('schema.ts', code, ts.ScriptTarget.Latest, true);
+            const diags = sf.parseDiagnostics || [];
+            process.stdout.write(JSON.stringify({{ ok: diags.length === 0, diags: diags.map(d => d.messageText) }}) + '\\n');
+        }} catch (err) {{
+            process.stdout.write(JSON.stringify({{ ok: false, diags: [String(err)] }}) + '\\n');
+        }}
+    }});
+    """
+    _TS_WORKER = subprocess.Popen(
+        ["node", "-e", worker_script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    def _cleanup() -> None:
+        if _TS_WORKER is not None and _TS_WORKER.poll() is None:
+            _TS_WORKER.terminate()
+
+    atexit.register(_cleanup)
+    return _TS_WORKER
 
 
 def verify_typescript_syntax(ts_code: str) -> None:
     """Verifies TypeScript code syntax using the installed TypeScript compiler AST parser."""
     if shutil.which("node") is None or not Path(_TS_MODULE_PATH).exists():
         pytest.skip("node and packages/react/node_modules/typescript are required")
-    node_script = f"""
-    const ts = require({json.dumps(_TS_MODULE_PATH)});
-    const code = {json.dumps(ts_code)};
-    const sf = ts.createSourceFile('schema.ts', code, ts.ScriptTarget.Latest, true);
-    if (sf.parseDiagnostics && sf.parseDiagnostics.length > 0) {{
-        console.error('TS Parse Diagnostics:', JSON.stringify(sf.parseDiagnostics));
-        process.exit(1);
-    }}
-    """
-    proc = subprocess.run(
-        ["node", "-e", node_script], capture_output=True, text=True, check=False
-    )
-    assert proc.returncode == 0, (
-        f"TypeScript syntax error:\n{proc.stderr}\nCode:\n{ts_code}"
+    worker = _get_ts_worker()
+    assert worker.stdin is not None and worker.stdout is not None
+    worker.stdin.write(json.dumps(ts_code) + "\n")
+    worker.stdin.flush()
+    resp_line = worker.stdout.readline()
+    res = json.loads(resp_line) if resp_line else {"ok": False, "diags": ["EOF"]}
+    assert res.get("ok"), (
+        f"TypeScript syntax error:\n{res.get('diags')}\nCode:\n{ts_code}"
     )
 
 
 def verify_sqlalchemy_models(
     sa_code: str, test_sqlite_ddl: bool = True, assertions_code: str = ""
 ) -> None:
-    """Compiles, executes, and configures SQLAlchemy mappers in an isolated process."""
-    sub_code = f"""
-import sys
-code = {json.dumps(sa_code)}
-compiled = compile(code, "<string>", "exec")
-assert compiled is not None
-ns = {{}}
-exec(code, ns)
-assert "Base" in ns
-from sqlalchemy.orm import configure_mappers
-configure_mappers()
+    """Compiles, executes, and configures SQLAlchemy mappers in an isolated namespace."""
+    import textwrap
 
-if {test_sqlite_ddl}:
-    from sqlalchemy import create_engine
-    engine = create_engine("sqlite:///:memory:")
-    ns["Base"].metadata.create_all(engine)
+    compiled = compile(sa_code, "<string>", "exec")
+    assert compiled is not None
+    ns: dict[str, Any] = {}
+    exec(compiled, ns)
+    assert "Base" in ns
+    ns["Base"].registry.configure()
+    engine = None
+    try:
+        if test_sqlite_ddl:
+            from sqlalchemy import create_engine
 
-{assertions_code}
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", sub_code], capture_output=True, text=True, check=False
-    )
-    assert proc.returncode == 0, (
-        f"SQLAlchemy execution error:\n{proc.stderr}\nCode:\n{sa_code}"
-    )
+            engine = create_engine("sqlite:///:memory:")
+            ns["Base"].metadata.create_all(engine)
+        if assertions_code:
+            exec_env = {**ns, "ns": ns, "engine": engine}
+            exec(textwrap.dedent(assertions_code), exec_env)
+    finally:
+        if engine is not None:
+            engine.dispose()
+        ns["Base"].registry.dispose()
 
 
 def verify_prisma_structure(prisma_code: str) -> None:
@@ -600,19 +629,10 @@ def test_adversarial_empty_and_degenerate_schemas():
     sa_empty = to_sqlalchemy_models(zero_cols)
     assert compile(sa_empty, "<string>", "exec") is not None
     # SQLAlchemy requires at least one primary key column when defining ORM models
-    empty_runner = f"""
-import sys
-code = {json.dumps(sa_empty)}
-exec(code, {{}})
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", empty_runner],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode != 0
-    assert "primary key" in proc.stderr
+    from sqlalchemy.exc import ArgumentError
+
+    with pytest.raises(ArgumentError, match="primary key"):
+        exec(sa_empty, {})
 
     # 4. Invalid provider / dialect exceptions
     with pytest.raises(ValueError, match="Unsupported Prisma provider"):

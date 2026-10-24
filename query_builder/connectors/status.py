@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import functools
 import importlib
 import inspect
 import json
@@ -114,6 +115,7 @@ def _mro_user_classes(cls: type) -> list[type]:
     return [k for k in cls.__mro__ if k not in _BASES and k is not object]
 
 
+@functools.cache
 def _class_source(cls: type) -> str:
     try:
         return inspect.getsource(cls)
@@ -121,6 +123,7 @@ def _class_source(cls: type) -> str:
         return ""
 
 
+@functools.cache
 def _module_level_driver_loops(cls: type) -> list[str]:
     """Driver modules named by ``for mod_name in (...)`` loops in the TOP-LEVEL functions of
     the module that defines ``cls``. Connectors often factor driver loading into a helper such
@@ -151,6 +154,7 @@ def _module_level_driver_loops(cls: type) -> list[str]:
     return found
 
 
+@functools.cache
 def declared_drivers(cls: type) -> tuple[str, ...]:
     """
     Third-party modules the class imports lazily to reach its database.
@@ -205,6 +209,7 @@ def declared_drivers(cls: type) -> tuple[str, ...]:
     return tuple(drivers)
 
 
+@functools.cache
 def declared_extra(cls: type) -> str | None:
     """The ``query-builder-engine[<extra>]`` install hint the class documents."""
     for klass in _mro_user_classes(cls):
@@ -279,6 +284,22 @@ def collect_connectors() -> list[dict[str, Any]]:
     return records
 
 
+@functools.lru_cache(maxsize=8)
+def _scan_test_identifiers(
+    tests_dir: str, sig: tuple[tuple[str, int, int], ...]
+) -> tuple[frozenset[str], ...]:
+    base_tests = Path(tests_dir)
+    return tuple(
+        frozenset(
+            re.findall(
+                r"[A-Za-z_][A-Za-z0-9_]*",
+                (base_tests / name).read_text(encoding="utf-8", errors="replace"),
+            )
+        )
+        for name, _, _ in sig
+    )
+
+
 def unit_test_references(
     root: Path | None = None, connectors: list[dict[str, Any]] | None = None
 ) -> dict[str, int]:
@@ -287,11 +308,13 @@ def unit_test_references(
     counts: dict[str, int] = collections.defaultdict(int)
     if base is None:
         return {}
-    texts = [
-        p.read_text(encoding="utf-8", errors="replace")
-        for p in sorted((base / "tests").glob("test_*.py"))
-    ]
-    idents = [set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", t)) for t in texts]
+    tests_dir = base / "tests"
+    sig = tuple(
+        (p.name, st.st_mtime_ns, st.st_size)
+        for p in sorted(tests_dir.glob("test_*.py"))
+        for st in (p.stat(),)
+    )
+    idents = _scan_test_identifiers(str(tests_dir), sig)
     for rec in connectors if connectors is not None else collect_connectors():
         counts[rec["key"]] = sum(1 for ids in idents if rec["class"] in ids)
     return dict(counts)

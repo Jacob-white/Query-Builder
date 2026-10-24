@@ -173,22 +173,19 @@ class NlqAstValidator:
                     sanitized_col["column"] = self._resolve_column(
                         table_str, c_name.strip(), active_tables
                     )
-                if expr:
-                    sanitized_col["expression"] = str(expr).strip()
-                if "raw_expression" in col:
-                    sanitized_col["raw_expression"] = str(col["raw_expression"]).strip()
-                if dim:
-                    sanitized_col["dimension"] = str(dim).strip()
-                if met:
-                    sanitized_col["metric"] = str(met).strip()
-                if "time_grain" in col:
-                    sanitized_col["time_grain"] = str(col["time_grain"]).strip()
-                if "grain" in col:
-                    sanitized_col["grain"] = str(col["grain"]).strip()
-                if "table" in col:
-                    sanitized_col["table"] = str(col["table"]).strip()
-                if "tablePrefix" in col:
-                    sanitized_col["tablePrefix"] = str(col["tablePrefix"]).strip()
+                for k in (
+                    "expression",
+                    "raw_expression",
+                    "dimension",
+                    "metric",
+                    "time_grain",
+                    "grain",
+                    "table",
+                    "tablePrefix",
+                    "alias",
+                ):
+                    if col.get(k):
+                        sanitized_col[k] = str(col[k]).strip()
 
                 agg = col.get("agg", col.get("aggregate"))
                 if agg:
@@ -201,9 +198,6 @@ class NlqAstValidator:
                         else:
                             sanitized_col["agg"] = agg_upper
 
-                alias = col.get("alias")
-                if alias:
-                    sanitized_col["alias"] = str(alias).strip()
                 if "distinct" in col:
                     sanitized_col["distinct"] = bool(col["distinct"])
                 sanitized_cols.append(sanitized_col)
@@ -244,23 +238,21 @@ class NlqAstValidator:
                     "op": op,
                     "value": val,
                 }
-                if "tablePrefix" in f:
-                    f_entry["tablePrefix"] = f["tablePrefix"]
-                if "table" in f:
-                    f_entry["table"] = f["table"]
+                for k in (
+                    "tablePrefix",
+                    "table",
+                    "parenOpen",
+                    "parenClose",
+                    "subquery",
+                    "id",
+                ):
+                    if k in f:
+                        f_entry[k] = f[k]
                 if (comb := str(f.get("combiner") or "").strip().upper()) in {
                     "AND",
                     "OR",
                 }:
                     f_entry["combiner"] = comb
-                if "parenOpen" in f:
-                    f_entry["parenOpen"] = f["parenOpen"]
-                if "parenClose" in f:
-                    f_entry["parenClose"] = f["parenClose"]
-                if "subquery" in f:
-                    f_entry["subquery"] = f["subquery"]
-                if "id" in f:
-                    f_entry["id"] = f["id"]
                 sanitized_filters.append(f_entry)
 
         filter_join = str(raw_ast.get("filter_join", "AND")).upper()

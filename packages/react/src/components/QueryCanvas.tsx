@@ -235,86 +235,76 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     setIsLocalRawEditing(true);
     setLocalFreeFormSql(nextSql);
     const parsed = parseSqlToSpec(nextSql, schema);
-    if (parsed && parsed.table) {
-      if (!activeTableNames.includes(parsed.table)) {
-        onAddTableToCanvas(parsed.table);
-      }
-      if (Array.isArray(parsed.columns)) {
-        const nonStarCols = parsed.columns.filter((c) => c !== "*");
-        if (nonStarCols.length === 0) {
-          for (const colDef of Object.values(selectedColumns || {})) {
+    if (!parsed?.table) return;
+    if (!activeTableNames.includes(parsed.table)) {
+      onAddTableToCanvas(parsed.table);
+    }
+    if (parsed.columns) {
+      const nonStarCols = parsed.columns.filter((c) => c !== "*");
+      if (nonStarCols.length === 0) {
+        for (const colDef of Object.values(selectedColumns)) {
+          onToggleColumn(colDef.table, colDef.name);
+        }
+      } else {
+        const desiredKeys = nonStarCols.map((colItem) => {
+          const rawStr = typeof colItem === "string" ? colItem : (colItem.column as string);
+          return rawStr.includes(".") ? rawStr : `${parsed.table}.${rawStr}`;
+        });
+        for (const [key, colDef] of Object.entries(selectedColumns)) {
+          if (!desiredKeys.includes(key)) {
             onToggleColumn(colDef.table, colDef.name);
           }
-        } else {
-          const desired = new Map<string, { table: string; col: string }>();
-          const desiredKeys: string[] = [];
-          for (const colItem of nonStarCols) {
-            const rawStr = typeof colItem === "string" ? colItem : colItem.column;
-            if (!rawStr) continue;
-            const parts = rawStr.split(".");
-            const tbl = parts.length > 1 ? parts[0] : parsed.table;
-            const col = parts.length > 1 ? parts.slice(1).join(".") : rawStr;
-            const key = `${tbl}.${col}`;
-            desired.set(key, { table: tbl, col });
-            desiredKeys.push(key);
-          }
-          for (const [key, colDef] of Object.entries(selectedColumns || {})) {
-            if (!desired.has(key)) {
-              onToggleColumn(colDef.table, colDef.name);
-            }
-          }
-          for (const [key, { table: tbl, col }] of desired.entries()) {
-            if (!selectedColumns?.[key]) {
-              onToggleColumn(tbl, col);
-            }
-          }
-          if (onReorderProjections && desiredKeys.length > 0) {
-            onReorderProjections(desiredKeys);
+        }
+        for (const key of desiredKeys) {
+          if (!selectedColumns[key]) {
+            const dotIdx = key.indexOf(".");
+            onToggleColumn(key.slice(0, dotIdx), key.slice(dotIdx + 1));
           }
         }
+        onReorderProjections?.(desiredKeys);
       }
-      if (Array.isArray(parsed.joins)) {
-        for (const j of parsed.joins) {
-          if (j.table && !activeTableNames.includes(j.table)) {
-            onAddTableToCanvas(j.table);
-          }
-        }
-        onJoinsChange(
-          parsed.joins.map((j, idx) => ({
-            id: `join_${idx + 1}`,
-            table: j.table,
-            type: (j.type as VisualJoin["type"]) || "LEFT JOIN",
-            left_table: j.left_table || parsed.table,
-            left_col: j.left_col || "id",
-            right_col: j.right_col || "id",
-          })),
-        );
-      }
-      if (Array.isArray(parsed.filters)) {
-        onFiltersChange(
-          parsed.filters.map((f, idx) => ({
-            id: `filter_${idx + 1}`,
-            tablePrefix: f.tablePrefix || parsed.table,
-            column: f.column,
-            operator: (f.op || "=") as VisualFilter["operator"],
-            value: Array.isArray(f.value) ? f.value.join(", ") : ((f.value ?? "") as string | number | boolean),
-            combiner: f.combiner || "AND",
-          })),
-        );
-      }
-      if (Array.isArray(parsed.order_by)) {
-        onSortsChange(
-          parsed.order_by.map((o, idx) => ({
-            id: `sort_${idx + 1}`,
-            tablePrefix: o.tablePrefix || parsed.table,
-            column: o.column,
-            direction: o.direction || "ASC",
-          })),
-        );
-      }
-      if (typeof parsed.distinct === "boolean") onDistinctChange(parsed.distinct);
-      if (typeof parsed.limit === "number") onLimitChange(parsed.limit);
     }
+    if (parsed.joins) {
+      for (const j of parsed.joins) {
+        if (!activeTableNames.includes(j.table)) {
+          onAddTableToCanvas(j.table);
+        }
+      }
+      onJoinsChange(
+        parsed.joins.map((j, idx) => ({
+          id: `join_${idx + 1}`,
+          table: j.table,
+          type: j.type as VisualJoin["type"],
+          left_table: j.left_table,
+          left_col: j.left_col as string,
+          right_col: j.right_col as string,
+        })),
+      );
+    }
+    if (parsed.filters) {
+      onFiltersChange(
+        parsed.filters.map((f, idx) => ({
+          id: `filter_${idx + 1}`,
+          tablePrefix: f.tablePrefix || parsed.table,
+          column: f.column,
+          operator: f.op as VisualFilter["operator"],
+          value: Array.isArray(f.value) ? f.value.join(", ") : (f.value as string | number | boolean),
+          combiner: f.combiner,
+        })),
+      );
+    }
+    if (parsed.order_by) {
+      onSortsChange(
+        parsed.order_by.map((o, idx) => ({
+          id: `sort_${idx + 1}`,
+          tablePrefix: o.tablePrefix || parsed.table,
+          column: o.column,
+          direction: o.direction,
+        })),
+      );
+    }
+    if (parsed.distinct !== undefined) onDistinctChange(parsed.distinct);
+    if (parsed.limit !== undefined) onLimitChange(parsed.limit);
   };
 
   const handleQuickFilter = (tableName: string, colName: string, _dataType: string) => {
@@ -380,23 +370,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   };
 
   const handleNavigateSection = (section: "tables" | "columns" | "joins" | "filters" | "sorts") => {
-    if (section === "tables" || section === "columns") setActiveStepTab("columns");
-    else if (section === "joins") setActiveStepTab("joins");
-    else if (section === "filters") setActiveStepTab("filters");
-    else if (section === "sorts") setActiveStepTab("sorts");
-
-    if (typeof document === "undefined") return;
-    const selectorMap: Record<typeof section, string> = {
-      tables: '[data-qb="canvas-tables"]',
-      columns: '[data-qb="canvas-projections"]',
-      joins: '[data-qb="joins-editor"]',
-      filters: '[data-qb="filters-editor"]',
-      sorts: '[data-qb="sorts-editor"]',
-    };
-    const el = document.querySelector(selectorMap[section]);
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
+    setActiveStepTab(section === "tables" ? "columns" : section);
   };
 
   const handleMoveProjection = (index: number, direction: -1 | 1) => {
@@ -434,29 +408,50 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     }
   };
 
+  const makeColDragHandlers = (idx: number, guardInputs = false) => ({
+    onDragStart: (e: React.DragEvent<HTMLElement>) => {
+      const targetTag = (e.target as HTMLElement | null)?.tagName;
+      if (guardInputs && (targetTag === "INPUT" || targetTag === "SELECT" || targetTag === "TEXTAREA")) {
+        e.preventDefault();
+        return;
+      }
+      setDraggedColIndex(idx);
+      e.dataTransfer?.setData?.("text/plain", String(idx));
+    },
+    onDragOver: (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      if (dragOverColIndex !== idx) setDragOverColIndex(idx);
+    },
+    onDragLeave: () => {
+      if (dragOverColIndex === idx) setDragOverColIndex(null);
+    },
+    onDrop: (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      const rawIdx = e.dataTransfer?.getData?.("text/plain");
+      const resolvedFrom =
+        draggedColIndex ??
+        (rawIdx !== undefined && rawIdx !== "" && !Number.isNaN(Number(rawIdx))
+          ? Number(rawIdx)
+          : null);
+      handleDropProjection(resolvedFrom, idx);
+    },
+    onDragEnd: () => {
+      setDraggedColIndex(null);
+      setDragOverColIndex(null);
+    },
+  });
+
   const handleReorderTableColumns = (tableName: string, orderedColNames: string[]) => {
     setIsLocalRawEditing(false);
     if (!onReorderProjections) return;
     const tablePrefix = `${tableName}.`;
     const tableSelectedKeys = orderedProjectionKeys.filter((k) => k.startsWith(tablePrefix));
     if (orderedProjectionKeys.length === 0 || tableSelectedKeys.length <= 1) {
-      const nextKeys: string[] = [];
-      for (const tbl of activeTables) {
-        if (tbl.name === tableName) {
-          for (const colName of orderedColNames) {
-            nextKeys.push(`${tableName}.${colName}`);
-          }
-        } else {
-          const otherSelected = orderedProjectionKeys.filter((k) => k.startsWith(`${tbl.name}.`));
-          if (otherSelected.length > 0) {
-            nextKeys.push(...otherSelected);
-          } else {
-            for (const col of tbl.columns) {
-              nextKeys.push(`${tbl.name}.${col.name}`);
-            }
-          }
-        }
-      }
+      const nextKeys = activeTables.flatMap((tbl) => {
+        if (tbl.name === tableName) return orderedColNames.map((c) => `${tableName}.${c}`);
+        const other = orderedProjectionKeys.filter((k) => k.startsWith(`${tbl.name}.`));
+        return other.length > 0 ? other : tbl.columns.map((c) => `${tbl.name}.${c.name}`);
+      });
       onReorderProjections(nextKeys);
       return;
     }
@@ -465,12 +460,13 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       .map((c) => `${tableName}.${c}`)
       .filter((k) => selectedSet.has(k));
     let ptr = 0;
-    const nextKeys = orderedProjectionKeys.map((k) =>
-      k.startsWith(tablePrefix) && ptr < reorderedTableKeys.length
-        ? reorderedTableKeys[ptr++]
-        : k,
+    onReorderProjections(
+      orderedProjectionKeys.map((k) =>
+        k.startsWith(tablePrefix) && ptr < reorderedTableKeys.length
+          ? reorderedTableKeys[ptr++]
+          : k,
+      ),
     );
-    onReorderProjections(nextKeys);
   };
 
   const handleCopyLiveSql = () => {
@@ -800,118 +796,53 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   }
             }
           />
-          <textarea
-            data-qb="raw-sql-textarea"
-            aria-hidden="true"
-            tabIndex={-1}
-            value={effectiveSqlText}
-            onChange={(e) => handleFreeFormSqlInput(e.target.value)}
-            style={unstyled ? undefined : SR_ONLY_STYLE}
-          />
 
           {/* Live Visual Breakdown of What the Query Is Doing (hidden with SR_ONLY_STYLE to eliminate visual pill clutter while preserving DOM selectors) */}
           {!unstyled && (
-            <div
-              data-qb="free-form-visual-breakdown"
-              style={SR_ONLY_STYLE}
-            >
-              <span style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--qb-color-text-muted, #64748b)" }}>
-                What this query does:
-              </span>
-              <button
-                type="button"
-                data-qb="breakdown-pill-table"
-                onClick={() => setActiveStepTab("columns")}
-                style={{
-                  padding: "3px 9px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  borderRadius: "999px",
-                  border: "1px solid rgba(56, 189, 248, 0.3)",
-                  background: "rgba(56, 189, 248, 0.1)",
-                  color: "#e0f2fe",
-                  cursor: "pointer",
-                }}
-              >
-                {`FROM ${primaryTable || "none"}`}
-              </button>
-              <button
-                type="button"
-                data-qb="breakdown-pill-joins"
-                onClick={() => setActiveStepTab("joins")}
-                style={{
-                  padding: "3px 9px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  borderRadius: "999px",
-                  border:
+            <div data-qb="free-form-visual-breakdown" style={SR_ONLY_STYLE}>
+              <span>What this query does:</span>
+              {[
+                {
+                  qb: "breakdown-pill-table",
+                  tab: "columns" as QueryStepTab,
+                  text: `FROM ${primaryTable || "none"}`,
+                },
+                {
+                  qb: "breakdown-pill-joins",
+                  tab: "joins" as QueryStepTab,
+                  text:
                     joins.length > 0
-                      ? "1px solid rgba(16, 185, 129, 0.35)"
-                      : "1px solid rgba(255, 255, 255, 0.08)",
-                  background:
-                    joins.length > 0
-                      ? "rgba(16, 185, 129, 0.12)"
-                      : "var(--qb-color-background, #090d16)",
-                  color: joins.length > 0 ? "#6ee7b7" : "var(--qb-color-text-secondary, #94a3b8)",
-                  cursor: "pointer",
-                }}
-              >
-                {joins.length > 0
-                  ? `JOINS (${joins.length}): ${joins.map((j) => `${j.type} ${j.table}`).join(", ")}`
-                  : "JOINS: Single table"}
-              </button>
-              <button
-                type="button"
-                data-qb="breakdown-pill-filters"
-                onClick={() => setActiveStepTab("filters")}
-                style={{
-                  padding: "3px 9px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  borderRadius: "999px",
-                  border:
+                      ? `JOINS (${joins.length}): ${joins.map((j) => `${j.type} ${j.table}`).join(", ")}`
+                      : "JOINS: Single table",
+                },
+                {
+                  qb: "breakdown-pill-filters",
+                  tab: "filters" as QueryStepTab,
+                  text:
                     filters.length > 0
-                      ? "1px solid rgba(250, 204, 21, 0.35)"
-                      : "1px solid rgba(255, 255, 255, 0.08)",
-                  background:
-                    filters.length > 0
-                      ? "rgba(250, 204, 21, 0.12)"
-                      : "var(--qb-color-background, #090d16)",
-                  color: filters.length > 0 ? "#fef08a" : "var(--qb-color-text-secondary, #94a3b8)",
-                  cursor: "pointer",
-                }}
-              >
-                {filters.length > 0
-                  ? `WHERE (${filters.length}): ${filters
-                      .map((f) => `${f.column} ${f.operator} ${String(f.value ?? "")}`.trim())
-                      .join(" · ")}`
-                  : "WHERE: All rows"}
-              </button>
-              <button
-                type="button"
-                data-qb="breakdown-pill-sorts"
-                onClick={() => setActiveStepTab("sorts")}
-                style={{
-                  padding: "3px 9px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  borderRadius: "999px",
-                  border:
+                      ? `WHERE (${filters.length}): ${filters
+                          .map((f) => `${f.column} ${f.operator} ${String(f.value ?? "")}`.trim())
+                          .join(" · ")}`
+                      : "WHERE: All rows",
+                },
+                {
+                  qb: "breakdown-pill-sorts",
+                  tab: "sorts" as QueryStepTab,
+                  text:
                     sorts.length > 0
-                      ? "1px solid rgba(168, 85, 247, 0.35)"
-                      : "1px solid rgba(255, 255, 255, 0.08)",
-                  background:
-                    sorts.length > 0
-                      ? "rgba(168, 85, 247, 0.12)"
-                      : "var(--qb-color-background, #090d16)",
-                  color: sorts.length > 0 ? "#e9d5ff" : "var(--qb-color-text-secondary, #94a3b8)",
-                  cursor: "pointer",
-                }}
-              >
-                {sorts.length > 0
-                  ? `ORDER BY: ${sorts.map((s) => `${s.column} ${s.direction}`).join(", ")} · LIMIT ${limit}`
-                  : `LIMIT ${limit}${isDistinct ? " · DISTINCT" : ""}`}
-              </button>
+                      ? `ORDER BY: ${sorts.map((s) => `${s.column} ${s.direction}`).join(", ")} · LIMIT ${limit}`
+                      : `LIMIT ${limit}${isDistinct ? " · DISTINCT" : ""}`,
+                },
+              ].map((pill) => (
+                <button
+                  key={pill.qb}
+                  type="button"
+                  data-qb={pill.qb}
+                  onClick={() => setActiveStepTab(pill.tab)}
+                >
+                  {pill.text}
+                </button>
+              ))}
             </div>
           )}
 
@@ -939,29 +870,6 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                       : "All Columns Selected (SELECT *)"}
                   </span>
                 </span>
-                {orderedProjectionKeys.length === 0 && unselectedTableColumns.length > 0 && (
-                  <button
-                    type="button"
-                    data-qb="btn-pin-columns-to-reorder"
-                    onClick={() => {
-                      unselectedTableColumns.slice(0, 5).forEach((c) => {
-                        onToggleColumn(c.table, c.col);
-                      });
-                    }}
-                    style={{
-                      background: "var(--qb-color-active-bg, rgba(56, 189, 248, 0.14))",
-                      color: "var(--qb-color-active-text, #e0f2fe)",
-                      border: "1px solid var(--qb-color-active-border, rgba(56, 189, 248, 0.35))",
-                      borderRadius: "999px",
-                      padding: "2px 9px",
-                      fontSize: "0.73rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Pin First {Math.min(5, unselectedTableColumns.length)} Columns to Reorder
-                  </button>
-                )}
               </div>
 
               {orderedProjectionKeys.length > 0 && (
@@ -977,49 +885,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                         data-qb="free-form-col-chip"
                         data-qb-column={key}
                         draggable={true}
-                        onDragStart={(e) => {
-                          setDraggedColIndex(idx);
-                          if (e.dataTransfer) {
-                            e.dataTransfer.effectAllowed = "move";
-                            try {
-                              e.dataTransfer.setData("text/plain", String(idx));
-                            } catch {
-                              // Ignore in synthetic test environments
-                            }
-                          }
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-                          if (dragOverColIndex !== idx) setDragOverColIndex(idx);
-                        }}
-                        onDragEnter={(e) => {
-                          e.preventDefault();
-                          setDragOverColIndex(idx);
-                        }}
-                        onDragLeave={(e) => {
-                          if (
-                            e.relatedTarget instanceof Node &&
-                            e.currentTarget.contains(e.relatedTarget)
-                          ) {
-                            return;
-                          }
-                          if (dragOverColIndex === idx) setDragOverColIndex(null);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const rawIdx = e.dataTransfer?.getData?.("text/plain");
-                          const resolvedFrom =
-                            draggedColIndex ??
-                            (rawIdx !== undefined && rawIdx !== "" && !Number.isNaN(Number(rawIdx))
-                              ? Number(rawIdx)
-                              : null);
-                          handleDropProjection(resolvedFrom, idx);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedColIndex(null);
-                          setDragOverColIndex(null);
-                        }}
+                        {...makeColDragHandlers(idx)}
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -1421,37 +1287,6 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 />
               ))}
             </div>
-
-            {unstyled && suggestedJoins.length > 0 && (
-              <div data-qb="suggested-joins-bar">
-                <span>💡 Suggested Joins:</span>
-                {suggestedJoins.slice(0, 4).map(({ candidate, edge }) => (
-                  <button
-                    key={candidate}
-                    type="button"
-                    data-testid={`fk-join-suggestion-${candidate}`}
-                    onClick={() => handleQuickJoinFk(candidate)}
-                    title={`Join ${candidate} on ${describeLink(edge)}`}
-                  >
-                    + Join {candidate}
-                  </button>
-                ))}
-                {suggestedJoins.length > 4 && (
-                  <div>
-                    <button
-                      type="button"
-                      data-qb="btn-more-suggested-joins"
-                      onClick={() => {
-                        setIsMoreJoinsExpanded((prev) => !prev);
-                        setMoreJoinsSearch("");
-                      }}
-                    >
-                      +{suggestedJoins.length - 4} more FK joins
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
@@ -1469,40 +1304,44 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
         }
       >
         {/* 1-click Foreign Key Join Suggestions */}
-        {!unstyled && activeTables.length > 0 && suggestedJoins.length > 0 && (
+        {activeTables.length > 0 && suggestedJoins.length > 0 && (
           <div
             data-qb="suggested-joins-bar"
             style={
-              activeStepTab !== "joins" && activeStepTab !== "columns"
-                ? SR_ONLY_STYLE
-                : {
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    flexWrap: "wrap",
-                    background: "transparent",
-                    border: "none",
-                    fontSize: "0.82rem",
-                    position: "relative",
-                  }
+              unstyled
+                ? undefined
+                : activeStepTab !== "joins" && activeStepTab !== "columns"
+                  ? SR_ONLY_STYLE
+                  : {
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      flexWrap: "wrap",
+                      background: "transparent",
+                      border: "none",
+                      fontSize: "0.82rem",
+                      position: "relative",
+                    }
             }
           >
             <span style={unstyled ? undefined : SR_ONLY_STYLE}>💡 Suggested Joins:</span>
-            <span
-              aria-hidden="true"
-              style={{
-                fontSize: "0.72rem",
-                fontWeight: 700,
-                color: "var(--qb-color-confirmed-text, #6ee7b7)",
-                background: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.14))",
-                border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))",
-                borderRadius: "999px",
-                padding: "2px 8px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              ✓ Confirmed Joins:
-            </span>
+            {!unstyled && (
+              <span
+                aria-hidden="true"
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  color: "var(--qb-color-confirmed-text, #6ee7b7)",
+                  background: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.14))",
+                  border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))",
+                  borderRadius: "999px",
+                  padding: "2px 8px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ✓ Confirmed Joins:
+              </span>
+            )}
             {suggestedJoins.slice(0, 4).map(({ candidate, edge }, idx) => {
               const hideVisually = suggestedJoins.length > 2 && idx >= 1 && activeStepTab !== "joins";
               return (
@@ -1513,19 +1352,21 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   data-qb-join-tier="confirmed"
                   onClick={() => handleQuickJoinFk(candidate)}
                   style={
-                    hideVisually
-                      ? SR_ONLY_STYLE
-                      : {
-                          background: "var(--qb-color-surface, #10141f)",
-                          color: "var(--qb-color-confirmed-text, #6ee7b7)",
-                          border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))",
-                          borderRadius: "999px",
-                          padding: "4px 10px",
-                          fontSize: "0.78rem",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          whiteSpace: "nowrap",
-                        }
+                    unstyled
+                      ? undefined
+                      : hideVisually
+                        ? SR_ONLY_STYLE
+                        : {
+                            background: "var(--qb-color-surface, #10141f)",
+                            color: "var(--qb-color-confirmed-text, #6ee7b7)",
+                            border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))",
+                            borderRadius: "999px",
+                            padding: "4px 10px",
+                            fontSize: "0.78rem",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }
                   }
                   title={`Confirmed Join: Join ${candidate} on ${describeLink(edge)}`}
                 >
@@ -1534,7 +1375,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
               );
             })}
             {suggestedJoins.length > 4 && (
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <div style={unstyled ? undefined : { display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   data-qb="btn-more-suggested-joins"
@@ -1542,19 +1383,23 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     setIsMoreJoinsExpanded((prev) => !prev);
                     setMoreJoinsSearch("");
                   }}
-                  style={{
-                    background: isMoreJoinsExpanded
-                      ? "var(--qb-color-surface-active, #1c2232)"
-                      : "transparent",
-                    color: "var(--qb-color-text-muted, #94a3b8)",
-                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-                    borderRadius: "999px",
-                    padding: "4px 10px",
-                    fontSize: "0.78rem",
-                    cursor: "pointer",
-                    fontWeight: 500,
-                    whiteSpace: "nowrap",
-                  }}
+                  style={
+                    unstyled
+                      ? undefined
+                      : {
+                          background: isMoreJoinsExpanded
+                            ? "var(--qb-color-surface-active, #1c2232)"
+                            : "transparent",
+                          color: "var(--qb-color-text-muted, #94a3b8)",
+                          border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                          borderRadius: "999px",
+                          padding: "4px 10px",
+                          fontSize: "0.78rem",
+                          cursor: "pointer",
+                          fontWeight: 500,
+                          whiteSpace: "nowrap",
+                        }
+                  }
                 >
                   +{suggestedJoins.length - 4} more FK joins
                 </button>
@@ -1858,54 +1703,7 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                     data-qb="projection-item"
                     data-qb-column={key}
                     draggable={true}
-                    onDragStart={(e) => {
-                      const targetTag = (e.target as HTMLElement | null)?.tagName;
-                      if (targetTag === "INPUT" || targetTag === "SELECT" || targetTag === "TEXTAREA") {
-                        e.preventDefault();
-                        return;
-                      }
-                      setDraggedColIndex(idx);
-                      if (e.dataTransfer) {
-                        e.dataTransfer.effectAllowed = "move";
-                        try {
-                          e.dataTransfer.setData("text/plain", String(idx));
-                        } catch {
-                          // Ignore in synthetic test environments
-                        }
-                      }
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-                      if (dragOverColIndex !== idx) setDragOverColIndex(idx);
-                    }}
-                    onDragEnter={(e) => {
-                      e.preventDefault();
-                      setDragOverColIndex(idx);
-                    }}
-                    onDragLeave={(e) => {
-                      if (
-                        e.relatedTarget instanceof Node &&
-                        e.currentTarget.contains(e.relatedTarget)
-                      ) {
-                        return;
-                      }
-                      if (dragOverColIndex === idx) setDragOverColIndex(null);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const rawIdx = e.dataTransfer?.getData?.("text/plain");
-                      const resolvedFrom =
-                        draggedColIndex ??
-                        (rawIdx !== undefined && rawIdx !== "" && !Number.isNaN(Number(rawIdx))
-                          ? Number(rawIdx)
-                          : null);
-                      handleDropProjection(resolvedFrom, idx);
-                    }}
-                    onDragEnd={() => {
-                      setDraggedColIndex(null);
-                      setDragOverColIndex(null);
-                    }}
+                    {...makeColDragHandlers(idx, true)}
                     className={cx(classNames?.projectionItem)}
                     style={
                       unstyled
@@ -2374,6 +2172,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   sorts={sorts}
                   activeTables={activeTables}
                   selectedColumns={selectedColumns}
+                  limit={limit}
+                  onLimitChange={onLimitChange}
                   onChange={onSortsChange}
                   unstyled={unstyled}
                   classNames={classNames}

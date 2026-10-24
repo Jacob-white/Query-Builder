@@ -32,11 +32,7 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import sqlite3
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -47,70 +43,14 @@ from query_builder.schema_converters import (
     to_prisma_schema,
     to_sqlalchemy_models,
 )
+from tests.test_adversarial_m2_challenger1 import (
+    verify_sqlalchemy_models,
+    verify_typescript_syntax,
+)
 
 # ============================================================================
 # Verification Oracles & Helpers
 # ============================================================================
-
-
-_TS_MODULE_PATH = str(
-    Path(__file__).resolve().parents[1]
-    / "packages"
-    / "react"
-    / "node_modules"
-    / "typescript"
-)
-
-
-def verify_typescript_syntax(ts_code: str) -> None:
-    """Verifies TypeScript code syntax using the installed TypeScript compiler AST parser."""
-    if shutil.which("node") is None or not Path(_TS_MODULE_PATH).exists():
-        pytest.skip("node and packages/react/node_modules/typescript are required")
-    node_script = f"""
-    const ts = require({json.dumps(_TS_MODULE_PATH)});
-    const code = {json.dumps(ts_code)};
-    const sf = ts.createSourceFile('schema.ts', code, ts.ScriptTarget.Latest, true);
-    if (sf.parseDiagnostics && sf.parseDiagnostics.length > 0) {{
-        console.error('TS Parse Diagnostics:', JSON.stringify(sf.parseDiagnostics));
-        process.exit(1);
-    }}
-    """
-    proc = subprocess.run(
-        ["node", "-e", node_script], capture_output=True, text=True, check=False
-    )
-    assert proc.returncode == 0, (
-        f"TypeScript syntax error:\n{proc.stderr}\nCode:\n{ts_code}"
-    )
-
-
-def verify_sqlalchemy_models(
-    sa_code: str, test_sqlite_ddl: bool = True, assertions_code: str = ""
-) -> None:
-    """Compiles, executes, and configures SQLAlchemy mappers in an isolated process."""
-    sub_code = f"""
-import sys
-code = {json.dumps(sa_code)}
-compiled = compile(code, "<string>", "exec")
-assert compiled is not None
-ns = {{}}
-exec(code, ns)
-assert "Base" in ns
-from sqlalchemy.orm import configure_mappers
-configure_mappers()
-
-if {test_sqlite_ddl}:
-    from sqlalchemy import create_engine
-    engine = create_engine("sqlite:///:memory:")
-    ns["Base"].metadata.create_all(engine)
-
-{assertions_code}
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", sub_code], capture_output=True, text=True, check=False
-    )
-    assert proc.returncode == 0, (
-        f"SQLAlchemy execution error:\n{proc.stderr}\nCode:\n{sa_code}"
-    )
 
 
 def verify_prisma_structure(prisma_code: str) -> None:

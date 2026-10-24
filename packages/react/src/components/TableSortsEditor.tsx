@@ -376,31 +376,13 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                     return;
                   }
                   setDraggedSortIdx(idx);
-                  if (e.dataTransfer) {
-                    e.dataTransfer.effectAllowed = "move";
-                    try {
-                      e.dataTransfer.setData("text/plain", String(idx));
-                    } catch {
-                      // Ignore in synthetic test environments
-                    }
-                  }
+                  e.dataTransfer?.setData?.("text/plain", String(idx));
                 }}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
                   if (dragOverSortIdx !== idx) setDragOverSortIdx(idx);
                 }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  setDragOverSortIdx(idx);
-                }}
-                onDragLeave={(e) => {
-                  if (
-                    e.relatedTarget instanceof Node &&
-                    e.currentTarget.contains(e.relatedTarget)
-                  ) {
-                    return;
-                  }
+                onDragLeave={() => {
                   if (dragOverSortIdx === idx) setDragOverSortIdx(null);
                 }}
                 onDrop={(e) => {
@@ -699,22 +681,6 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
           >
             Row limit:
           </span>
-          <select
-            value={limit}
-            aria-label="Sorts query limit"
-            data-qb="sort-input-limit"
-            onChange={(e) => onLimitChange(Number(e.target.value))}
-            style={unstyled ? undefined : SR_ONLY_STYLE}
-          >
-            {[10, 25, 50, 100, 500].map((lv) => (
-              <option key={lv} value={lv}>
-                {lv}
-              </option>
-            ))}
-            {![10, 25, 50, 100, 500].includes(limit) && (
-              <option value={limit}>{limit}</option>
-            )}
-          </select>
           {!unstyled && (
             <div
               role="group"
@@ -729,10 +695,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                 border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               }}
             >
-              {(![10, 25, 50, 100, 500].includes(limit)
-                ? [limit, 10, 25, 50, 100, 500]
-                : [10, 25, 50, 100, 500]
-              ).map((lv) => {
+              {[10, 25, 50, 100, 500].map((lv) => {
                 const active = limit === lv;
                 return (
                   <button

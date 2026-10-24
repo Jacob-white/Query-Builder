@@ -363,97 +363,12 @@ export const VisualQueryBuilder = React.forwardRef<
   useControlledSpecSync({ value, onChange, loadSpec: actions.loadSpec, getActiveSpec, currentSql });
 
   const handleApplyNlqSpec = (appliedSpec: QuerySpec) => {
-    if (appliedSpec && appliedSpec.table) {
-      let cleanedColumns = Array.isArray(appliedSpec.columns)
-        ? appliedSpec.columns.filter((col) => {
-            if (typeof col === "string") {
-              const trimmed = col.trim();
-              return trimmed !== "*" && !trimmed.endsWith(".*");
-            }
-            if (col && typeof col === "object" && "column" in col) {
-              const cName = String(col.column || "").trim();
-              const hasAgg = Boolean(col.agg || (col as Record<string, unknown>).aggregate);
-              if (!hasAgg && (cName === "*" || cName.endsWith(".*"))) {
-                return false;
-              }
-            }
-            return true;
-          })
-        : [];
-      const baseMeta = augmentedSchema?.tables?.[appliedSpec.table];
-      if (
-        baseMeta &&
-        baseMeta.columns.length > 4 &&
-        cleanedColumns.length >= baseMeta.columns.length &&
-        cleanedColumns.every(
-          (c) =>
-            typeof c === "string" ||
-            (c &&
-              typeof c === "object" &&
-              !c.agg &&
-              !(c as Record<string, unknown>).aggregate &&
-              !c.alias &&
-              !c.expression &&
-              !(c as Record<string, unknown>).dimension &&
-              !c.metric),
-        )
-      ) {
-        cleanedColumns = [];
-      }
-      const cleanedFilters = Array.isArray(appliedSpec.filters)
-        ? appliedSpec.filters.map((f) => {
-            if (f && typeof f.column === "string" && !f.tablePrefix && f.column.includes(".")) {
-              const lastDot = f.column.lastIndexOf(".");
-              return {
-                ...f,
-                tablePrefix: f.column.substring(0, lastDot),
-                column: f.column.substring(lastDot + 1),
-              };
-            }
-            return f;
-          })
-        : appliedSpec.filters;
-      const nextSpec: QuerySpec = {
-        ...appliedSpec,
-        columns: cleanedColumns,
-        ...(cleanedFilters ? { filters: cleanedFilters } : {}),
-      };
-      actions.loadSpec(nextSpec);
+    if (appliedSpec?.table) {
+      actions.loadSpec(appliedSpec);
       leaveRawMode();
-      void handleRunQuery(nextSpec);
+      void handleRunQuery(appliedSpec);
     }
   };
-
-  const nlqSuggestions = useMemo<string[] | undefined>(() => {
-    const namedTables = allTables.filter((t) => Boolean(t && typeof t.name === "string"));
-    if (!namedTables.length) return undefined;
-    const hasDemoTables = namedTables.some((t) =>
-      ["customers", "orders", "users"].includes(t.name.toLowerCase()),
-    );
-    if (hasDemoTables) return undefined;
-    const userTables = namedTables.filter(
-      (t) => !t.name.startsWith("django_") && !t.name.startsWith("auth_permission"),
-    );
-    const primary =
-      userTables.find((t) => t.name === primaryTable) || userTables[0] || namedTables[0];
-    const secondary =
-      userTables.find((t) => t.name !== primary.name) || primary;
-    const cols = primary.columns || [];
-    const sortCol =
-      cols.find((c) => /aum|amount|total|score|count|date|created|id/i.test(c?.name || ""))?.name ||
-      cols[0]?.name ||
-      "id";
-    const groupCol =
-      cols.find((c) => /status|type|state|category|tier|role/i.test(c?.name || ""))?.name ||
-      cols[1]?.name ||
-      cols[0]?.name ||
-      "id";
-    return [
-      `Top 10 ${primary.name} sorted by ${sortCol} descending`,
-      `Count ${primary.name} grouped by ${groupCol}`,
-      `Show ${secondary.name} limit 25`,
-    ];
-  }, [allTables, primaryTable]);
 
   // Expose imperative VisualQueryBuilderRef methods
   useImperativeHandle(
@@ -514,35 +429,15 @@ export const VisualQueryBuilder = React.forwardRef<
 
   const handleReorderResultColumns = useCallback(
     (newCols: string[]) => {
-      if (newCols.length <= 1) return;
       if (state.orderedProjectionKeys.length === 0) {
-        if (activeTables.length === 0) return;
-        const orderedTables = [
-          ...activeTables.filter((t) => t.name === primaryTable),
-          ...activeTables.filter((t) => t.name !== primaryTable),
-        ];
-        const usedKeys = new Set<string>();
         const nextSelected: typeof state.selectedColumns = {};
         const nextKeys: string[] = [];
         for (const col of newCols) {
-          if (col.includes(".")) {
-            const dotIdx = col.indexOf(".");
-            const tbl = col.slice(0, dotIdx);
-            const colName = col.slice(dotIdx + 1);
-            const key = `${tbl}.${colName}`;
-            if (!usedKeys.has(key)) {
-              usedKeys.add(key);
-              nextSelected[key] = { table: tbl as typeof primaryTable, name: colName };
-              nextKeys.push(key);
-              continue;
-            }
-          }
-          const matchedTable = orderedTables.find((t) =>
-            t.columns.some((c) => c.name === col && !usedKeys.has(`${t.name}.${c.name}`)),
+          const matchedTable = activeTables.find((t) =>
+            t.columns.some((c) => c.name === col && !nextSelected[`${t.name}.${c.name}`]),
           );
           if (matchedTable) {
             const key = `${matchedTable.name}.${col}`;
-            usedKeys.add(key);
             nextSelected[key] = { table: matchedTable.name as typeof primaryTable, name: col };
             nextKeys.push(key);
           }
@@ -553,32 +448,14 @@ export const VisualQueryBuilder = React.forwardRef<
         }
         return;
       }
-      if (state.orderedProjectionKeys.length <= 1) return;
       const remaining = [...state.orderedProjectionKeys];
       const reordered: string[] = [];
       for (const col of newCols) {
-        // Priority 1: exact alias match (when aliased) or exact table.col key match
-        let matchIdx = remaining.findIndex((key) => {
+        const matchIdx = remaining.findIndex((key) => {
           const sel = state.selectedColumns[key];
-          const effectiveAlias = sel?.alias?.trim();
-          return effectiveAlias ? effectiveAlias === col : key === col;
+          const effectiveLabel = sel?.alias?.trim() || sel?.name || key.split(".").pop();
+          return key === col || effectiveLabel === col;
         });
-        // Priority 2: unaliased column name match
-        if (matchIdx === -1) {
-          matchIdx = remaining.findIndex((key) => {
-            const sel = state.selectedColumns[key];
-            const effectiveAlias = sel?.alias?.trim();
-            if (effectiveAlias) return false;
-            return key.endsWith(`.${col}`) || sel?.name === col;
-          });
-        }
-        // Priority 3: fallback to raw name/suffix match
-        if (matchIdx === -1) {
-          matchIdx = remaining.findIndex((key) => {
-            const sel = state.selectedColumns[key];
-            return key === col || key.endsWith(`.${col}`) || sel?.alias === col || sel?.name === col;
-          });
-        }
         if (matchIdx !== -1) {
           reordered.push(remaining[matchIdx]);
           remaining.splice(matchIdx, 1);
@@ -588,7 +465,7 @@ export const VisualQueryBuilder = React.forwardRef<
       leaveRawMode();
       actions.setOrderedProjectionKeys(reordered);
     },
-    [state, activeTables, primaryTable, leaveRawMode, actions],
+    [state, activeTables, leaveRawMode, actions],
   );
 
   const shouldHideInnerToolbar = hideInnerToolbar || studioMode;
@@ -783,7 +660,6 @@ export const VisualQueryBuilder = React.forwardRef<
                     apiUrl: nlqApiUrl,
                     defaultProvider: nlqDefaultProvider,
                     dialect,
-                    suggestions: nlqSuggestions,
                     showSchemaPills: false,
                     unstyled,
                   }
