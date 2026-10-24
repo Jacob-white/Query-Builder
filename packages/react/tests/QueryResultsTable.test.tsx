@@ -237,9 +237,13 @@ describe("QueryResultsTable", () => {
       count: 5,
     };
 
-    render(<QueryResultsTable results={results} pageSize={2} />);
+    const { rerender } = render(<QueryResultsTable results={results} pageSize={2} />);
 
-    // Page 1 should show Item 1 and Item 2
+    // Page 1 should show Item 1 and Item 2 with row indices 1 and 2
+    expect(document.querySelector('[data-qb="results-th-index"]')?.textContent).toBe("#");
+    expect(
+      Array.from(document.querySelectorAll('[data-qb="results-td-index"]')).map((el) => el.textContent),
+    ).toEqual(["1", "2"]);
     expect(screen.getByText("Item 1")).toBeTruthy();
     expect(screen.getByText("Item 2")).toBeTruthy();
     expect(screen.queryByText("Item 3")).toBeNull();
@@ -252,17 +256,23 @@ describe("QueryResultsTable", () => {
     expect((prevBtn as HTMLButtonElement).disabled).toBe(true);
     expect((nextBtn as HTMLButtonElement).disabled).toBe(false);
 
-    // Navigate to Page 2
+    // Navigate to Page 2 (row indices 3 and 4)
     fireEvent.click(nextBtn);
     expect(screen.queryByText("Item 1")).toBeNull();
     expect(screen.getByText("Item 3")).toBeTruthy();
     expect(screen.getByText("Item 4")).toBeTruthy();
+    expect(
+      Array.from(document.querySelectorAll('[data-qb="results-td-index"]')).map((el) => el.textContent),
+    ).toEqual(["3", "4"]);
     expect(paginationControls?.textContent).toContain("Page 2 of 3");
     expect((prevBtn as HTMLButtonElement).disabled).toBe(false);
 
-    // Navigate to Page 3
+    // Navigate to Page 3 (row index 5)
     fireEvent.click(nextBtn);
     expect(screen.getByText("Item 5")).toBeTruthy();
+    expect(
+      Array.from(document.querySelectorAll('[data-qb="results-td-index"]')).map((el) => el.textContent),
+    ).toEqual(["5"]);
     expect(paginationControls?.textContent).toContain("Page 3 of 3");
     expect((nextBtn as HTMLButtonElement).disabled).toBe(true);
 
@@ -270,5 +280,110 @@ describe("QueryResultsTable", () => {
     fireEvent.click(prevBtn);
     expect(screen.getByText("Item 3")).toBeTruthy();
     expect(paginationControls?.textContent).toContain("Page 2 of 3");
+
+    // When a new results object arrives, pagination resets to Page 1 (row indices 1 and 2)
+    rerender(<QueryResultsTable results={{ ...results }} pageSize={2} />);
+    expect(paginationControls?.textContent).toContain("Page 1 of 3");
+    expect(
+      Array.from(document.querySelectorAll('[data-qb="results-td-index"]')).map((el) => el.textContent),
+    ).toEqual(["1", "2"]);
+  });
+
+  it("reorders table columns and cells when dragging and dropping results-th column headers", () => {
+    const results: QueryResultData = {
+      columns: ["id", "username", "score"],
+      rows: [
+        { id: 1, username: "alice", score: 95 },
+        { id: 2, username: "bob", score: 80 },
+      ],
+      count: 2,
+    };
+    const handleReorder = vi.fn();
+
+    const { container } = render(
+      <QueryResultsTable results={results} onReorderColumns={handleReorder} />,
+    );
+
+    const headersBefore = Array.from(container.querySelectorAll('[data-qb="results-th"]')).map(
+      (th) => th.getAttribute("data-qb-column"),
+    );
+    expect(headersBefore).toEqual(["id", "username", "score"]);
+
+    const thElements = container.querySelectorAll('[data-qb="results-th"]');
+    expect(thElements[2].getAttribute("draggable")).toBe("true");
+
+    // Drag "score" (index 2) onto "id" (index 0)
+    fireEvent.dragStart(thElements[2]);
+    fireEvent.dragEnter(thElements[0]);
+    fireEvent.dragOver(thElements[0]);
+    fireEvent.drop(thElements[0]);
+    fireEvent.dragEnd(thElements[2]);
+
+    expect(handleReorder).toHaveBeenCalledWith(["score", "id", "username"]);
+
+    const headersAfter = Array.from(container.querySelectorAll('[data-qb="results-th"]')).map(
+      (th) => th.getAttribute("data-qb-column"),
+    );
+    expect(headersAfter).toEqual(["score", "id", "username"]);
+
+    // Verify first row cells also reordered to ["95", "1", "alice"]
+    const firstRowCells = Array.from(
+      container.querySelectorAll("tbody tr:first-child [data-qb='results-td']"),
+    ).map((td) => td.textContent);
+    expect(firstRowCells).toEqual(["95", "1", "alice"]);
+  });
+
+  it("displays 1-based index 1..25 on page 1, 26..50 on page 2, and resets to 1 on new query", () => {
+    const rows50 = Array.from({ length: 50 }, (_, i) => ({
+      id: i + 1,
+      name: `User ${i + 1}`,
+    }));
+    const results: QueryResultData = {
+      columns: ["id", "name"],
+      rows: rows50,
+      count: 50,
+    };
+
+    const { rerender } = render(<QueryResultsTable results={results} pageSize={25} />);
+
+    // Index header
+    expect(document.querySelector('[data-qb="results-th-index"]')?.textContent).toBe("#");
+
+    // Page 1: 1..25
+    const page1Indices = Array.from(
+      document.querySelectorAll('[data-qb="results-td-index"]'),
+    ).map((el) => Number(el.textContent));
+    expect(page1Indices.length).toBe(25);
+    expect(page1Indices[0]).toBe(1);
+    expect(page1Indices[24]).toBe(25);
+    expect(page1Indices).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+
+    // Navigate to Page 2
+    const nextBtn = screen.getByRole("button", { name: "Next page" });
+    fireEvent.click(nextBtn);
+
+    // Page 2: 26..50
+    const page2Indices = Array.from(
+      document.querySelectorAll('[data-qb="results-td-index"]'),
+    ).map((el) => Number(el.textContent));
+    expect(page2Indices.length).toBe(25);
+    expect(page2Indices[0]).toBe(26);
+    expect(page2Indices[24]).toBe(50);
+    expect(page2Indices).toEqual(Array.from({ length: 25 }, (_, i) => i + 26));
+
+    // Reset on new query results
+    const newResults: QueryResultData = {
+      columns: ["id", "name"],
+      rows: Array.from({ length: 30 }, (_, i) => ({ id: 100 + i, name: `New ${i}` })),
+      count: 30,
+    };
+    rerender(<QueryResultsTable results={newResults} pageSize={25} />);
+
+    const resetIndices = Array.from(
+      document.querySelectorAll('[data-qb="results-td-index"]'),
+    ).map((el) => Number(el.textContent));
+    expect(resetIndices.length).toBe(25);
+    expect(resetIndices[0]).toBe(1);
+    expect(resetIndices[24]).toBe(25);
   });
 });

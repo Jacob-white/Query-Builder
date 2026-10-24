@@ -7,6 +7,18 @@ import type {
   TableMeta,
 } from "../types";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface CalculatedFieldEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -283,12 +295,12 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       </button>
                     )}
                   </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                     <select
                       value={b.condition.column}
                       onChange={(e) => handleUpdateBranch(idx, "column", e.target.value)}
                       aria-label={`Branch ${idx + 1} column`}
-                      style={{ padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={unstyled ? undefined : SR_ONLY_STYLE}
                     >
                       <option value="">Select Column...</option>
                       {allColumns.map((col, cidx) => (
@@ -297,12 +309,38 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                         </option>
                       ))}
                     </select>
+                    {!unstyled && (
+                      <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "3px" }}>
+                        {allColumns.slice(0, 10).map((col, cidx) => {
+                          const isSelected = b.condition.column === col.column.name;
+                          return (
+                            <button
+                              key={cidx}
+                              type="button"
+                              onClick={() => handleUpdateBranch(idx, "column", col.column.name)}
+                              style={{
+                                padding: "3px 7px",
+                                borderRadius: "4px",
+                                fontSize: "0.72rem",
+                                fontWeight: isSelected ? 700 : 500,
+                                cursor: "pointer",
+                                border: isSelected ? "1px solid #3b82f6" : "1px solid #475569",
+                                background: isSelected ? "rgba(59, 130, 246, 0.25)" : "#1e293b",
+                                color: isSelected ? "#60a5fa" : "#cbd5e1",
+                              }}
+                            >
+                              {col.table}.{col.column.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <select
                       value={b.condition.op}
                       onChange={(e) => handleUpdateBranch(idx, "op", e.target.value)}
                       aria-label={`Branch ${idx + 1} operator`}
-                      style={{ padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={unstyled ? undefined : SR_ONLY_STYLE}
                     >
                       <option value="eq">=</option>
                       <option value="neq">!=</option>
@@ -313,6 +351,43 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       <option value="is_null">IS NULL</option>
                       <option value="is_not_null">IS NOT NULL</option>
                     </select>
+                    {!unstyled && (
+                      <div style={{ display: "inline-flex", gap: "2px", background: "#1e293b", padding: "2px", borderRadius: "5px", border: "1px solid #475569" }}>
+                        {(
+                          [
+                            { v: "eq", l: "=" },
+                            { v: "neq", l: "!=" },
+                            { v: "gt", l: ">" },
+                            { v: "gte", l: ">=" },
+                            { v: "lt", l: "<" },
+                            { v: "lte", l: "<=" },
+                            { v: "is_null", l: "NULL" },
+                            { v: "is_not_null", l: "!NULL" },
+                          ] as const
+                        ).map((op) => {
+                          const isSelected = b.condition.op === op.v;
+                          return (
+                            <button
+                              key={op.v}
+                              type="button"
+                              onClick={() => handleUpdateBranch(idx, "op", op.v)}
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                fontSize: "0.7rem",
+                                fontWeight: isSelected ? 700 : 500,
+                                border: "none",
+                                cursor: "pointer",
+                                background: isSelected ? "rgba(59, 130, 246, 0.25)" : "transparent",
+                                color: isSelected ? "#60a5fa" : "#94a3b8",
+                              }}
+                            >
+                              {op.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <input
                       type="text"

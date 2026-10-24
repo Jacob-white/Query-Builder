@@ -15,6 +15,18 @@ import type {
   ChartType,
 } from "../types";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface DashboardWorkbenchProps {
   initialState?: Partial<DashboardState>;
   onStateChange?: (state: DashboardState) => void;
@@ -668,16 +680,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                 <select
                   value={newTileType}
                   onChange={(e) => setNewTileType(e.target.value as DashboardTileType)}
-                  style={{
-                    width: "100%",
-                    padding: "0.5rem",
-                    backgroundColor: "#181825",
-                    border: "1px solid #45475a",
-                    borderRadius: "6px",
-                    color: "#cdd6f4",
-                    fontSize: "0.9rem",
-                    boxSizing: "border-box",
-                  }}
+                  style={unstyled ? undefined : SR_ONLY_STYLE}
                   data-testid="new-tile-type-select"
                 >
                   <option value="chart">Chart Visualizer</option>
@@ -685,6 +688,40 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   <option value="pivot">Pivot Matrix Table</option>
                   <option value="table">Data Grid Table</option>
                 </select>
+                {!unstyled && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    {(
+                      [
+                        { v: "chart", l: "📊 Chart Visualizer" },
+                        { v: "kpi", l: "🎯 Single KPI Card" },
+                        { v: "pivot", l: "🔢 Pivot Matrix Table" },
+                        { v: "table", l: "📋 Data Grid Table" },
+                      ] as const
+                    ).map((opt) => {
+                      const isSelected = newTileType === opt.v;
+                      return (
+                        <button
+                          key={opt.v}
+                          type="button"
+                          onClick={() => setNewTileType(opt.v)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.8rem",
+                            fontWeight: isSelected ? 700 : 500,
+                            cursor: "pointer",
+                            border: isSelected ? "1px solid #89b4fa" : "1px solid #45475a",
+                            backgroundColor: isSelected ? "rgba(137, 180, 250, 0.2)" : "#181825",
+                            color: isSelected ? "#89b4fa" : "#cdd6f4",
+                            textAlign: "left",
+                          }}
+                        >
+                          {opt.l}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {newTileType === "chart" && (
@@ -695,16 +732,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   <select
                     value={newTileChartType}
                     onChange={(e) => setNewTileChartType(e.target.value as ChartType)}
-                    style={{
-                      width: "100%",
-                      padding: "0.5rem",
-                      backgroundColor: "#181825",
-                      border: "1px solid #45475a",
-                      borderRadius: "6px",
-                      color: "#cdd6f4",
-                      fontSize: "0.9rem",
-                      boxSizing: "border-box",
-                    }}
+                    style={unstyled ? undefined : SR_ONLY_STYLE}
                     data-testid="new-tile-chart-select"
                   >
                     <option value="bar">Bar Chart</option>
@@ -712,6 +740,39 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                     <option value="area">Area Chart</option>
                     <option value="pie">Pie Chart</option>
                   </select>
+                  {!unstyled && (
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {(
+                        [
+                          { v: "bar", l: "📊 Bar" },
+                          { v: "line", l: "📈 Line" },
+                          { v: "area", l: "📉 Area" },
+                          { v: "pie", l: "🥧 Pie" },
+                        ] as const
+                      ).map((opt) => {
+                        const isSelected = newTileChartType === opt.v;
+                        return (
+                          <button
+                            key={opt.v}
+                            type="button"
+                            onClick={() => setNewTileChartType(opt.v)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "6px",
+                              fontSize: "0.8rem",
+                              fontWeight: isSelected ? 700 : 500,
+                              cursor: "pointer",
+                              border: isSelected ? "1px solid #89b4fa" : "1px solid #45475a",
+                              backgroundColor: isSelected ? "rgba(137, 180, 250, 0.2)" : "#181825",
+                              color: isSelected ? "#89b4fa" : "#cdd6f4",
+                            }}
+                          >
+                            {opt.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

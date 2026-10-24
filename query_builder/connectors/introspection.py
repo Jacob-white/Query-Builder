@@ -33,10 +33,16 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
         relationships: list[dict[str, Any]] = []
 
         for tbl in table_names:
-            # Table columns
+            # Table columns (skip virtual tables whose custom tokenizer/module is not loaded)
             safe_tbl = tbl.replace('"', '""')
-            cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
-            cols_meta = cursor.fetchall()
+            try:
+                cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
+                cols_meta = cursor.fetchall()
+            except Exception as tbl_exc:  # noqa: BLE001
+                err_msg = str(tbl_exc).lower()
+                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                    continue
+                raise
             cols: list[dict[str, Any]] = []
             has_user = False
 
@@ -68,8 +74,14 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
             }
 
             # Foreign keys
-            cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
-            fk_rows = cursor.fetchall()
+            try:
+                cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
+                fk_rows = cursor.fetchall()
+            except Exception as fk_exc:  # noqa: BLE001
+                err_msg = str(fk_exc).lower()
+                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                    continue
+                raise
             for fk in fk_rows:
                 # id, seq, table, from, to, on_update, on_delete, match
                 target_table = str(fk[2])

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSqlToSpec, cleanIdentifier } from "../src/utils/sqlParser";
+import type { SchemaSnapshot } from "../src/types";
 import { invalid } from "./helpers";
 
 describe("sqlParser", () => {
@@ -393,5 +394,177 @@ describe("sqlParser", () => {
       expect(spec).not.toBeNull();
       expect(spec?.filters).toHaveLength(2);
     });
+
+    it("resolves schema-qualified tables, table aliases, and table.* wildcards when schema is provided", () => {
+      const mockSchema = {
+        tables: {
+          firm_master: {
+            name: "firm_master",
+            columns: [
+              { name: "crd_number", data_type: "text", is_nullable: false, is_primary: true },
+              { name: "firm_name", data_type: "text", is_nullable: false, is_primary: false },
+              { name: "total_aum", data_type: "numeric", is_nullable: true, is_primary: false },
+            ],
+          },
+          sec_filings: {
+            name: "sec_filings",
+            columns: [
+              { name: "filing_id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "crd_number", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+        foreign_keys: [],
+      };
+
+      const sql = `
+        SELECT fm.crd_number, fm.firm_name, sf.*
+        FROM production.firm_master fm
+        LEFT JOIN production.sec_filings AS sf ON fm.crd_number = sf.crd_number
+        WHERE fm.total_aum > 1000000
+        ORDER BY fm.total_aum DESC
+        LIMIT 25;
+      `;
+
+      const spec = parseSqlToSpec(sql, mockSchema);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("firm_master");
+      expect(spec?.columns).toContain("firm_master.crd_number");
+      expect(spec?.columns).toContain("firm_master.firm_name");
+      expect(spec?.columns).toContain("*");
+      expect(spec?.joins).toHaveLength(1);
+      expect(spec?.joins[0]).toMatchObject({
+        type: "LEFT JOIN",
+        table: "sec_filings",
+        left_table: "firm_master",
+        left_col: "crd_number",
+        right_col: "crd_number",
+      });
+      expect(spec?.filters).toHaveLength(1);
+      expect(spec?.filters[0]).toMatchObject({
+        tablePrefix: "firm_master",
+        column: "total_aum",
+        op: ">",
+        value: 1000000,
+      });
+      expect(spec?.order_by).toHaveLength(1);
+      expect(spec?.order_by[0]).toMatchObject({
+        tablePrefix: "firm_master",
+        column: "total_aum",
+        direction: "DESC",
+      });
+      expect(spec?.limit).toBe(25);
+    });
+
+    it("parses multi-line JOIN ... ON clauses and LEFT/RIGHT/FULL OUTER JOIN keywords", () => {
+      const schemaWithThree: SchemaSnapshot = {
+        tables: {
+          firm_master: {
+            name: "firm_master",
+            columns: [
+              { name: "crd_number", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "legal_name", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+          sec_filings: {
+            name: "sec_filings",
+            columns: [
+              { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "crd_number", data_type: "integer", is_nullable: false, is_primary: false },
+              { name: "filing_date", data_type: "date", is_nullable: false, is_primary: false },
+            ],
+          },
+          filing_attachments: {
+            name: "filing_attachments",
+            columns: [
+              { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "filing_id", data_type: "integer", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+      };
+
+      const sql = `
+        SELECT fm.crd_number, sf.id, fa.id
+        FROM production.firm_master fm
+        LEFT OUTER JOIN production.sec_filings sf
+          ON fm.crd_number = sf.crd_number
+        RIGHT OUTER JOIN production.filing_attachments fa
+          ON sf.id = fa.filing_id
+        WHERE sf.filing_date >= '2024-01-01'
+        ORDER BY fa.id DESC
+      `;
+      const spec = parseSqlToSpec(sql, schemaWithThree);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("firm_master");
+      expect(spec?.columns).toEqual([
+        "firm_master.crd_number",
+        "sec_filings.id",
+        "filing_attachments.id",
+      ]);
+      expect(spec?.joins).toHaveLength(2);
+      expect(spec?.joins[0]).toMatchObject({
+        table: "sec_filings",
+        type: "LEFT JOIN",
+        left_table: "firm_master",
+        left_col: "crd_number",
+        right_col: "crd_number",
+      });
+      expect(spec?.joins[1]).toMatchObject({
+        table: "filing_attachments",
+        type: "RIGHT JOIN",
+        left_table: "sec_filings",
+        left_col: "id",
+        right_col: "filing_id",
+      });
+    });
+
+    it("resolves unqualified joined-table columns and case-insensitive identifiers against schema", () => {
+      const firmSchema: SchemaSnapshot = {
+        tables: {
+          firm_master: {
+            name: "firm_master",
+            columns: [
+              { name: "crd_number", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "legal_name", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+          sec_filings: {
+            name: "sec_filings",
+            columns: [
+              { name: "crd_number", data_type: "integer", is_nullable: false, is_primary: false },
+              { name: "filing_date", data_type: "date", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+      };
+
+      const sql = `
+        SELECT LEGAL_NAME, filing_date
+        FROM PRODUCTION.FIRM_MASTER
+        FULL OUTER JOIN production.sec_filings
+          ON firm_master.crd_number = sec_filings.crd_number
+        WHERE filing_date >= '2024-01-01'
+        ORDER BY filing_date DESC
+      `;
+      const spec = parseSqlToSpec(sql, firmSchema);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("firm_master");
+      expect(spec?.columns).toEqual(["legal_name", "sec_filings.filing_date"]);
+      expect(spec?.joins[0]?.type).toBe("FULL JOIN");
+      expect(spec?.filters[0]).toMatchObject({
+        tablePrefix: "sec_filings",
+        column: "filing_date",
+        op: ">=",
+        value: "2024-01-01",
+      });
+      expect(spec?.order_by[0]).toMatchObject({
+        tablePrefix: "sec_filings",
+        column: "filing_date",
+        direction: "DESC",
+      });
+    });
   });
 });
+
+

@@ -34,9 +34,10 @@ class NlqResult:
     model: str
     tokens_used: int | None = None
     warnings: list[str] = field(default_factory=list)
+    follow_ups: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "spec": self.spec,
             "confidence": self.confidence,
             "explanation": self.explanation,
@@ -45,6 +46,9 @@ class NlqResult:
             "tokens_used": self.tokens_used,
             "warnings": list(self.warnings),
         }
+        if self.follow_ups:
+            out["follow_ups"] = list(self.follow_ups)
+        return out
 
 
 @dataclass
@@ -79,3 +83,5 @@ class NlqTranslateRequest:
     max_tokens: int = 1024
     options: dict[str, Any] = field(default_factory=dict)
     semantic_model: Any = None
+    current_spec: dict[str, Any] | None = None
+    history: list[dict[str, Any]] | None = None

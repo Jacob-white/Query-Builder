@@ -40,11 +40,30 @@ class SQLiteConnector(BaseConnector):
             return self._connection
         try:
             target, kwargs = self.database, dict(self.config)
-            if self._read_only_uri_applicable(kwargs):
+            ro_uri = self._read_only_uri_applicable(kwargs)
+            if ro_uri:
                 # Open the file read-only at the VFS level as well (no creation, no write).
                 target = Path(self.database).resolve().as_uri() + "?mode=ro"
                 kwargs["uri"] = True
-            self._connection = sqlite3.connect(target, **kwargs)
+            try:
+                self._connection = sqlite3.connect(target, **kwargs)
+                if ro_uri:
+                    self._connection.execute("PRAGMA query_only = ON")
+                    self._connection.execute(
+                        "SELECT 1 FROM sqlite_master LIMIT 1"
+                    ).fetchall()
+            except sqlite3.OperationalError:
+                if self._connection is not None:
+                    self._connection.close()
+                    self._connection = None
+                if ro_uri:
+                    # Fallback for WAL-mode databases on read-only filesystem mounts without -shm
+                    self._connection = sqlite3.connect(
+                        f"{target}&immutable=1", **kwargs
+                    )
+                    self._connection.execute("PRAGMA query_only = ON")
+                else:
+                    raise
             return self._connection
         except Exception as exc:
             raise ConnectionFailedError(

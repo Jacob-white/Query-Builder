@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   QueryBuilderProvider,
   VisualQueryBuilder,
@@ -10,6 +10,8 @@ import {
   fromDrizzle,
   fromSqlAlchemy,
   toSchemaSnapshot,
+  findBestJoinCondition,
+  type VisualQueryBuilderRef,
   type SchemaSnapshot,
   type QueryResultData,
   type QuerySpec,
@@ -21,6 +23,18 @@ import {
   type DashboardState,
   type ExportFormat,
 } from "@jacob-white/query-builder-react";
+
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 // Fallback initial schema generated via fromPrisma in case backend is offline
 const FALLBACK_PRISMA = `
@@ -121,22 +135,22 @@ const customOperators: Record<string, CustomFilterOperator> = {
 // 2. Custom cell renderers for currency and status/role badges
 function renderStatusBadge(val: unknown) {
   const status = String(val ?? "");
-  let bg = "rgba(148, 163, 184, 0.18)";
-  let fg = "#cbd5e1";
-  let border = "rgba(148, 163, 184, 0.35)";
+  let bg = "var(--qb-color-none-bg, rgba(148, 163, 184, 0.18))";
+  let fg = "var(--qb-color-text-secondary, #475569)";
+  let border = "var(--qb-color-none-border, rgba(148, 163, 184, 0.35))";
 
   if (status === "IN_STOCK" || status === "COMPLETED") {
-    bg = "rgba(16, 185, 129, 0.16)";
-    fg = "#34d399";
-    border = "rgba(16, 185, 129, 0.4)";
+    bg = "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.16))";
+    fg = "var(--qb-color-confirmed-text, #047857)";
+    border = "var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.4))";
   } else if (status === "LOW_STOCK" || status === "PENDING") {
-    bg = "rgba(245, 158, 11, 0.16)";
-    fg = "#fbbf24";
-    border = "rgba(245, 158, 11, 0.4)";
+    bg = "var(--qb-color-warn-bg, rgba(245, 158, 11, 0.16))";
+    fg = "var(--qb-color-warn-text, #b45309)";
+    border = "var(--qb-color-warn-border, rgba(245, 158, 11, 0.4))";
   } else if (status === "OUT_OF_STOCK" || status === "CANCELLED") {
-    bg = "rgba(239, 68, 68, 0.16)";
-    fg = "#f87171";
-    border = "rgba(239, 68, 68, 0.4)";
+    bg = "rgba(239, 68, 68, 0.14)";
+    fg = "var(--qb-color-error, #dc2626)";
+    border = "rgba(239, 68, 68, 0.38)";
   }
 
   return (
@@ -162,19 +176,19 @@ function renderRoleBadge(val: unknown) {
   const role = String(val ?? "");
   const palette: Record<string, { bg: string; fg: string; border: string }> = {
     ADMIN: {
-      bg: "rgba(139, 92, 246, 0.18)",
-      fg: "#c4b5fd",
-      border: "rgba(139, 92, 246, 0.45)",
+      bg: "rgba(139, 92, 246, 0.14)",
+      fg: "var(--qb-color-logical-text, #6d28d9)",
+      border: "rgba(139, 92, 246, 0.4)",
     },
     CUSTOMER: {
-      bg: "rgba(59, 130, 246, 0.16)",
-      fg: "#93c5fd",
-      border: "rgba(59, 130, 246, 0.4)",
+      bg: "var(--qb-color-logical-bg, rgba(59, 130, 246, 0.14))",
+      fg: "var(--qb-color-logical-text, #1d4ed8)",
+      border: "var(--qb-color-logical-border, rgba(59, 130, 246, 0.4))",
     },
     GUEST: {
-      bg: "rgba(148, 163, 184, 0.16)",
-      fg: "#cbd5e1",
-      border: "rgba(148, 163, 184, 0.35)",
+      bg: "var(--qb-color-none-bg, rgba(148, 163, 184, 0.14))",
+      fg: "var(--qb-color-text-secondary, #475569)",
+      border: "var(--qb-color-none-border, rgba(148, 163, 184, 0.35))",
     },
   };
   const colors = palette[role] || palette.GUEST;
@@ -216,7 +230,428 @@ const cellRenderers = {
   role: (val: unknown) => renderRoleBadge(val),
 };
 
-// 3. Curated E-Commerce Query Presets
+// 3. Curated Query Presets per Home Server Database
+interface DatabaseInfo {
+  id: string;
+  name: string;
+  group: string;
+  dialect: "postgres" | "sqlite";
+  schema_name: string;
+  description: string;
+  icon: string;
+  default_table: string;
+  available: boolean;
+  table_count: number | null;
+  foreign_key_count: number | null;
+}
+
+const DATABASE_PRESETS: Record<string, SqlPreset[]> = {
+  federated_hub: [
+    {
+      id: "fed_jellyseerr_radarr_join",
+      title: "Jellyseerr Movie Requests × Radarr Catalog",
+      category: "Cross-DB Join",
+      description: "Joins Jellyseerr media requests (jellyseerr.db) with Radarr MovieMetadata (radarr.db) on TMDB ID.",
+      spec: {
+        table: "jellyseerr__media",
+        columns: [
+          "jellyseerr__media.id",
+          "jellyseerr__media.tmdbId",
+          "jellyseerr__media.status",
+          "radarr__MovieMetadata.Title",
+          "radarr__MovieMetadata.Year",
+          "radarr__MovieMetadata.Studio",
+          "radarr__MovieMetadata.Runtime",
+        ],
+        joins: [
+          {
+            table: "radarr__MovieMetadata",
+            type: "INNER JOIN",
+            left_table: "jellyseerr__media",
+            left_col: "tmdbId",
+            right_col: "TmdbId",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "fed_jellyseerr_sonarr_join",
+      title: "Jellyseerr TV Requests × Sonarr Series",
+      category: "Cross-DB Join",
+      description: "Joins Jellyseerr TV requests (jellyseerr.db) with Sonarr Series (sonarr.db) on TVDB ID.",
+      spec: {
+        table: "jellyseerr__media",
+        columns: [
+          "jellyseerr__media.id",
+          "jellyseerr__media.tvdbId",
+          "jellyseerr__media.status",
+          "sonarr__Series.Title",
+          "sonarr__Series.Network",
+          "sonarr__Series.Year",
+          "sonarr__Series.Status",
+        ],
+        joins: [
+          {
+            table: "sonarr__Series",
+            type: "INNER JOIN",
+            left_table: "jellyseerr__media",
+            left_col: "tvdbId",
+            right_col: "TvdbId",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "fed_radarr_plex_join",
+      title: "Radarr Movies × Plex Library Items",
+      category: "Cross-DB Join",
+      description: "Cross-database join comparing Radarr movies (radarr.db) with Plex metadata_items (com.plexapp.plugins.library.db).",
+      spec: {
+        table: "radarr__MovieMetadata",
+        columns: [
+          "radarr__MovieMetadata.Title",
+          "radarr__MovieMetadata.Year",
+          "radarr__MovieMetadata.Studio",
+          "plex_library__metadata_items.rating",
+          "plex_library__metadata_items.duration",
+        ],
+        joins: [
+          {
+            table: "plex_library__metadata_items",
+            type: "INNER JOIN",
+            left_table: "radarr__MovieMetadata",
+            left_col: "Title",
+            right_col: "title",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "fed_sonarr_plex_join",
+      title: "Sonarr TV Series × Plex Library Items",
+      category: "Cross-DB Join",
+      description: "Cross-database join comparing Sonarr TV series (sonarr.db) with Plex metadata_items.",
+      spec: {
+        table: "sonarr__Series",
+        columns: [
+          "sonarr__Series.Title",
+          "sonarr__Series.Network",
+          "sonarr__Series.Year",
+          "plex_library__metadata_items.rating",
+          "plex_library__metadata_items.media_item_count",
+        ],
+        joins: [
+          {
+            table: "plex_library__metadata_items",
+            type: "INNER JOIN",
+            left_table: "sonarr__Series",
+            left_col: "Title",
+            right_col: "title",
+          },
+        ],
+        limit: 25,
+      },
+    },
+  ],
+  firm_production: [
+    {
+      id: "top_firms_by_aum",
+      title: "Top Advisory Firms by Total AUM",
+      category: "Wealth Intelligence",
+      description: "Largest registered investment advisers ranked by total assets under management (total_aum).",
+      spec: {
+        table: "firm_master",
+        columns: [
+          "firm_master.crd_number",
+          "firm_master.legal_name",
+          "firm_master.dba_name",
+          "firm_master.main_office_city",
+          "firm_master.main_office_state",
+          "firm_master.total_aum",
+          "firm_master.advisory_employees",
+        ],
+        filters: [
+          {
+            tablePrefix: "firm_master",
+            column: "total_aum",
+            op: ">",
+            value: 0,
+          },
+        ],
+        order_by: [
+          {
+            tablePrefix: "firm_master",
+            column: "total_aum",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "firms_by_state",
+      title: "Firm Count & Total AUM by State",
+      category: "Geographic",
+      description: "Aggregate count of registered firms and combined AUM grouped by headquarters state.",
+      spec: {
+        table: "firm_master",
+        columns: [
+          "firm_master.main_office_state",
+          { column: "firm_master.crd_number", agg: "COUNT", alias: "firm_count" },
+          { column: "firm_master.total_aum", agg: "SUM", alias: "combined_aum" },
+        ],
+        order_by: [
+          {
+            tablePrefix: "firm_master",
+            column: "main_office_state",
+            direction: "ASC",
+          },
+        ],
+        limit: 50,
+      },
+    },
+  ],
+  hobbyhabbit: [
+    {
+      id: "hh_security_logs",
+      title: "Recent Security Audit Events",
+      category: "Security",
+      description: "Recent authentication and security log entries from HobbyHabbit.",
+      spec: {
+        table: "engine_securitylog",
+        columns: [],
+        limit: 25,
+      },
+    },
+    {
+      id: "hh_user_profiles",
+      title: "User Profiles Overview",
+      category: "Users",
+      description: "Registered HobbyHabbit user profiles and progression settings.",
+      spec: {
+        table: "engine_userprofile",
+        columns: [],
+        limit: 25,
+      },
+    },
+    {
+      id: "hh_hobbies",
+      title: "Hobbies Catalog",
+      category: "Core",
+      description: "Browse hobbies table structure and entries.",
+      spec: {
+        table: "hobbies",
+        columns: [],
+        limit: 25,
+      },
+    },
+  ],
+  synfinii_lab: [
+    {
+      id: "synfinii_top_sales",
+      title: "Top Distribution Sales by Amount",
+      category: "Distribution",
+      description: "Fund distribution transactions sorted by sale amount descending.",
+      spec: {
+        table: "distribution_sales",
+        columns: [
+          "distribution_sales.transaction_id",
+          "distribution_sales.fund_name",
+          "distribution_sales.distributor",
+          "distribution_sales.region",
+          "distribution_sales.amount",
+          "distribution_sales.sale_date",
+        ],
+        order_by: [
+          {
+            tablePrefix: "distribution_sales",
+            column: "amount",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "synfinii_by_region",
+      title: "Sales Volume by Region",
+      category: "Analytics",
+      description: "Aggregate transaction count and total sales volume by region.",
+      spec: {
+        table: "distribution_sales",
+        columns: [
+          "distribution_sales.region",
+          { column: "distribution_sales.transaction_id", agg: "COUNT", alias: "tx_count" },
+          { column: "distribution_sales.amount", agg: "SUM", alias: "total_volume" },
+        ],
+        limit: 25,
+      },
+    },
+  ],
+  plex_library: [
+    {
+      id: "plex_metadata_items",
+      title: "Plex Media Catalog (metadata_items)",
+      category: "Media",
+      description: "Movies, shows, seasons, and episodes indexed in Plex Media Server.",
+      spec: {
+        table: "metadata_items",
+        columns: [
+          "metadata_items.id",
+          "metadata_items.title",
+          "metadata_items.year",
+          "metadata_items.rating",
+          "metadata_items.duration",
+          "metadata_items.added_at",
+        ],
+        order_by: [
+          {
+            tablePrefix: "metadata_items",
+            column: "added_at",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "plex_largest_files",
+      title: "Largest Media Items by File Size",
+      category: "Storage",
+      description: "Video and audio streams ranked by byte size and bitrate.",
+      spec: {
+        table: "media_items",
+        columns: [
+          "media_items.id",
+          "media_items.metadata_item_id",
+          "media_items.width",
+          "media_items.height",
+          "media_items.bitrate",
+          "media_items.size",
+          "media_items.container",
+        ],
+        order_by: [
+          {
+            tablePrefix: "media_items",
+            column: "size",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+  ],
+  sonarr: [
+    {
+      id: "sonarr_series",
+      title: "TV Series Library",
+      category: "TV Shows",
+      description: "Monitored TV series tracked in Sonarr.",
+      spec: {
+        table: "Series",
+        columns: [
+          "Series.Id",
+          "Series.Title",
+          "Series.Year",
+          "Series.Network",
+          "Series.Status",
+          "Series.Runtime",
+          "Series.Monitored",
+        ],
+        order_by: [
+          {
+            tablePrefix: "Series",
+            column: "Title",
+            direction: "ASC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "sonarr_episodes",
+      title: "Episodes Catalog",
+      category: "TV Shows",
+      description: "All TV episodes with season/episode numbers and air dates.",
+      spec: {
+        table: "Episodes",
+        columns: [
+          "Episodes.Id",
+          "Episodes.SeriesId",
+          "Episodes.SeasonNumber",
+          "Episodes.EpisodeNumber",
+          "Episodes.Title",
+          "Episodes.AirDateUtc",
+          "Episodes.Monitored",
+        ],
+        order_by: [
+          {
+            tablePrefix: "Episodes",
+            column: "AirDateUtc",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+  ],
+  radarr: [
+    {
+      id: "radarr_movie_metadata",
+      title: "Movie Metadata & Release Years",
+      category: "Movies",
+      description: "Movies cataloged in Radarr with studio, runtime, and release year.",
+      spec: {
+        table: "MovieMetadata",
+        columns: [
+          "MovieMetadata.Id",
+          "MovieMetadata.Title",
+          "MovieMetadata.Year",
+          "MovieMetadata.Runtime",
+          "MovieMetadata.Studio",
+          "MovieMetadata.Status",
+        ],
+        order_by: [
+          {
+            tablePrefix: "MovieMetadata",
+            column: "Year",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+    {
+      id: "radarr_movies",
+      title: "Monitored Movies & Paths",
+      category: "Storage",
+      description: "Radarr movie records and filesystem paths.",
+      spec: {
+        table: "Movies",
+        columns: [
+          "Movies.Id",
+          "Movies.MovieMetadataId",
+          "Movies.Path",
+          "Movies.Monitored",
+          "Movies.Added",
+        ],
+        order_by: [
+          {
+            tablePrefix: "Movies",
+            column: "Added",
+            direction: "DESC",
+          },
+        ],
+        limit: 25,
+      },
+    },
+  ],
+};
+
+// 3b. Curated E-Commerce Query Presets (Starter Demo)
 const STARTER_PRESETS: SqlPreset[] = [
   {
     id: "completed_customer_orders",
@@ -573,15 +1008,92 @@ const SAMPLE_SQLALCHEMY = `class Inventory(Base):
     reorder_point = Column(Integer, nullable=False)
 `;
 
+const KNOWN_DB_DEFAULTS: Record<string, { dialect: "postgres" | "sqlite"; default_table: string }> = {
+  federated_hub: { dialect: "sqlite", default_table: "jellyseerr__media" },
+  hobbyhabbit: { dialect: "postgres", default_table: "hobbies" },
+  firm_production: { dialect: "postgres", default_table: "firm_master" },
+  firm_staging: { dialect: "postgres", default_table: "sec_raw_firms" },
+  firm_history: { dialect: "postgres", default_table: "advisory_team_history" },
+  firm_public: { dialect: "postgres", default_table: "dag" },
+  synfinii_lab: { dialect: "postgres", default_table: "distribution_sales" },
+  plex_library: { dialect: "sqlite", default_table: "metadata_items" },
+  sonarr: { dialect: "sqlite", default_table: "Series" },
+  radarr: { dialect: "sqlite", default_table: "Movies" },
+  prowlarr: { dialect: "sqlite", default_table: "Indexers" },
+  jellyseerr: { dialect: "sqlite", default_table: "media" },
+  npm: { dialect: "sqlite", default_table: "proxy_host" },
+  plex_blobs: { dialect: "sqlite", default_table: "blobs" },
+  sonarr_logs: { dialect: "sqlite", default_table: "Logs" },
+  radarr_logs: { dialect: "sqlite", default_table: "Logs" },
+  prowlarr_logs: { dialect: "sqlite", default_table: "Logs" },
+  starter_demo: { dialect: "sqlite", default_table: "products" },
+};
+
+const CURATED_CROSS_DB_LINKS: [string, string, string, string][] = [
+  ["jellyseerr__media", "tmdbId", "radarr__MovieMetadata", "TmdbId"],
+  ["jellyseerr__media", "imdbId", "radarr__MovieMetadata", "ImdbId"],
+  ["jellyseerr__media", "tvdbId", "sonarr__Series", "TvdbId"],
+  ["jellyseerr__media", "imdbId", "sonarr__Series", "ImdbId"],
+  ["radarr__MovieMetadata", "Title", "plex_library__metadata_items", "title"],
+  ["sonarr__Series", "Title", "plex_library__metadata_items", "title"],
+  ["firm_staging__sec_raw_firms", "raw_crd_number", "firm_production__firm_master", "crd_number"],
+  ["firm_staging__firm_master_history", "firm_master_id", "firm_production__firm_master", "firm_master_id"],
+  ["firm_history__advisory_team_history", "firm_id", "firm_production__firm_master", "firm_master_id"],
+];
+
 export function App() {
+  const builderRef = useRef<VisualQueryBuilderRef | null>(null);
+  const topAiInputRef = useRef<HTMLInputElement | null>(null);
+  const aiReplyInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingSpecRef = useRef<QuerySpec | null>(null);
+  const schemaFetchSeqRef = useRef<number>(0);
+
   const [activeTab, setActiveTab] = useState<"visual" | "headless" | "adapters" | "dashboard">("visual");
   const [schema, setSchema] = useState<SchemaSnapshot>(FALLBACK_SCHEMA);
+  const [loadedSchemaDbId, setLoadedSchemaDbId] = useState<string | null>(null);
+  const [schemaLoadCount, setSchemaLoadCount] = useState<number>(0);
   const [serverStatus, setServerStatus] = useState<string>("checking...");
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean>(true);
   const [selectedPreset, setSelectedPreset] = useState<SqlPreset | null>(null);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [copiedQuery, setCopiedQuery] = useState(false);
+  const [isPresetsMenuOpen, setIsPresetsMenuOpen] = useState<boolean>(false);
 
-  // Modern theme controller supporting system default, dark override, and light override
+  // Right-Docked Multi-Shot AI Assistant Drawer state
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState<boolean>(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [isPaletteTranslating, setIsPaletteTranslating] = useState(false);
+  const [paletteError, setPaletteError] = useState<string | null>(null);
+  const [paletteTurns, setPaletteTurns] = useState<
+    { prompt: string; spec: QuerySpec; explanation: string; steps?: string[]; followUps: string[] }[]
+  >([]);
+
+  // Left Explorer Sidebar & Cross-DB Pinning state
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isDbSwitcherExpanded, setIsDbSwitcherExpanded] = useState<boolean>(false);
+  const [isCrossDbExpanded, setIsCrossDbExpanded] = useState<boolean>(false);
+  const [pinnedCrossDbId, setPinnedCrossDbId] = useState<string>("radarr");
+  const [pinnedCrossDbSchema, setPinnedCrossDbSchema] = useState<SchemaSnapshot | null>(null);
+  const [isLoadingPinnedSchema, setIsLoadingPinnedSchema] = useState<boolean>(false);
+  const [pinnedTableSearch, setPinnedTableSearch] = useState<string>("");
+
+  const [showDevTabs, setShowDevTabs] = useState<boolean>(false);
+  const [showSystemTables, setShowSystemTables] = useState<boolean>(false);
+  const [dbFilterGroup, setDbFilterGroup] = useState<string>("ALL");
+  const [tableSearch, setTableSearch] = useState<string>("");
+  const [fedSourceFilter, setFedSourceFilter] = useState<string>("ALL");
+  const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
+  const [activeDbId, setActiveDbId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get("db");
+      if (fromUrl) return fromUrl;
+      const stored = localStorage.getItem("qb-active-database");
+      if (stored) return stored;
+    }
+    return "hobbyhabbit";
+  });
+  const [isLoadingSchema, setIsLoadingSchema] = useState<boolean>(false);
+
+  // Default to crisp dark studio theme when no preference is stored
   const [themePreference, setThemePreference] = useState<"system" | "dark" | "light">(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("qb-theme-preference");
@@ -589,7 +1101,7 @@ export function App() {
         return stored;
       }
     }
-    return "system";
+    return "dark";
   });
 
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
@@ -627,63 +1139,306 @@ export function App() {
 
   const cycleTheme = () => {
     setThemePreference((prev) => {
-      const next = prev === "system" ? "dark" : prev === "dark" ? "light" : "system";
+      const next = prev === "dark" ? "light" : prev === "light" ? "system" : "dark";
       localStorage.setItem("qb-theme-preference", next);
       return next;
     });
   };
 
-  // Keyboard shortcut listener for Cmd+K / Ctrl+K
+  // Keyboard shortcut listener for Cmd+K / Ctrl+K -> focuses Top Bar AI Input & opens AI Assistant Drawer
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setIsCommandPaletteOpen((prev) => !prev);
+        setIsAiAssistantOpen(true);
+        setTimeout(() => {
+          topAiInputRef.current?.focus();
+          topAiInputRef.current?.select();
+        }, 20);
       } else if (e.key === "Escape") {
-        setIsCommandPaletteOpen(false);
+        setIsPresetsMenuOpen(false);
       }
     };
     window.addEventListener("keydown", handleGlobalKey);
     return () => window.removeEventListener("keydown", handleGlobalKey);
   }, []);
 
-  // Load live schema from FastAPI backend
+  // Load health and registered databases from FastAPI backend in parallel
   useEffect(() => {
-    async function loadBackendData() {
-      try {
-        const healthRes = await fetch("/health");
-        if (healthRes.ok) {
-          const healthData = await healthRes.json();
-          setServerStatus(`Connected (${healthData.service})`);
-        } else {
+    async function loadInitialCatalog() {
+      const [healthResult, dbResult] = await Promise.allSettled([
+        fetch("/health"),
+        fetch("/api/databases"),
+      ]);
+
+      if (healthResult.status === "fulfilled" && healthResult.value.ok) {
+        try {
+          const healthData = await healthResult.value.json();
+          setServerStatus(
+            `Connected (${healthData.registered_databases || 18} Home Server DBs)`,
+          );
+          if (typeof healthData.gemini_configured === "boolean") {
+            setGeminiConfigured(healthData.gemini_configured);
+          }
+        } catch {
           setServerStatus("Backend Offline (using mock schema)");
         }
-      } catch {
+      } else {
         setServerStatus("Backend Offline (using mock schema)");
       }
 
-      try {
-        const schemaRes = await fetch("/api/schema");
-        if (schemaRes.ok) {
-          const schemaData = await schemaRes.json();
-          setSchema(schemaData);
+      if (dbResult.status === "fulfilled" && dbResult.value.ok) {
+        try {
+          const dbData = await dbResult.value.json();
+          const list: DatabaseInfo[] = dbData.databases || [];
+          setDatabases(list);
+          if (list.length > 0 && !list.some((d) => d.id === activeDbId)) {
+            const fallbackId = dbData.default_database || list[0].id;
+            setActiveDbId(fallbackId);
+          }
+        } catch {
+          // Ignore if offline
         }
-      } catch {
-        // Fallback remains active
       }
     }
-    loadBackendData();
+    void loadInitialCatalog();
   }, []);
 
-  // Execution handler talking to backend /api/execute
+  // Load live schema whenever activeDbId changes, guarding against out-of-order responses
+  const fetchSchemaForDb = async (dbId: string, forceRefresh = false) => {
+    const reqSeq = ++schemaFetchSeqRef.current;
+    setIsLoadingSchema(true);
+    try {
+      const url = `/api/schema?db=${encodeURIComponent(dbId)}${
+        forceRefresh ? "&refresh=true" : ""
+      }`;
+      const schemaRes = await fetch(url, {
+        headers: { "X-QB-Database": dbId },
+      });
+      if (reqSeq !== schemaFetchSeqRef.current) return;
+      if (schemaRes.ok) {
+        const schemaData: SchemaSnapshot = await schemaRes.json();
+        if (reqSeq !== schemaFetchSeqRef.current) return;
+        setSchema(schemaData);
+        setLoadedSchemaDbId(dbId);
+        if (!forceRefresh) {
+          setSchemaLoadCount((c) => c + 1);
+        }
+      }
+    } catch {
+      // Fallback remains active
+    } finally {
+      if (reqSeq === schemaFetchSeqRef.current) {
+        setIsLoadingSchema(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("qb-active-database", activeDbId);
+    }
+    setSelectedPreset(null);
+    setTableSearch("");
+    setFedSourceFilter("ALL");
+    void fetchSchemaForDb(activeDbId, false);
+  }, [activeDbId]);
+
+  // Keep pinnedCrossDbId distinct from activeDbId and federated_hub
+  useEffect(() => {
+    if (pinnedCrossDbId !== activeDbId && pinnedCrossDbId !== "federated_hub") return;
+    const candidates = databases
+      .filter((d) => d.id !== "federated_hub" && d.id !== activeDbId && d.available)
+      .map((d) => d.id);
+    const fallbackCandidate =
+      candidates[0] ||
+      (activeDbId === "radarr" ? "jellyseerr" : "radarr");
+    setPinnedCrossDbId(fallbackCandidate);
+  }, [activeDbId, pinnedCrossDbId, databases]);
+
+  // Fetch schema for pinned secondary database when Cross-DB Join section is expanded
+  useEffect(() => {
+    if (!isCrossDbExpanded || !pinnedCrossDbId) return;
+    let cancelled = false;
+    async function loadPinnedSchema() {
+      setIsLoadingPinnedSchema(true);
+      try {
+        const res = await fetch(`/api/schema?db=${encodeURIComponent(pinnedCrossDbId)}`, {
+          headers: { "X-QB-Database": pinnedCrossDbId },
+        });
+        if (res.ok && !cancelled) {
+          const data: SchemaSnapshot = await res.json();
+          setPinnedCrossDbSchema(data);
+        }
+      } catch {
+        // Ignore
+      } finally {
+        if (!cancelled) setIsLoadingPinnedSchema(false);
+      }
+    }
+    void loadPinnedSchema();
+    return () => {
+      cancelled = true;
+    };
+  }, [isCrossDbExpanded, pinnedCrossDbId]);
+
+  const activeDbInfo = useMemo(
+    () => databases.find((d) => d.id === activeDbId),
+    [databases, activeDbId],
+  );
+
+  const activeDialect: "postgres" | "sqlite" =
+    activeDbInfo?.dialect || KNOWN_DB_DEFAULTS[activeDbId]?.dialect || "sqlite";
+
+  const schemaStats = useMemo(() => {
+    const tableCount = Object.keys(schema.tables || {}).length;
+    const fkCount = (schema.foreign_keys || []).length;
+    return { tableCount, fkCount };
+  }, [schema]);
+
+  const resolvedInitialTable = useMemo(() => {
+    const tablesMap = schema.tables || {};
+    const tableKeys = Object.keys(tablesMap);
+    if (selectedPreset?.spec?.table && tablesMap[selectedPreset.spec.table]) {
+      return selectedPreset.spec.table;
+    }
+    const candidateDefault =
+      activeDbInfo?.default_table || KNOWN_DB_DEFAULTS[activeDbId]?.default_table;
+    if (candidateDefault && tablesMap[candidateDefault]) {
+      return candidateDefault;
+    }
+    return tableKeys[0] || "products";
+  }, [schema, selectedPreset, activeDbInfo, activeDbId]);
+
+  const [sidebarPrimaryTable, setSidebarPrimaryTable] = useState<string>("");
+  const effectiveSidebarPrimaryTable = sidebarPrimaryTable || resolvedInitialTable;
+
+  useEffect(() => {
+    setSidebarPrimaryTable(resolvedInitialTable);
+  }, [resolvedInitialTable]);
+
+  const applyAndExecuteSpec = (spec: QuerySpec) => {
+    setActiveTab("visual");
+    if (spec.table) {
+      setSidebarPrimaryTable(spec.table);
+    }
+    if (builderRef.current) {
+      builderRef.current.setSpec(spec);
+      void builderRef.current.execute(spec);
+    } else {
+      pendingSpecRef.current = spec;
+    }
+  };
+
+  // Flush any pending spec when switching from BI/Headless/ORM tabs back to Visual
+  useEffect(() => {
+    if (activeTab !== "visual" || !pendingSpecRef.current || loadedSchemaDbId !== activeDbId) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (builderRef.current && pendingSpecRef.current) {
+        const specToApply = pendingSpecRef.current;
+        pendingSpecRef.current = null;
+        builderRef.current.setSpec(specToApply);
+        void builderRef.current.execute(specToApply);
+      }
+    }, 20);
+    return () => clearTimeout(timer);
+  }, [activeTab, loadedSchemaDbId, activeDbId]);
+
+  // Auto-run preview query (or pending Cross-DB spec) whenever a database's schema finishes loading
+  useEffect(() => {
+    if (loadedSchemaDbId !== activeDbId || schemaLoadCount === 0) return;
+    const timer = setTimeout(() => {
+      if (!builderRef.current) return;
+      if (pendingSpecRef.current) {
+        const specToApply = pendingSpecRef.current;
+        pendingSpecRef.current = null;
+        builderRef.current.setSpec(specToApply);
+        void builderRef.current.execute(specToApply);
+        return;
+      }
+      const candidateDefault =
+        activeDbInfo?.default_table || KNOWN_DB_DEFAULTS[activeDbId]?.default_table;
+      const defaultTbl =
+        candidateDefault && schema.tables?.[candidateDefault]
+          ? candidateDefault
+          : Object.keys(schema.tables || {})[0];
+      if (defaultTbl) {
+        const previewSpec: QuerySpec = {
+          table: defaultTbl,
+          columns: [],
+          joins: [],
+          filters: [],
+          filter_join: "AND",
+          order_by: [],
+          distinct: false,
+          limit: 25,
+        };
+        builderRef.current.setSpec(previewSpec);
+        void builderRef.current.execute(previewSpec);
+      }
+    }, 30);
+    return () => clearTimeout(timer);
+  }, [loadedSchemaDbId, activeDbId, schemaLoadCount]);
+
+  const activePresets: SqlPreset[] = useMemo(() => {
+    if (activeDbId === "starter_demo") return STARTER_PRESETS;
+    if (DATABASE_PRESETS[activeDbId]) return DATABASE_PRESETS[activeDbId];
+    const defaultTbl =
+      activeDbInfo?.default_table ||
+      KNOWN_DB_DEFAULTS[activeDbId]?.default_table ||
+      Object.keys(schema.tables || {})[0] ||
+      "users";
+    const cols = schema.tables?.[defaultTbl]?.columns || [];
+    const firstCol = cols[0]?.name;
+    const presets: SqlPreset[] = [
+      {
+        id: `${activeDbId}_preview`,
+        title: `Preview ${defaultTbl} (First 25 Rows)`,
+        category: "Explore",
+        description: `Inspect sample records from ${defaultTbl} in ${activeDbInfo?.name || activeDbId}.`,
+        spec: {
+          table: defaultTbl,
+          columns: [],
+          limit: 25,
+        },
+      },
+    ];
+    if (firstCol) {
+      presets.push({
+        id: `${activeDbId}_count`,
+        title: `Total Record Count (${defaultTbl})`,
+        category: "Metrics",
+        description: `Count total rows in ${defaultTbl}.`,
+        spec: {
+          table: defaultTbl,
+          columns: [
+            {
+              column: `${defaultTbl}.${firstCol}`,
+              agg: "COUNT",
+              alias: "total_records",
+            },
+          ],
+          limit: 10,
+        },
+      });
+    }
+    return presets;
+  }, [activeDbId, activeDbInfo, schema]);
+
+  // Execution handler talking to backend /api/execute for the active database
   const handleExecuteQuery = async (
     sql: string,
     spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
   ): Promise<QueryResultData> => {
-    const res = await fetch("/api/execute", {
+    const res = await fetch(`/api/execute?db=${encodeURIComponent(activeDbId)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec: spec ?? undefined, sql }),
+      headers: {
+        "Content-Type": "application/json",
+        "X-QB-Database": activeDbId,
+      },
+      body: JSON.stringify({ db: activeDbId, spec: spec ?? undefined, sql }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -696,9 +1451,379 @@ export function App() {
 
   const handleSelectPreset = (preset: SqlPreset) => {
     setSelectedPreset(preset);
-    setActiveTab("visual");
-    setIsCommandPaletteOpen(false);
+    setIsPresetsMenuOpen(false);
+    if (preset.spec) {
+      applyAndExecuteSpec(preset.spec as QuerySpec);
+    } else {
+      setActiveTab("visual");
+    }
   };
+
+  const handleSidebarSetPrimary = (tblName: string) => {
+    setSelectedPreset(null);
+    applyAndExecuteSpec({
+      table: tblName,
+      columns: [],
+      joins: [],
+      filters: [],
+      filter_join: "AND",
+      order_by: [],
+      distinct: false,
+      limit: 25,
+    });
+  };
+
+  const handleSidebarJoinTable = (tblName: string) => {
+    const cur = builderRef.current?.getSpec() ?? pendingSpecRef.current;
+    const baseTbl = cur?.table || resolvedInitialTable;
+    if (!baseTbl || baseTbl === tblName) {
+      handleSidebarSetPrimary(tblName);
+      return;
+    }
+    const existingJoins = Array.isArray(cur?.joins) ? cur.joins : [];
+    if (existingJoins.some((j) => j.table === tblName)) {
+      setActiveTab("visual");
+      return;
+    }
+    const cond = findBestJoinCondition(baseTbl, tblName, schema);
+    const nextSpec: QuerySpec = {
+      ...(cur || {}),
+      table: baseTbl,
+      columns: cur?.columns || [],
+      filters: cur?.filters || [],
+      filter_join: cur?.filter_join || "AND",
+      order_by: cur?.order_by || [],
+      distinct: Boolean(cur?.distinct),
+      limit: cur?.limit ?? 25,
+      joins: [
+        ...existingJoins,
+        {
+          table: cond.rightTable,
+          type: "LEFT JOIN",
+          left_table: cond.leftTable,
+          left_col: cond.leftCol,
+          right_col: cond.rightCol,
+        },
+      ],
+    };
+    applyAndExecuteSpec(nextSpec);
+  };
+
+  const handleSidebarPreviewTable = (tblName: string) => {
+    handleSidebarSetPrimary(tblName);
+  };
+
+  // Cross-DB Pinning Join Handler: transparently joins a table from another database via federated_hub
+  const handleCrossDbJoinTable = (targetDbId: string, targetTableName: string) => {
+    const cur = builderRef.current?.getSpec() ?? pendingSpecRef.current;
+    const rawBaseTbl = cur?.table || resolvedInitialTable;
+    const fedBaseTbl =
+      activeDbId === "federated_hub"
+        ? rawBaseTbl
+        : `${activeDbId}__${rawBaseTbl}`;
+    const fedTargetTbl = `${targetDbId}__${targetTableName}`;
+
+    // Infer best join column between base table and target table
+    const baseCols = (schema.tables?.[rawBaseTbl]?.columns || []).map((c) => c.name);
+    const targetCols = (pinnedCrossDbSchema?.tables?.[targetTableName]?.columns || []).map(
+      (c) => c.name,
+    );
+    const targetLowerMap = new Map(targetCols.map((c) => [c.toLowerCase(), c]));
+
+    let leftCol = baseCols[0] || "id";
+    let rightCol = targetCols[0] || "id";
+    let matchedCurated = false;
+
+    for (const [srcT, srcC, dstT, dstC] of CURATED_CROSS_DB_LINKS) {
+      if (srcT === fedBaseTbl && dstT === fedTargetTbl) {
+        leftCol = srcC;
+        rightCol = dstC;
+        matchedCurated = true;
+        break;
+      }
+      if (dstT === fedBaseTbl && srcT === fedTargetTbl) {
+        leftCol = dstC;
+        rightCol = srcC;
+        matchedCurated = true;
+        break;
+      }
+    }
+
+    if (!matchedCurated) {
+      const candidateShareCols = [
+        "tmdbid",
+        "tvdbid",
+        "imdbid",
+        "title",
+        "user_id",
+        "email",
+        "crd_number",
+        "firm_master_id",
+        "id",
+      ];
+      for (const cand of candidateShareCols) {
+        const bMatch = baseCols.find((c) => c.toLowerCase() === cand);
+        const tMatch = targetLowerMap.get(cand);
+        if (bMatch && tMatch) {
+          leftCol = bMatch;
+          rightCol = tMatch;
+          matchedCurated = true;
+          break;
+        }
+      }
+    }
+
+    if (!matchedCurated) {
+      // Check known cross-schema column aliases (e.g., raw_crd_number <-> crd_number, firm_id <-> firm_master_id)
+      const aliasPairs: [string, string][] = [
+        ["raw_crd_number", "crd_number"],
+        ["firm_id", "firm_master_id"],
+      ];
+      for (const [colA, colB] of aliasPairs) {
+        if (baseCols.includes(colA) && targetCols.includes(colB)) {
+          leftCol = colA;
+          rightCol = colB;
+          break;
+        }
+        if (baseCols.includes(colB) && targetCols.includes(colA)) {
+          leftCol = colB;
+          rightCol = colA;
+          break;
+        }
+      }
+    }
+
+    const existingFedJoins =
+      activeDbId === "federated_hub" && cur?.table === fedBaseTbl && Array.isArray(cur?.joins)
+        ? cur.joins.filter((j) => j.table !== fedTargetTbl)
+        : [];
+
+    const crossSpec: QuerySpec = {
+      table: fedBaseTbl,
+      columns: activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? cur.columns || [] : [],
+      joins: [
+        ...existingFedJoins,
+        {
+          table: fedTargetTbl,
+          type: "INNER JOIN",
+          left_table: fedBaseTbl,
+          left_col: leftCol,
+          right_col: rightCol,
+        },
+      ],
+      filters: activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? cur.filters || [] : [],
+      filter_join:
+        activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? cur.filter_join || "AND" : "AND",
+      order_by:
+        activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? cur.order_by || [] : [],
+      distinct:
+        activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? Boolean(cur.distinct) : false,
+      limit: activeDbId === "federated_hub" && cur?.table === fedBaseTbl ? cur.limit ?? 25 : 25,
+    };
+
+    if (activeDbId === "federated_hub") {
+      applyAndExecuteSpec(crossSpec);
+    } else {
+      setActiveTab("visual");
+      pendingSpecRef.current = crossSpec;
+      setActiveDbId("federated_hub");
+    }
+  };
+
+  // Multi-Shot AI Assistant translation handler
+  const handlePaletteTranslate = async (promptText?: string) => {
+    const q = (promptText ?? paletteQuery).trim();
+    if (!q) return;
+    setIsAiAssistantOpen(true);
+    setIsPaletteTranslating(true);
+    setPaletteError(null);
+    try {
+      const latestTurnSpec =
+        paletteTurns.length > 0 ? paletteTurns[paletteTurns.length - 1].spec : undefined;
+      const canvasSpec = builderRef.current?.getSpec();
+      const activeSpec = latestTurnSpec || (canvasSpec?.table ? canvasSpec : undefined);
+
+      const resp = await fetch(`/api/nlq/translate?db=${encodeURIComponent(activeDbId)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-QB-Database": activeDbId,
+        },
+        body: JSON.stringify({
+          prompt: q,
+          provider: geminiConfigured ? "gemini" : "mock",
+          dialect: activeDialect,
+          current_spec: activeSpec,
+          history: paletteTurns.map((t) => ({
+            prompt: t.prompt,
+            spec: t.spec,
+            explanation: t.explanation,
+          })),
+        }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody?.detail || errBody?.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      if (data?.spec?.table) {
+        const rawSpec = data.spec as QuerySpec;
+        const cleanedCols = Array.isArray(rawSpec.columns)
+          ? rawSpec.columns.filter((c) => {
+              if (typeof c === "string") {
+                const trimmed = c.trim();
+                return trimmed !== "*" && !trimmed.endsWith(".*");
+              }
+              return true;
+            })
+          : [];
+        const cleanedFilters = Array.isArray(rawSpec.filters)
+          ? rawSpec.filters.map((f) => {
+              if (f && typeof f.column === "string" && !f.tablePrefix && f.column.includes(".")) {
+                const lastDot = f.column.lastIndexOf(".");
+                return {
+                  ...f,
+                  tablePrefix: f.column.substring(0, lastDot),
+                  column: f.column.substring(lastDot + 1),
+                };
+              }
+              return f;
+            })
+          : rawSpec.filters;
+        const normalizedSpec: QuerySpec = {
+          ...rawSpec,
+          columns: cleanedCols,
+          ...(cleanedFilters ? { filters: cleanedFilters } : {}),
+        };
+        setSelectedPreset(null);
+        setPaletteQuery("");
+        setPaletteTurns((prev) => [
+          ...prev,
+          {
+            prompt: q,
+            spec: normalizedSpec,
+            explanation: data.explanation || `Updated query on ${normalizedSpec.table}`,
+            steps: Array.isArray(data.steps) ? data.steps : [],
+            followUps: Array.isArray(data.follow_ups) ? data.follow_ups : [],
+          },
+        ]);
+        applyAndExecuteSpec(normalizedSpec);
+      }
+    } catch (err) {
+      setPaletteError(err instanceof Error ? err.message : "Failed to translate prompt");
+    } finally {
+      setIsPaletteTranslating(false);
+    }
+  };
+
+  const handleRevertToTurn = (turnIdx: number) => {
+    const targetTurn = paletteTurns[turnIdx];
+    if (!targetTurn) return;
+    setPaletteTurns((prev) => prev.slice(0, turnIdx + 1));
+    applyAndExecuteSpec(targetTurn.spec);
+  };
+
+  const filteredDatabases = useMemo(() => {
+    if (dbFilterGroup === "ALL") return databases;
+    if (dbFilterGroup === "FEDERATED") return databases.filter((d) => d.id === "federated_hub");
+    if (dbFilterGroup === "POSTGRES") return databases.filter((d) => d.dialect === "postgres");
+    if (dbFilterGroup === "SQLITE")
+      return databases.filter((d) => d.dialect === "sqlite" && d.id !== "federated_hub");
+    return databases;
+  }, [databases, dbFilterGroup]);
+
+  const federatedPrefixes = useMemo(() => {
+    if (activeDbId !== "federated_hub") return [];
+    const prefixes = new Set<string>();
+    for (const tName of Object.keys(schema.tables || {})) {
+      const idx = tName.indexOf("__");
+      if (idx > 0) prefixes.add(tName.slice(0, idx));
+    }
+    return Array.from(prefixes).sort();
+  }, [activeDbId, schema.tables]);
+
+  const isSystemPlumbingTable = (tableName: string): boolean => {
+    const raw = tableName.includes("__") ? tableName.split("__").slice(1).join("__") : tableName;
+    return /^(auth_|axes_|django_|account_|socialaccount_|token_blacklist_|authtoken_|celery_|sqlite_|pg_|information_schema)/i.test(
+      raw,
+    );
+  };
+
+  const filteredTablesList = useMemo(() => {
+    const entries = Object.values(schema.tables || {}).filter((t) => {
+      if (activeDbId === "federated_hub" && fedSourceFilter !== "ALL") {
+        if (!t.name.startsWith(`${fedSourceFilter}__`)) return false;
+      }
+      if (tableSearch.trim()) {
+        const q = tableSearch.trim().toLowerCase();
+        const nameMatch = t.name.toLowerCase().includes(q);
+        const colMatch = (t.columns || []).some((c) => c.name.toLowerCase().includes(q));
+        return nameMatch || colMatch;
+      }
+      return true;
+    });
+
+    const rankTable = (tName: string): number => {
+      if (tName === effectiveSidebarPrimaryTable) return 0;
+      const cond = findBestJoinCondition(effectiveSidebarPrimaryTable, tName, schema);
+      const tier = cond?.joinTier || (cond?.isFk ? "confirmed" : "none");
+      if (tier === "confirmed") return 1;
+      if (tier === "logical") return 2;
+      return 3;
+    };
+
+    return [...entries].sort((a, b) => {
+      const rDiff = rankTable(a.name) - rankTable(b.name);
+      if (rDiff !== 0) return rDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [schema, activeDbId, fedSourceFilter, tableSearch, effectiveSidebarPrimaryTable]);
+
+  const { coreTablesList, systemTablesList } = useMemo(() => {
+    const core: typeof filteredTablesList = [];
+    const sys: typeof filteredTablesList = [];
+    for (const t of filteredTablesList) {
+      if (t.name !== effectiveSidebarPrimaryTable && isSystemPlumbingTable(t.name)) {
+        sys.push(t);
+      } else {
+        core.push(t);
+      }
+    }
+    return {
+      coreTablesList: core.length > 0 ? core : filteredTablesList,
+      systemTablesList: core.length > 0 ? sys : [],
+    };
+  }, [filteredTablesList, effectiveSidebarPrimaryTable]);
+
+  const pinnedTablesList = useMemo(() => {
+    const entries = Object.values(pinnedCrossDbSchema?.tables || {});
+    if (!pinnedTableSearch.trim()) return entries;
+    const q = pinnedTableSearch.trim().toLowerCase();
+    return entries.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.columns || []).some((c) => c.name.toLowerCase().includes(q)),
+    );
+  }, [pinnedCrossDbSchema, pinnedTableSearch]);
+
+  const aiStarterPrompts = useMemo(() => {
+    const tbl = resolvedInitialTable;
+    const cols = schema.tables?.[tbl]?.columns || [];
+    const sortCol =
+      cols.find((c) => /aum|amount|total|score|count|date|created|year|id/i.test(c.name))?.name ||
+      cols[0]?.name ||
+      "id";
+    const groupCol =
+      cols.find((c) => /status|type|state|category|network|studio|role/i.test(c.name))?.name ||
+      cols[1]?.name ||
+      cols[0]?.name ||
+      "id";
+    return [
+      `Show top 10 ${tbl} sorted by ${sortCol} descending`,
+      `Count ${tbl} grouped by ${groupCol}`,
+      ...(activePresets.slice(0, 2).map((p) => p.title)),
+    ];
+  }, [resolvedInitialTable, schema.tables, activePresets]);
 
   return (
     <div
@@ -706,299 +1831,1237 @@ export function App() {
         display: "flex",
         flexDirection: "column",
         height: "100vh",
-        backgroundColor: isDark ? "#090d16" : "#f8fafc",
+        width: "100vw",
+        overflow: "hidden",
+        backgroundColor: isDark ? "#070b14" : "#f8fafc",
         color: isDark ? "#f8fafc" : "#0f172a",
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      {/* Header bar */}
+      {/* Top Studio Bar (52px Fixed Height) */}
       <header
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "10px 24px",
-          borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0"}`,
-          backgroundColor: isDark ? "rgba(19, 27, 46, 0.85)" : "rgba(255, 255, 255, 0.9)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          zIndex: 10,
+          gap: "14px",
+          height: "52px",
+          minHeight: "52px",
+          maxHeight: "52px",
+          boxSizing: "border-box",
+          padding: "0 16px",
+          borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0"}`,
+          backgroundColor: isDark ? "#0b0f19" : "#ffffff",
+          zIndex: 30,
+          overflow: "hidden",
         }}
       >
-        {/* Brand & live status */}
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span
+        {/* Left Cluster: Sidebar Toggle, Brand, Active DB Pill & +Cross-DB Join */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flexShrink: 1 }}>
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen((prev) => !prev)}
+            title={isSidebarOpen ? "Collapse Schema Explorer" : "Expand Schema Explorer"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              border: `1px solid ${
+                isSidebarOpen
+                  ? isDark
+                    ? "rgba(255, 255, 255, 0.16)"
+                    : "#94a3b8"
+                  : isDark
+                    ? "rgba(255, 255, 255, 0.08)"
+                    : "#cbd5e1"
+              }`,
+              backgroundColor: isSidebarOpen
+                ? isDark
+                  ? "rgba(255, 255, 255, 0.07)"
+                  : "#e2e8f0"
+                : isDark
+                  ? "#10141f"
+                  : "#f8fafc",
+              color: isSidebarOpen ? (isDark ? "#f8fafc" : "#0f172a") : isDark ? "#94a3b8" : "#475569",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <span>Tables</span>
+          </button>
+
+          <span
+            style={{
+              fontSize: "0.95rem",
+              color: isDark ? "#f8fafc" : "#0f172a",
+              fontWeight: 700,
+              letterSpacing: "-0.01em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Query Studio
+          </span>
+
+          {databases.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div
+                title={`${serverStatus} — Switch database in the left sidebar`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "5px 11px",
+                  borderRadius: "999px",
+                  backgroundColor: isDark ? "#10141f" : "#f8fafc",
+                  color: isDark ? "#e2e8f0" : "#0f172a",
+                  border: `1px solid ${isDark ? "rgba(56, 189, 248, 0.28)" : "#cbd5e1"}`,
+                  fontSize: "0.84rem",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    backgroundColor: serverStatus.includes("Connected") ? "#10b981" : "#f59e0b",
+                    display: "inline-block",
+                  }}
+                />
+                <span
+                  style={{
+                    maxWidth: "200px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {activeDbInfo?.name || activeDbId}
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.73rem",
+                    padding: "1px 6px",
+                    borderRadius: "999px",
+                    backgroundColor: isDark ? "rgba(56, 189, 248, 0.14)" : "#e2e8f0",
+                    color: isDark ? "#e0f2fe" : "#475569",
+                    fontWeight: 600,
+                  }}
+                >
+                  {isLoadingSchema ? "..." : `${schemaStats.tableCount} tables`}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSidebarOpen(true);
+                  setIsCrossDbExpanded((prev) => !prev);
+                }}
+                title="Pin another database to join across databases via Federated Hub"
+                style={{
+                  padding: "5px 11px",
+                  borderRadius: "999px",
+                  border: `1px solid ${
+                    isCrossDbExpanded || activeDbId === "federated_hub"
+                      ? isDark
+                        ? "rgba(56, 189, 248, 0.4)"
+                        : "#94a3b8"
+                      : isDark
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "#cbd5e1"
+                  }`,
+                  backgroundColor:
+                    isCrossDbExpanded || activeDbId === "federated_hub"
+                      ? isDark
+                        ? "rgba(56, 189, 248, 0.14)"
+                        : "#e2e8f0"
+                      : isDark
+                        ? "#10141f"
+                        : "#f8fafc",
+                  color:
+                    isCrossDbExpanded || activeDbId === "federated_hub"
+                      ? isDark
+                        ? "#e0f2fe"
+                        : "#0f172a"
+                      : isDark
+                        ? "#94a3b8"
+                        : "#475569",
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                + Cross-DB
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Center Cluster: Omnipresent Multi-Shot Gemini AI Prompt Input */}
+        <div
+          style={{
+            flex: 1,
+            maxWidth: "540px",
+            minWidth: "220px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "5px 8px 5px 12px",
+            borderRadius: "7px",
+            backgroundColor: isDark ? "#10141f" : "#f8fafc",
+            border: `1px solid ${
+              isDark ? "rgba(255, 255, 255, 0.1)" : "#cbd5e1"
+            }`,
+          }}
+        >
+          <input
+            ref={topAiInputRef}
+            type="text"
+            value={paletteQuery}
+            onChange={(e) => setPaletteQuery(e.target.value)}
+            onFocus={() => setIsAiAssistantOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && paletteQuery.trim()) {
+                e.preventDefault();
+                void handlePaletteTranslate();
+              }
+            }}
+            placeholder={
+              paletteTurns.length > 0
+                ? `Refine Turn #${paletteTurns.length} (e.g. "only active", "limit 10")...`
+                : `Ask AI about ${activeDbInfo?.name || activeDbId} or refine query...`
+            }
+            aria-label="Ask AI or refine current query"
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              color: isDark ? "#e2e8f0" : "#0f172a",
+              fontSize: "0.875rem",
+              minWidth: 0,
+            }}
+          />
+          {paletteQuery.trim() ? (
+            <button
+              type="button"
+              disabled={isPaletteTranslating}
+              onClick={() => void handlePaletteTranslate()}
               style={{
-                fontSize: "1.3rem",
-                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                fontWeight: 800,
-                letterSpacing: "-0.02em",
+                padding: "4px 10px",
+                borderRadius: "5px",
+                border: "none",
+                background: "#3b82f6",
+                color: "#ffffff",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: isPaletteTranslating ? "not-allowed" : "pointer",
+                whiteSpace: "nowrap",
               }}
             >
-              ⚡ Query-Builder Studio
-            </span>
-            <span
+              {isPaletteTranslating
+                ? "Running..."
+                : paletteTurns.length > 0
+                  ? "Refine ↵"
+                  : "Ask AI ↵"}
+            </button>
+          ) : (
+            <kbd
               style={{
-                fontSize: "0.68rem",
-                fontWeight: 700,
                 padding: "2px 6px",
                 borderRadius: "4px",
-                backgroundColor: isDark ? "rgba(59, 130, 246, 0.18)" : "rgba(59, 130, 246, 0.1)",
-                color: isDark ? "#93c5fd" : "#2563eb",
-                border: "1px solid rgba(59, 130, 246, 0.3)",
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "#e2e8f0",
+                color: isDark ? "#64748b" : "#64748b",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                flexShrink: 0,
               }}
             >
-              v1.0.0
-            </span>
-          </div>
+              ⌘K
+            </kbd>
+          )}
+        </div>
 
+        {/* Right Cluster: 1-Click Preset Pills, AI Assistant Toggle, Mode Tabs & Theme Toggle */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flexShrink: 0 }}>
+          {/* Direct 1-Click Preset Chips (no dropdown menu) */}
+          {activePresets.length > 0 && (
+            <div
+              role="group"
+              aria-label="Quick query presets"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                maxWidth: "220px",
+                overflowX: "auto",
+                padding: "2px 0",
+              }}
+            >
+              {activePresets.slice(0, 2).map((preset) => {
+                const isSel = selectedPreset?.id === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="studio-preset-item"
+                    onClick={() => handleSelectPreset(preset)}
+                    title={`${preset.title} — ${preset.description}`}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "999px",
+                      border: isSel
+                        ? "1px solid rgba(56, 189, 248, 0.45)"
+                        : `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+                      backgroundColor: isSel
+                        ? "rgba(56, 189, 248, 0.16)"
+                        : isDark
+                          ? "#10141f"
+                          : "#f8fafc",
+                      color: isSel
+                        ? isDark
+                          ? "#e0f2fe"
+                          : "#0f172a"
+                        : isDark
+                          ? "#94a3b8"
+                          : "#475569",
+                      fontSize: "0.76rem",
+                      fontWeight: isSel ? 700 : 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {preset.title.length > 18 ? `${preset.title.slice(0, 16)}…` : preset.title}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Right-Docked AI Assistant Drawer Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsAiAssistantOpen((prev) => !prev)}
+            title={isAiAssistantOpen ? "Collapse AI Assistant Drawer" : "Open AI Assistant Drawer"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              border: `1px solid ${
+                isAiAssistantOpen
+                  ? isDark
+                    ? "rgba(255, 255, 255, 0.2)"
+                    : "#94a3b8"
+                  : isDark
+                    ? "rgba(255, 255, 255, 0.08)"
+                    : "#cbd5e1"
+              }`,
+              background: isAiAssistantOpen
+                ? isDark
+                  ? "rgba(255, 255, 255, 0.08)"
+                  : "#e2e8f0"
+                : isDark
+                  ? "#10141f"
+                  : "#f8fafc",
+              color: isAiAssistantOpen ? (isDark ? "#f8fafc" : "#0f172a") : isDark ? "#94a3b8" : "#475569",
+              fontSize: "0.84rem",
+              fontWeight: 500,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span>AI Assistant</span>
+            {paletteTurns.length > 0 && (
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  padding: "0px 6px",
+                  borderRadius: "4px",
+                  backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1",
+                  color: isDark ? "#e2e8f0" : "#0f172a",
+                  fontWeight: 600,
+                }}
+              >
+                {paletteTurns.length}
+              </span>
+            )}
+          </button>
+
+          {/* Studio / Dashboard / Dev Demos Switcher */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "6px",
-              fontSize: "0.72rem",
-              padding: "3px 10px",
-              borderRadius: "9999px",
-              backgroundColor: serverStatus.includes("Connected")
-                ? isDark
-                  ? "rgba(16, 185, 129, 0.15)"
-                  : "rgba(16, 185, 129, 0.1)"
-                : isDark
-                  ? "rgba(245, 158, 11, 0.15)"
-                  : "rgba(245, 158, 11, 0.1)",
-              color: serverStatus.includes("Connected") ? "#10b981" : "#f59e0b",
-              border: `1px solid ${
-                serverStatus.includes("Connected")
-                  ? "rgba(16, 185, 129, 0.35)"
-                  : "rgba(245, 158, 11, 0.35)"
-              }`,
-            }}
-          >
-            <span
-              style={{
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                backgroundColor: serverStatus.includes("Connected") ? "#10b981" : "#f59e0b",
-                display: "inline-block",
-                boxShadow: serverStatus.includes("Connected")
-                  ? "0 0 8px #10b981"
-                  : "0 0 8px #f59e0b",
-              }}
-            />
-            {serverStatus}
-          </div>
-        </div>
-
-        {/* Command Palette Trigger */}
-        <button
-          type="button"
-          onClick={() => setIsCommandPaletteOpen(true)}
-          title="Open Natural Language Command Palette (Cmd+K)"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "5px 12px",
-            borderRadius: "8px",
-            backgroundColor: isDark ? "rgba(15, 23, 42, 0.6)" : "#f1f5f9",
-            color: isDark ? "#94a3b8" : "#64748b",
-            border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "#cbd5e1"}`,
-            cursor: "pointer",
-            fontSize: "0.78rem",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <span>✨ Natural Language & Presets...</span>
-          <kbd
-            style={{
-              padding: "1px 5px",
-              borderRadius: "4px",
-              backgroundColor: isDark ? "rgba(255, 255, 255, 0.1)" : "#e2e8f0",
-              fontSize: "0.68rem",
-              fontWeight: 700,
-            }}
-          >
-            ⌘K
-          </kbd>
-        </button>
-
-        {/* Tab switcher + Theme toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <div
-            style={{
-              display: "flex",
-              backgroundColor: isDark ? "rgba(15, 23, 42, 0.7)" : "#f1f5f9",
-              borderRadius: "8px",
+              backgroundColor: isDark ? "#10141f" : "#f1f5f9",
+              borderRadius: "6px",
               padding: "3px",
               border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0"}`,
+              flexShrink: 0,
             }}
           >
-            {[
-              { id: "visual", label: "🎨 Visual Studio" },
-              { id: "dashboard", label: "📊 Dashboard & BI" },
-              { id: "headless", label: "🧩 Headless Mode" },
-              { id: "adapters", label: "🔄 ORM Adapters" },
-            ].map((tab) => {
+            {(showDevTabs
+              ? [
+                  { id: "visual", label: "Studio" },
+                  { id: "dashboard", label: "BI" },
+                  { id: "headless", label: "Headless" },
+                  { id: "adapters", label: "ORM" },
+                ]
+              : [
+                  { id: "visual", label: "Studio" },
+                  { id: "dashboard", label: "BI" },
+                ]
+            ).map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
                   style={{
-                    padding: "6px 13px",
-                    borderRadius: "6px",
+                    padding: "4px 10px",
+                    borderRadius: "4px",
                     border: "none",
                     cursor: "pointer",
-                    fontSize: "0.82rem",
+                    fontSize: "0.84rem",
                     fontWeight: isActive ? 600 : 500,
                     backgroundColor: isActive
                       ? isDark
-                        ? "#3b82f6"
-                        : "#2563eb"
+                        ? "rgba(255, 255, 255, 0.1)"
+                        : "#ffffff"
                       : "transparent",
-                    color: isActive ? "#ffffff" : isDark ? "#94a3b8" : "#475569",
-                    boxShadow: isActive ? "0 2px 8px rgba(37, 99, 235, 0.3)" : "none",
-                    transition: "all 0.15s ease",
+                    color: isActive ? (isDark ? "#f8fafc" : "#0f172a") : isDark ? "#64748b" : "#64748b",
                   }}
                 >
                   {tab.label}
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setShowDevTabs((prev) => !prev)}
+              title={showDevTabs ? "Hide developer SDK demos" : "Show Headless & ORM Adapter demos"}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "4px",
+                border: "none",
+                background: "transparent",
+                color: isDark ? "#64748b" : "#94a3b8",
+                fontSize: "0.8rem",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {showDevTabs ? "◂" : "⋯"}
+            </button>
           </div>
 
-          {/* Tri-state Theme Toggle */}
+          {/* Theme Toggle */}
           <button
+            type="button"
+            data-testid="toggle-theme"
             onClick={cycleTheme}
-            title={`Current theme: ${themePreference}. Click to cycle (System -> Dark -> Light)`}
+            title={`Theme: ${themePreference} (${resolvedTheme}). Click to switch`}
             style={{
-              marginLeft: "6px",
-              padding: "6px 12px",
-              borderRadius: "8px",
-              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.12)" : "#cbd5e1"}`,
+              padding: "6px 10px",
+              borderRadius: "6px",
+              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
               cursor: "pointer",
               fontWeight: 600,
-              fontSize: "0.78rem",
-              backgroundColor: isDark ? "#131b2e" : "#f1f5f9",
-              color: isDark ? "#f8fafc" : "#0f172a",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              transition: "all 0.15s ease",
+              fontSize: "0.82rem",
+              backgroundColor: isDark ? "#10141f" : "#f8fafc",
+              color: isDark ? "#e2e8f0" : "#0f172a",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
-            {themePreference === "system" ? (
-              <>
-                <span>🌓</span>
-                <span>System ({resolvedTheme})</span>
-              </>
-            ) : themePreference === "dark" ? (
-              <>
-                <span>🌙</span>
-                <span>Dark</span>
-              </>
-            ) : (
-              <>
-                <span>☀️</span>
-                <span>Light</span>
-              </>
-            )}
+            {themePreference === "dark" ? "🌙 Dark" : themePreference === "light" ? "☀ Light" : "◐ Auto"}
           </button>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {activeTab === "visual" && (
-          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-            {/* Quick Starters & Presets Bar */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "8px 24px",
-                backgroundColor: isDark ? "rgba(15, 23, 42, 0.4)" : "#ffffff",
-                borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.05)" : "#e2e8f0"}`,
-                overflowX: "auto",
-              }}
-            >
-              <span
+      {/* Main 3-Pane IDE Body (Left Explorer | Center Split Workspace | Right AI Assistant Drawer) */}
+      <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "row" }}>
+        {/* Left Pane: Schema & Cross-DB Explorer (260px) */}
+        {isSidebarOpen && (
+          <aside
+            aria-label="Data Sources and Tables Explorer"
+            style={{
+              width: "260px",
+              minWidth: "260px",
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              borderRight: `1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0"}`,
+              backgroundColor: isDark ? "#0b0f19" : "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            {/* Section 1: Compact Database Switcher Trigger (No native <select>, expandable drawer) */}
+            {databases.length > 0 && (
+              <div
                 style={{
-                  fontSize: "0.78rem",
-                  fontWeight: 700,
-                  color: isDark ? "#94a3b8" : "#64748b",
-                  whiteSpace: "nowrap",
+                  padding: "8px 12px",
+                  borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0"}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  backgroundColor: isDark ? "#0e1320" : "#f8fafc",
+                  flexShrink: 0,
+                  height: "38px",
+                  boxSizing: "border-box",
                 }}
               >
-                ⚡ Starters & Presets:
-              </span>
-              {STARTER_PRESETS.map((preset) => {
-                const isSelected = selectedPreset?.id === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    onClick={() => setSelectedPreset(preset)}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                  <span
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: "6px",
-                      border: isSelected
-                        ? "1px solid #3b82f6"
-                        : `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "#cbd5e1"}`,
-                      backgroundColor: isSelected
-                        ? "rgba(59, 130, 246, 0.15)"
-                        : isDark
-                          ? "rgba(30, 41, 59, 0.5)"
-                          : "#f8fafc",
-                      color: isSelected ? "#3b82f6" : isDark ? "#cbd5e1" : "#334155",
-                      fontSize: "0.75rem",
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: "#10b981",
+                      flexShrink: 0,
+                    }}
+                    title="Database connected"
+                  />
+                  <span
+                    style={{
+                      fontSize: "0.8rem",
                       fontWeight: 600,
-                      cursor: "pointer",
+                      color: isDark ? "#f1f5f9" : "#0f172a",
                       whiteSpace: "nowrap",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      transition: "all 0.15s ease",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    title={activeDbInfo?.name || activeDbId}
+                  >
+                    {activeDbInfo?.name || activeDbId}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      fontWeight: 500,
+                      padding: "1px 5px",
+                      borderRadius: "4px",
+                      backgroundColor: isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0",
+                      color: isDark ? "#94a3b8" : "#64748b",
+                      textTransform: "uppercase",
+                      flexShrink: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "0.65rem",
-                        padding: "1px 5px",
-                        borderRadius: "4px",
-                        backgroundColor:
-                          preset.category === "Sales"
-                            ? "rgba(16, 185, 129, 0.18)"
-                            : preset.category === "Inventory"
-                              ? "rgba(59, 130, 246, 0.18)"
-                              : preset.category === "Operations"
-                                ? "rgba(245, 158, 11, 0.18)"
-                                : "rgba(139, 92, 246, 0.18)",
-                        color:
-                          preset.category === "Sales"
-                            ? "#10b981"
-                            : preset.category === "Inventory"
-                              ? "#3b82f6"
-                              : preset.category === "Operations"
-                                ? "#f59e0b"
-                                : "#8b5cf6",
-                      }}
-                    >
-                      {preset.category}
-                    </span>
-                    {preset.title}
+                    {(activeDbInfo?.dialect || KNOWN_DB_DEFAULTS[activeDbId]?.dialect || "sqlite").toUpperCase()}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  data-qb="database-switcher-trigger"
+                  aria-expanded={isDbSwitcherExpanded}
+                  onClick={() => setIsDbSwitcherExpanded((prev) => !prev)}
+                  title={isDbSwitcherExpanded ? "Collapse database switcher" : "Expand database switcher"}
+                  style={{
+                    padding: "3px 8px",
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                    borderRadius: "4px",
+                    border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.12)" : "#cbd5e1"}`,
+                    backgroundColor: isDbSwitcherExpanded
+                      ? "rgba(56, 189, 248, 0.16)"
+                      : isDark
+                        ? "rgba(255, 255, 255, 0.04)"
+                        : "#ffffff",
+                    color: isDbSwitcherExpanded ? (isDark ? "#38bdf8" : "#0284c7") : isDark ? "#94a3b8" : "#475569",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <span>{databases.length} DBs</span>
+                  <span>{isDbSwitcherExpanded ? "▴" : "▾"}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Preserved Legacy Database Pills Container (Visible when expanded, in DOM via SR_ONLY_STYLE when collapsed) */}
+            {databases.length > 0 && (
+              <div
+                data-qb="sidebar-database-pills"
+                style={
+                  isDbSwitcherExpanded
+                    ? {
+                        padding: "8px 12px 10px",
+                        borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0"}`,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                        backgroundColor: isDark ? "#090d16" : "#f1f5f9",
+                        flexShrink: 0,
+                      }
+                    : SR_ONLY_STYLE
+                }
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span
+                    style={{
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      color: isDark ? "#94a3b8" : "#64748b",
+                    }}
+                  >
+                    Select Database ({filteredDatabases.length})
+                  </span>
+                  <div style={{ display: "flex", gap: "3px" }}>
+                    {[
+                      { id: "ALL", label: "All" },
+                      { id: "FEDERATED", label: "Hub" },
+                      { id: "POSTGRES", label: "PG" },
+                      { id: "SQLITE", label: "SQLite" },
+                    ].map((grp) => {
+                      const active = dbFilterGroup === grp.id;
+                      return (
+                        <button
+                          key={grp.id}
+                          type="button"
+                          onClick={() => setDbFilterGroup(grp.id)}
+                          style={{
+                            padding: "2px 6px",
+                            fontSize: "0.68rem",
+                            fontWeight: active ? 700 : 500,
+                            borderRadius: "4px",
+                            border: active
+                              ? "1px solid rgba(56, 189, 248, 0.4)"
+                              : "1px solid transparent",
+                            backgroundColor: active
+                              ? "rgba(56, 189, 248, 0.14)"
+                              : "transparent",
+                            color: active ? (isDark ? "#e0f2fe" : "#0f172a") : isDark ? "#64748b" : "#94a3b8",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {grp.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    maxHeight: "120px",
+                    overflowY: "auto",
+                    paddingRight: "2px",
+                  }}
+                >
+                  {filteredDatabases.map((db) => {
+                    const isSelected = db.id === activeDbId;
+                    return (
+                      <button
+                        key={db.id}
+                        type="button"
+                        data-qb="database-pill"
+                        data-qb-db={db.id}
+                        disabled={!db.available}
+                        onClick={() => {
+                          setActiveDbId(db.id);
+                          setIsDbSwitcherExpanded(false);
+                        }}
+                        title={`Switch to ${db.name} (${db.dialect.toUpperCase()})`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          padding: "3px 8px",
+                          borderRadius: "999px",
+                          border: isSelected
+                            ? "1px solid rgba(56, 189, 248, 0.45)"
+                            : `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+                          background: isSelected
+                            ? "rgba(56, 189, 248, 0.16)"
+                            : isDark
+                              ? "#10141f"
+                              : "#f8fafc",
+                          color: isSelected
+                            ? isDark
+                              ? "#e0f2fe"
+                              : "#0f172a"
+                            : isDark
+                              ? "#94a3b8"
+                              : "#475569",
+                          fontSize: "0.75rem",
+                          fontWeight: isSelected ? 700 : 500,
+                          cursor: db.available ? "pointer" : "not-allowed",
+                          opacity: db.available ? 1 : 0.45,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span>{db.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Section 2: Active Database Table Explorer (Zero-Lag CSS Hover) */}
+            <div
+              style={{
+                flex: 1,
+                padding: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span
+                  style={{
+                    fontSize: "0.76rem",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: isDark ? "#64748b" : "#64748b",
+                  }}
+                >
+                  Tables ({filteredTablesList.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => fetchSchemaForDb(activeDbId, true)}
+                  title="Refresh database schema"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isDark ? "#64748b" : "#94a3b8",
+                    fontSize: "0.85rem",
+                    cursor: "pointer",
+                    padding: "0 4px",
+                  }}
+                >
+                  {isLoadingSchema ? "..." : "↻"}
+                </button>
+              </div>
+
+              <input
+                type="text"
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                placeholder="Filter tables..."
+                style={{
+                  width: "100%",
+                  padding: "7px 10px",
+                  borderRadius: "6px",
+                  border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.09)" : "#cbd5e1"}`,
+                  backgroundColor: isDark ? "#10141f" : "#f8fafc",
+                  color: isDark ? "#e2e8f0" : "#0f172a",
+                  fontSize: "0.875rem",
+                  outline: "none",
+                }}
+              />
+
+              {/* Federated Hub Source Prefix Chips */}
+              {activeDbId === "federated_hub" && federatedPrefixes.length > 0 && (
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setFedSourceFilter("ALL")}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "0.75rem",
+                      fontWeight: fedSourceFilter === "ALL" ? 600 : 500,
+                      borderRadius: "4px",
+                      border:
+                        fedSourceFilter === "ALL"
+                          ? `1px solid ${isDark ? "rgba(255, 255, 255, 0.2)" : "#94a3b8"}`
+                          : "1px solid transparent",
+                      backgroundColor:
+                        fedSourceFilter === "ALL"
+                          ? isDark
+                            ? "rgba(255, 255, 255, 0.08)"
+                            : "#e2e8f0"
+                          : "transparent",
+                      color: fedSourceFilter === "ALL" ? (isDark ? "#f8fafc" : "#0f172a") : isDark ? "#64748b" : "#64748b",
+                      cursor: "pointer",
+                    }}
+                  >
+                    All
                   </button>
-                );
-              })}
+                  {federatedPrefixes.map((pfx) => {
+                    const active = fedSourceFilter === pfx;
+                    return (
+                      <button
+                        key={pfx}
+                        type="button"
+                        onClick={() => setFedSourceFilter(pfx)}
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: "0.75rem",
+                          fontWeight: active ? 600 : 500,
+                          borderRadius: "4px",
+                          border: active
+                            ? `1px solid ${isDark ? "rgba(255, 255, 255, 0.2)" : "#94a3b8"}`
+                            : "1px solid transparent",
+                          backgroundColor: active
+                            ? isDark
+                              ? "rgba(255, 255, 255, 0.08)"
+                              : "#e2e8f0"
+                            : "transparent",
+                          color: active ? (isDark ? "#f8fafc" : "#0f172a") : isDark ? "#64748b" : "#64748b",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {pfx}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Scrollable Table Rows */}
+              <div
+                data-qb="table-list"
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                  paddingRight: "2px",
+                }}
+              >
+                {(() => {
+                  const renderSidebarRow = (tbl: (typeof filteredTablesList)[number]) => {
+                    const colCount = (tbl.columns || []).length;
+                    const isPrimary = tbl.name === effectiveSidebarPrimaryTable;
+                    const joinMatch = !isPrimary
+                      ? findBestJoinCondition(effectiveSidebarPrimaryTable, tbl.name, schema)
+                      : null;
+                    const joinTier = joinMatch?.joinTier || (joinMatch?.isFk ? "confirmed" : "none");
+                    const joinTierLabel =
+                      joinTier === "confirmed"
+                        ? "Confirmed Join"
+                        : joinTier === "logical"
+                          ? "Logical Join"
+                          : "No Dedicated Join";
+                    const joinShortBadge =
+                      joinTier === "confirmed"
+                        ? "✓ Confirmed"
+                        : joinTier === "logical"
+                          ? "⇄ Logical"
+                          : `${colCount} cols`;
+                    const joinColor =
+                      joinTier === "confirmed"
+                        ? isDark
+                          ? "#6ee7b7"
+                          : "#047857"
+                        : joinTier === "logical"
+                          ? isDark
+                            ? "#93c5fd"
+                            : "#1d4ed8"
+                          : isDark
+                            ? "#64748b"
+                            : "#64748b";
+                    const joinBg =
+                      joinTier === "confirmed"
+                        ? isDark
+                          ? "rgba(16, 185, 129, 0.14)"
+                          : "rgba(5, 150, 105, 0.1)"
+                        : joinTier === "logical"
+                          ? isDark
+                            ? "rgba(59, 130, 246, 0.14)"
+                            : "rgba(37, 99, 235, 0.1)"
+                          : "transparent";
+
+                    return (
+                      <div
+                        key={tbl.name}
+                        data-qb="table-item"
+                        data-qb-table={tbl.name}
+                        data-qb-join-tier={isPrimary ? "primary" : joinTier}
+                        className="studio-table-row"
+                        onClick={() => handleSidebarPreviewTable(tbl.name)}
+                        title={
+                          isPrimary
+                            ? `${tbl.name} (${colCount} columns) — Active primary table`
+                            : `${tbl.name} (${colCount} columns) — ${joinTierLabel} with ${effectiveSidebarPrimaryTable}`
+                        }
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.875rem",
+                            fontWeight: isPrimary ? 700 : 500,
+                            color: isPrimary
+                              ? isDark
+                                ? "#38bdf8"
+                                : "#0284c7"
+                              : isDark
+                                ? "#cbd5e1"
+                                : "#1e293b",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            flex: 1,
+                          }}
+                        >
+                          {tbl.name}
+                        </span>
+
+                        <span
+                          className="studio-row-meta"
+                          style={{
+                            color: isPrimary ? (isDark ? "#38bdf8" : "#0284c7") : joinColor,
+                            backgroundColor: isPrimary
+                              ? isDark
+                                ? "rgba(56, 189, 248, 0.14)"
+                                : "rgba(2, 132, 199, 0.1)"
+                              : joinBg,
+                            fontSize: "0.68rem",
+                            fontWeight: 600,
+                            padding: "1px 6px",
+                            borderRadius: "999px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isPrimary ? "Active" : joinShortBadge}
+                        </span>
+
+                        <div
+                          className="studio-row-actions"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarSetPrimary(tbl.name)}
+                            title={`Explore ${tbl.name} as primary table`}
+                            style={{
+                              padding: "2px 7px",
+                              fontSize: "0.75rem",
+                              fontWeight: 500,
+                              borderRadius: "4px",
+                              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.14)" : "#cbd5e1"}`,
+                              backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9",
+                              color: isDark ? "#e2e8f0" : "#0f172a",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarJoinTable(tbl.name)}
+                            title={`${joinTierLabel}: Join ${tbl.name} onto ${effectiveSidebarPrimaryTable}${
+                              joinMatch && joinTier !== "none"
+                                ? ` (${joinMatch.leftTable}.${joinMatch.leftCol} = ${joinMatch.rightTable}.${joinMatch.rightCol})`
+                                : ""
+                            }`}
+                            style={{
+                              padding: "2px 7px",
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              borderRadius: "4px",
+                              border: `1px solid ${
+                                joinTier === "confirmed"
+                                  ? isDark
+                                    ? "rgba(16, 185, 129, 0.4)"
+                                    : "rgba(5, 150, 105, 0.4)"
+                                  : joinTier === "logical"
+                                    ? isDark
+                                      ? "rgba(59, 130, 246, 0.4)"
+                                      : "rgba(37, 99, 235, 0.4)"
+                                    : isDark
+                                      ? "rgba(255, 255, 255, 0.14)"
+                                      : "#cbd5e1"
+                              }`,
+                              backgroundColor:
+                                joinTier === "confirmed"
+                                  ? isDark
+                                    ? "rgba(16, 185, 129, 0.14)"
+                                    : "rgba(5, 150, 105, 0.1)"
+                                  : joinTier === "logical"
+                                    ? isDark
+                                      ? "rgba(59, 130, 246, 0.14)"
+                                      : "rgba(37, 99, 235, 0.1)"
+                                    : isDark
+                                      ? "rgba(255, 255, 255, 0.08)"
+                                      : "#f1f5f9",
+                              color:
+                                joinTier === "confirmed" || joinTier === "logical"
+                                  ? joinColor
+                                  : isDark
+                                    ? "#e2e8f0"
+                                    : "#0f172a",
+                              cursor: "pointer",
+                            }}
+                          >
+                            +Join
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const isSysExpanded = showSystemTables || Boolean(tableSearch.trim());
+
+                  return (
+                    <>
+                      {coreTablesList.slice(0, 120).map(renderSidebarRow)}
+                      {systemTablesList.length > 0 && (
+                        <div style={{ marginTop: "6px" }}>
+                          <button
+                            type="button"
+                            data-testid="toggle-system-tables"
+                            onClick={() => setShowSystemTables((prev) => !prev)}
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "6px 8px",
+                              borderRadius: "6px",
+                              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.06)" : "#e2e8f0"}`,
+                              backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+                              color: isDark ? "#94a3b8" : "#475569",
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <span>System & Internal Tables ({systemTablesList.length})</span>
+                            <span>{isSysExpanded ? "▾" : "▸"}</span>
+                          </button>
+                          {isSysExpanded && (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "2px",
+                                marginTop: "4px",
+                              }}
+                            >
+                              {systemTablesList.slice(0, 100).map(renderSidebarRow)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
-            {/* Visual Builder Canvas */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+            {/* Section 3: Inline Cross-DB Pinning (1-click secondary DB pills, no visible select dropdown) */}
+            {isCrossDbExpanded && (
+              <div
+                style={{
+                  borderTop: `1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e2e8f0"}`,
+                  backgroundColor: isDark ? "#0b0f19" : "#f8fafc",
+                  padding: "10px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  maxHeight: "46%",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span
+                    style={{
+                      color: isDark ? "#e2e8f0" : "#0f172a",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Join Another Database
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCrossDbExpanded(false)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: isDark ? "#94a3b8" : "#64748b",
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <select
+                  value={pinnedCrossDbId}
+                  onChange={(e) => setPinnedCrossDbId(e.target.value)}
+                  aria-label="Select secondary database for cross-DB join"
+                  style={{
+                    position: "absolute",
+                    width: "1px",
+                    height: "1px",
+                    padding: 0,
+                    margin: "-1px",
+                    overflow: "hidden",
+                    clip: "rect(0, 0, 0, 0)",
+                    whiteSpace: "nowrap",
+                    border: 0,
+                  }}
+                >
+                  {databases
+                    .filter((d) => d.id !== "federated_hub" && d.id !== activeDbId && d.available)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.dialect.toUpperCase()})
+                      </option>
+                    ))}
+                </select>
+
+                <div
+                  data-qb="cross-db-target-pills"
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    maxHeight: "68px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {databases
+                    .filter((d) => d.id !== "federated_hub" && d.id !== activeDbId && d.available)
+                    .map((d) => {
+                      const active = d.id === pinnedCrossDbId;
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => setPinnedCrossDbId(d.id)}
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: "999px",
+                            fontSize: "0.73rem",
+                            fontWeight: active ? 700 : 500,
+                            border: active
+                              ? "1px solid rgba(16, 185, 129, 0.45)"
+                              : `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+                            backgroundColor: active
+                              ? "rgba(16, 185, 129, 0.16)"
+                              : isDark
+                                ? "#131c31"
+                                : "#ffffff",
+                            color: active
+                              ? isDark
+                                ? "#6ee7b7"
+                                : "#047857"
+                              : isDark
+                                ? "#94a3b8"
+                                : "#475569",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {d.name}
+                        </button>
+                      );
+                    })}
+                </div>
+
+                <input
+                  type="text"
+                  value={pinnedTableSearch}
+                  onChange={(e) => setPinnedTableSearch(e.target.value)}
+                  placeholder={`Filter ${pinnedCrossDbId} tables...`}
+                  style={{
+                    width: "100%",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+                    backgroundColor: isDark ? "#131c31" : "#ffffff",
+                    color: isDark ? "#f8fafc" : "#0f172a",
+                    fontSize: "0.84rem",
+                    outline: "none",
+                  }}
+                />
+
+                <div
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    maxHeight: "180px",
+                  }}
+                >
+                  {isLoadingPinnedSchema ? (
+                    <span style={{ fontSize: "0.82rem", color: "#38bdf8", padding: "4px" }}>
+                      Loading {pinnedCrossDbId} tables...
+                    </span>
+                  ) : (
+                    pinnedTablesList.slice(0, 60).map((t) => (
+                      <div
+                        key={t.name}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          padding: "6px 8px",
+                          borderRadius: "5px",
+                          fontSize: "0.84rem",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: isDark ? "#cbd5e1" : "#334155",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                          }}
+                          title={`${pinnedCrossDbId}.${t.name}`}
+                        >
+                          {t.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCrossDbJoinTable(pinnedCrossDbId, t.name)}
+                          title={`Cross-DB Join ${pinnedCrossDbId}.${t.name} onto current query via Federated Hub`}
+                          style={{
+                            padding: "2px 8px",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            borderRadius: "4px",
+                            border: "1px solid rgba(16, 185, 129, 0.45)",
+                            backgroundColor: "rgba(16, 185, 129, 0.16)",
+                            color: isDark ? "#34d399" : "#047857",
+                            cursor: "pointer",
+                            flexShrink: 0,
+                          }}
+                        >
+                          +Join
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
+
+        {/* Center Pane: Split Workspace */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0 }}>
+          {activeTab === "visual" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
               <QueryBuilderProvider
                 mode="styled"
                 themeMode={resolvedTheme}
@@ -1006,175 +3069,405 @@ export function App() {
                 cellRenderers={cellRenderers}
               >
                 <VisualQueryBuilder
-                  key={selectedPreset?.id || "default"}
+                  ref={builderRef}
+                  key={activeDbId}
                   schema={schema}
-                  initialTable={
-                    selectedPreset?.spec?.table ||
-                    Object.keys(schema.tables || {})[0] ||
-                    "products"
-                  }
+                  initialTable={resolvedInitialTable}
                   initialSpec={selectedPreset?.spec}
-                  dialect="sqlite"
-                  presets={STARTER_PRESETS}
-                  semanticModels={STARTER_SEMANTIC_MODELS}
+                  dialect={activeDialect}
+                  presets={[]}
+                  semanticModels={activeDbId === "starter_demo" ? STARTER_SEMANTIC_MODELS : []}
+                  defaultAdvancedMode={false}
+                  features={{ raw_sql: "standard", schema_tools: "advanced" }}
                   showPlanTab={true}
                   showPipelineTab={true}
-                  showNlqBar={true}
+                  showNlqBar={false}
+                  hideNlqBar={true}
+                  compactHeader={true}
+                  studioMode={true}
+                  nlqApiUrl={`/api/nlq?db=${encodeURIComponent(activeDbId)}`}
+                  nlqDefaultProvider={geminiConfigured ? "gemini" : "mock"}
                   onExecuteQuery={handleExecuteQuery}
                 />
               </QueryBuilderProvider>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === "dashboard" && (
-          <QueryBuilderProvider mode="styled" themeMode={resolvedTheme}>
-            <DashboardAndExportDemo isDark={isDark} />
-          </QueryBuilderProvider>
-        )}
+          {activeTab === "dashboard" && (
+            <QueryBuilderProvider mode="styled" themeMode={resolvedTheme}>
+              <DashboardAndExportDemo
+                isDark={isDark}
+                activeDbId={activeDbId}
+                dialect={activeDialect}
+                defaultTable={resolvedInitialTable}
+              />
+            </QueryBuilderProvider>
+          )}
 
-        {activeTab === "headless" && (
-          <HeadlessDemo schema={schema} onExecuteQuery={handleExecuteQuery} isDark={isDark} />
-        )}
+          {activeTab === "headless" && (
+            <HeadlessDemo
+              key={activeDbId}
+              schema={schema}
+              dialect={activeDialect}
+              defaultTable={resolvedInitialTable}
+              onExecuteQuery={handleExecuteQuery}
+              isDark={isDark}
+            />
+          )}
 
-        {activeTab === "adapters" && (
-          <OrmAdaptersDemo
-            isDark={isDark}
-            onLoadSchema={(newSnapshot) => {
-              setSchema(newSnapshot);
-              setSelectedPreset(null);
-              setActiveTab("visual");
-            }}
-          />
-        )}
-      </main>
+          {activeTab === "adapters" && (
+            <OrmAdaptersDemo
+              isDark={isDark}
+              onLoadSchema={(newSnapshot) => {
+                setSchema(newSnapshot);
+                setSelectedPreset(null);
+                setActiveTab("visual");
+              }}
+            />
+          )}
+        </div>
 
-      {/* Command Palette Modal (Cmd+K) */}
-      {isCommandPaletteOpen && (
-        <div
-          onClick={() => setIsCommandPaletteOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.65)",
-            backdropFilter: "blur(6px)",
-            WebkitBackdropFilter: "blur(6px)",
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            paddingTop: "12vh",
-            zIndex: 100,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
+        {/* Right Pane: Collapsible Multi-Shot AI Assistant Drawer (340px) */}
+        {isAiAssistantOpen && (
+          <aside
+            aria-label="AI Assistant"
             style={{
-              width: "100%",
-              maxWidth: "640px",
-              backgroundColor: isDark ? "#131b2e" : "#ffffff",
-              borderRadius: "14px",
-              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.12)" : "#cbd5e1"}`,
-              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.4)",
-              overflow: "hidden",
+              width: "340px",
+              minWidth: "340px",
+              height: "100%",
               display: "flex",
               flexDirection: "column",
+              borderLeft: `1px solid ${isDark ? "rgba(148, 163, 184, 0.12)" : "#e2e8f0"}`,
+              backgroundColor: isDark ? "#0d1322" : "#ffffff",
+              overflow: "hidden",
             }}
           >
-            {/* Search Input */}
+            {/* AI Assistant Header */}
             <div
               style={{
+                padding: "12px 14px",
+                borderBottom: `1px solid ${isDark ? "rgba(148, 163, 184, 0.1)" : "#e2e8f0"}`,
                 display: "flex",
                 alignItems: "center",
-                padding: "16px 20px",
-                borderBottom: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0"}`,
+                justifyContent: "space-between",
+                gap: "8px",
+                backgroundColor: isDark ? "#11182b" : "#f8fafc",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontSize: "0.875rem", fontWeight: 600, color: isDark ? "#f8fafc" : "#0f172a" }}>
+                  AI Assistant
+                </span>
+                <span style={{ fontSize: "0.78rem", color: isDark ? "#94a3b8" : "#64748b" }}>
+                  Iterative natural-language query refinement
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                {paletteTurns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPaletteTurns([])}
+                    title="Clear conversation history and start a fresh chat"
+                    style={{
+                      padding: "4px 9px",
+                      fontSize: "0.78rem",
+                      fontWeight: 500,
+                      borderRadius: "6px",
+                      border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.25)" : "#cbd5e1"}`,
+                      background: "transparent",
+                      color: isDark ? "#94a3b8" : "#64748b",
+                      cursor: "pointer",
+                    }}
+                  >
+                    New Chat
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsAiAssistantOpen(false)}
+                  title="Collapse AI Assistant Drawer"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: isDark ? "#94a3b8" : "#64748b",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                    padding: "4px 6px",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {paletteError && (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  backgroundColor: "rgba(239, 68, 68, 0.14)",
+                  color: "#fca5a5",
+                  fontSize: "0.8rem",
+                  borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
+                }}
+              >
+                {paletteError}
+              </div>
+            )}
+
+            {/* AI Assistant Conversation Thread */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "14px",
+                display: "flex",
+                flexDirection: "column",
                 gap: "12px",
               }}
             >
-              <span style={{ fontSize: "1.2rem" }}>✨</span>
-              <input
-                type="text"
-                autoFocus
-                placeholder="Ask in English or search queries (e.g. 'Completed orders breakdown')..."
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontSize: "1rem",
-                  color: isDark ? "#f8fafc" : "#0f172a",
-                }}
-              />
-              <kbd
-                style={{
-                  padding: "2px 6px",
-                  borderRadius: "4px",
-                  backgroundColor: isDark ? "rgba(255, 255, 255, 0.1)" : "#e2e8f0",
-                  fontSize: "0.72rem",
-                  color: isDark ? "#94a3b8" : "#64748b",
-                }}
-              >
-                ESC
-              </kbd>
-            </div>
+              {paletteTurns.length === 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      backgroundColor: isDark ? "rgba(30, 41, 59, 0.45)" : "#f8fafc",
+                      border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.15)" : "#e2e8f0"}`,
+                      fontSize: "0.84rem",
+                      lineHeight: 1.5,
+                      color: isDark ? "#cbd5e1" : "#334155",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: isDark ? "#f8fafc" : "#0f172a", marginBottom: "4px" }}>
+                      Natural-Language Query Builder
+                    </div>
+                    Ask a question in plain English, then reply turn-by-turn to filter, join tables, group, or sort. Every turn updates the visual canvas and runs live.
+                  </div>
 
-            {/* Presets and suggestions list */}
-            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <span
-                style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  color: isDark ? "#94a3b8" : "#64748b",
-                }}
-              >
-                Suggested Queries & Presets
-              </span>
-              {STARTER_PRESETS.map((preset) => (
-                <div
-                  key={preset.id}
-                  onClick={() => handleSelectPreset(preset)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 14px",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    backgroundColor: isDark ? "rgba(30, 41, 59, 0.5)" : "#f8fafc",
-                    border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.05)" : "#e2e8f0"}`,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{preset.title}</span>
-                      <span
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <span
+                      style={{
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        color: isDark ? "#94a3b8" : "#64748b",
+                      }}
+                    >
+                      Try asking on {activeDbInfo?.name || activeDbId}:
+                    </span>
+                    {aiStarterPrompts.map((prompt, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={isPaletteTranslating}
+                        onClick={() => void handlePaletteTranslate(prompt)}
+                        className="studio-ai-chip"
                         style={{
-                          fontSize: "0.68rem",
-                          padding: "1px 6px",
-                          borderRadius: "4px",
-                          backgroundColor: "rgba(59, 130, 246, 0.15)",
-                          color: "#3b82f6",
-                          fontWeight: 600,
+                          padding: "8px 12px",
+                          borderRadius: "7px",
+                          border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.2)" : "#cbd5e1"}`,
+                          backgroundColor: isDark ? "#131c31" : "#f8fafc",
+                          color: isDark ? "#e2e8f0" : "#1e293b",
+                          fontSize: "0.84rem",
+                          fontWeight: 500,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          lineHeight: 1.4,
                         }}
                       >
-                        {preset.category}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: "0.75rem", color: isDark ? "#94a3b8" : "#64748b" }}>
-                      {preset.description}
-                    </span>
+                        “{prompt}”
+                      </button>
+                    ))}
                   </div>
-                  <span style={{ fontSize: "0.8rem", color: "#3b82f6", fontWeight: 600 }}>
-                    Load →
-                  </span>
                 </div>
-              ))}
+              ) : (
+                <>
+                  {paletteTurns.map((t, idx) => {
+                    const isLatest = idx === paletteTurns.length - 1;
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                          padding: "12px",
+                          borderRadius: "8px",
+                          backgroundColor: isDark ? "#131c31" : "#f8fafc",
+                          border: `1px solid ${
+                            isLatest
+                              ? "rgba(16, 185, 129, 0.45)"
+                              : isDark
+                                ? "rgba(255, 255, 255, 0.08)"
+                                : "#e2e8f0"
+                          }`,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span
+                            style={{
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: "999px",
+                              backgroundColor: isLatest
+                                ? "rgba(16, 185, 129, 0.18)"
+                                : "rgba(59, 130, 246, 0.15)",
+                              color: isLatest
+                                ? isDark
+                                  ? "#34d399"
+                                  : "#047857"
+                                : isDark
+                                  ? "#60a5fa"
+                                  : "#1d4ed8",
+                            }}
+                          >
+                            Turn #{idx + 1} {isLatest ? "• Active" : ""}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRevertToTurn(idx)}
+                            title={`Revert canvas and conversation to Turn #${idx + 1}`}
+                            style={{
+                              background: "transparent",
+                              border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.25)" : "#cbd5e1"}`,
+                              borderRadius: "5px",
+                              padding: "3px 8px",
+                              fontSize: "0.75rem",
+                              color: isDark ? "#94a3b8" : "#64748b",
+                              cursor: "pointer",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {isLatest ? "Re-apply" : "Revert here"}
+                          </button>
+                        </div>
+
+                        <div style={{ fontSize: "0.875rem", fontWeight: 600, color: isDark ? "#e2e8f0" : "#0f172a" }}>
+                          “{t.prompt}”
+                        </div>
+
+                        <div style={{ fontSize: "0.82rem", color: isDark ? "#93c5fd" : "#1d4ed8", lineHeight: 1.45 }}>
+                          {t.explanation}
+                        </div>
+
+                        {t.steps && t.steps.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginTop: "2px" }}>
+                            {t.steps.slice(0, 3).map((step, sIdx) => (
+                              <span
+                                key={sIdx}
+                                style={{ fontSize: "0.78rem", color: isDark ? "#94a3b8" : "#64748b" }}
+                              >
+                                • {step}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Follow-up refinement chips for the latest turn */}
+                  {paletteTurns[paletteTurns.length - 1].followUps.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                      <span style={{ fontSize: "0.78rem", fontWeight: 600, color: isDark ? "#34d399" : "#047857" }}>
+                        Follow-up refinements:
+                      </span>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {paletteTurns[paletteTurns.length - 1].followUps.map((chip, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            disabled={isPaletteTranslating}
+                            onClick={() => void handlePaletteTranslate(chip)}
+                            className="studio-ai-chip"
+                            style={{
+                              padding: "5px 10px",
+                              fontSize: "0.8rem",
+                              fontWeight: 500,
+                              borderRadius: "6px",
+                              border: "1px solid rgba(52, 211, 153, 0.4)",
+                              backgroundColor: "rgba(16, 185, 129, 0.14)",
+                              color: isDark ? "#a7f3d0" : "#065f46",
+                              cursor: "pointer",
+                            }}
+                          >
+                            + {chip}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+
+            {/* AI Assistant Bottom Reply Input */}
+            <div
+              style={{
+                padding: "12px 14px",
+                borderTop: `1px solid ${isDark ? "rgba(148, 163, 184, 0.12)" : "#e2e8f0"}`,
+                backgroundColor: isDark ? "#11182b" : "#f8fafc",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  ref={aiReplyInputRef}
+                  type="text"
+                  value={paletteQuery}
+                  onChange={(e) => setPaletteQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && paletteQuery.trim()) {
+                      e.preventDefault();
+                      void handlePaletteTranslate();
+                    }
+                  }}
+                  placeholder={
+                    paletteTurns.length > 0
+                      ? "Reply to refine query..."
+                      : "Ask AI to build or refine a query..."
+                  }
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "7px",
+                    border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.25)" : "#cbd5e1"}`,
+                    backgroundColor: isDark ? "#070b14" : "#ffffff",
+                    color: isDark ? "#f8fafc" : "#0f172a",
+                    fontSize: "0.85rem",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={isPaletteTranslating || !paletteQuery.trim()}
+                  onClick={() => void handlePaletteTranslate()}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: "7px",
+                    border: "none",
+                    background: "#3b82f6",
+                    color: "#ffffff",
+                    fontSize: "0.84rem",
+                    fontWeight: 600,
+                    cursor: isPaletteTranslating || !paletteQuery.trim() ? "not-allowed" : "pointer",
+                    opacity: isPaletteTranslating || !paletteQuery.trim() ? 0.5 : 1,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isPaletteTranslating
+                    ? "Running..."
+                    : paletteTurns.length > 0
+                      ? "Refine"
+                      : "Send"}
+                </button>
+              </div>
+            </div>
+          </aside>
+        )}
+      </main>
     </div>
   );
 }
@@ -1182,34 +3475,59 @@ export function App() {
 // ---------------------------------------------------------------------------
 // Dashboard & Export Workbench Demonstration Tab
 // ---------------------------------------------------------------------------
-function DashboardAndExportDemo({ isDark = true }: { isDark?: boolean }) {
+function DashboardAndExportDemo({
+  isDark = true,
+  activeDbId = "starter_demo",
+  dialect = "sqlite",
+  defaultTable = "orders",
+}: {
+  isDark?: boolean;
+  activeDbId?: string;
+  dialect?: "postgres" | "sqlite";
+  defaultTable?: string;
+}) {
   const sampleExportSpec: QuerySpec = useMemo(
-    () => ({
-      table: "orders",
-      columns: ["orders.id", "orders.status", "orders.total_amount", "orders.created_at"],
-      joins: [
-        {
-          table: "users",
-          type: "INNER JOIN",
-          left_table: "orders",
-          left_col: "user_id",
-          right_col: "id",
-        },
-      ],
-      filters: [{ column: "status", tablePrefix: "orders", op: "=", value: "COMPLETED" }],
-      filter_join: "AND",
-      order_by: [{ column: "total_amount", tablePrefix: "orders", direction: "DESC" }],
-      distinct: false,
-      limit: 25,
-    }),
-    [],
+    () =>
+      activeDbId === "starter_demo"
+        ? {
+            table: "orders",
+            columns: ["orders.id", "orders.status", "orders.total_amount", "orders.created_at"],
+            joins: [
+              {
+                table: "users",
+                type: "INNER JOIN",
+                left_table: "orders",
+                left_col: "user_id",
+                right_col: "id",
+              },
+            ],
+            filters: [{ column: "status", tablePrefix: "orders", op: "=", value: "COMPLETED" }],
+            filter_join: "AND",
+            order_by: [{ column: "total_amount", tablePrefix: "orders", direction: "DESC" }],
+            distinct: false,
+            limit: 25,
+          }
+        : {
+            table: defaultTable,
+            columns: [],
+            joins: [],
+            filters: [],
+            filter_join: "AND",
+            order_by: [],
+            distinct: false,
+            limit: 25,
+          },
+    [activeDbId, defaultTable],
   );
 
   const handleExportStream = async (format: ExportFormat) => {
-    const res = await fetch("/api/export", {
+    const res = await fetch(`/api/export?db=${encodeURIComponent(activeDbId)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ format, spec: sampleExportSpec, stream: true }),
+      headers: {
+        "Content-Type": "application/json",
+        "X-QB-Database": activeDbId,
+      },
+      body: JSON.stringify({ db: activeDbId, format, spec: sampleExportSpec, stream: true }),
     });
     if (!res.ok) {
       throw new Error(`Export failed with HTTP ${res.status}`);
@@ -1218,7 +3536,7 @@ function DashboardAndExportDemo({ isDark = true }: { isDark?: boolean }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `orders_export.${format === "excel" ? "xlsx" : format}`;
+    a.download = `${defaultTable}_export.${format === "excel" ? "xlsx" : format}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1264,12 +3582,12 @@ function DashboardAndExportDemo({ isDark = true }: { isDark?: boolean }) {
             fontWeight: 700,
           }}
         >
-          📦 Code Generation & Streaming Dataset Exporter
+          📦 Code Generation & Streaming Dataset Exporter ({defaultTable})
         </h3>
         <ExportWorkbench
           spec={sampleExportSpec}
-          dialect="sqlite"
-          streamEndpoint="/api/export"
+          dialect={dialect}
+          streamEndpoint={`/api/export?db=${encodeURIComponent(activeDbId)}`}
           onExportStream={handleExportStream}
         />
       </div>
@@ -1282,10 +3600,14 @@ function DashboardAndExportDemo({ isDark = true }: { isDark?: boolean }) {
 // ---------------------------------------------------------------------------
 function HeadlessDemo({
   schema,
+  dialect = "sqlite",
+  defaultTable: defaultTableProp,
   onExecuteQuery,
   isDark = true,
 }: {
   schema: SchemaSnapshot;
+  dialect?: "postgres" | "sqlite";
+  defaultTable?: string;
   onExecuteQuery: (
     sql: string,
     spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
@@ -1293,12 +3615,17 @@ function HeadlessDemo({
   isDark?: boolean;
 }) {
   const tableNames = useMemo(() => Object.keys(schema.tables || {}), [schema]);
-  const defaultTable = tableNames.length > 0 ? tableNames[0] : "products";
+  const defaultTable =
+    defaultTableProp && tableNames.includes(defaultTableProp)
+      ? defaultTableProp
+      : tableNames.length > 0
+        ? tableNames[0]
+        : "products";
 
   const { state, compiled, actions, safety } = useQueryBuilder({
     schema,
     initialTable: defaultTable,
-    dialect: "sqlite",
+    dialect,
   });
 
   const { results, isLoading, error, executeQuery } = useQueryExecution({
@@ -1413,46 +3740,46 @@ function HeadlessDemo({
             gap: "12px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <label
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1 }}>
+            <span
               style={{
                 fontSize: "0.85rem",
                 fontWeight: 600,
                 color: isDark ? "#e2e8f0" : "#334155",
               }}
             >
-              Primary Table:
-            </label>
-            <select
-              value={state.primaryTable}
-              onChange={(e) => actions.setPrimaryTable(e.target.value)}
-              style={{
-                padding: "7px 14px",
-                borderRadius: "8px",
-                backgroundColor: isDark ? "#0f172a" : "#f8fafc",
-                color: isDark ? "#f8fafc" : "#0f172a",
-                border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}`,
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                outline: "none",
-              }}
-            >
-              {tableNames.map((tbl) => (
-                <option key={tbl} value={tbl}>
-                  {tbl}
-                </option>
-              ))}
-            </select>
-            <span
-              style={{
-                fontSize: "0.75rem",
-                color: isDark ? "#64748b" : "#94a3b8",
-                fontWeight: 500,
-              }}
-            >
-              ({tableNames.length} tables available)
+              Primary Table ({tableNames.length}):
             </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {tableNames.slice(0, 18).map((tbl) => {
+                const isSelected = state.primaryTable === tbl;
+                return (
+                  <button
+                    key={tbl}
+                    type="button"
+                    onClick={() => actions.setPrimaryTable(tbl)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      border: isSelected
+                        ? "1px solid #3b82f6"
+                        : `1px solid ${isDark ? "rgba(255, 255, 255, 0.12)" : "#cbd5e1"}`,
+                      backgroundColor: isSelected
+                        ? "rgba(59, 130, 246, 0.2)"
+                        : isDark
+                          ? "#0f172a"
+                          : "#f8fafc",
+                      color: isSelected ? "#60a5fa" : isDark ? "#cbd5e1" : "#334155",
+                      fontSize: "0.76rem",
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {tbl}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div
@@ -1812,6 +4139,28 @@ function HeadlessDemo({
                 }}
               >
                 <tr>
+                  <th
+                    style={{
+                      width: "48px",
+                      minWidth: "48px",
+                      maxWidth: "52px",
+                      padding: "10px 10px",
+                      textAlign: "right",
+                      fontVariantNumeric: "tabular-nums",
+                      borderBottom: `1px solid ${
+                        isDark ? "rgba(255, 255, 255, 0.1)" : "#cbd5e1"
+                      }`,
+                      borderRight: `1px solid ${
+                        isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0"
+                      }`,
+                      color: isDark ? "#64748b" : "#94a3b8",
+                      fontWeight: 600,
+                      fontSize: "0.78rem",
+                      userSelect: "none",
+                    }}
+                  >
+                    #
+                  </th>
                   {results.columns.map((col) => (
                     <th
                       key={col}
@@ -1848,6 +4197,25 @@ function HeadlessDemo({
                       }`,
                     }}
                   >
+                    <td
+                      style={{
+                        width: "48px",
+                        minWidth: "48px",
+                        maxWidth: "52px",
+                        padding: "9px 10px",
+                        textAlign: "right",
+                        fontVariantNumeric: "tabular-nums",
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: "0.8rem",
+                        color: isDark ? "#64748b" : "#94a3b8",
+                        borderRight: `1px solid ${
+                          isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0"
+                        }`,
+                        userSelect: "none",
+                      }}
+                    >
+                      {idx + 1}
+                    </td>
                     {results.columns.map((col) => (
                       <td
                         key={col}

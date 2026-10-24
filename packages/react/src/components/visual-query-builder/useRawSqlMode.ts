@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { QuerySpec, SchemaSnapshot, SqlDialect } from "../../types";
+import { compileSpecToSql } from "../../utils/compiler";
 import { parseSqlToSpec } from "../../utils/sqlParser";
 import { wouldLoseRawSql, type RawSqlSnapshot } from "../../utils/rawSql";
 
@@ -37,6 +38,14 @@ export function useRawSqlMode({
     schema: null,
   });
 
+  snapshotRef.current = {
+    isRawMode,
+    rawSql,
+    compiledSql: compiled.sql,
+    dialect,
+    schema: compileSchema,
+  };
+
   const leaveRawMode = useCallback(() => {
     if (wouldLoseRawSql(snapshotRef.current)) setDiscardedRawSql(snapshotRef.current.rawSql);
     setIsRawMode(false);
@@ -57,8 +66,15 @@ export function useRawSqlMode({
   /** `null` while raw-SQL mode holds SQL that cannot be mapped to a spec (for example `SELECT`). */
   const getActiveSpec = useCallback((): QuerySpec | null => {
     if (isRawMode) {
+      if (wouldLoseRawSql(snapshotRef.current)) return null;
       const parsed = parseSqlToSpec(currentSql, parseSchema);
-      return parsed && parsed.table ? parsed : null;
+      if (!parsed || !parsed.table) return null;
+      return {
+        ...parsed,
+        columns: Array.isArray(parsed.columns)
+          ? parsed.columns.filter((c) => c !== "*")
+          : parsed.columns,
+      };
     }
     return compiled.spec;
   }, [isRawMode, currentSql, parseSchema, compiled.spec]);
@@ -77,13 +93,30 @@ export function useRawSqlMode({
     setRawSql(newSql);
 
     const parsed = parseSqlToSpec(newSql, parseSchema);
-    if (parsed && parsed.table) loadSpec(parsed);
+    if (parsed && parsed.table) {
+      loadSpec({
+        ...parsed,
+        columns: Array.isArray(parsed.columns)
+          ? parsed.columns.filter((c) => c !== "*")
+          : parsed.columns,
+      });
+    }
   };
 
   const handleSyncWithVisualCanvas = () => {
     const parsed = parseSqlToSpec(rawSql, parseSchema);
-    if (parsed && parsed.table) loadSpec(parsed);
-    setRawSql(compiled.sql);
+    if (parsed && parsed.table) {
+      const nextSpec: QuerySpec = {
+        ...parsed,
+        columns: Array.isArray(parsed.columns)
+          ? parsed.columns.filter((c) => c !== "*")
+          : parsed.columns,
+      };
+      loadSpec(nextSpec);
+      setRawSql(compileSpecToSql(nextSpec, dialect, compileSchema));
+    } else {
+      setRawSql(compiled.sql);
+    }
     setIsRawMode(false);
   };
 

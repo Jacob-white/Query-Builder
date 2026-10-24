@@ -468,8 +468,8 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
       let rightCol = j.right_col || "id";
       let leftTable = j.left_table;
 
-      if (Array.isArray(j.on) && j.on.length > 0) {
-        const firstOn = j.on[0];
+      const firstOn = Array.isArray(j.on) ? j.on[0] : j.on;
+      if (firstOn) {
         if (firstOn.left) {
           const lparts = firstOn.left.split(".");
           if (lparts.length > 1) {
@@ -684,8 +684,9 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
       const fullType = jType.endsWith(" JOIN") ? jType : `${jType} JOIN`;
       let leftTbl = j.left_table;
       let leftC = j.left_col;
-      if (!leftC && j.on?.[0]?.left) {
-        const lStr = j.on[0].left;
+      const firstOn = Array.isArray(j.on) ? j.on[0] : j.on;
+      if (!leftC && firstOn?.left) {
+        const lStr = firstOn.left;
         if (lStr.includes(".")) {
           const lastDot = lStr.lastIndexOf(".");
           if (!leftTbl) leftTbl = lStr.substring(0, lastDot);
@@ -695,8 +696,8 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
         }
       }
       let rightC = j.right_col;
-      if (!rightC && j.on?.[0]?.right) {
-        const rStr = j.on[0].right;
+      if (!rightC && firstOn?.right) {
+        const rStr = firstOn.right;
         rightC = rStr.includes(".") ? rStr.substring(rStr.lastIndexOf(".") + 1) : rStr;
       }
       return {

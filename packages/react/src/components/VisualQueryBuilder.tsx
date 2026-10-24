@@ -73,6 +73,18 @@ import {
 export type { VisualQueryBuilderRef, ExtendedVisualQueryBuilderProps };
 export { fastCanonicalSpec };
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export const VisualQueryBuilder = React.forwardRef<
   VisualQueryBuilderRef,
   ExtendedVisualQueryBuilderProps
@@ -89,6 +101,11 @@ export const VisualQueryBuilder = React.forwardRef<
     queryPlan,
     showPlanTab = false,
     showNlqBar = false,
+    hideNlqBar = false,
+    compactHeader = false,
+    hideInnerToolbar = false,
+    hideSummaryBar = false,
+    studioMode = false,
     nlqApiUrl,
     nlqDefaultProvider,
     showLiveExecutionBar = false,
@@ -265,7 +282,7 @@ export const VisualQueryBuilder = React.forwardRef<
     compiled,
     dialect,
     compileSchema: augmentedSchema,
-    parseSchema: normalizedSchema,
+    parseSchema: augmentedSchema || normalizedSchema,
     loadSpec: actions.loadSpec,
   });
   const { currentSql, getActiveSpec, leaveRawMode } = raw;
@@ -314,6 +331,7 @@ export const VisualQueryBuilder = React.forwardRef<
     activeTab,
     setActiveTab,
     dialect,
+    schema: augmentedSchema,
     liveExecutionApiUrl,
     liveExecutionConnectionId,
     onLiveExecutionSuccess,
@@ -346,10 +364,96 @@ export const VisualQueryBuilder = React.forwardRef<
 
   const handleApplyNlqSpec = (appliedSpec: QuerySpec) => {
     if (appliedSpec && appliedSpec.table) {
-      actions.loadSpec(appliedSpec);
+      let cleanedColumns = Array.isArray(appliedSpec.columns)
+        ? appliedSpec.columns.filter((col) => {
+            if (typeof col === "string") {
+              const trimmed = col.trim();
+              return trimmed !== "*" && !trimmed.endsWith(".*");
+            }
+            if (col && typeof col === "object" && "column" in col) {
+              const cName = String(col.column || "").trim();
+              const hasAgg = Boolean(col.agg || (col as Record<string, unknown>).aggregate);
+              if (!hasAgg && (cName === "*" || cName.endsWith(".*"))) {
+                return false;
+              }
+            }
+            return true;
+          })
+        : [];
+      const baseMeta = augmentedSchema?.tables?.[appliedSpec.table];
+      if (
+        baseMeta &&
+        baseMeta.columns.length > 4 &&
+        cleanedColumns.length >= baseMeta.columns.length &&
+        cleanedColumns.every(
+          (c) =>
+            typeof c === "string" ||
+            (c &&
+              typeof c === "object" &&
+              !c.agg &&
+              !(c as Record<string, unknown>).aggregate &&
+              !c.alias &&
+              !c.expression &&
+              !(c as Record<string, unknown>).dimension &&
+              !c.metric),
+        )
+      ) {
+        cleanedColumns = [];
+      }
+      const cleanedFilters = Array.isArray(appliedSpec.filters)
+        ? appliedSpec.filters.map((f) => {
+            if (f && typeof f.column === "string" && !f.tablePrefix && f.column.includes(".")) {
+              const lastDot = f.column.lastIndexOf(".");
+              return {
+                ...f,
+                tablePrefix: f.column.substring(0, lastDot),
+                column: f.column.substring(lastDot + 1),
+              };
+            }
+            return f;
+          })
+        : appliedSpec.filters;
+      const nextSpec: QuerySpec = {
+        ...appliedSpec,
+        columns: cleanedColumns,
+        ...(cleanedFilters ? { filters: cleanedFilters } : {}),
+      };
+      actions.loadSpec(nextSpec);
       leaveRawMode();
+      void handleRunQuery(nextSpec);
     }
   };
+
+  const nlqSuggestions = useMemo<string[] | undefined>(() => {
+    const namedTables = allTables.filter((t) => Boolean(t && typeof t.name === "string"));
+    if (!namedTables.length) return undefined;
+    const hasDemoTables = namedTables.some((t) =>
+      ["customers", "orders", "users"].includes(t.name.toLowerCase()),
+    );
+    if (hasDemoTables) return undefined;
+    const userTables = namedTables.filter(
+      (t) => !t.name.startsWith("django_") && !t.name.startsWith("auth_permission"),
+    );
+    const primary =
+      userTables.find((t) => t.name === primaryTable) || userTables[0] || namedTables[0];
+    const secondary =
+      userTables.find((t) => t.name !== primary.name) || primary;
+    const cols = primary.columns || [];
+    const sortCol =
+      cols.find((c) => /aum|amount|total|score|count|date|created|id/i.test(c?.name || ""))?.name ||
+      cols[0]?.name ||
+      "id";
+    const groupCol =
+      cols.find((c) => /status|type|state|category|tier|role/i.test(c?.name || ""))?.name ||
+      cols[1]?.name ||
+      cols[0]?.name ||
+      "id";
+    return [
+      `Top 10 ${primary.name} sorted by ${sortCol} descending`,
+      `Count ${primary.name} grouped by ${groupCol}`,
+      `Show ${secondary.name} limit 25`,
+    ];
+  }, [allTables, primaryTable]);
 
   // Expose imperative VisualQueryBuilderRef methods
   useImperativeHandle(
@@ -365,8 +469,8 @@ export const VisualQueryBuilder = React.forwardRef<
         leaveRawMode();
         actions.reset();
       },
-      execute: async () => {
-        return handleRunQuery();
+      execute: async (overrideSpec?: QuerySpec) => {
+        return handleRunQuery(overrideSpec);
       },
       undo: () => {
         leaveRawMode();
@@ -408,29 +512,115 @@ export const VisualQueryBuilder = React.forwardRef<
     setActiveTab(tab);
   };
 
+  const handleReorderResultColumns = useCallback(
+    (newCols: string[]) => {
+      if (newCols.length <= 1) return;
+      if (state.orderedProjectionKeys.length === 0) {
+        if (activeTables.length === 0) return;
+        const orderedTables = [
+          ...activeTables.filter((t) => t.name === primaryTable),
+          ...activeTables.filter((t) => t.name !== primaryTable),
+        ];
+        const usedKeys = new Set<string>();
+        const nextSelected: typeof state.selectedColumns = {};
+        const nextKeys: string[] = [];
+        for (const col of newCols) {
+          if (col.includes(".")) {
+            const dotIdx = col.indexOf(".");
+            const tbl = col.slice(0, dotIdx);
+            const colName = col.slice(dotIdx + 1);
+            const key = `${tbl}.${colName}`;
+            if (!usedKeys.has(key)) {
+              usedKeys.add(key);
+              nextSelected[key] = { table: tbl as typeof primaryTable, name: colName };
+              nextKeys.push(key);
+              continue;
+            }
+          }
+          const matchedTable = orderedTables.find((t) =>
+            t.columns.some((c) => c.name === col && !usedKeys.has(`${t.name}.${c.name}`)),
+          );
+          if (matchedTable) {
+            const key = `${matchedTable.name}.${col}`;
+            usedKeys.add(key);
+            nextSelected[key] = { table: matchedTable.name as typeof primaryTable, name: col };
+            nextKeys.push(key);
+          }
+        }
+        if (nextKeys.length > 1) {
+          leaveRawMode();
+          actions.setSelectedColumns(nextSelected, nextKeys);
+        }
+        return;
+      }
+      if (state.orderedProjectionKeys.length <= 1) return;
+      const remaining = [...state.orderedProjectionKeys];
+      const reordered: string[] = [];
+      for (const col of newCols) {
+        // Priority 1: exact alias match (when aliased) or exact table.col key match
+        let matchIdx = remaining.findIndex((key) => {
+          const sel = state.selectedColumns[key];
+          const effectiveAlias = sel?.alias?.trim();
+          return effectiveAlias ? effectiveAlias === col : key === col;
+        });
+        // Priority 2: unaliased column name match
+        if (matchIdx === -1) {
+          matchIdx = remaining.findIndex((key) => {
+            const sel = state.selectedColumns[key];
+            const effectiveAlias = sel?.alias?.trim();
+            if (effectiveAlias) return false;
+            return key.endsWith(`.${col}`) || sel?.name === col;
+          });
+        }
+        // Priority 3: fallback to raw name/suffix match
+        if (matchIdx === -1) {
+          matchIdx = remaining.findIndex((key) => {
+            const sel = state.selectedColumns[key];
+            return key === col || key.endsWith(`.${col}`) || sel?.alias === col || sel?.name === col;
+          });
+        }
+        if (matchIdx !== -1) {
+          reordered.push(remaining[matchIdx]);
+          remaining.splice(matchIdx, 1);
+        }
+      }
+      reordered.push(...remaining);
+      leaveRawMode();
+      actions.setOrderedProjectionKeys(reordered);
+    },
+    [state, activeTables, primaryTable, leaveRawMode, actions],
+  );
+
+  const shouldHideInnerToolbar = hideInnerToolbar || studioMode;
+  const shouldHideSummaryBar = hideSummaryBar || studioMode;
+
   return (
     <QueryBuilderContext.Provider value={contextValue}>
       <div
         data-qb="root"
         data-qb-mode={activeTab}
         data-qb-unstyled={unstyled ? "true" : undefined}
+        data-qb-studio={studioMode ? "true" : undefined}
         className={cx(className, classNames?.root)}
         style={rootStyle(activeTheme, cssVars, unstyled)}
       >
         {/* Top Controls Bar */}
         <div
           data-qb="top-bar"
-          className={cx(classNames?.header)}
+          data-qb-hidden={shouldHideInnerToolbar ? "true" : undefined}
+          className={cx(classNames?.header, shouldHideInnerToolbar ? "qb-sr-only" : undefined)}
           style={
-            unstyled
-              ? undefined
-              : {
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                  paddingBottom: "12px",
-                  borderBottom: `1px solid ${activeTheme.colors.border}`,
-                }
+            shouldHideInnerToolbar
+              ? SR_ONLY_STYLE
+              : unstyled
+                ? undefined
+                : {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: compactHeader ? "6px" : "10px",
+                    paddingBottom: compactHeader ? "8px" : "12px",
+                    borderBottom: `1px solid ${activeTheme.colors.border}`,
+                  }
           }
         >
           {/* Tier 1: Primary Mode Tabs & Execution CTA */}
@@ -443,7 +633,7 @@ export const VisualQueryBuilder = React.forwardRef<
                     justifyContent: "space-between",
                     alignItems: "center",
                     flexWrap: "wrap",
-                    gap: "10px",
+                    gap: compactHeader ? "6px" : "10px",
                   }
             }
           >
@@ -500,30 +690,46 @@ export const VisualQueryBuilder = React.forwardRef<
             />
           </div>
 
-          {/* Tier 2: Secondary Schema & Tools Ribbon */}
+          {/* Tier 2: Secondary Schema & Tools Ribbon + Compact Safety Badge */}
           <div
             data-qb="secondary-tools-ribbon"
             style={
               unstyled
                 ? undefined
                 : {
-                    display: "flex",
+                    display:
+                      compactHeader &&
+                      safety.valid &&
+                      !isFeatureVisible("window_functions") &&
+                      !isFeatureVisible("schema_tools")
+                        ? "none"
+                        : "flex",
                     alignItems: "center",
+                    justifyContent: "space-between",
                     gap: "8px",
                     flexWrap: "wrap",
-                    paddingTop: "2px",
+                    paddingTop: compactHeader ? "0px" : "2px",
                   }
             }
           >
-            <ToolButtons
+            <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <ToolButtons
+                unstyled={unstyled}
+                theme={activeTheme}
+                showWindowFunctions={isFeatureVisible("window_functions")}
+                windowFunctionCount={windowFunctions.length}
+                onOpenWindowFunctions={() => setIsWfBuilderOpen(true)}
+                showSchemaTools={isFeatureVisible("schema_tools")}
+                onOpenSchemaExplorer={() => setIsSchemaExplorerOpen(true)}
+                onOpenErd={() => setIsErdOpen(true)}
+              />
+            </div>
+            <SafetyBadge
+              valid={safety.valid}
+              message={safety.message}
+              dialect={dialect}
               unstyled={unstyled}
               theme={activeTheme}
-              showWindowFunctions={isFeatureVisible("window_functions")}
-              windowFunctionCount={windowFunctions.length}
-              onOpenWindowFunctions={() => setIsWfBuilderOpen(true)}
-              showSchemaTools={isFeatureVisible("schema_tools")}
-              onOpenSchemaExplorer={() => setIsSchemaExplorerOpen(true)}
-              onOpenErd={() => setIsErdOpen(true)}
             />
           </div>
         </div>
@@ -540,14 +746,6 @@ export const VisualQueryBuilder = React.forwardRef<
             theme={activeTheme}
           />
         )}
-
-        <SafetyBadge
-          valid={safety.valid}
-          message={safety.message}
-          dialect={dialect}
-          unstyled={unstyled}
-          theme={activeTheme}
-        />
 
         {executionError && (
           <ExecutionErrorBanner message={executionError} unstyled={unstyled} theme={activeTheme} />
@@ -577,7 +775,7 @@ export const VisualQueryBuilder = React.forwardRef<
         {activeTab === "visual" && (
           <VisualPanel
             nlq={
-              showNlqBar
+              showNlqBar && !hideNlqBar
                 ? {
                     schema: augmentedSchema,
                     currentSpec: compiled.spec,
@@ -585,6 +783,8 @@ export const VisualQueryBuilder = React.forwardRef<
                     apiUrl: nlqApiUrl,
                     defaultProvider: nlqDefaultProvider,
                     dialect,
+                    suggestions: nlqSuggestions,
+                    showSchemaPills: false,
                     unstyled,
                   }
                 : undefined
@@ -602,6 +802,14 @@ export const VisualQueryBuilder = React.forwardRef<
               limit: state.limit,
               windowFunctions,
               compiledSql: compiled.sql,
+              currentSql,
+              rawSql: raw.rawSql,
+              isRawMode: raw.isRawMode,
+              onRawSqlChange: raw.handleRawSqlChange,
+              onSyncWithVisualCanvas: raw.handleSyncWithVisualCanvas,
+              isAdvancedMode,
+              hideSummaryBar: shouldHideSummaryBar,
+              studioMode,
               onToggleColumn: canvasHandlers.handleToggleColumn,
               onRemoveTable: canvasHandlers.handleRemoveTable,
               onAddTableToCanvas: canvasHandlers.handleAddTableToCanvas,
@@ -623,7 +831,23 @@ export const VisualQueryBuilder = React.forwardRef<
               onAddJoin: canvasHandlers.handleAddJoinToTable,
               onReorderProjections: (keys) => {
                 leaveRawMode();
-                actions.setOrderedProjectionKeys(keys);
+                if (keys.some((k) => !state.selectedColumns[k])) {
+                  const nextSelected = { ...state.selectedColumns };
+                  for (const k of keys) {
+                    if (!nextSelected[k]) {
+                      const dotIdx = k.indexOf(".");
+                      if (dotIdx !== -1) {
+                        nextSelected[k] = {
+                          table: k.slice(0, dotIdx) as typeof primaryTable,
+                          name: k.slice(dotIdx + 1),
+                        };
+                      }
+                    }
+                  }
+                  actions.setSelectedColumns(nextSelected, keys);
+                } else {
+                  actions.setOrderedProjectionKeys(keys);
+                }
               },
               onFiltersChange: canvasHandlers.setFilters,
               onSortsChange: canvasHandlers.setSorts,
@@ -659,6 +883,7 @@ export const VisualQueryBuilder = React.forwardRef<
               dockTab,
               onSelectDockTab: (t) => setDockTab(t),
               onExpandFullTab: (t) => setActiveTab(t),
+              onReorderColumns: handleReorderResultColumns,
               cellRenderers,
               classNames,
               unstyled,
@@ -688,6 +913,7 @@ export const VisualQueryBuilder = React.forwardRef<
             results={queryResults}
             isLoading={isRunning}
             unstyled={unstyled}
+            onReorderColumns={handleReorderResultColumns}
             cellRenderers={cellRenderers}
             classNames={classNames}
           />

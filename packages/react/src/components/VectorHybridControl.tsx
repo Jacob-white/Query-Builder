@@ -17,6 +17,18 @@ export interface VectorHybridControlProps {
 
 export type SearchMode = "off" | "vector" | "hybrid";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
   vectorSearch,
   hybridSearch,
@@ -272,10 +284,10 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
               background: "rgba(15, 23, 42, 0.6)",
               borderRadius: "8px",
               border: "1px solid rgba(255, 255, 255, 0.08)",
-              padding: "12px",
+              padding: mode === "off" ? "8px 12px" : "12px",
               display: "flex",
               flexDirection: "column",
-              gap: "12px",
+              gap: mode === "off" ? "6px" : "12px",
             }
       }
     >
@@ -396,19 +408,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   setVectorColumn(nextCol);
                   emitChange({ vectorColumn: nextCol });
                 }}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "100%",
-                        background: "#0f172a",
-                        color: "#e2e8f0",
-                        border: "1px solid rgba(255, 255, 255, 0.15)",
-                        borderRadius: "4px",
-                        padding: "4px 8px",
-                        fontSize: "12px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 {allColumns.map((col) => (
                   <option key={col.label} value={col.column}>
@@ -416,6 +416,40 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   </option>
                 ))}
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {allColumns.slice(0, 12).map((col) => {
+                    const isSelected = vectorColumn === col.column;
+                    return (
+                      <button
+                        key={col.label}
+                        type="button"
+                        aria-label={`Select vector column ${col.label}`}
+                        onClick={() => {
+                          setVectorColumn(col.column);
+                          emitChange({ vectorColumn: col.column });
+                        }}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: "5px",
+                          fontSize: "11px",
+                          fontWeight: isSelected ? 600 : 500,
+                          cursor: "pointer",
+                          border: isSelected
+                            ? "1px solid rgba(56, 189, 248, 0.7)"
+                            : "1px solid rgba(255, 255, 255, 0.12)",
+                          background: isSelected
+                            ? "rgba(56, 189, 248, 0.18)"
+                            : "rgba(15, 23, 42, 0.7)",
+                          color: isSelected ? "#38bdf8" : "#94a3b8",
+                        }}
+                      >
+                        {col.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
@@ -446,24 +480,51 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   setMetric(nextMetric);
                   emitChange({ metric: nextMetric });
                 }}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "100%",
-                        background: "#0f172a",
-                        color: "#e2e8f0",
-                        border: "1px solid rgba(255, 255, 255, 0.15)",
-                        borderRadius: "4px",
-                        padding: "4px 8px",
-                        fontSize: "12px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="cosine">Cosine Distance (&lt;=&gt;)</option>
                 <option value="l2">Euclidean / L2 (&lt;-&gt;)</option>
                 <option value="inner_product">Inner Product (&lt;#&gt;)</option>
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {(
+                    [
+                      { value: "cosine", label: "Cosine (<=>)" },
+                      { value: "l2", label: "L2 (<->)" },
+                      { value: "inner_product", label: "Inner (<#>)" },
+                    ] as const
+                  ).map((opt) => {
+                    const isSelected = metric === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setMetric(opt.value);
+                          emitChange({ metric: opt.value });
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "5px",
+                          fontSize: "11px",
+                          fontWeight: isSelected ? 600 : 500,
+                          cursor: "pointer",
+                          border: isSelected
+                            ? "1px solid rgba(99, 102, 241, 0.7)"
+                            : "1px solid rgba(255, 255, 255, 0.12)",
+                          background: isSelected
+                            ? "rgba(99, 102, 241, 0.22)"
+                            : "rgba(15, 23, 42, 0.7)",
+                          color: isSelected ? "#a5b4fc" : "#94a3b8",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -768,23 +829,49 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       setFusion(nextFusion);
                       emitChange({ fusion: nextFusion });
                     }}
-                    style={
-                      unstyled
-                        ? undefined
-                        : {
-                            width: "100%",
-                            background: "#0f172a",
-                            color: "#e2e8f0",
-                            border: "1px solid rgba(255, 255, 255, 0.15)",
-                            borderRadius: "4px",
-                            padding: "4px 8px",
-                            fontSize: "12px",
-                          }
-                    }
+                    style={unstyled ? undefined : SR_ONLY_STYLE}
                   >
                     <option value="rrf">Reciprocal Rank Fusion (RRF)</option>
                     <option value="linear">Linear Combination (Weighted)</option>
                   </select>
+                  {!unstyled && (
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      {(
+                        [
+                          { value: "rrf", label: "RRF (Rank)" },
+                          { value: "linear", label: "Linear (Weighted)" },
+                        ] as const
+                      ).map((opt) => {
+                        const isSelected = fusion === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setFusion(opt.value);
+                              emitChange({ fusion: opt.value });
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "5px",
+                              fontSize: "11px",
+                              fontWeight: isSelected ? 600 : 500,
+                              cursor: "pointer",
+                              border: isSelected
+                                ? "1px solid rgba(192, 132, 252, 0.7)"
+                                : "1px solid rgba(255, 255, 255, 0.12)",
+                              background: isSelected
+                                ? "rgba(192, 132, 252, 0.22)"
+                                : "rgba(15, 23, 42, 0.7)",
+                              color: isSelected ? "#e9d5ff" : "#94a3b8",
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {fusion === "rrf" ? (

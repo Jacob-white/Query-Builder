@@ -19,6 +19,8 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   queryPlan?: QueryPlanNode;
   showPlanTab?: boolean;
   showNlqBar?: boolean;
+  hideNlqBar?: boolean;
+  compactHeader?: boolean;
   nlqApiUrl?: string;
   nlqDefaultProvider?: NlqProviderName;
   showLiveExecutionBar?: boolean;
@@ -30,4 +32,7 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
   initialWindowFunctions?: WindowFunctionSpec[];
   showPipelineTab?: boolean;
   semanticModels?: SemanticModel[];
+  hideInnerToolbar?: boolean;
+  hideSummaryBar?: boolean;
+  studioMode?: boolean;
 };

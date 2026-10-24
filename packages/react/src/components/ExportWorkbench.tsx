@@ -2,6 +2,18 @@ import React, { useState, useMemo, useEffect } from "react";
 import type { QuerySpec, SqlDialect, ExportFormat } from "../types";
 import { useSqlCompiler } from "../hooks/useSqlCompiler";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface ExportWorkbenchProps {
   spec: QuerySpec | Partial<QuerySpec>;
   sql?: string;
@@ -298,56 +310,71 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
           }
         >
           {activeTab === "sql" && (
-            <select
-              aria-label="Select Dialect for compiled SQL"
-              data-qb="playground-dialect-select"
-              value={activeDialect}
-              onChange={(e) => handleDialectChange(e.target.value as SqlDialect)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#38bdf8",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "4px 8px",
-                      fontSize: "0.75rem",
-                      fontWeight: 600,
-                    }
-              }
-            >
-              <option value="postgres">PostgreSQL</option>
-              <option value="mysql">MySQL</option>
-              <option value="sqlite">SQLite</option>
-              <option value="snowflake">Snowflake</option>
-              <option value="bigquery">BigQuery</option>
-              <option value="duckdb">DuckDB</option>
-              <option value="mssql">SQL Server</option>
-              <option value="clickhouse">ClickHouse</option>
-            </select>
+            <>
+              <select
+                aria-label="Select Dialect for compiled SQL"
+                data-qb="playground-dialect-select"
+                value={activeDialect}
+                onChange={(e) => handleDialectChange(e.target.value as SqlDialect)}
+                style={unstyled ? undefined : SR_ONLY_STYLE}
+              >
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="sqlite">SQLite</option>
+                <option value="snowflake">Snowflake</option>
+                <option value="bigquery">BigQuery</option>
+                <option value="duckdb">DuckDB</option>
+                <option value="mssql">SQL Server</option>
+                <option value="clickhouse">ClickHouse</option>
+              </select>
+              {!unstyled && (
+                <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                  {(
+                    [
+                      { v: "postgres", l: "Postgres" },
+                      { v: "mysql", l: "MySQL" },
+                      { v: "sqlite", l: "SQLite" },
+                      { v: "snowflake", l: "Snowflake" },
+                      { v: "bigquery", l: "BigQuery" },
+                      { v: "duckdb", l: "DuckDB" },
+                      { v: "mssql", l: "MSSQL" },
+                      { v: "clickhouse", l: "ClickHouse" },
+                    ] as const
+                  ).map((d) => {
+                    const isSelected = activeDialect === d.v;
+                    return (
+                      <button
+                        key={d.v}
+                        type="button"
+                        onClick={() => handleDialectChange(d.v)}
+                        style={{
+                          padding: "3px 7px",
+                          borderRadius: "5px",
+                          fontSize: "0.7rem",
+                          fontWeight: isSelected ? 700 : 500,
+                          cursor: "pointer",
+                          border: isSelected ? "1px solid #38bdf8" : "1px solid #334155",
+                          background: isSelected ? "rgba(56, 189, 248, 0.2)" : "#1e293b",
+                          color: isSelected ? "#38bdf8" : "#94a3b8",
+                        }}
+                      >
+                        {d.l}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
 
           {activeTab === "export" && (
-            <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
               <select
                 aria-label="Select Export Format"
                 data-qb="export-format-select"
                 value={exportFormat}
                 onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        background: "#1e293b",
-                        color: "#38bdf8",
-                        border: "1px solid #475569",
-                        borderRadius: "6px",
-                        padding: "4px 8px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="csv">CSV (.csv)</option>
                 <option value="json">JSON (.json)</option>
@@ -356,6 +383,41 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
                 <option value="arrow">Arrow Stream (.arrow)</option>
                 <option value="excel">Excel (.xlsx)</option>
               </select>
+              {!unstyled && (
+                <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                  {(
+                    [
+                      { v: "csv", l: "CSV" },
+                      { v: "json", l: "JSON" },
+                      { v: "jsonl", l: "JSONL" },
+                      { v: "parquet", l: "Parquet" },
+                      { v: "arrow", l: "Arrow" },
+                      { v: "excel", l: "Excel" },
+                    ] as const
+                  ).map((fmt) => {
+                    const isSelected = exportFormat === fmt.v;
+                    return (
+                      <button
+                        key={fmt.v}
+                        type="button"
+                        onClick={() => setExportFormat(fmt.v)}
+                        style={{
+                          padding: "3px 7px",
+                          borderRadius: "5px",
+                          fontSize: "0.7rem",
+                          fontWeight: isSelected ? 700 : 500,
+                          cursor: "pointer",
+                          border: isSelected ? "1px solid #38bdf8" : "1px solid #334155",
+                          background: isSelected ? "rgba(56, 189, 248, 0.2)" : "#1e293b",
+                          color: isSelected ? "#38bdf8" : "#94a3b8",
+                        }}
+                      >
+                        {fmt.l}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <button
                 type="button"

@@ -162,3 +162,48 @@ def test_prompt_builders_and_exemplars() -> None:
     explain_p = build_explain_prompt({"table": "orders", "limit": 10}, dialect="sqlite")
     assert "Target Dialect: sqlite" in explain_p
     assert '"table": "orders"' in explain_p
+
+
+def test_multishot_prompt_and_mock_refinement() -> None:
+    from query_builder.nlq.service import NlqService
+
+    current_spec = {
+        "table": "users",
+        "columns": ["id", "email"],
+        "joins": [],
+        "filters": [],
+        "filter_join": "AND",
+        "order_by": [],
+        "limit": 50,
+        "distinct": False,
+    }
+    history = [
+        {
+            "prompt": "Show users",
+            "spec": current_spec,
+            "explanation": "Selects users.",
+        }
+    ]
+    multi_p = build_user_prompt(
+        "Only active users limit 10",
+        current_spec=current_spec,
+        history=history,
+    )
+    assert "CONVERSATION HISTORY" in multi_p
+    assert "CURRENT ACTIVE QUERYSPEC ON CANVAS" in multi_p
+    assert '"Only active users limit 10"' in multi_p
+
+    service = NlqService()
+    res = service.translate(
+        NlqTranslateRequest(
+            prompt="where status = active sorted by email descending limit 10",
+            provider="mock",
+            current_spec=current_spec,
+            history=history,
+        )
+    )
+    assert res.spec["table"] == "users"
+    assert res.spec["limit"] == 10
+    assert any(f.get("column") == "status" for f in res.spec.get("filters", []))
+    assert len(res.follow_ups) > 0
+    assert "follow_ups" in res.to_dict()

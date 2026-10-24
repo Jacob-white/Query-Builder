@@ -476,4 +476,68 @@ describe("useNlqQuery hook", () => {
     expect(result.current.confidence).toBe(0.98);
     expect(result.current.explanation).toBe("Done");
   });
+
+  it("supports multi-shot conversational turns, sends current_spec & history, and restores previous turns", async () => {
+    const onApply = vi.fn();
+    const specTurn1: QuerySpec = { ...mockQuerySpec, table: "users", limit: 50 };
+    const specTurn2: QuerySpec = { ...mockQuerySpec, table: "users", limit: 10 };
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          spec: specTurn1,
+          confidence: 0.94,
+          explanation: "Turn 1 explanation",
+          steps: ["Step 1"],
+          follow_ups: ["Limit to 10", "Sort by name"],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          spec: specTurn2,
+          confidence: 0.97,
+          explanation: "Turn 2 explanation",
+          steps: ["Step 2"],
+          follow_ups: ["Only active"],
+        }),
+      });
+    global.fetch = fetchMock;
+
+    const { result } = renderHook(() => useNlqQuery({ onApply }));
+
+    await act(async () => {
+      await result.current.translatePrompt("Show users");
+    });
+
+    expect(result.current.turns).toHaveLength(1);
+    expect(result.current.followUps).toEqual(["Limit to 10", "Sort by name"]);
+
+    await act(async () => {
+      await result.current.translatePrompt("Limit to 10");
+    });
+
+    expect(result.current.turns).toHaveLength(2);
+    expect(result.current.followUps).toEqual(["Only active"]);
+
+    // Verify 2nd request included current_spec and history from Turn 1
+    const secondCallBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(secondCallBody.current_spec).toEqual(specTurn1);
+    expect(secondCallBody.history).toHaveLength(1);
+    expect(secondCallBody.history[0].prompt).toBe("Show users");
+
+    // Restore back to Turn 0
+    let restored: QuerySpec | null = null;
+    act(() => {
+      restored = result.current.restoreTurn(0);
+    });
+    expect(restored).toEqual(specTurn1);
+    expect(result.current.turns).toHaveLength(1);
+    expect(result.current.explanation).toBe("Turn 1 explanation");
+    expect(onApply).toHaveBeenLastCalledWith(specTurn1);
+  });
 });

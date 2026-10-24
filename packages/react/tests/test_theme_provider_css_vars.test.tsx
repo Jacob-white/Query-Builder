@@ -59,6 +59,10 @@ describe("ThemeProvider CSS Variables & Theme Isolation", () => {
     expect(vars["--qb-mode"]).toBe("light");
     expect(vars["--qb-color-background"]).toBe(lightTheme.colors.background);
     expect(vars["--qb-color-primary"]).toBe(lightTheme.colors.primary);
+    expect(vars["--qb-color-active-text"]).toBe("#0369a1");
+    expect(vars["--qb-color-confirmed-text"]).toBe("#047857");
+    expect(vars["--qb-color-logical-text"]).toBe("#1d4ed8");
+    expect(vars["--qb-color-warn-text"]).toBe("#b45309");
   });
 
   it("ThemeProvider exposes cssVariables in ThemeContextValue", () => {

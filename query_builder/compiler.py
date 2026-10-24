@@ -93,6 +93,9 @@ ALLOWED_COLUMN_KEYS = {
     "aggregate",
     "alias",
     "table",
+    "tablePrefix",
+    "table_prefix",
+    "distinct",
     "time_grain",
     "grain",
     "metric",
@@ -2608,7 +2611,20 @@ class QueryCompiler:
             hvg = dict(raw_hvg.__dict__) if hasattr(raw_hvg, "__dict__") else raw_hvg
 
             col_ref = hvg.get("column")
-            agg = str(hvg.get("agg", hvg.get("aggregate", "count"))).lower()
+            raw_agg = hvg.get("agg") or hvg.get("aggregate")
+            if col_ref and col_ref != "*":
+                for c in self.spec.get("columns", []):
+                    c_dict = dict(c.__dict__) if hasattr(c, "__dict__") else c
+                    if (
+                        isinstance(c_dict, dict)
+                        and c_dict.get("alias") == col_ref
+                        and c_dict.get("column")
+                    ):
+                        col_ref = c_dict["column"]
+                        if not raw_agg and c_dict.get("agg"):
+                            raw_agg = c_dict["agg"]
+                        break
+            agg = str(raw_agg or "count").lower()
             op = str(hvg.get("op", hvg.get("operator", "gt"))).lower()
             val = hvg.get("value")
 

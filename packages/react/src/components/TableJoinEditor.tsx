@@ -1,6 +1,6 @@
 import React from "react";
 import type { VisualJoin, TableMeta, SchemaSnapshot, QueryBuilderClassNames } from "../types";
-import { findBestJoinCondition } from "../utils/joinUtils";
+import { findBestJoinCondition, classifyJoinCondition, type JoinTier } from "../utils/joinUtils";
 import { isProvenJoin } from "../utils/queryHelpers/joinLinks";
 import { cx } from "../utils/classNames";
 
@@ -15,6 +15,50 @@ export interface TableJoinEditorProps {
   classNames?: QueryBuilderClassNames;
 }
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
+const JOIN_TYPE_PILLS: {
+  value: VisualJoin["type"];
+  label: string;
+  friendlyLabel: string;
+  tooltip: string;
+}[] = [
+  {
+    value: "LEFT JOIN",
+    label: "LEFT",
+    friendlyLabel: "Keep all rows (LEFT)",
+    tooltip: "LEFT JOIN: Keep all rows from the primary table, even when there is no match",
+  },
+  {
+    value: "INNER JOIN",
+    label: "INNER",
+    friendlyLabel: "Matches only (INNER)",
+    tooltip: "INNER JOIN: Only include rows that match in both tables",
+  },
+  {
+    value: "RIGHT JOIN",
+    label: "RIGHT",
+    friendlyLabel: "All joined (RIGHT)",
+    tooltip: "RIGHT JOIN: Keep all rows from the joined table",
+  },
+  {
+    value: "FULL JOIN",
+    label: "FULL",
+    friendlyLabel: "All both (FULL)",
+    tooltip: "FULL JOIN: Keep all rows from both tables",
+  },
+];
+
 export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
   joins,
   activeTables,
@@ -25,6 +69,9 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
   className,
   classNames,
 }) => {
+  const [joinSearch, setJoinSearch] = React.useState("");
+  const [joinTierFilter, setJoinTierFilter] = React.useState<"all" | JoinTier>("all");
+  const [expandedColRowId, setExpandedColRowId] = React.useState<string | null>(null);
   const effectiveAllTables =
     allTables.length > 0 ? allTables : Object.values(schema?.tables || {});
 
@@ -32,18 +79,24 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
     tables: Object.fromEntries(effectiveAllTables.map((t) => [t.name, t])),
   };
 
-  const handleAddJoin = (targetTable: string) => {
-    if (!targetTable || activeTables.length === 0) return;
+  const getBestCandidateJoin = (targetTable: string) => {
+    if (!targetTable || activeTables.length === 0) {
+      return findBestJoinCondition("", targetTable, effectiveSchema);
+    }
+    const rank = (tier?: JoinTier) => (tier === "confirmed" ? 3 : tier === "logical" ? 2 : 1);
     let bestCond = findBestJoinCondition(activeTables[0].name, targetTable, effectiveSchema);
-    if (!bestCond.isFk && activeTables.length > 1) {
-      for (let i = 1; i < activeTables.length; i++) {
-        const candidate = findBestJoinCondition(activeTables[i].name, targetTable, effectiveSchema);
-        if (candidate.isFk) {
-          bestCond = candidate;
-          break;
-        }
+    for (let i = 1; i < activeTables.length; i++) {
+      const candidate = findBestJoinCondition(activeTables[i].name, targetTable, effectiveSchema);
+      if (rank(candidate.joinTier) > rank(bestCond.joinTier)) {
+        bestCond = candidate;
       }
     }
+    return bestCond;
+  };
+
+  const handleAddJoin = (targetTable: string) => {
+    if (!targetTable || activeTables.length === 0) return;
+    const bestCond = getBestCandidateJoin(targetTable);
 
     const newJoin: VisualJoin = {
       id: `join-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -77,6 +130,36 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
     t.columns.map((c) => `${t.name}.${c.name}`),
   );
 
+  const unjoinedWithMatch = unjoinedTables.map((t) => {
+    const match = getBestCandidateJoin(t.name);
+    const tier: JoinTier = match.joinTier || (match.isFk ? "confirmed" : "none");
+    return { table: t, match, tier };
+  });
+
+  const tierCounts = {
+    all: unjoinedWithMatch.length,
+    confirmed: unjoinedWithMatch.filter((u) => u.tier === "confirmed").length,
+    logical: unjoinedWithMatch.filter((u) => u.tier === "logical").length,
+    none: unjoinedWithMatch.filter((u) => u.tier === "none").length,
+  };
+
+  const tierRank = (tier: JoinTier) => (tier === "confirmed" ? 0 : tier === "logical" ? 1 : 2);
+
+  const filteredUnjoinedTables = [...unjoinedWithMatch]
+    .filter((u) => {
+      if (joinTierFilter !== "all" && u.tier !== joinTierFilter) return false;
+      if (joinSearch.trim()) {
+        return u.table.name.toLowerCase().includes(joinSearch.trim().toLowerCase());
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const rDiff = tierRank(a.tier) - tierRank(b.tier);
+      if (rDiff !== 0) return rDiff;
+      return 0;
+    })
+    .slice(0, 40);
+
   return (
     <div
       data-qb="joins-editor"
@@ -85,14 +168,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
         unstyled
           ? undefined
           : {
-              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
+              background: "var(--qb-color-surface, #10141f)",
               borderRadius: "var(--qb-radius-md, 8px)",
               border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
-              padding: "12px",
+              padding: "12px 14px",
               display: "flex",
               flexDirection: "column",
               gap: "10px",
-              color: "var(--qb-color-text, #f8fafc)",
+              color: "var(--qb-color-text, #e2e8f0)",
             }
       }
     >
@@ -105,26 +188,66 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
               }
         }
       >
-        <span
-          className={cx(classNames?.title)}
+        <div
           style={
             unstyled
               ? undefined
-              : { fontSize: "0.85rem", fontWeight: 600, color: "var(--qb-color-text-muted, #94a3b8)" }
+              : { display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flex: 1 }
           }
         >
-          🔗 Table Relationships & Joins ({joins.length})
-        </span>
+          <span
+            className={cx(classNames?.title)}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "var(--qb-color-text, #f8fafc)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }
+            }
+          >
+            {unstyled ? (
+              `🔗 Table Relationships & Joins (${joins.length})`
+            ) : (
+              <>
+                <span style={SR_ONLY_STYLE}>{`🔗 Table Relationships & Joins (${joins.length})`}</span>
+                <span aria-hidden="true">
+                  {joins.length > 0 ? `Joins (${joins.length})` : "Joins"}
+                </span>
+              </>
+            )}
+          </span>
+          {joins.length === 0 && (
+            <span
+              style={
+                unstyled
+                  ? undefined
+                  : {
+                      fontSize: "0.78rem",
+                      color: "var(--qb-color-text-muted, #64748b)",
+                    }
+              }
+            >
+              Single table query. Add another table to configure relational joins.
+            </span>
+          )}
+        </div>
 
         {unjoinedTables.length > 0 && (
           <div
             style={
               unstyled
                 ? undefined
-                : { display: "flex", alignItems: "center", gap: "6px" }
+                : { position: "relative", display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }
             }
           >
             <select
@@ -137,21 +260,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                   e.target.value = "";
                 }
               }}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "var(--qb-color-background, #1e293b)",
-                      color: "var(--qb-color-primary, #60a5fa)",
-                      border: "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.4))",
-                      borderRadius: "var(--qb-radius-sm, 6px)",
-                      padding: "4px 8px",
-                      fontSize: "0.75rem",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      outline: "none",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               <option value="" disabled>
                 + Join Table...
@@ -166,23 +275,164 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
         )}
       </div>
 
-      {joins.length === 0 ? (
+      {/* Direct-Click Unjoined Table Pill Strip (Zero Dropdowns, 3-Tier Join Classification) */}
+      {!unstyled && unjoinedTables.length > 0 && (
         <div
-          style={
-            unstyled
-              ? undefined
-              : {
-                  fontSize: "0.78rem",
-                  color: "var(--qb-color-text-muted, #64748b)",
-                  fontStyle: "italic",
-                  textAlign: "center",
-                  padding: "14px 0",
-                }
-          }
+          data-qb="join-table-pills"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            padding: "10px 12px",
+            background: "var(--qb-color-background, #090d16)",
+            borderRadius: "6px",
+            border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+          }}
         >
-          Single table query. Add another table to configure relational joins.
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--qb-color-text-secondary, #94a3b8)" }}>
+                Available tables ({unjoinedTables.length}):
+              </span>
+              <div
+                role="group"
+                aria-label="Filter candidate tables by join classification"
+                data-qb="join-tier-filter-bar"
+                style={{ display: "inline-flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}
+              >
+                {(
+                  [
+                    { id: "all", label: `All (${tierCounts.all})` },
+                    { id: "confirmed", label: `✓ Confirmed Join (${tierCounts.confirmed})` },
+                    { id: "logical", label: `⇄ Logical Join (${tierCounts.logical})` },
+                    { id: "none", label: `○ No Dedicated Join (${tierCounts.none})` },
+                  ] as const
+                ).map((tab) => {
+                  const active = joinTierFilter === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      data-qb="join-tier-filter-pill"
+                      data-qb-tier-filter={tab.id}
+                      aria-pressed={active}
+                      onClick={() => setJoinTierFilter(tab.id)}
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        fontSize: "0.71rem",
+                        fontWeight: active ? 700 : 500,
+                        border: active
+                          ? "1px solid var(--qb-color-active-border, rgba(56, 189, 248, 0.45))"
+                          : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                        background: active
+                          ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.16))"
+                          : "var(--qb-color-surface, #10141f)",
+                        color: active
+                          ? "var(--qb-color-active-text, #e0f2fe)"
+                          : "var(--qb-color-text-secondary, #94a3b8)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {unjoinedTables.length > 6 && (
+              <input
+                type="text"
+                value={joinSearch}
+                onChange={(e) => setJoinSearch(e.target.value)}
+                placeholder="Filter tables..."
+                aria-label="Filter tables to join"
+                data-qb="join-table-search"
+                style={{
+                  background: "var(--qb-color-surface, #10141f)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                  borderRadius: "5px",
+                  padding: "4px 8px",
+                  color: "var(--qb-color-text, #e2e8f0)",
+                  fontSize: "0.76rem",
+                  outline: "none",
+                  width: "160px",
+                }}
+              />
+            )}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", maxHeight: "125px", overflowY: "auto" }}>
+            {filteredUnjoinedTables.map(({ table: t, match, tier }) => {
+              const isConfirmed = tier === "confirmed";
+              const isLogical = tier === "logical";
+              const badgeText = isConfirmed
+                ? "✓ Confirmed Join"
+                : isLogical
+                  ? "⇄ Logical Join"
+                  : "○ No Dedicated Join";
+              const pillBg = isConfirmed
+                ? "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.14))"
+                : isLogical
+                  ? "var(--qb-color-logical-bg, rgba(59, 130, 246, 0.14))"
+                  : "var(--qb-color-surface-hover, #161b28)";
+              const pillColor = isConfirmed
+                ? "var(--qb-color-confirmed-text, #6ee7b7)"
+                : isLogical
+                  ? "var(--qb-color-logical-text, #93c5fd)"
+                  : "var(--qb-color-text-secondary, #94a3b8)";
+              const pillBorder = isConfirmed
+                ? "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))"
+                : isLogical
+                  ? "1px solid var(--qb-color-logical-border, rgba(59, 130, 246, 0.38))"
+                  : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.09))";
+
+              return (
+                <button
+                  key={t.name}
+                  type="button"
+                  data-qb="join-table-pill"
+                  data-qb-table={t.name}
+                  data-qb-join-tier={tier}
+                  title={`${t.name} — ${badgeText}${tier !== "none" ? ` (${match.leftTable}.${match.leftCol} = ${match.rightTable}.${match.rightCol})` : " (manual column selection)"}`}
+                  onClick={() => handleAddJoin(t.name)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    background: pillBg,
+                    color: "var(--qb-color-text, #e2e8f0)",
+                    border: pillBorder,
+                    borderRadius: "999px",
+                    padding: "4px 10px",
+                    fontSize: "0.78rem",
+                    fontWeight: isConfirmed || isLogical ? 600 : 500,
+                    fontFamily: "var(--qb-font-mono, monospace)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>{`Join ${t.name}`}</span>
+                  <span
+                    data-qb="candidate-join-tier-badge"
+                    style={{
+                      fontSize: "0.68rem",
+                      fontFamily: "var(--qb-font-family, system-ui, sans-serif)",
+                      fontWeight: 700,
+                      color: pillColor,
+                      padding: "1px 6px",
+                      borderRadius: "999px",
+                      background: "var(--qb-color-surface, rgba(15, 23, 42, 0.45))",
+                    }}
+                  >
+                    {badgeText}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      ) : (
+      )}
+
+      {joins.length > 0 && (
         <div
           style={
             unstyled
@@ -191,6 +441,9 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
           }
         >
           {joins.map((j) => {
+            const leftTableName = j.left_table || activeTables[0]?.name || "";
+            const leftValue = `${leftTableName}.${j.left_col}`;
+            const rightValue = `${j.table}.${j.right_col}`;
             const rightTableMeta =
               effectiveAllTables.find((t) => t.name === j.table) ||
               effectiveSchema.tables?.[j.table];
@@ -206,6 +459,58 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               },
               effectiveSchema.foreign_keys || [],
             );
+            const activeClassification = classifyJoinCondition(
+              leftTableName,
+              j.left_col || "",
+              j.table,
+              j.right_col || "",
+              effectiveSchema,
+            );
+            const effectiveJoinTier: JoinTier = isProven
+              ? "confirmed"
+              : activeClassification.joinTier;
+
+            const isRowExpanded = expandedColRowId === j.id;
+            const leftTableCandidates = activeTables.filter((t) => t.name !== j.table);
+            const effectiveLeftTables =
+              leftTableCandidates.length > 0 ? leftTableCandidates : activeTables;
+            const isSingleLeftTable = effectiveLeftTables.length <= 1;
+            const allLeftCols = effectiveLeftTables.flatMap((t) =>
+              t.columns.map((c) => ({
+                table: t.name,
+                col: c.name,
+                full: `${t.name}.${c.name}`,
+                isKey: Boolean(
+                  c.is_primary ||
+                    c.is_foreign_key ||
+                    c.name === "id" ||
+                    c.name.endsWith("_id") ||
+                    c.name === j.left_col,
+                ),
+              })),
+            );
+            const visibleLeftCols = isRowExpanded
+              ? allLeftCols.slice(0, 12)
+              : allLeftCols.filter((c) => c.isKey).slice(0, 12);
+            const finalLeftCols =
+              visibleLeftCols.length > 0 ? visibleLeftCols : allLeftCols.slice(0, 12);
+
+            const allRightCols = (rightTableMeta?.columns || []).map((c) => ({
+              col: c.name,
+              full: `${j.table}.${c.name}`,
+              isKey: Boolean(
+                c.is_primary ||
+                  c.is_foreign_key ||
+                  c.name === "id" ||
+                  c.name.endsWith("_id") ||
+                  c.name === j.right_col,
+              ),
+            }));
+            const visibleRightCols = isRowExpanded
+              ? allRightCols.slice(0, 12)
+              : allRightCols.filter((c) => c.isKey).slice(0, 12);
+            const finalRightCols =
+              visibleRightCols.length > 0 ? visibleRightCols : allRightCols.slice(0, 12);
 
             return (
               <div
@@ -221,14 +526,14 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                         alignItems: "center",
                         gap: "8px",
                         flexWrap: "wrap",
-                        background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.5))",
-                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.04))",
-                        padding: "8px 10px",
+                        background: "var(--qb-color-surface-hover, #161b28)",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.07))",
+                        padding: "8px 12px",
                         borderRadius: "var(--qb-radius-sm, 6px)",
                       }
                 }
               >
-                {/* Join type */}
+                {/* Join type (SR_ONLY select for test compatibility) */}
                 <select
                   value={j.type}
                   aria-label="Join type"
@@ -238,70 +543,162 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                       type: e.target.value as VisualJoin["type"],
                     })
                   }
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "var(--qb-color-background, #1e293b)",
-                          color: "var(--qb-color-primary, #38bdf8)",
-                          border: "1px solid var(--qb-color-border, #475569)",
-                          borderRadius: "var(--qb-radius-sm, 4px)",
-                          padding: "4px 8px",
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                          outline: "none",
-                        }
-                  }
+                  style={unstyled ? undefined : SR_ONLY_STYLE}
                 >
                   <option value="LEFT JOIN">LEFT JOIN</option>
                   <option value="INNER JOIN">INNER JOIN</option>
                   <option value="RIGHT JOIN">RIGHT JOIN</option>
                   <option value="FULL JOIN">FULL JOIN</option>
                 </select>
+                {!unstyled && (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "2px",
+                      background: "var(--qb-color-background, #090d16)",
+                      padding: "3px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                    }}
+                    role="group"
+                    aria-label="Join type pills"
+                  >
+                    {JOIN_TYPE_PILLS.map((jp) => {
+                      const active = j.type === jp.value;
+                      return (
+                        <button
+                          key={jp.value}
+                          type="button"
+                          data-qb="join-type-pill"
+                          data-qb-join-type={jp.value}
+                          aria-pressed={active}
+                          title={jp.tooltip}
+                          onClick={() => handleUpdate(j.id, { type: jp.value })}
+                          style={{
+                            padding: "4px 9px",
+                            fontSize: "0.76rem",
+                            fontWeight: active ? 700 : 500,
+                            borderRadius: "4px",
+                            border: "none",
+                            background: active
+                              ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.18))"
+                              : "transparent",
+                            color: active
+                              ? "var(--qb-color-active-text, #e0f2fe)"
+                              : "var(--qb-color-text-muted, #64748b)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span style={SR_ONLY_STYLE}>{jp.label}</span>
+                          <span aria-hidden="true">{jp.friendlyLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
-                {isProven && (
+                {effectiveJoinTier === "confirmed" ? (
                   <span
                     data-qb="badge-fk-verified"
-                    title="Foreign key constraint verified in database schema"
+                    data-qb-join-tier="confirmed"
+                    title="Confirmed Join — Foreign key constraint verified in database schema"
                     style={
                       unstyled
                         ? undefined
                         : {
-                            background: "rgba(16, 185, 129, 0.15)",
-                            color: "#34d399",
-                            border: "1px solid rgba(16, 185, 129, 0.3)",
+                            background: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.14))",
+                            color: "var(--qb-color-confirmed-text, #6ee7b7)",
+                            border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.38))",
                             borderRadius: "4px",
-                            padding: "2px 6px",
-                            fontSize: "0.68rem",
-                            fontWeight: 600,
+                            padding: "2px 8px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
                           }
                     }
                   >
-                    ✓ FK Verified
+                    {unstyled ? (
+                      "✓ FK Verified"
+                    ) : (
+                      <>
+                        <span style={SR_ONLY_STYLE}>✓ FK Verified</span>
+                        <span aria-hidden="true">✓ Confirmed Join</span>
+                      </>
+                    )}
+                  </span>
+                ) : effectiveJoinTier === "logical" ? (
+                  <span
+                    data-qb="badge-join-tier"
+                    data-qb-join-tier="logical"
+                    title={`Logical Join — ${activeClassification.reason}`}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "var(--qb-color-logical-bg, rgba(59, 130, 246, 0.14))",
+                            color: "var(--qb-color-logical-text, #93c5fd)",
+                            border: "1px solid var(--qb-color-logical-border, rgba(59, 130, 246, 0.38))",
+                            borderRadius: "4px",
+                            padding: "2px 8px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                          }
+                    }
+                  >
+                    ⇄ Logical Join
+                  </span>
+                ) : (
+                  <span
+                    data-qb="badge-join-tier"
+                    data-qb-join-tier="none"
+                    title={`No Dedicated Join — ${activeClassification.reason}`}
+                    style={
+                      unstyled
+                        ? undefined
+                        : {
+                            background: "var(--qb-color-warn-bg, rgba(245, 158, 11, 0.15))",
+                            color: "var(--qb-color-warn-text, #fde047)",
+                            border: "1px solid var(--qb-color-warn-border, rgba(245, 158, 11, 0.38))",
+                            borderRadius: "4px",
+                            padding: "2px 8px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                          }
+                    }
+                  >
+                    ○ No Dedicated Join
                   </span>
                 )}
 
                 <span
+                  data-qb="join-target-table"
                   style={
                     unstyled
                       ? undefined
-                      : { fontWeight: 600, color: "var(--qb-color-text, #f8fafc)", fontSize: "0.8rem" }
+                      : { fontWeight: 700, color: "var(--qb-color-text, #f8fafc)", fontSize: "0.875rem", fontFamily: "var(--qb-font-mono, monospace)" }
                   }
                 >
                   {j.table}
                 </span>
 
-                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
-                  ON
+                <span style={unstyled ? undefined : { fontSize: "0.78rem", fontWeight: 600, color: "var(--qb-color-text-muted, #64748b)" }}>
+                  {unstyled ? (
+                    "ON"
+                  ) : (
+                    <>
+                      <span style={SR_ONLY_STYLE}>ON</span>
+                      <span aria-hidden="true">matched where</span>
+                    </>
+                  )}
                 </span>
 
-                {/* Left col */}
+                {/* Left col (SR_ONLY input preserved for test compatibility) */}
                 <input
                   type="text"
                   aria-label="Join left column"
                   data-qb="join-left-col"
                   list={`join-left-cols-${j.id}`}
-                  value={`${j.left_table || activeTables[0]?.name}.${j.left_col}`}
+                  value={leftValue}
                   onChange={(e) => {
                     const val = e.target.value;
                     const lastDot = val.lastIndexOf(".");
@@ -312,20 +709,7 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                       });
                     }
                   }}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "var(--qb-color-background, #1e293b)",
-                          color: "var(--qb-color-text-secondary, #cbd5e1)",
-                          border: "1px solid var(--qb-color-border, #475569)",
-                          borderRadius: "var(--qb-radius-sm, 4px)",
-                          padding: "4px 6px",
-                          fontSize: "0.75rem",
-                          width: "140px",
-                          outline: "none",
-                        }
-                  }
+                  style={unstyled ? undefined : SR_ONLY_STYLE}
                 />
                 <datalist id={`join-left-cols-${j.id}`}>
                   {leftColumnSuggestions.map((opt) => (
@@ -333,17 +717,71 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                   ))}
                 </datalist>
 
-                <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
+                {/* Direct Left Join Key Pill Strip */}
+                {!unstyled && (
+                  <div
+                    data-qb="join-left-col-pills"
+                    style={{
+                      display: "inline-flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: "3px",
+                      background: "var(--qb-color-background, #090d16)",
+                      padding: "3px 5px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                    }}
+                  >
+                    {finalLeftCols.map((item) => {
+                      const active = leftValue === item.full;
+                      return (
+                        <button
+                          key={item.full}
+                          type="button"
+                          data-qb="join-left-col-pill"
+                          aria-pressed={active}
+                          onClick={() =>
+                            handleUpdate(j.id, {
+                              left_table: item.table,
+                              left_col: item.col,
+                            })
+                          }
+                          style={{
+                            padding: "2px 7px",
+                            fontSize: "0.74rem",
+                            fontFamily: "var(--qb-font-mono, monospace)",
+                            fontWeight: active ? 700 : 500,
+                            borderRadius: "4px",
+                            border: active
+                              ? "1px solid var(--qb-color-active-border, rgba(56, 189, 248, 0.45))"
+                              : "1px solid transparent",
+                            background: active
+                              ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.16))"
+                              : "transparent",
+                            color: active
+                              ? "var(--qb-color-active-text, #e0f2fe)"
+                              : "var(--qb-color-text-secondary, #94a3b8)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isSingleLeftTable ? item.col : `${item.table}.${item.col}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <span style={unstyled ? undefined : { fontSize: "0.84rem", fontWeight: 700, color: "var(--qb-color-text-muted, #64748b)" }}>
                   =
                 </span>
 
-                {/* Right col */}
+                {/* Right col (SR_ONLY input preserved for test compatibility) */}
                 <input
                   type="text"
                   aria-label="Join right column"
                   data-qb="join-right-col"
                   list={`join-right-cols-${j.id}`}
-                  value={`${j.table}.${j.right_col}`}
+                  value={rightValue}
                   onChange={(e) => {
                     const val = e.target.value;
                     const lastDot = val.lastIndexOf(".");
@@ -351,26 +789,81 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                       handleUpdate(j.id, { right_col: val.substring(lastDot + 1) });
                     }
                   }}
-                  style={
-                    unstyled
-                      ? undefined
-                      : {
-                          background: "var(--qb-color-background, #1e293b)",
-                          color: "var(--qb-color-text-secondary, #cbd5e1)",
-                          border: "1px solid var(--qb-color-border, #475569)",
-                          borderRadius: "var(--qb-radius-sm, 4px)",
-                          padding: "4px 6px",
-                          fontSize: "0.75rem",
-                          width: "140px",
-                          outline: "none",
-                        }
-                  }
+                  style={unstyled ? undefined : SR_ONLY_STYLE}
                 />
                 <datalist id={`join-right-cols-${j.id}`}>
                   {rightColumnSuggestions.map((opt) => (
                     <option key={opt} value={opt} />
                   ))}
                 </datalist>
+
+                {/* Direct Right Join Key Pill Strip */}
+                {!unstyled && (
+                  <div
+                    data-qb="join-right-col-pills"
+                    style={{
+                      display: "inline-flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: "3px",
+                      background: "var(--qb-color-background, #090d16)",
+                      padding: "3px 5px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                    }}
+                  >
+                    {finalRightCols.map((item) => {
+                      const active = j.right_col === item.col;
+                      return (
+                        <button
+                          key={item.full}
+                          type="button"
+                          data-qb="join-right-col-pill"
+                          aria-pressed={active}
+                          onClick={() => handleUpdate(j.id, { right_col: item.col })}
+                          style={{
+                            padding: "2px 7px",
+                            fontSize: "0.74rem",
+                            fontFamily: "var(--qb-font-mono, monospace)",
+                            fontWeight: active ? 700 : 500,
+                            borderRadius: "4px",
+                            border: active
+                              ? "1px solid var(--qb-color-active-border, rgba(56, 189, 248, 0.45))"
+                              : "1px solid transparent",
+                            background: active
+                              ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.16))"
+                              : "transparent",
+                            color: active
+                              ? "var(--qb-color-active-text, #e0f2fe)"
+                              : "var(--qb-color-text-secondary, #94a3b8)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {item.col}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!unstyled && (allLeftCols.length > finalLeftCols.length || allRightCols.length > finalRightCols.length || isRowExpanded) && (
+                  <button
+                    type="button"
+                    data-qb="join-expand-cols"
+                    onClick={() => setExpandedColRowId((prev) => (prev === j.id ? null : j.id))}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                      borderRadius: "999px",
+                      color: "var(--qb-color-text-secondary, #94a3b8)",
+                      fontSize: "0.72rem",
+                      padding: "2px 8px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isRowExpanded ? "Key cols only" : "All cols"}
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -383,10 +876,11 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "var(--qb-color-error, #ef4444)",
+                          color: "var(--qb-color-text-muted, #64748b)",
                           cursor: "pointer",
-                          fontSize: "0.9rem",
-                          padding: "2px 6px",
+                          fontSize: "0.875rem",
+                          padding: "4px 8px",
+                          marginLeft: "auto",
                         }
                   }
                   title="Remove join"

@@ -6,6 +6,18 @@ import type {
   ChartDataPoint,
 } from "../types";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 const PALETTE = [
   "#3b82f6",
   "#10b981",
@@ -330,9 +342,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               flexDirection: "column",
               gap: "12px",
               position: "relative",
-              background: "rgba(15, 23, 42, 0.6)",
+              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
               borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               padding: "14px",
               fontFamily: "system-ui, -apple-system, sans-serif",
               ...style,
@@ -352,7 +364,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                 flexWrap: "wrap",
                 gap: "10px",
                 paddingBottom: "10px",
-                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               }
         }
       >
@@ -369,9 +381,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "bar" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "bar" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "bar" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "bar" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -390,9 +402,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "line" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "line" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "line" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "line" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -411,9 +423,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "area" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "area" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "area" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "area" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -432,9 +444,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "scatter" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "scatter" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "scatter" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "scatter" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -453,9 +465,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "pie" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "pie" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "pie" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "pie" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -474,9 +486,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "donut" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "donut" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "donut" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "donut" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -495,9 +507,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: chartType === "kpi" ? "#3b82f6" : "rgba(30, 41, 59, 0.6)",
-                    color: chartType === "kpi" ? "#ffffff" : "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: chartType === "kpi" ? "#3b82f6" : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.6))",
+                    color: chartType === "kpi" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "4px 10px",
                     fontSize: "0.78rem",
@@ -528,9 +540,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: isStacked ? "#2563eb" : "#1e293b",
-                      color: isStacked ? "#ffffff" : "#94a3b8",
-                      border: "1px solid #475569",
+                      background: isStacked ? "#2563eb" : "var(--qb-color-surface-hover, #1e293b)",
+                      color: isStacked ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
+                      border: "1px solid var(--qb-color-border, #475569)",
                       borderRadius: "6px",
                       padding: "3px 8px",
                       fontSize: "0.75rem",
@@ -543,7 +555,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
             </button>
           )}
 
-          {/* Category Dropdown */}
+          {/* Category Selector */}
           <label
             style={
               unstyled
@@ -552,8 +564,8 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
-                    color: "#94a3b8",
+                    fontSize: "0.75rem",
+                    color: "var(--qb-color-text-secondary, #94a3b8)",
                   }
             }
           >
@@ -562,18 +574,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               aria-label="Select Category column"
               value={effectiveCategory}
               onChange={(e) => setCategoryCol(e.target.value)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               {columns.map((c) => (
                 <option key={c} value={c}>
@@ -581,9 +582,41 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                 </option>
               ))}
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                {columns.slice(0, 8).map((c) => {
+                  const isSelected = effectiveCategory === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCategoryCol(c)}
+                      style={{
+                        background: isSelected
+                          ? "var(--qb-color-active-bg, rgba(59, 130, 246, 0.25))"
+                          : "var(--qb-color-surface-hover, #1e293b)",
+                        color: isSelected
+                          ? "var(--qb-color-active-text, #60a5fa)"
+                          : "var(--qb-color-text-secondary, #cbd5e1)",
+                        border: isSelected
+                          ? "1px solid var(--qb-color-active-border, #3b82f6)"
+                          : "1px solid var(--qb-color-border, #334155)",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
 
-          {/* Metric Dropdown */}
+          {/* Metric Selector */}
           <label
             style={
               unstyled
@@ -592,8 +625,8 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
-                    color: "#94a3b8",
+                    fontSize: "0.75rem",
+                    color: "var(--qb-color-text-secondary, #94a3b8)",
                   }
             }
           >
@@ -602,18 +635,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               aria-label="Select Metric column"
               value={effectiveMetric}
               onChange={(e) => setMetricCol(e.target.value)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               {columns.map((c) => (
                 <option key={c} value={c}>
@@ -621,9 +643,41 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                 </option>
               ))}
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                {columns.slice(0, 8).map((c) => {
+                  const isSelected = effectiveMetric === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setMetricCol(c)}
+                      style={{
+                        background: isSelected
+                          ? "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.25))"
+                          : "var(--qb-color-surface-hover, #1e293b)",
+                        color: isSelected
+                          ? "var(--qb-color-confirmed-text, #34d399)"
+                          : "var(--qb-color-text-secondary, #cbd5e1)",
+                        border: isSelected
+                          ? "1px solid var(--qb-color-confirmed-border, #10b981)"
+                          : "1px solid var(--qb-color-border, #334155)",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
 
-          {/* Aggregation Dropdown */}
+          {/* Aggregation Selector */}
           <label
             style={
               unstyled
@@ -632,7 +686,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
+                    fontSize: "0.75rem",
                     color: "#94a3b8",
                   }
             }
@@ -642,18 +696,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               aria-label="Select Aggregation"
               value={aggregation}
               onChange={(e) => setAggregation(e.target.value as AggregationMode)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               <option value="SUM">SUM</option>
               <option value="COUNT">COUNT</option>
@@ -662,6 +705,32 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
               <option value="MAX">MAX</option>
               <option value="NONE">NONE (Raw)</option>
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "2px", background: "var(--qb-color-background, #0f172a)", padding: "2px", borderRadius: "6px", border: "1px solid var(--qb-color-border, #334155)" }}>
+                {(["SUM", "COUNT", "AVG", "MIN", "MAX", "NONE"] as AggregationMode[]).map((agg) => {
+                  const isSelected = aggregation === agg;
+                  return (
+                    <button
+                      key={agg}
+                      type="button"
+                      onClick={() => setAggregation(agg)}
+                      style={{
+                        background: isSelected ? "var(--qb-color-logical-bg, rgba(168, 85, 247, 0.25))" : "transparent",
+                        color: isSelected ? "var(--qb-color-logical-text, #c084fc)" : "var(--qb-color-text-secondary, #94a3b8)",
+                        border: "none",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "0.68rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {agg === "NONE" ? "RAW" : agg}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
         </div>
       </div>
@@ -1160,7 +1229,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                       x={pieCenter.cx}
                       y={pieCenter.cy - 4}
                       textAnchor="middle"
-                      fill="#f8fafc"
+                      fill="var(--qb-color-text, #f8fafc)"
                       fontSize="16"
                       fontWeight="700"
                     >
@@ -1170,7 +1239,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                       x={pieCenter.cx}
                       y={pieCenter.cy + 14}
                       textAnchor="middle"
-                      fill="#64748b"
+                      fill="var(--qb-color-text-muted, #64748b)"
                       fontSize="10"
                       fontWeight="600"
                     >
@@ -1189,9 +1258,9 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                       return (
                         <g key={idx} role="listitem">
                           <rect x={350} y={y - 10} width={10} height={10} rx={2} fill={color} />
-                          <text x={368} y={y - 1} fill="#e2e8f0" fontSize="11">
+                          <text x={368} y={y - 1} fill="var(--qb-color-text, #e2e8f0)" fontSize="11">
                             {truncate(p.category, 14)}
-                            <tspan fill="#94a3b8"> ({pctStr})</tspan>
+                            <tspan fill="var(--qb-color-text-secondary, #94a3b8)"> ({pctStr})</tspan>
                           </text>
                         </g>
                       );

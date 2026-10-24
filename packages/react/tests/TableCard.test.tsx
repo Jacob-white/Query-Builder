@@ -123,4 +123,68 @@ describe("TableCard", () => {
     fireEvent.click(removeBtn);
     expect(handleRemoveTable).toHaveBeenCalledOnce();
   });
+
+  it("reorders column rows via HTML5 drag-and-drop and calls onReorderColumns", () => {
+    const handleReorder = vi.fn();
+    const { container } = render(
+      <TableCard
+        table={mockTable}
+        selectedColumns={{}}
+        onToggleColumn={vi.fn()}
+        onReorderColumns={handleReorder}
+      />
+    );
+
+    const rowsBefore = Array.from(
+      container.querySelectorAll('[data-qb="table-card-column-row"]'),
+    ).map((r) => r.getAttribute("data-qb-column"));
+    expect(rowsBefore).toEqual(["id", "email", "created_at"]);
+
+    const rows = container.querySelectorAll('[data-qb="table-card-column-row"]');
+    expect(rows[2].getAttribute("draggable")).toBe("true");
+
+    fireEvent.dragStart(rows[2]);
+    fireEvent.dragEnter(rows[0]);
+    fireEvent.dragOver(rows[0]);
+    fireEvent.drop(rows[0]);
+    fireEvent.dragEnd(rows[2]);
+
+    expect(handleReorder).toHaveBeenCalledWith("users", ["created_at", "id", "email"]);
+
+    const rowsAfter = Array.from(
+      container.querySelectorAll('[data-qb="table-card-column-row"]'),
+    ).map((r) => r.getAttribute("data-qb-column"));
+    expect(rowsAfter).toEqual(["created_at", "id", "email"]);
+  });
+
+  it("supports clean focus and keyboard navigation (Space/Enter) on column rows", () => {
+    const handleToggle = vi.fn();
+    const { container } = render(
+      <TableCard
+        table={mockTable}
+        selectedColumns={{}}
+        onToggleColumn={handleToggle}
+      />
+    );
+
+    const rows = container.querySelectorAll('[data-qb="table-card-column-row"]');
+    expect(rows[1].getAttribute("tabindex")).toBe("0");
+
+    // Focus row
+    fireEvent.focus(rows[1]);
+    expect((rows[1] as HTMLElement).style.outline).toContain("#38bdf8");
+
+    // Press Space
+    fireEvent.keyDown(rows[1], { key: " " });
+    expect(handleToggle).toHaveBeenCalledWith("email");
+
+    // Press Enter
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(handleToggle).toHaveBeenCalledWith("email");
+
+    // Blur row
+    fireEvent.blur(rows[1]);
+    expect((rows[1] as HTMLElement).style.outline).toBe("");
+  });
 });
+

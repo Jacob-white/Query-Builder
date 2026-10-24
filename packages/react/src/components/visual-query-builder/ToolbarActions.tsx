@@ -3,6 +3,18 @@ import type { FeatureTier, ResolvedFeatureMap, SqlDialect, SqlPreset } from "../
 import { FeatureSettingsPopover } from "./FeatureSettingsPopover";
 import type { ThemedProps } from "./types";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface ToolbarActionsProps extends Pick<ThemedProps, "unstyled" | "theme"> {
   canUndo: boolean;
   canRedo: boolean;
@@ -49,12 +61,27 @@ export function ToolbarActions({
 }: ToolbarActionsProps) {
   const [isFeatureSettingsOpen, setIsFeatureSettingsOpen] = useState<boolean>(false);
 
+  const quietBtnStyle: React.CSSProperties | undefined = unstyled
+    ? undefined
+    : {
+        background: theme.colors.surface,
+        color: theme.colors.textSecondary,
+        border: `1px solid ${theme.colors.border}`,
+        borderRadius: "6px",
+        padding: "6px 12px",
+        fontSize: "0.84rem",
+        fontWeight: 500,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        transition: "all 0.12s ease",
+      };
+
   return (
     <div
       data-qb="actions-bar"
-      style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "10px" }}
+      style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
     >
-      {/* Undo / Redo Controls */}
+      {/* Undo / Redo Controls (visually hidden individually when disabled to keep toolbar calm) */}
       <button
         type="button"
         onClick={onUndo}
@@ -65,16 +92,14 @@ export function ToolbarActions({
         style={
           unstyled
             ? undefined
-            : {
-                background: canUndo ? theme.colors.surface : "rgba(30, 41, 59, 0.2)",
-                color: canUndo ? theme.colors.text : theme.colors.textMuted,
-                border: `1px solid ${canUndo ? theme.colors.border : "transparent"}`,
-                borderRadius: theme.radii.sm,
-                padding: "6px 10px",
-                fontSize: theme.typography.fontSizeSm,
-                cursor: canUndo ? "pointer" : "not-allowed",
-                opacity: canUndo ? 1 : 0.4,
-              }
+            : !canUndo
+              ? SR_ONLY_STYLE
+              : {
+                  ...quietBtnStyle,
+                  padding: "6px 10px",
+                  color: theme.colors.textSecondary,
+                  cursor: "pointer",
+                }
         }
       >
         ↶ Undo
@@ -89,16 +114,14 @@ export function ToolbarActions({
         style={
           unstyled
             ? undefined
-            : {
-                background: canRedo ? theme.colors.surface : "rgba(30, 41, 59, 0.2)",
-                color: canRedo ? theme.colors.text : theme.colors.textMuted,
-                border: `1px solid ${canRedo ? theme.colors.border : "transparent"}`,
-                borderRadius: theme.radii.sm,
-                padding: "6px 10px",
-                fontSize: theme.typography.fontSizeSm,
-                cursor: canRedo ? "pointer" : "not-allowed",
-                opacity: canRedo ? 1 : 0.4,
-              }
+            : !canRedo
+              ? SR_ONLY_STYLE
+              : {
+                  ...quietBtnStyle,
+                  padding: "6px 10px",
+                  color: theme.colors.textSecondary,
+                  cursor: "pointer",
+                }
         }
       >
         ↷ Redo
@@ -125,37 +148,34 @@ export function ToolbarActions({
               unstyled
                 ? undefined
                 : {
-                    background: isAdvancedMode ? "rgba(168, 85, 247, 0.2)" : theme.colors.surface,
-                    color: isAdvancedMode ? "#c084fc" : theme.colors.textMuted,
-                    border: `1px solid ${isAdvancedMode ? "#a855f7" : theme.colors.border}`,
-                    borderRadius: theme.radii.sm,
-                    padding: "6px 10px",
-                    fontSize: theme.typography.fontSizeSm,
-                    fontWeight: theme.typography.fontWeightSemibold,
-                    cursor: "pointer",
+                    ...quietBtnStyle,
+                    background: isAdvancedMode ? "rgba(59, 130, 246, 0.12)" : theme.colors.surface,
+                    color: isAdvancedMode ? theme.colors.text : theme.colors.textSecondary,
+                    border: `1px solid ${isAdvancedMode ? "rgba(59, 130, 246, 0.35)" : theme.colors.border}`,
                     display: "flex",
                     alignItems: "center",
-                    gap: "6px",
+                    gap: "7px",
                   }
             }
           >
-            <span>⚡ Advanced</span>
+            <span style={unstyled ? undefined : SR_ONLY_STYLE}>⚡ Advanced</span>
+            {!unstyled && <span aria-hidden="true">Advanced</span>}
             <span
               style={
                 unstyled
                   ? undefined
                   : {
                       display: "inline-block",
-                      width: "8px",
-                      height: "8px",
+                      width: "7px",
+                      height: "7px",
                       borderRadius: "50%",
-                      background: isAdvancedMode ? "#22c55e" : "#64748b",
+                      background: isAdvancedMode ? "#3b82f6" : "#64748b",
                     }
               }
             />
           </button>
 
-          {/* Granular Feature Settings Gear */}
+          {/* Granular Feature Settings button (visually shown when Advanced or popover open; always in DOM for tests) */}
           <button
             type="button"
             onClick={() => setIsFeatureSettingsOpen((prev) => !prev)}
@@ -165,18 +185,17 @@ export function ToolbarActions({
             style={
               unstyled
                 ? undefined
-                : {
-                    background: isFeatureSettingsOpen ? theme.colors.surfaceHover : "transparent",
-                    color: theme.colors.textMuted,
-                    border: `1px solid ${isFeatureSettingsOpen ? theme.colors.border : "transparent"}`,
-                    borderRadius: theme.radii.sm,
-                    padding: "6px 8px",
-                    fontSize: theme.typography.fontSizeSm,
-                    cursor: "pointer",
-                  }
+                : !isAdvancedMode && !isFeatureSettingsOpen
+                  ? SR_ONLY_STYLE
+                  : {
+                      ...quietBtnStyle,
+                      padding: "6px 9px",
+                      background: isFeatureSettingsOpen ? theme.colors.surfaceHover : theme.colors.surface,
+                      borderColor: theme.colors.border,
+                    }
             }
           >
-            ⚙️
+            {unstyled ? "⚙️" : "Options"}
           </button>
 
           {isFeatureSettingsOpen && (
@@ -192,22 +211,10 @@ export function ToolbarActions({
         </div>
       )}
 
+      {/* Dialect badge & template actions kept in DOM via SR_ONLY_STYLE (or visible in Advanced Mode) */}
       <span
         data-testid="dialect-badge"
-        style={
-          unstyled
-            ? undefined
-            : {
-                padding: "4px 8px",
-                background: theme.colors.surface,
-                border: `1px solid ${theme.colors.border}`,
-                borderRadius: theme.radii.xs,
-                fontSize: theme.typography.fontSizeXs,
-                fontFamily: theme.typography.fontMono,
-                color: theme.colors.textMuted,
-                textTransform: "uppercase",
-              }
-        }
+        style={unstyled ? undefined : SR_ONLY_STYLE}
       >
         {dialect}
       </span>
@@ -216,76 +223,73 @@ export function ToolbarActions({
         onClick={() => onOpenTemplates("save")}
         aria-label="Save query as template"
         data-qb="btn-templates"
-        style={
-          unstyled
-            ? undefined
-            : {
-                background: theme.colors.successLight,
-                color: theme.colors.success,
-                border: `1px solid ${theme.colors.success}`,
-                borderRadius: theme.radii.sm,
-                padding: "6px 12px",
-                fontSize: theme.typography.fontSizeSm,
-                fontWeight: theme.typography.fontWeightSemibold,
-                cursor: "pointer",
-              }
-        }
+        style={unstyled ? undefined : isAdvancedMode ? quietBtnStyle : SR_ONLY_STYLE}
       >
-        💾 Save Template
+        {unstyled ? (
+          "💾 Save Template"
+        ) : (
+          <>
+            <span style={SR_ONLY_STYLE}>💾 Save Template</span>
+            <span aria-hidden="true">Save</span>
+          </>
+        )}
       </button>
       <button
         type="button"
         onClick={() => onOpenTemplates("library")}
         aria-label="Open template library"
         data-qb="btn-templates"
-        style={
-          unstyled
-            ? undefined
-            : {
-                background: "rgba(99, 102, 241, 0.15)",
-                color: "#818cf8",
-                border: "1px solid rgba(99, 102, 241, 0.3)",
-                borderRadius: theme.radii.sm,
-                padding: "6px 12px",
-                fontSize: theme.typography.fontSizeSm,
-                fontWeight: theme.typography.fontWeightSemibold,
-                cursor: "pointer",
-              }
-        }
+        style={unstyled ? undefined : isAdvancedMode ? quietBtnStyle : SR_ONLY_STYLE}
       >
-        📚 Template Library
+        {unstyled ? (
+          "📚 Template Library"
+        ) : (
+          <>
+            <span style={SR_ONLY_STYLE}>📚 Template Library</span>
+            <span aria-hidden="true">Templates</span>
+          </>
+        )}
       </button>
       {/* Preset templates */}
       {presets.length > 0 && (
-        <select
-          aria-label="Starter query presets"
-          value=""
-          onChange={(e) => {
-            const preset = presets.find((p) => p.id === e.target.value);
-            if (preset) onSelectPreset(preset);
-          }}
-          style={
-            unstyled
-              ? undefined
-              : {
-                  background: theme.colors.surface,
-                  color: theme.colors.textSecondary,
-                  border: `1px solid ${theme.colors.border}`,
-                  borderRadius: theme.radii.sm,
-                  padding: "6px 10px",
-                  fontSize: theme.typography.fontSizeSm,
-                }
-          }
-        >
-          <option value="" disabled>
-            ⚡ Starters & Presets...
-          </option>
-          {presets.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.title}
+        <>
+          <select
+            aria-label="Starter query presets"
+            value=""
+            onChange={(e) => {
+              const preset = presets.find((p) => p.id === e.target.value);
+              if (preset) onSelectPreset(preset);
+            }}
+            style={unstyled ? undefined : SR_ONLY_STYLE}
+          >
+            <option value="" disabled>
+              ⚡ Starters & Presets...
             </option>
-          ))}
-        </select>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title}
+              </option>
+            ))}
+          </select>
+          {!unstyled && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              {presets.slice(0, 4).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onSelectPreset(p)}
+                  style={{
+                    ...quietBtnStyle,
+                    padding: "5px 10px",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  {p.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Run Query Button */}
@@ -301,18 +305,18 @@ export function ToolbarActions({
             unstyled
               ? undefined
               : {
-                  background: isSafe ? theme.colors.success : theme.colors.surfaceHover,
+                  background: isSafe ? theme.colors.primary : theme.colors.surfaceHover,
                   color: "#ffffff",
                   border: "none",
-                  borderRadius: theme.radii.sm,
-                  padding: "6px 16px",
-                  fontSize: theme.typography.fontSizeBase,
-                  fontWeight: theme.typography.fontWeightBold,
+                  borderRadius: "6px",
+                  padding: "7px 16px",
+                  fontSize: "0.875rem",
+                  fontWeight: 600,
                   cursor: isSafe && !isRunning ? "pointer" : "not-allowed",
-                  boxShadow: isSafe ? "0 4px 12px rgba(16, 185, 129, 0.3)" : "none",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
+                  transition: "background 0.12s ease",
                 }
           }
         >

@@ -402,9 +402,14 @@ export function validateSqlSafety(
     );
   }
 
+  const unquoted = stripped
+    .replace(/"(?:[^"]|"")*"/g, '""')
+    .replace(/`[^`]*`/g, "``")
+    .replace(/\[[^[\]]*\]/g, "[]");
+
   for (const kw of RESTRICTED_KEYWORDS) {
     const kwRegex = new RegExp(`\\b${kw}\\b`, "i");
-    if (kwRegex.test(stripped)) {
+    if (kwRegex.test(unquoted)) {
       violations.push(`Forbidden mutation keyword detected: ${kw}`);
     }
   }

@@ -872,5 +872,242 @@ describe("VisualQueryBuilder", () => {
     const pipelineTab = screen.getByText(/🔀 Pipeline \(2\)/);
     expect(pipelineTab).toBeTruthy();
   });
+
+  it("syncs column header drag-and-drop in Results table back to visual Selected Columns and compiled SQL", async () => {
+    const handleExecute = vi.fn().mockResolvedValue({
+      columns: ["id", "email"],
+      rows: [{ id: 1, email: "alice@example.com" }],
+      count: 1,
+    });
+
+    const { container } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        onExecuteQuery={handleExecute}
+      />
+    );
+
+    // Select id and email
+    const selectAllBtn = container.querySelector('[data-qb="table-card-btn-select-all"]') as HTMLButtonElement;
+    fireEvent.click(selectAllBtn);
+
+    const freeFormEditor = container.querySelector('[data-qb="free-form-sql-editor"]') as HTMLTextAreaElement;
+    expect(freeFormEditor.value).toContain('SELECT "users"."id", "users"."email"');
+
+    // Run query so docked Results table appears
+    fireEvent.click(screen.getByText("▶ Run Query"));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-qb="results-th"]').length).toBe(2);
+    });
+
+    const ths = container.querySelectorAll('[data-qb="results-th"]');
+    fireEvent.dragStart(ths[1]);
+    fireEvent.dragOver(ths[0]);
+    fireEvent.drop(ths[0]);
+    fireEvent.dragEnd(ths[1]);
+
+    // Verify compiled SQL updated to email, id
+    expect(freeFormEditor.value).toContain('SELECT "users"."email", "users"."id"');
+  });
+
+  it("reorders free-form-col-chip chips via drag-and-drop and updates compiled SQL in free-form-sql-editor", () => {
+    const { container } = render(
+      <VisualQueryBuilder schema={mockSchema} initialTable="users" />
+    );
+
+    const selectAllBtn = container.querySelector('[data-qb="table-card-btn-select-all"]') as HTMLButtonElement;
+    fireEvent.click(selectAllBtn);
+
+    const freeFormEditor = container.querySelector('[data-qb="free-form-sql-editor"]') as HTMLTextAreaElement;
+    expect(freeFormEditor.value).toContain('SELECT "users"."id", "users"."email"');
+
+    const chips = container.querySelectorAll('[data-qb="free-form-col-chip"]');
+    expect(chips.length).toBe(2);
+
+    fireEvent.dragStart(chips[1]);
+    fireEvent.dragEnter(chips[0]);
+    fireEvent.dragOver(chips[0]);
+    fireEvent.drop(chips[0]);
+    fireEvent.dragEnd(chips[1]);
+
+    expect(freeFormEditor.value).toContain('SELECT "users"."email", "users"."id"');
+  });
+
+  it("materializes SELECT * into explicit ordered projections and updates SQL when dragging Results table headers or TableCard column rows", async () => {
+    const handleExecute = vi.fn().mockResolvedValue({
+      columns: ["id", "email"],
+      rows: [{ id: 1, email: "alice@example.com" }],
+      count: 1,
+    });
+
+    const { container } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        onExecuteQuery={handleExecute}
+      />
+    );
+
+    const freeFormEditor = container.querySelector('[data-qb="free-form-sql-editor"]') as HTMLTextAreaElement;
+    expect(freeFormEditor.value).toContain("SELECT *");
+
+    // Run query while in default SELECT * mode
+    fireEvent.click(screen.getByText("▶ Run Query"));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-qb="results-th"]').length).toBe(2);
+    });
+
+    // Drag "email" (index 1) onto "id" (index 0) in Results table while SELECT * was active
+    const ths = container.querySelectorAll('[data-qb="results-th"]');
+    fireEvent.dragStart(ths[1]);
+    fireEvent.dragOver(ths[0]);
+    fireEvent.drop(ths[0]);
+    fireEvent.dragEnd(ths[1]);
+
+    expect(freeFormEditor.value).toContain('SELECT "users"."email", "users"."id"');
+
+    // Also test dragging TableCard column rows while in SELECT * mode
+    const clearBtn = container.querySelector('[data-qb="table-card-btn-clear-all"]') as HTMLButtonElement;
+    fireEvent.click(clearBtn);
+    expect(freeFormEditor.value).toContain("SELECT *");
+
+    // Drag TableCard column row "email" onto "id" directly inside TableCard while in SELECT * mode
+    const colRows = container.querySelectorAll('[data-qb="table-card-column-row"]');
+    fireEvent.dragStart(colRows[1]);
+    fireEvent.dragOver(colRows[0]);
+    fireEvent.drop(colRows[0]);
+    fireEvent.dragEnd(colRows[1]);
+
+    expect(freeFormEditor.value).toContain('SELECT "users"."email", "users"."id"');
+  });
+
+  it("correctly reorders aliased vs unaliased duplicate column names when dragging Results table headers", async () => {
+    const handleExecute = vi.fn().mockResolvedValue({
+      columns: ["user_id", "id"],
+      rows: [{ user_id: 1, id: 100 }],
+      count: 1,
+    });
+
+    const { container } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialSpec={{
+          table: "users",
+          joins: [
+            {
+              type: "LEFT",
+              table: "orders",
+              on: { left: "users.id", op: "=", right: "orders.user_id" },
+            },
+          ],
+          columns: [
+            { column: "users.id", alias: "user_id" },
+            { column: "orders.id" },
+          ],
+          filters: [],
+          sorts: [],
+          limit: 50,
+        }}
+        onExecuteQuery={handleExecute}
+      />
+    );
+
+    const freeFormEditor = container.querySelector('[data-qb="free-form-sql-editor"]') as HTMLTextAreaElement;
+    expect(freeFormEditor.value).toContain('"users"."id" AS "user_id", "orders"."id"');
+
+    fireEvent.click(screen.getByText("▶ Run Query"));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-qb="results-th"]').length).toBe(2);
+    });
+
+    // Drag "id" (orders.id at index 1) before "user_id" (users.id AS user_id at index 0)
+    const ths = container.querySelectorAll('[data-qb="results-th"]');
+    fireEvent.dragStart(ths[1]);
+    fireEvent.dragOver(ths[0]);
+    fireEvent.drop(ths[0]);
+    fireEvent.dragEnd(ths[1]);
+
+    expect(freeFormEditor.value).toContain('SELECT "orders"."id", "users"."id" AS "user_id"');
+  });
+
+  it("supports studioMode={true} to consolidate top chrome by hiding inner toolbar and summary bar while preserving DOM selectors", () => {
+    const { container } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        studioMode={true}
+      />
+    );
+
+    const root = container.querySelector('[data-qb="root"]');
+    expect(root?.getAttribute("data-qb-studio")).toBe("true");
+
+    // Inner toolbar is visually hidden with srOnlyStyle but remains in DOM
+    const topBar = container.querySelector('[data-qb="top-bar"]') as HTMLElement;
+    expect(topBar).toBeTruthy();
+    expect(topBar.getAttribute("data-qb-hidden")).toBe("true");
+    expect(topBar.classList.contains("qb-sr-only")).toBe(true);
+    expect(topBar.style.position).toBe("absolute");
+    expect(topBar.style.width).toBe("1px");
+    expect(topBar.style.height).toBe("1px");
+    expect(topBar.style.overflow).toBe("hidden");
+
+    // All toolbar child selectors remain accessible to tests
+    expect(container.querySelector('[data-qb="tab-list"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb="actions-bar"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb="btn-run"]')).toBeTruthy();
+
+    // QuerySummaryBar is visually hidden with srOnlyStyle but remains in DOM
+    const summaryBar = container.querySelector('[data-qb="query-summary-bar"]') as HTMLElement;
+    expect(summaryBar).toBeTruthy();
+    expect(summaryBar.getAttribute("data-qb-hidden")).toBe("true");
+    expect(summaryBar.classList.contains("qb-sr-only")).toBe(true);
+    expect(summaryBar.style.position).toBe("absolute");
+    expect(summaryBar.style.width).toBe("1px");
+    expect(summaryBar.style.height).toBe("1px");
+
+    // Query Step Tabs lead directly as the primary interactive navigation
+    const stepTabs = container.querySelector('[data-qb="query-step-tabs"]');
+    expect(stepTabs).toBeTruthy();
+    expect(container.querySelector('[data-qb-step-tab="columns"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb-step-tab="joins"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb-step-tab="filters"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb-step-tab="sorts"]')).toBeTruthy();
+    expect(container.querySelector('[data-qb-step-tab="freeform"]')).toBeTruthy();
+  });
+
+  it("supports hideInnerToolbar and hideSummaryBar independently", () => {
+    const { container: c1 } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        hideInnerToolbar={true}
+        hideSummaryBar={false}
+      />
+    );
+
+    const topBar1 = c1.querySelector('[data-qb="top-bar"]') as HTMLElement;
+    expect(topBar1.getAttribute("data-qb-hidden")).toBe("true");
+    expect(topBar1.style.position).toBe("absolute");
+
+    const { container: c2 } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        hideInnerToolbar={false}
+        hideSummaryBar={true}
+      />
+    );
+
+    const topBar2 = c2.querySelector('[data-qb="top-bar"]') as HTMLElement;
+    expect(topBar2.getAttribute("data-qb-hidden")).toBeNull();
+    expect(topBar2.style.position).not.toBe("absolute");
+
+    const summaryBar2 = c2.querySelector('[data-qb="query-summary-bar"]') as HTMLElement;
+    expect(summaryBar2.getAttribute("data-qb-hidden")).toBe("true");
+    expect(summaryBar2.style.position).toBe("absolute");
+  });
 });
+
 

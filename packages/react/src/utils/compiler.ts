@@ -797,7 +797,7 @@ export function compileVisualState(
       const close = (f.parenClose || "").replace(/[^)]/g, "");
       specFilters.push({
         column: sanitizeIdent(f.column),
-        op: f.operator.toLowerCase().replace(" ", "_"),
+        op: f.operator.toLowerCase().replace(/\s+/g, "_"),
         value: f.value,
         tablePrefix: cleanTableName(f.tablePrefix || cleanPrimary),
         // With any OR present every filter must state its combiner: a backend falling back to

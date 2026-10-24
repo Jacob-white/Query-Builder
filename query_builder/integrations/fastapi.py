@@ -154,6 +154,14 @@ class NlqRequest(BaseModel):
     )
     dialect: str | None = Field(default=None, description="Target SQL dialect override")
     provider: str | None = Field(default=None, description="NLQ provider override")
+    current_spec: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional active QuerySpec on canvas for multi-turn refinement",
+    )
+    history: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Optional prior conversation turns for multi-shot refinement",
+    )
     options: dict[str, Any] = Field(
         default_factory=dict, description="Additional translation options"
     )
@@ -921,6 +929,8 @@ def create_query_builder_router(
             ) from exc
 
     @router.post("/nlq", summary="Translate Natural Language to Query")
+    @router.post("/nlq/translate", include_in_schema=False)
+    @router.post("/v1/nlq/translate", include_in_schema=False)
     async def translate_nlq(payload: NlqRequest, request: Request) -> dict[str, Any]:
         """Translates natural language query into verified QuerySpec and dialect SQL with tenant policy applied."""
         if not payload.prompt or not payload.prompt.strip():
@@ -966,6 +976,11 @@ def create_query_builder_router(
                 or getattr(conn, "dialect_name", "postgres")
                 or "postgres"
             )
+            used_provider = payload.provider or getattr(
+                nlq_service, "default_provider", "mock"
+            )
+            used_model = ""
+            follow_ups_list: list[str] = []
             if (
                 nlq_service is not None
                 and ai_provider is None
@@ -977,6 +992,8 @@ def create_query_builder_router(
                         "schema": schema_data,
                         "dialect": dialect_str,
                         "provider": payload.provider,
+                        "current_spec": payload.current_spec,
+                        "history": payload.history,
                         "options": payload.options,
                     }
                 )
@@ -987,6 +1004,9 @@ def create_query_builder_router(
                 explanation = res_dict.get("explanation") or ""
                 confidence = res_dict.get("confidence", 1.0)
                 warnings_list = res_dict.get("warnings", [])
+                follow_ups_list = list(res_dict.get("follow_ups") or [])
+                used_provider = str(res_dict.get("provider") or used_provider)
+                used_model = str(res_dict.get("model") or "")
             else:
                 from query_builder.ai.client import ask_ai
 
@@ -1010,6 +1030,131 @@ def create_query_builder_router(
                     policy=policy,
                 )
 
+            tables_dict = (
+                schema_data.get("tables")
+                if isinstance(schema_data, dict)
+                and isinstance(schema_data.get("tables"), dict)
+                else None
+            )
+            if tables_dict:
+                base_tbl = str(raw_spec.get("table") or "")
+                clean_base_tbl = base_tbl.split(".")[-1]
+                if base_tbl not in tables_dict and clean_base_tbl not in tables_dict:
+                    fallback_tbl = next(
+                        (
+                            t
+                            for t in tables_dict
+                            if not t.startswith(
+                                ("django_", "auth_permission", "sqlite_")
+                            )
+                        ),
+                        next(iter(tables_dict)),
+                    )
+                    warnings_list = list(warnings_list) + [
+                        f"Mapped ungrounded table '{base_tbl}' to '{fallback_tbl}'."
+                    ]
+                    raw_spec["table"] = fallback_tbl
+                    raw_spec["columns"] = []
+                    raw_spec["joins"] = []
+                    raw_spec["filters"] = []
+                    raw_spec["having"] = []
+                    raw_spec["order_by"] = []
+                else:
+                    if isinstance(raw_spec.get("joins"), list):
+                        raw_spec["joins"] = [
+                            j
+                            for j in raw_spec["joins"]
+                            if isinstance(j, dict)
+                            and (
+                                j.get("table") in tables_dict
+                                or str(j.get("table") or "").split(".")[-1]
+                                in tables_dict
+                            )
+                        ]
+                    active_tbl_names = [
+                        base_tbl if base_tbl in tables_dict else clean_base_tbl,
+                        *(
+                            j.get("table")
+                            if j.get("table") in tables_dict
+                            else str(j.get("table") or "").split(".")[-1]
+                            for j in (raw_spec.get("joins") or [])
+                            if isinstance(j, dict)
+                        ),
+                    ]
+                    valid_cols_map: dict[str, str] = {}
+                    for t_name in active_tbl_names:
+                        t_meta = tables_dict.get(t_name)
+                        if isinstance(t_meta, dict):
+                            raw_c = t_meta.get("columns", {})
+                            if isinstance(raw_c, dict):
+                                for cn in raw_c:
+                                    valid_cols_map[str(cn).lower()] = str(cn)
+                            elif isinstance(raw_c, list):
+                                for c_item in raw_c:
+                                    cn = (
+                                        c_item.get("name")
+                                        if isinstance(c_item, dict)
+                                        else str(c_item)
+                                    )
+                                    if cn:
+                                        valid_cols_map[str(cn).lower()] = str(cn)
+                    if valid_cols_map:
+                        first_valid_col = next(iter(valid_cols_map.values()))
+                        col_aliases: set[str] = set()
+                        cleaned_cols: list[Any] = []
+                        for col_entry in raw_spec.get("columns") or []:
+                            if isinstance(col_entry, str):
+                                bare_c = col_entry.split(".")[-1].strip()
+                                if bare_c == "*" or bare_c.lower() in valid_cols_map:
+                                    cleaned_cols.append(col_entry)
+                            elif isinstance(col_entry, dict):
+                                if col_entry.get("alias"):
+                                    col_aliases.add(str(col_entry["alias"]).lower())
+                                c_ref = str(col_entry.get("column") or "").strip()
+                                bare_c = c_ref.split(".")[-1]
+                                if (
+                                    not c_ref
+                                    or bare_c == "*"
+                                    or bare_c.lower() in valid_cols_map
+                                ):
+                                    cleaned_cols.append(col_entry)
+                                elif col_entry.get("agg"):
+                                    patched_col = dict(col_entry)
+                                    patched_col["column"] = first_valid_col
+                                    cleaned_cols.append(patched_col)
+                        raw_spec["columns"] = cleaned_cols
+                        if isinstance(raw_spec.get("filters"), list):
+                            raw_spec["filters"] = [
+                                f
+                                for f in raw_spec["filters"]
+                                if isinstance(f, dict)
+                                and str(f.get("column") or "").split(".")[-1].lower()
+                                in valid_cols_map
+                            ]
+                        if isinstance(raw_spec.get("having"), list):
+                            raw_spec["having"] = [
+                                h
+                                for h in raw_spec["having"]
+                                if isinstance(h, dict)
+                                and (
+                                    str(h.get("column") or "").split(".")[-1] == "*"
+                                    or str(h.get("column") or "").split(".")[-1].lower()
+                                    in valid_cols_map
+                                    or str(h.get("column") or "").lower() in col_aliases
+                                )
+                            ]
+                        if isinstance(raw_spec.get("order_by"), list):
+                            raw_spec["order_by"] = [
+                                o
+                                for o in raw_spec["order_by"]
+                                if isinstance(o, dict)
+                                and (
+                                    str(o.get("column") or "").split(".")[-1].lower()
+                                    in valid_cols_map
+                                    or str(o.get("column") or "").lower() in col_aliases
+                                )
+                            ]
+
             compiler = QueryCompiler(
                 raw_spec,
                 schema=schema_data,
@@ -1017,6 +1162,15 @@ def create_query_builder_router(
                 capabilities=effective_capabilities,
             )
             final_sql, final_params = compiler.compile()[0:2]
+            if not follow_ups_list:
+                tbl_for_sug = str(raw_spec.get("table") or "records")
+                cur_limit = raw_spec.get("limit", 50)
+                next_limit = 10 if cur_limit != 10 else 25
+                follow_ups_list = [
+                    f"Limit results to {next_limit} rows",
+                    f"Count {tbl_for_sug} rows",
+                    "Only show distinct rows",
+                ]
             return {
                 "spec": raw_spec,
                 "sql": final_sql,
@@ -1024,6 +1178,9 @@ def create_query_builder_router(
                 "explanation": explanation,
                 "confidence": confidence,
                 "warnings": warnings_list,
+                "follow_ups": follow_ups_list,
+                "provider": used_provider,
+                "model": used_model,
             }
         except HTTPException:
             raise
@@ -1033,5 +1190,67 @@ def create_query_builder_router(
             raise HTTPException(
                 status_code=400, detail=public_error("NLQ translation failed", exc)
             ) from exc
+
+    @router.post("/nlq/explain", summary="Explain Query in Natural Language")
+    @router.post("/v1/nlq/explain", include_in_schema=False)
+    async def explain_nlq(payload: ExplainRequest, request: Request) -> dict[str, Any]:
+        """Explains a visual QuerySpec in plain English."""
+        target_spec = payload.spec or payload.query
+        if not target_spec or not isinstance(target_spec, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required 'query' or 'spec' dictionary.",
+            )
+        conn = await _resolve_conn(connector)
+        dialect_str = str(
+            payload.dialect or getattr(conn, "dialect_name", "postgres") or "postgres"
+        )
+        req_provider = (
+            getattr(payload, "model_extra", {}).get("provider")
+            if hasattr(payload, "model_extra") and payload.model_extra
+            else None
+        )
+        from query_builder.nlq.service import NlqService
+
+        svc = (
+            nlq_service
+            if (nlq_service is not None and hasattr(nlq_service, "explain"))
+            else NlqService()
+        )
+        provider_name = str(req_provider or getattr(svc, "default_provider", "mock"))
+        try:
+            exp_res = svc.explain(
+                target_spec,
+                dialect=dialect_str,
+                provider=provider_name,
+            )
+            if hasattr(exp_res, "to_dict"):
+                return dict(exp_res.to_dict())
+            if isinstance(exp_res, dict):
+                return dict(exp_res)
+            return {}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=public_error("NLQ explain failed", exc)
+            ) from exc
+
+    @router.get("/nlq/providers", summary="List Available NLQ Providers")
+    @router.get("/v1/nlq/providers", include_in_schema=False)
+    async def get_nlq_providers() -> dict[str, Any]:
+        """Lists registered NLQ LLM providers and their runtime configuration status."""
+        from query_builder.nlq.service import NlqService
+
+        svc = (
+            nlq_service
+            if (
+                nlq_service is not None
+                and hasattr(nlq_service, "list_available_providers")
+            )
+            else NlqService()
+        )
+        return {
+            "providers": svc.list_available_providers(),
+            "default_provider": getattr(svc, "default_provider", "mock"),
+        }
 
     return router

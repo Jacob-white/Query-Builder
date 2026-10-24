@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ExecuteQueryHandler, QueryResultData, QuerySpec } from "../../types";
+import type { ExecuteQueryHandler, QueryResultData, QuerySpec, SchemaSnapshot, SqlDialect } from "../../types";
 import type { QueryBuilderClient } from "../../client";
 import { useLiveExecution, type LiveExecutionResult } from "../../hooks/useLiveExecution";
+import { compileSpecToSql } from "../../utils/compiler";
 import type { ActiveTab } from "./types";
 import type { DockTab } from "./WorkspaceDock";
 
@@ -14,6 +15,7 @@ export interface UseQueryRunnerOptions {
   activeTab?: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   dialect?: string;
+  schema?: SchemaSnapshot | null;
   liveExecutionApiUrl?: string;
   liveExecutionConnectionId?: string;
   onLiveExecutionSuccess?: (results: LiveExecutionResult) => void;
@@ -30,6 +32,7 @@ export function useQueryRunner({
   activeTab = "visual",
   setActiveTab,
   dialect,
+  schema,
   liveExecutionApiUrl,
   liveExecutionConnectionId,
   onLiveExecutionSuccess,
@@ -74,13 +77,26 @@ export function useQueryRunner({
     onError: onLiveExecutionError,
   });
 
-  const handleRunQuery = useCallback(async () => {
+  const handleRunQuery = useCallback(async (overrideSpec?: QuerySpec | unknown) => {
     if (!effectiveOnExecuteQuery) return;
     setIsRunning(true);
     setExecutionError(null);
     try {
-      const parsedSpec = getActiveSpec();
-      const result = await effectiveOnExecuteQuery(currentSql, parsedSpec);
+      const isSpecOverride = Boolean(
+        overrideSpec &&
+          typeof overrideSpec === "object" &&
+          "table" in overrideSpec &&
+          typeof (overrideSpec as QuerySpec).table === "string",
+      );
+      const parsedSpec = isSpecOverride ? (overrideSpec as QuerySpec) : getActiveSpec();
+      const sqlToRun = isSpecOverride
+        ? compileSpecToSql(
+            overrideSpec as QuerySpec,
+            (dialect || "postgres") as SqlDialect,
+            schema ?? undefined,
+          )
+        : currentSql;
+      const result = await effectiveOnExecuteQuery(sqlToRun, parsedSpec);
       if (result) {
         setQueryResults(result);
         if (activeTab === "visual") {
@@ -97,7 +113,7 @@ export function useQueryRunner({
     } finally {
       setIsRunning(false);
     }
-  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, activeTab, setActiveTab]);
+  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, activeTab, setActiveTab, dialect, schema]);
 
   return {
     queryResults,
