@@ -25,7 +25,10 @@ import { useAdvancedClauses } from "./visual-query-builder/useAdvancedClauses";
 import { useCompiledQuery } from "./visual-query-builder/useCompiledQuery";
 import { SchemaErdModal } from "./SchemaErdModal";
 import { SchemaExplorerModal } from "./SchemaExplorerModal";
-import { QueryTemplateManager } from "./QueryTemplateManager";
+import {
+  QueryTemplateManager,
+  decodeQuerySpecFromUrlParam,
+} from "./QueryTemplateManager";
 import { DatabaseConnectionModal } from "./DatabaseConnectionModal";
 import { LiveExecutionBar } from "./LiveExecutionBar";
 import { WindowFunctionBuilder } from "./WindowFunctionBuilder";
@@ -34,6 +37,7 @@ import { estimateClientPlan } from "../utils/compiler";
 import { validateSqlSafety } from "../utils/safety";
 import { parseSqlToSpec } from "../utils/sqlParser";
 import { useQueryState } from "../hooks/useQueryState";
+import { inferDashboardColumns } from "../hooks/useDashboardManager";
 import { cx } from "../utils/classNames";
 import {
    QueryBuilderContext,
@@ -148,6 +152,8 @@ export const VisualQueryBuilder = React.forwardRef<
     onTestDatabaseConnection,
     onConnectDatabase,
     onDisconnectDatabase,
+    onPinToDashboard,
+    onFetchDistinctValues,
   },
   ref,
 ) {
@@ -225,12 +231,24 @@ export const VisualQueryBuilder = React.forwardRef<
   const [initialQuery] = useState(() => {
     if (value) return value;
     if (initialSpec) return initialSpec;
+    const knownTableKeys =
+      propSchema && !Array.isArray(propSchema) && propSchema.tables
+        ? Object.keys(propSchema.tables)
+        : [];
+    if (typeof window !== "undefined" && window.location?.search) {
+      const qParam = new URLSearchParams(window.location.search).get("q");
+      const decoded = qParam ? decodeQuerySpecFromUrlParam(qParam) : null;
+      if (decoded?.table) {
+        const isKnownTable =
+          knownTableKeys.length === 0 ||
+          knownTableKeys.includes(decoded.table) ||
+          (Array.isArray(decoded.ctes) &&
+            decoded.ctes.some((c) => c.name === decoded.table));
+        if (isKnownTable) return decoded;
+      }
+    }
     const base: Record<string, unknown> = {};
-    const defaultT =
-      initialTable ||
-      (propSchema && !Array.isArray(propSchema) && propSchema.tables
-        ? Object.keys(propSchema.tables)[0]
-        : undefined);
+    const defaultT = initialTable || knownTableKeys[0];
     if (defaultT) {
       base.table = defaultT;
       base.activeTables = [defaultT];
@@ -264,12 +282,16 @@ export const VisualQueryBuilder = React.forwardRef<
   );
 
   // Auto-select primary table on initial mount if schema was loaded asynchronously (e.g. via client)
+  // or if an unvalidated URL permalink table does not exist in the loaded schema.
   const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
+    const hasMissingTable =
+      Boolean(state.primaryTable) &&
+      allTables.length > 0 &&
+      !augmentedSchema?.tables?.[state.primaryTable];
     if (
       !hasAutoSelectedRef.current &&
-      !state.primaryTable &&
-      state.activeTables.length === 0 &&
+      ((!state.primaryTable && state.activeTables.length === 0) || hasMissingTable) &&
       allTables.length > 0 &&
       !value &&
       !initialSpec &&
@@ -278,7 +300,7 @@ export const VisualQueryBuilder = React.forwardRef<
       hasAutoSelectedRef.current = true;
       actions.setPrimaryTable(allTables[0].name);
     }
-  }, [state.primaryTable, state.activeTables.length, allTables, value, initialSpec, initialTable, actions]);
+  }, [state.primaryTable, state.activeTables.length, allTables, augmentedSchema, value, initialSpec, initialTable, actions]);
 
   const { primaryTable, activeTables: activeTableNames } = state;
 
@@ -350,6 +372,7 @@ export const VisualQueryBuilder = React.forwardRef<
     activeTab,
     setActiveTab,
     dialect,
+    databaseId: activeDatabaseId,
     schema: augmentedSchema,
     liveExecutionApiUrl,
     liveExecutionConnectionId,
@@ -487,6 +510,106 @@ export const VisualQueryBuilder = React.forwardRef<
     },
     [state, activeTables, leaveRawMode, actions],
   );
+
+  const handleFilterByCell = useCallback(
+    (
+      column: string,
+      value: unknown,
+      operator: "=" | "!=" | "IS NULL" | "IS NOT NULL" = "=",
+    ) => {
+      leaveRawMode();
+      const dotIdx = column.indexOf(".");
+      const aliasedSelection =
+        dotIdx === -1
+          ? Object.values(state.selectedColumns).find(
+              (sel) => sel.alias?.trim() === column,
+            )
+          : undefined;
+      const tablePrefix =
+        dotIdx !== -1
+          ? column.slice(0, dotIdx)
+          : aliasedSelection?.table ||
+            activeTables.find((t) => t.columns.some((c) => c.name === column))?.name ||
+            primaryTable;
+      const colName =
+        dotIdx !== -1
+          ? column.slice(dotIdx + 1)
+          : aliasedSelection?.name || column;
+      const nextFilter = {
+        id: `flt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        combiner: "AND" as const,
+        tablePrefix,
+        column: colName,
+        operator,
+        value:
+          operator === "IS NULL" || operator === "IS NOT NULL" ? "" : String(value),
+      };
+      canvasHandlers.setFilters([...state.filters, nextFilter]);
+    },
+    [leaveRawMode, primaryTable, activeTables, canvasHandlers, state.filters, state.selectedColumns],
+  );
+
+  const handleDrillDownForeignKey = useCallback(
+    (
+      _sourceColumn: string,
+      value: unknown,
+      targetTable?: string,
+      targetColumn = "id",
+    ) => {
+      if (!targetTable) return;
+      leaveRawMode();
+      if (!state.activeTables.includes(targetTable)) {
+        canvasHandlers.handleAddJoinToTable(targetTable);
+      }
+      const nextFilter = {
+        id: `flt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        combiner: "AND" as const,
+        tablePrefix: targetTable,
+        column: targetColumn,
+        operator: "=" as const,
+        value: String(value),
+      };
+      canvasHandlers.setFilters([...state.filters, nextFilter]);
+    },
+    [leaveRawMode, canvasHandlers, state.activeTables, state.filters],
+  );
+
+  const handlePinToDashboard = useCallback(() => {
+    const activeSpec = getActiveSpec()!;
+    const title = `${primaryTable} Snapshot`;
+    if (queryResults && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const storageKey = "qb_dashboard_tiles_default";
+        const rawExisting = window.localStorage.getItem(storageKey);
+        const existing: unknown[] = rawExisting ? JSON.parse(rawExisting) : [];
+        const cols = queryResults.columns;
+        const inferred = inferDashboardColumns(queryResults.rows, cols);
+        const pinnedTile = {
+          id: `pinned_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          title,
+          type: "chart",
+          chartType: "bar",
+          columns: inferred.columns,
+          categoryCol: inferred.categoryCol,
+          metricCol: inferred.metricCol,
+          defaultAggregation: "SUM",
+          querySpec: activeSpec,
+          sql: currentSql,
+          cachedRows: queryResults.rows,
+          layout: { w: 2, h: 1 },
+        };
+        window.localStorage.setItem(storageKey, JSON.stringify([...existing, pinnedTile]));
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    onPinToDashboard?.({
+      spec: activeSpec,
+      sql: currentSql,
+      results: queryResults,
+      title,
+    });
+  }, [onPinToDashboard, getActiveSpec, currentSql, queryResults, primaryTable]);
 
   const shouldHideInnerToolbar = hideInnerToolbar || studioMode;
   const shouldHideSummaryBar = hideSummaryBar || studioMode;
@@ -773,6 +896,8 @@ export const VisualQueryBuilder = React.forwardRef<
               classNames,
               customOperators,
               fieldRenderers,
+              sampleRows: queryResults?.rows,
+              onFetchDistinctValues,
             }}
             dock={{
               results: queryResults,
@@ -788,6 +913,10 @@ export const VisualQueryBuilder = React.forwardRef<
               classNames,
               unstyled,
               theme: activeTheme,
+              schema: augmentedSchema,
+              onFilterByCell: handleFilterByCell,
+              onDrillDownForeignKey: handleDrillDownForeignKey,
+              onPinToDashboard: handlePinToDashboard,
             }}
           />
         )}
@@ -816,6 +945,10 @@ export const VisualQueryBuilder = React.forwardRef<
             onReorderColumns={handleReorderResultColumns}
             cellRenderers={cellRenderers}
             classNames={classNames}
+            schema={augmentedSchema}
+            onFilterByCell={handleFilterByCell}
+            onDrillDownForeignKey={handleDrillDownForeignKey}
+            onPinToDashboard={handlePinToDashboard}
           />
         )}
 

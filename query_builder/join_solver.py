@@ -8,7 +8,6 @@ FOREIGN KEY configuration from the user.
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -82,17 +81,22 @@ def find_best_join_condition(
     if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
         tables_meta = getattr(schema_data, "tables", {})
         foreign_keys = getattr(schema_data, "foreign_keys", [])
+        relationships = getattr(schema_data, "relationships", [])
     elif isinstance(schema_data, dict):
         tables_meta = schema_data.get("tables", {})
         foreign_keys = schema_data.get("foreign_keys", [])
+        relationships = schema_data.get("relationships", [])
     else:
         tables_meta = {}
         foreign_keys = []
+        relationships = []
 
     if not isinstance(tables_meta, dict):
         tables_meta = {}
     if not isinstance(foreign_keys, list):
         foreign_keys = []
+    if not isinstance(relationships, list):
+        relationships = []
 
     raw_left = tables_meta.get(clean_left, {}) if isinstance(tables_meta, dict) else {}
     if hasattr(raw_left, "to_dict"):
@@ -164,6 +168,40 @@ def find_best_join_condition(
                 "reason": "Schema foreign key constraint",
             }
 
+    # 1b. Explicit relationship match
+    for rel in relationships:
+        if isinstance(rel, dict):
+            src_tbl = _clean_table_name(rel.get("source_table", ""))
+            tgt_tbl = _clean_table_name(rel.get("target_table", ""))
+            src_col = rel.get("source_column", "")
+            tgt_col = rel.get("target_column", "")
+        elif hasattr(rel, "source_table"):
+            src_tbl = _clean_table_name(getattr(rel, "source_table", ""))
+            tgt_tbl = _clean_table_name(getattr(rel, "target_table", ""))
+            src_col = getattr(rel, "source_column", "")
+            tgt_col = getattr(rel, "target_column", "")
+        else:
+            continue
+
+        if src_tbl == clean_right and tgt_tbl == clean_left:
+            return {
+                "left_table": clean_left,
+                "left_col": tgt_col,
+                "right_table": clean_right,
+                "right_col": src_col,
+                "is_fk": True,
+                "reason": "Schema foreign key constraint",
+            }
+        if src_tbl == clean_left and tgt_tbl == clean_right:
+            return {
+                "left_table": clean_left,
+                "left_col": src_col,
+                "right_table": clean_right,
+                "right_col": tgt_col,
+                "is_fk": True,
+                "reason": "Schema foreign key constraint",
+            }
+
     effective_canon: Sequence[str] = CANONICAL_ENTITY_COLUMNS
     if canonical_columns:
         effective_canon = canonical_columns
@@ -186,28 +224,40 @@ def find_best_join_condition(
                 "reason": f"Canonical identifier match ({col})",
             }
 
-    # 3. Direct table named foreign key heuristics (e.g. left='user', right has 'user_id')
-    right_fk_candidate = f"{clean_left}_id"
-    if right_fk_candidate in right_col_names and "id" in left_col_names:
-        return {
-            "left_table": clean_left,
-            "left_col": "id",
-            "right_table": clean_right,
-            "right_col": right_fk_candidate,
-            "is_fk": True,
-            "reason": f"Inferred foreign key ({clean_right}.{right_fk_candidate} -> {clean_left}.id)",
-        }
+    # 3. Direct table named foreign key heuristics (e.g. left='user' or 'users', right has 'user_id')
+    def _singular_variants(tbl: str) -> list[str]:
+        variants = [tbl]
+        if tbl.endswith("ies") and len(tbl) > 3:
+            variants.append(f"{tbl[:-3]}y")
+        if tbl.endswith("es") and len(tbl) > 2:
+            variants.append(tbl[:-2])
+        if tbl.endswith("s") and len(tbl) > 1:
+            variants.append(tbl[:-1])
+        return variants
 
-    left_fk_candidate = f"{clean_right}_id"
-    if left_fk_candidate in left_col_names and "id" in right_col_names:
-        return {
-            "left_table": clean_left,
-            "left_col": left_fk_candidate,
-            "right_table": clean_right,
-            "right_col": "id",
-            "is_fk": True,
-            "reason": f"Inferred foreign key ({clean_left}.{left_fk_candidate} -> {clean_right}.id)",
-        }
+    for stem_left in _singular_variants(clean_left):
+        right_fk_candidate = f"{stem_left}_id"
+        if right_fk_candidate in right_col_names and "id" in left_col_names:
+            return {
+                "left_table": clean_left,
+                "left_col": "id",
+                "right_table": clean_right,
+                "right_col": right_fk_candidate,
+                "is_fk": True,
+                "reason": f"Inferred foreign key ({clean_right}.{right_fk_candidate} -> {clean_left}.id)",
+            }
+
+    for stem_right in _singular_variants(clean_right):
+        left_fk_candidate = f"{stem_right}_id"
+        if left_fk_candidate in left_col_names and "id" in right_col_names:
+            return {
+                "left_table": clean_left,
+                "left_col": left_fk_candidate,
+                "right_table": clean_right,
+                "right_col": "id",
+                "is_fk": True,
+                "reason": f"Inferred foreign key ({clean_left}.{left_fk_candidate} -> {clean_right}.id)",
+            }
 
     # 4. Primary key or fallback column
     left_pk = "id"
@@ -290,17 +340,22 @@ def find_join_path(
     if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
         tables_meta = getattr(schema_data, "tables", {})
         foreign_keys = getattr(schema_data, "foreign_keys", [])
+        relationships = getattr(schema_data, "relationships", [])
     elif isinstance(schema_data, dict):
         tables_meta = schema_data.get("tables", {})
         foreign_keys = schema_data.get("foreign_keys", [])
+        relationships = schema_data.get("relationships", [])
     else:
         tables_meta = {}
         foreign_keys = []
+        relationships = []
 
     if not isinstance(tables_meta, dict):
         tables_meta = {}
     if not isinstance(foreign_keys, list):
         foreign_keys = []
+    if not isinstance(relationships, list):
+        relationships = []
     if len(foreign_keys) > MAX_FOREIGN_KEYS:
         foreign_keys = foreign_keys[:MAX_FOREIGN_KEYS]
 
@@ -314,12 +369,16 @@ def find_join_path(
     ):
         effective_canon = canon_attr
 
-    # Build adjacency graph
-    adj: dict[str, set[str]] = {}
+    # Build adjacency graph (preserving insertion order via dict keys)
+    adj: dict[str, list[str]] = {}
 
     def add_edge(u: str, v: str) -> None:
-        adj.setdefault(u, set()).add(v)
-        adj.setdefault(v, set()).add(u)
+        u_list = adj.setdefault(u, [])
+        if v not in u_list:
+            u_list.append(v)
+        v_list = adj.setdefault(v, [])
+        if u not in v_list:
+            v_list.append(u)
 
     for fk in foreign_keys:
         if isinstance(fk, dict):
@@ -328,6 +387,18 @@ def find_join_path(
         elif hasattr(fk, "table"):
             t1 = _clean_table_name(getattr(fk, "table", ""))
             t2 = _clean_table_name(getattr(fk, "foreign_table", ""))
+        else:
+            continue
+        if t1 and t2:
+            add_edge(t1, t2)
+
+    for rel in relationships:
+        if isinstance(rel, dict):
+            t1 = _clean_table_name(rel.get("source_table", ""))
+            t2 = _clean_table_name(rel.get("target_table", ""))
+        elif hasattr(rel, "source_table"):
+            t1 = _clean_table_name(getattr(rel, "source_table", ""))
+            t2 = _clean_table_name(getattr(rel, "target_table", ""))
         else:
             continue
         if t1 and t2:
@@ -348,38 +419,62 @@ def find_join_path(
             c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
             for c in meta.get("columns", [])
         }
-        for entity_col in effective_canon:
-            if entity_col in col_names and entity_col.endswith("_id"):
+        candidate_cols = set(effective_canon) | {
+            c for c in col_names if isinstance(c, str) and c.endswith("_id")
+        }
+        for entity_col in candidate_cols:
+            if (
+                entity_col in col_names
+                and entity_col.endswith("_id")
+                and len(entity_col) > 3
+            ):
                 base_entity = entity_col[:-3]
-                if base_entity in tables_meta:
-                    add_edge(base_entity, clean_tbl)
+                candidates = [
+                    base_entity,
+                    f"{base_entity}s",
+                    f"{base_entity}es",
+                ]
+                if base_entity.endswith("y") and len(base_entity) > 1:
+                    candidates.append(f"{base_entity[:-1]}ies")
+                for cand in candidates:
+                    if cand != clean_tbl and cand in tables_meta:
+                        add_edge(cand, clean_tbl)
 
-    # BFS from active tables
-    queue: deque[tuple[str, list[dict[str, Any]]]] = deque()
-    visited: set[str] = set(clean_active)
+    # BFS from active tables prioritizing confirmed FK/relationship edges over equal-length inferred bridges
+    queue: list[tuple[str, list[dict[str, Any]], int]] = []
+    best_score: dict[str, int] = {}
 
     for start_table in clean_active:
-        queue.append((start_table, []))
+        best_score[start_table] = 0
+        queue.append((start_table, [], 0))
 
     iterations = 0
     while queue and iterations < MAX_BFS_ITERATIONS:
         iterations += 1
-        current, path = queue.popleft()
+        min_idx = 0
+        for idx in range(1, len(queue)):
+            if queue[idx][2] < queue[min_idx][2]:
+                min_idx = idx
+        current, path, score = queue.pop(min_idx)
         if current == clean_target:
             return path
 
         if len(path) >= MAX_JOIN_DEPTH:
             continue
 
-        for neighbor in adj.get(current, set()):
-            if neighbor not in visited:
-                visited.add(neighbor)
-                cond = find_best_join_condition(
-                    current,
-                    neighbor,
-                    schema_data,
-                    canonical_columns=effective_canon,
-                )
+        for neighbor in adj.get(current, []):
+            cond = find_best_join_condition(
+                current,
+                neighbor,
+                schema_data,
+                canonical_columns=effective_canon,
+            )
+            is_confirmed = cond.get("reason") == "Schema foreign key constraint"
+            step_cost = 99 if is_confirmed else 100
+            next_score = score + step_cost
+            prev_best = best_score.get(neighbor)
+            if prev_best is None or next_score < prev_best:
+                best_score[neighbor] = next_score
                 next_join = {
                     "type": safe_join_type,
                     "left_table": cond["left_table"],
@@ -387,7 +482,7 @@ def find_join_path(
                     "table": cond["right_table"],
                     "right_col": cond["right_col"],
                 }
-                queue.append((neighbor, path + [next_join]))
+                queue.append((neighbor, path + [next_join], next_score))
 
     # Fallback direct join from first active table
     fallback_start = clean_active[0]

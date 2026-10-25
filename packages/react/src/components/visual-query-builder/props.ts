@@ -6,6 +6,8 @@ import type {
   WindowFunctionSpec,
   SemanticModel,
   SchemaSnapshot,
+  QuerySpec,
+  QueryResultData,
 } from "../../types";
 import type { QueryBuilderTheme } from "../../theme/tokens";
 import type { NlqProviderName } from "../../hooks/useNlqQuery";
@@ -53,4 +55,12 @@ export type ExtendedVisualQueryBuilderProps<Schema extends DatabaseSchemaDefinit
     config: DatabaseConnectionConfig,
   ) => Promise<{ database: DatabaseConnectionInfo; schema?: SchemaSnapshot }>;
   onDisconnectDatabase?: (dbId: string) => Promise<void>;
+  onPinToDashboard?: (payload: {
+    spec: QuerySpec<Schema>;
+    sql: string;
+    results: QueryResultData | null;
+    title?: string;
+  }) => void;
+  onFetchDistinctValues?: (table: string, column: string) => Promise<string[]>;
 };
+

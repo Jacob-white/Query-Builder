@@ -76,6 +76,8 @@ export interface QueryCanvasProps {
   classNames?: QueryBuilderClassNames;
   customOperators?: Record<string, CustomFilterOperator>;
   fieldRenderers?: Record<string, CustomFieldRenderer>;
+  sampleRows?: Record<string, unknown>[];
+  onFetchDistinctValues?: (table: string, column: string) => Promise<string[]>;
 }
 
 const SR_ONLY_STYLE: React.CSSProperties = {
@@ -110,6 +112,14 @@ const TIME_GRAIN_OPTIONS: { value: "" | TimeGrain; label: string }[] = [
   { value: "hour", label: "Hour" },
   { value: "minute", label: "Minute" },
   { value: "second", label: "Second" },
+];
+
+const GUIDED_DATE_GRAINS: { value: TimeGrain; label: string }[] = [
+  { value: "day", label: "By Day" },
+  { value: "week", label: "By Week" },
+  { value: "month", label: "By Month" },
+  { value: "quarter", label: "By Quarter" },
+  { value: "year", label: "By Year" },
 ];
 
 export const QueryCanvas: React.FC<QueryCanvasProps> = ({
@@ -156,6 +166,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   classNames,
   customOperators,
   fieldRenderers,
+  sampleRows,
+  onFetchDistinctValues,
 }) => {
   const ctx = useQueryBuilderContext();
   const isProjectionsVisible = ctx?.isFeatureVisible ? ctx.isFeatureVisible("projections") : true;
@@ -191,6 +203,32 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   const [isLocalRawEditing, setIsLocalRawEditing] = React.useState<boolean>(false);
   const [draggedColIndex, setDraggedColIndex] = React.useState<number | null>(null);
   const [dragOverColIndex, setDragOverColIndex] = React.useState<number | null>(null);
+  const [selectedDateBucketColKey, setSelectedDateBucketColKey] = React.useState<string>("");
+
+  const dateBucketColumns = React.useMemo(() => {
+    const temporal: { key: string; table: string; column: string }[] = [];
+    for (const tbl of activeTables) {
+      for (const col of tbl.columns) {
+        if (/(date|time|_at$|^created$|^updated$)/i.test(`${col.data_type || ""} ${col.name}`)) {
+          temporal.push({ key: `${tbl.name}.${col.name}`, table: tbl.name, column: col.name });
+        }
+      }
+    }
+    return temporal;
+  }, [activeTables]);
+
+  const effectiveDateBucketCol = React.useMemo(() => {
+    if (
+      selectedDateBucketColKey &&
+      dateBucketColumns.some((c) => c.key === selectedDateBucketColKey)
+    ) {
+      return dateBucketColumns.find((c) => c.key === selectedDateBucketColKey)!;
+    }
+    const alreadyBucketed = dateBucketColumns.find(
+      (c) => selectedColumns[c.key]?.timeGrain,
+    );
+    return alreadyBucketed || dateBucketColumns[0];
+  }, [selectedDateBucketColKey, dateBucketColumns, selectedColumns]);
 
   const allTables = React.useMemo(() => Object.values(schema?.tables || {}), [schema?.tables]);
   const availableToAdd = React.useMemo(
@@ -1678,6 +1716,124 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
             )}
           </div>
 
+          {!unstyled && effectiveDateBucketCol && dateBucketColumns.length > 0 && (
+            <div
+              data-qb="guided-date-bucketing"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                background: "var(--qb-color-background, #090d16)",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.07))",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  color: "var(--qb-color-logical-text, #e9d5ff)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                📅 Date Bucket:
+              </span>
+              <select
+                data-qb="guided-date-column-select"
+                aria-label="Date column for bucketing"
+                value={effectiveDateBucketCol.key}
+                onChange={(e) => setSelectedDateBucketColKey(e.target.value)}
+                style={{
+                  background: "var(--qb-color-surface, #10141f)",
+                  color: "var(--qb-color-text, #e2e8f0)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
+                  borderRadius: "5px",
+                  padding: "3px 8px",
+                  fontSize: "0.76rem",
+                  fontFamily: "var(--qb-font-mono, monospace)",
+                  outline: "none",
+                }}
+              >
+                {dateBucketColumns.map((dc) => (
+                  <option key={dc.key} value={dc.key}>
+                    {`${dc.column} (${dc.table})`}
+                  </option>
+                ))}
+              </select>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                {GUIDED_DATE_GRAINS.map((g) => {
+                  const activeGrain = selectedColumns[effectiveDateBucketCol.key]?.timeGrain;
+                  const isActive = activeGrain === g.value;
+                  return (
+                    <button
+                      key={g.value}
+                      type="button"
+                      data-qb="date-bucket-pill"
+                      data-qb-grain={g.value}
+                      aria-pressed={isActive}
+                      onClick={() => {
+                        const target = effectiveDateBucketCol;
+                        if (isActive) {
+                          onUpdateColumnSelect(target.key, { timeGrain: undefined });
+                          return;
+                        }
+                        if (!selectedColumns[target.key]) {
+                          onToggleColumn(target.table, target.column);
+                        }
+                        onUpdateColumnSelect(target.key, {
+                          table: target.table,
+                          name: target.column,
+                          timeGrain: g.value,
+                          aggregate: undefined,
+                        });
+                      }}
+                      style={{
+                        padding: "3px 9px",
+                        borderRadius: "999px",
+                        fontSize: "0.74rem",
+                        fontWeight: isActive ? 700 : 500,
+                        border: isActive
+                          ? "1px solid rgba(168, 85, 247, 0.55)"
+                          : "1px solid rgba(255, 255, 255, 0.1)",
+                        background: isActive
+                          ? "rgba(168, 85, 247, 0.22)"
+                          : "var(--qb-color-surface, #10141f)",
+                        color: isActive ? "#e9d5ff" : "var(--qb-color-text-secondary, #94a3b8)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {g.label}
+                    </button>
+                  );
+                })}
+                {selectedColumns[effectiveDateBucketCol.key]?.timeGrain && (
+                  <button
+                    type="button"
+                    data-qb="date-bucket-clear"
+                    onClick={() =>
+                      onUpdateColumnSelect(effectiveDateBucketCol.key, {
+                        timeGrain: undefined,
+                      })
+                    }
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: "999px",
+                      fontSize: "0.72rem",
+                      border: "1px solid rgba(255, 255, 255, 0.08)",
+                      background: "transparent",
+                      color: "var(--qb-color-text-muted, #64748b)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {(orderedProjectionKeys.length > 0 || windowFunctions.length > 0) && (
             <div
               style={
@@ -2152,6 +2308,8 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                   customOperators={customOperators}
                   fieldRenderers={fieldRenderers}
                   classNames={classNames}
+                  sampleRows={sampleRows}
+                  onFetchDistinctValues={onFetchDistinctValues}
                 />
               </div>
             )}

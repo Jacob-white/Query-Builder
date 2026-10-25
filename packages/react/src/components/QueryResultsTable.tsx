@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { QueryResultData, QueryBuilderClassNames } from "../types";
+import type { QueryResultData, QueryBuilderClassNames, SchemaSnapshot } from "../types";
 import { useQueryBuilderContext, type CellRenderer } from "../theme/QueryBuilderProvider";
 import { csvCellText } from "../utils/csvSafe";
 import { cx } from "../utils/classNames";
@@ -16,6 +16,60 @@ const SR_ONLY_STYLE: React.CSSProperties = {
   border: 0,
 };
 
+export interface ColumnMicroStats {
+  total: number;
+  nullCount: number;
+  nullPct: number;
+  distinctCount: number;
+  isNumeric: boolean;
+  min?: string;
+  max?: string;
+  avg?: string;
+  topValue?: string;
+}
+
+export function resolveForeignKeyTarget(
+  col: string,
+  schema?: SchemaSnapshot | null,
+): { targetTable: string; targetColumn: string } | null {
+  const shortCol = col.includes(".") ? col.slice(col.lastIndexOf(".") + 1) : col;
+  const colPrefix = col.includes(".") ? col.slice(0, col.lastIndexOf(".")) : null;
+
+  for (const fk of schema?.foreign_keys || []) {
+    if (fk.column === shortCol && (!colPrefix || fk.table === colPrefix)) {
+      return { targetTable: fk.foreign_table, targetColumn: fk.foreign_column };
+    }
+  }
+
+  for (const rel of schema?.relationships || []) {
+    if (rel.source_column === shortCol && (!colPrefix || rel.source_table === colPrefix)) {
+      return { targetTable: rel.target_table, targetColumn: rel.target_column };
+    }
+  }
+
+  if (shortCol.toLowerCase().endsWith("_id") && shortCol.length > 3) {
+    const stem = shortCol.slice(0, -3).toLowerCase();
+    const defaultPlural = stem.endsWith("y")
+      ? `${stem.slice(0, -1)}ies`
+      : stem.endsWith("s")
+        ? `${stem}es`
+        : `${stem}s`;
+    const candidates = [stem, defaultPlural, `${stem}es`];
+    const tableNames = Object.keys(schema?.tables || {});
+    for (const cand of candidates) {
+      const matched = tableNames.find((t) => t.toLowerCase() === cand);
+      if (matched) {
+        return { targetTable: matched, targetColumn: "id" };
+      }
+    }
+    if (tableNames.length === 0) {
+      return { targetTable: defaultPlural, targetColumn: "id" };
+    }
+  }
+
+  return null;
+}
+
 export interface QueryResultsTableProps {
   results: QueryResultData | null;
   isLoading?: boolean;
@@ -23,6 +77,19 @@ export interface QueryResultsTableProps {
   cellRenderers?: Record<string, CellRenderer>;
   pageSize?: number;
   onReorderColumns?: (newColumns: string[]) => void;
+  schema?: SchemaSnapshot | null;
+  onFilterByCell?: (
+    column: string,
+    value: unknown,
+    operator: "=" | "!=" | "IS NULL" | "IS NOT NULL",
+  ) => void;
+  onDrillDownForeignKey?: (
+    column: string,
+    value: unknown,
+    targetTable?: string,
+    targetColumn?: string,
+  ) => void;
+  onPinToDashboard?: () => void;
   className?: string;
   classNames?: QueryBuilderClassNames;
 }
@@ -34,6 +101,10 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   cellRenderers,
   pageSize = 100,
   onReorderColumns,
+  schema,
+  onFilterByCell,
+  onDrillDownForeignKey,
+  onPinToDashboard,
   className,
   classNames,
 }) => {
@@ -45,10 +116,17 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
   const [orderedColumns, setOrderedColumns] = useState<string[]>(results?.columns || []);
   const [draggedColIdx, setDraggedColIdx] = useState<number | null>(null);
   const [dragOverColIdx, setDragOverColIdx] = useState<number | null>(null);
+  const [showColumnStats, setShowColumnStats] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<{
+    rowIdx: number;
+    column: string;
+    value: unknown;
+  } | null>(null);
 
   React.useEffect(() => {
     setCurrentPage(1);
     setOrderedColumns(results?.columns || []);
+    setSelectedCell(null);
   }, [results]);
 
   React.useEffect(() => {
@@ -151,6 +229,81 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
         )
       : filteredRows;
 
+  const columnStatsMap: Record<string, ColumnMicroStats> = {};
+  if (showColumnStats) {
+    const total = filteredRows.length;
+    for (const col of columns) {
+      let nullCount = 0;
+      const nonNullStrings: string[] = [];
+      const numericVals: number[] = [];
+      let allNumeric = true;
+      const freq: Record<string, number> = {};
+
+      for (const row of filteredRows) {
+        const val = row[col];
+        if (val === null || val === undefined) {
+          nullCount += 1;
+          continue;
+        }
+        const s = typeof val === "object" ? JSON.stringify(val) : String(val);
+        nonNullStrings.push(s);
+        freq[s] = (freq[s] || 0) + 1;
+        if (allNumeric) {
+          if (typeof val === "number" && Number.isFinite(val)) {
+            numericVals.push(val);
+          } else if (
+            typeof val === "string" &&
+            val.trim() !== "" &&
+            Number.isFinite(Number(val))
+          ) {
+            numericVals.push(Number(val));
+          } else {
+            allNumeric = false;
+          }
+        }
+      }
+
+      const nullPct = total > 0 ? Math.round((nullCount / total) * 100) : 0;
+      const distinctCount = new Set(nonNullStrings).size;
+      const isNumeric = allNumeric && numericVals.length > 0;
+      if (isNumeric) {
+        const minVal = Math.min(...numericVals);
+        const maxVal = Math.max(...numericVals);
+        const avgVal =
+          numericVals.reduce((acc, v) => acc + v, 0) / numericVals.length;
+        const fmtNum = (n: number) =>
+          Number.isInteger(n) ? String(n) : n.toFixed(2);
+        columnStatsMap[col] = {
+          total,
+          nullCount,
+          nullPct,
+          distinctCount,
+          isNumeric: true,
+          min: fmtNum(minVal),
+          max: fmtNum(maxVal),
+          avg: fmtNum(avgVal),
+        };
+      } else {
+        let topValue: string | undefined;
+        let topCount = 0;
+        for (const [k, cnt] of Object.entries(freq)) {
+          if (cnt > topCount) {
+            topCount = cnt;
+            topValue = k.length > 18 ? `${k.slice(0, 18)}…` : k;
+          }
+        }
+        columnStatsMap[col] = {
+          total,
+          nullCount,
+          nullPct,
+          distinctCount,
+          isNumeric: false,
+          topValue,
+        };
+      }
+    }
+  }
+
   const handleExportCsv = () => {
     if (typeof document === "undefined") return;
     if (rows.length === 0) return;
@@ -200,6 +353,13 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  const selectedCellFk = selectedCell
+    ? resolveForeignKeyTarget(selectedCell.column, schema)
+    : null;
+  const selectedCellIsNull =
+    selectedCell !== null &&
+    (selectedCell.value === null || selectedCell.value === undefined);
 
   return (
     <div
@@ -362,6 +522,57 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                     }
             }
           />
+          {columns.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowColumnStats((prev) => !prev)}
+              aria-label="Toggle column statistics"
+              aria-pressed={showColumnStats}
+              data-qb="btn-toggle-column-stats"
+              title="Toggle column micro-stats (Null %, Distinct count, Min/Max/Avg)"
+              style={{
+                background: showColumnStats
+                  ? "rgba(56, 189, 248, 0.16)"
+                  : "var(--qb-color-surface, #10141f)",
+                color: showColumnStats
+                  ? "#38bdf8"
+                  : "var(--qb-color-text-secondary, #cbd5e1)",
+                border: showColumnStats
+                  ? "1px solid rgba(56, 189, 248, 0.45)"
+                  : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                borderRadius: "6px",
+                padding: "6px 11px",
+                fontSize: "0.84rem",
+                cursor: "pointer",
+                fontWeight: showColumnStats ? 600 : 500,
+                transition: "all 0.15s ease",
+              }}
+            >
+              📊 Stats
+            </button>
+          )}
+          {onPinToDashboard && (
+            <button
+              type="button"
+              onClick={onPinToDashboard}
+              aria-label="Pin results to BI Dashboard"
+              data-qb="btn-pin-to-dashboard"
+              title="Pin current query and results as a custom tile on the BI Dashboard"
+              style={{
+                background: "rgba(16, 185, 129, 0.15)",
+                color: "#34d399",
+                border: "1px solid rgba(16, 185, 129, 0.4)",
+                borderRadius: "6px",
+                padding: "6px 12px",
+                fontSize: "0.84rem",
+                cursor: "pointer",
+                fontWeight: 600,
+                transition: "all 0.15s ease",
+              }}
+            >
+              📌 Pin to BI Dashboard
+            </button>
+          )}
           <button
             type="button"
             onClick={handleExportCsv}
@@ -428,6 +639,140 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Cell Power Action Bar */}
+      {selectedCell && (
+        <div
+          data-qb="results-cell-action-bar"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "8px",
+            padding: "7px 12px",
+            borderRadius: "7px",
+            background: "rgba(56, 189, 248, 0.08)",
+            border: "1px solid rgba(56, 189, 248, 0.3)",
+            fontSize: "0.82rem",
+            color: "var(--qb-color-text, #e2e8f0)",
+          }}
+        >
+          <span
+            data-qb="cell-action-summary"
+            style={{ fontWeight: 600, fontFamily: "var(--qb-font-mono, monospace)" }}
+          >
+            {selectedCell.column} ={" "}
+            {selectedCellIsNull ? "NULL" : String(selectedCell.value)}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              data-qb="btn-cell-filter-eq"
+              onClick={() => {
+                if (onFilterByCell) {
+                  onFilterByCell(
+                    selectedCell.column,
+                    selectedCellIsNull ? null : selectedCell.value,
+                    selectedCellIsNull ? "IS NULL" : "=",
+                  );
+                } else if (!selectedCellIsNull) {
+                  setSearchTerm(String(selectedCell.value));
+                  setCurrentPage(1);
+                }
+                setSelectedCell(null);
+              }}
+              style={{
+                background: "rgba(56, 189, 248, 0.18)",
+                color: "#38bdf8",
+                border: "1px solid rgba(56, 189, 248, 0.4)",
+                borderRadius: "5px",
+                padding: "3px 9px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {selectedCellIsNull
+                ? `Filter ${selectedCell.column} IS NULL`
+                : `Filter = ${String(selectedCell.value)}`}
+            </button>
+            <button
+              type="button"
+              data-qb="btn-cell-filter-neq"
+              onClick={() => {
+                if (onFilterByCell) {
+                  onFilterByCell(
+                    selectedCell.column,
+                    selectedCellIsNull ? null : selectedCell.value,
+                    selectedCellIsNull ? "IS NOT NULL" : "!=",
+                  );
+                }
+                setSelectedCell(null);
+              }}
+              style={{
+                background: "rgba(248, 113, 113, 0.14)",
+                color: "#fca5a5",
+                border: "1px solid rgba(248, 113, 113, 0.35)",
+                borderRadius: "5px",
+                padding: "3px 9px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {selectedCellIsNull
+                ? `Filter ${selectedCell.column} IS NOT NULL`
+                : `Filter != ${String(selectedCell.value)}`}
+            </button>
+            {selectedCellFk && !selectedCellIsNull && (
+              <button
+                type="button"
+                data-qb="btn-cell-fk-drilldown"
+                data-qb-fk-target={selectedCellFk.targetTable}
+                onClick={() => {
+                  onDrillDownForeignKey?.(
+                    selectedCell.column,
+                    selectedCell.value,
+                    selectedCellFk.targetTable,
+                    selectedCellFk.targetColumn,
+                  );
+                  setSelectedCell(null);
+                }}
+                style={{
+                  background: "rgba(16, 185, 129, 0.16)",
+                  color: "#34d399",
+                  border: "1px solid rgba(16, 185, 129, 0.4)",
+                  borderRadius: "5px",
+                  padding: "3px 9px",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                🔗 Drill down: {selectedCellFk.targetTable}.{selectedCellFk.targetColumn} ={" "}
+                {String(selectedCell.value)}
+              </button>
+            )}
+            <button
+              type="button"
+              data-qb="btn-cell-action-close"
+              aria-label="Close cell actions"
+              onClick={() => setSelectedCell(null)}
+              style={{
+                background: "transparent",
+                color: "var(--qb-color-text-muted, #94a3b8)",
+                border: "none",
+                padding: "2px 6px",
+                fontSize: "0.82rem",
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table container */}
       <div
@@ -575,6 +920,66 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                 );
               })}
             </tr>
+            {showColumnStats && columns.length > 0 && (
+              <tr
+                role="presentation"
+                data-qb="results-stats-row"
+                style={{
+                  background: "rgba(15, 23, 42, 0.85)",
+                  borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                }}
+              >
+                <th
+                  role="presentation"
+                  aria-hidden="true"
+                  style={{
+                    padding: "6px 10px",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    textAlign: "right",
+                    color: "#38bdf8",
+                    borderRight: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Σ
+                </th>
+                {columns.map((c) => {
+                  const st = columnStatsMap[c];
+                  return (
+                    <th
+                      key={`stats-${c}`}
+                      role="presentation"
+                      data-qb="column-stat-cell"
+                      data-qb-column={c}
+                      style={{
+                        padding: "6px 14px",
+                        fontSize: "0.72rem",
+                        fontWeight: 500,
+                        color: "var(--qb-color-text-muted, #94a3b8)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {st && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span>
+                            Distinct: <strong>{st.distinctCount}</strong> • Null:{" "}
+                            <strong>{st.nullPct}%</strong>
+                          </span>
+                          <span>
+                            {st.isNumeric
+                              ? `Min: ${st.min} · Max: ${st.max} · Avg: ${st.avg}`
+                              : st.topValue !== undefined
+                                ? `Top: ${st.topValue}`
+                                : "All null"}
+                          </span>
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            )}
           </thead>
           <tbody>
             {displayedRows.map((r, idx) => (
@@ -625,12 +1030,32 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                   const shortCol = c.includes(".") ? c.slice(c.lastIndexOf(".") + 1) : c;
                   const cellRenderer =
                     effectiveCellRenderers?.[c] ?? effectiveCellRenderers?.[shortCol];
+                  const fkInfo = resolveForeignKeyTarget(c, schema);
+                  const hasFkValue = Boolean(fkInfo && r[c] !== null && r[c] !== undefined);
+                  const isCellSelected =
+                    selectedCell?.rowIdx === idx && selectedCell?.column === c;
                   return (
                     <td
                       key={`${c}-${colIdx}`}
                       role="cell"
                       data-qb="results-td"
+                      data-qb-column={c}
+                      data-qb-fk-target={fkInfo ? fkInfo.targetTable : undefined}
                       className={cx(classNames?.resultsCell)}
+                      onClick={() => {
+                        setSelectedCell((prev) =>
+                          prev && prev.rowIdx === idx && prev.column === c
+                            ? null
+                            : { rowIdx: idx, column: c, value: r[c] },
+                        );
+                      }}
+                      title={
+                        unstyled
+                          ? undefined
+                          : hasFkValue
+                            ? `Click to filter or drill down to ${fkInfo!.targetTable}.${fkInfo!.targetColumn} = ${String(r[c])}`
+                            : "Click cell to filter query by this value"
+                      }
                       style={
                         unstyled
                           ? undefined
@@ -642,6 +1067,13 @@ export const QueryResultsTable: React.FC<QueryResultsTableProps> = ({
                               maxWidth: "280px",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
+                              cursor: "pointer",
+                              background: isCellSelected
+                                ? "rgba(56, 189, 248, 0.14)"
+                                : undefined,
+                              textDecoration: hasFkValue
+                                ? "underline dotted rgba(52, 211, 153, 0.65)"
+                                : undefined,
                             }
                       }
                     >

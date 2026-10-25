@@ -19,6 +19,7 @@ import type {
 export interface UseDashboardManagerOptions {
   initialState?: Partial<DashboardState>;
   results?: QueryResultData | null;
+  storageKey?: string;
 }
 
 function isNumericVal(val: unknown): boolean {
@@ -214,20 +215,54 @@ export interface UseDashboardManagerReturn {
 export function useDashboardManager(
   options: UseDashboardManagerOptions = {},
 ): UseDashboardManagerReturn {
+  const storageKey = options.storageKey;
   const [dashboard, setDashboard] = useState<DashboardState>(() => {
-    const initialTiles = options.initialState?.tiles
+    let persistedCustomTiles: DashboardTile[] = [];
+    if (storageKey && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem(`qb_dashboard_tiles_${storageKey}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            persistedCustomTiles = parsed;
+          }
+        }
+      } catch {
+        // Ignore storage read errors
+      }
+    }
+
+    const baseTiles = options.initialState?.tiles
       ? [...options.initialState.tiles]
       : options.results
         ? buildDashboardTilesFromResults(options.results, options.initialState?.title)
         : [];
+    const existingIds = new Set(baseTiles.map((t) => t.id));
+    const mergedTiles = [
+      ...baseTiles,
+      ...persistedCustomTiles.filter((t) => !existingIds.has(t.id)),
+    ];
     return {
       id: options.initialState?.id || "dashboard_1",
       title: options.initialState?.title || "Operational Analytics",
-      tiles: initialTiles,
+      tiles: mergedTiles,
       globalFilters: options.initialState?.globalFilters ? [...options.initialState.globalFilters] : [],
       crossFilter: options.initialState?.crossFilter || null,
     };
   });
+
+  useEffect(() => {
+    if (!storageKey || typeof window === "undefined" || !window.localStorage) return;
+    try {
+      const customToSave = dashboard.tiles.filter((t) => !t.id.startsWith("tile-query-"));
+      window.localStorage.setItem(
+        `qb_dashboard_tiles_${storageKey}`,
+        JSON.stringify(customToSave),
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [dashboard.tiles, storageKey]);
 
   const prevResultsRef = useRef<QueryResultData | null | undefined>(options.results);
   const initialTitle = options.initialState?.title;
@@ -253,7 +288,9 @@ export function useDashboardManager(
           title: initialTitle || prev.title,
           tiles: prev.tiles
             .filter((t) => !t.id.startsWith("tile-query-"))
-            .map((t) => ({ ...t, cachedRows: [] })),
+            .map((t) =>
+              t.id.startsWith("pinned_") ? t : { ...t, cachedRows: [] },
+            ),
           crossFilter: null,
         }));
       }
@@ -265,35 +302,72 @@ export function useDashboardManager(
     const inferred = inferDashboardColumns(nextRows, nextResults.columns);
 
     setDashboard((prev) => {
-      const nextAutoTiles = buildDashboardTilesFromResults(nextResults);
+      const nextAutoTiles = buildDashboardTilesFromResults(nextResults).map(
+        (autoTile): DashboardTile => {
+          const prevTile = prev.tiles.find((p) => p.id === autoTile.id);
+          if (!prevTile) return autoTile;
+          const keepCat = inferred.columns.includes(prevTile.categoryCol as string)
+            ? prevTile.categoryCol
+            : autoTile.categoryCol;
+          const keepMet = inferred.columns.includes(prevTile.metricCol as string)
+            ? prevTile.metricCol
+            : autoTile.metricCol;
+          return {
+            ...autoTile,
+            type: prevTile.type,
+            chartType: prevTile.chartType ?? autoTile.chartType,
+            categoryCol: keepCat,
+            metricCol: keepMet,
+            defaultAggregation:
+              prevTile.defaultAggregation ?? autoTile.defaultAggregation,
+            kpiConfig: autoTile.kpiConfig
+              ? {
+                  ...autoTile.kpiConfig,
+                  valueField: keepMet || autoTile.kpiConfig.valueField,
+                }
+              : prevTile.kpiConfig,
+          };
+        },
+      );
       const customTiles = prev.tiles
         .filter((t) => !t.id.startsWith("tile-query-"))
-        .map((t): DashboardTile => ({
-          ...t,
-          cachedRows: nextRows,
-          columns: inferred.columns,
-          categoryCol: inferred.categoryCol,
-          metricCol: inferred.metricCol,
-          defaultAggregation: inferred.defaultAggregation,
-          kpiConfig: t.kpiConfig
-            ? {
-                ...t.kpiConfig,
-                valueField: inferred.hasNonIdMetric ? inferred.metricCol : "__count__",
-              }
-            : undefined,
-          pivotConfig: t.pivotConfig
-            ? {
-                rowDimensions: [inferred.categoryCol],
-                columnDimensions: [inferred.secondaryCategoryCol],
-                valueMetrics: [
-                  {
-                    field: inferred.metricCol,
-                    agg: inferred.hasNonIdMetric ? "sum" : "count",
-                  },
-                ],
-              }
-            : undefined,
-        }));
+        .map((t): DashboardTile => {
+          if (t.id.startsWith("pinned_") && t.cachedRows?.length) {
+            return t;
+          }
+          const keepCat = inferred.columns.includes(t.categoryCol as string)
+            ? t.categoryCol!
+            : inferred.categoryCol;
+          const keepMet = inferred.columns.includes(t.metricCol as string)
+            ? t.metricCol!
+            : inferred.metricCol;
+          return {
+            ...t,
+            cachedRows: nextRows,
+            columns: inferred.columns,
+            categoryCol: keepCat,
+            metricCol: keepMet,
+            defaultAggregation: t.defaultAggregation ?? inferred.defaultAggregation,
+            kpiConfig: t.kpiConfig
+              ? {
+                  ...t.kpiConfig,
+                  valueField: inferred.hasNonIdMetric ? keepMet : "__count__",
+                }
+              : undefined,
+            pivotConfig: t.pivotConfig
+              ? {
+                  rowDimensions: [keepCat],
+                  columnDimensions: [inferred.secondaryCategoryCol],
+                  valueMetrics: [
+                    {
+                      field: keepMet,
+                      agg: inferred.hasNonIdMetric ? "sum" : "count",
+                    },
+                  ],
+                }
+              : undefined,
+          };
+        });
       const includeAutoTiles =
         prev.tiles.length === 0 || prev.tiles.some((t) => t.id.startsWith("tile-query-"));
       return {
@@ -305,11 +379,11 @@ export function useDashboardManager(
     });
   }, [options.results, initialTitle]);
 
-  const addTile = useCallback((tileData: Omit<DashboardTile, "id">): string => {
-    const id = `tile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const addTile = useCallback((tileData: Omit<DashboardTile, "id"> & { id?: string }): string => {
+    const id = tileData.id || `tile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newTile: DashboardTile = {
-      id,
       ...tileData,
+      id,
       layout: tileData.layout || { w: 2, h: 1 },
     };
     setDashboard((prev) => ({
@@ -470,16 +544,30 @@ export function useDashboardManager(
   const computeKpi = useCallback(
     (tile: DashboardTile, rows: Record<string, unknown>[]) => {
       const cfg = tile.kpiConfig || {};
-      const valField = cfg.valueField || (rows[0] ? Object.keys(rows[0])[0] : "");
+      const valField =
+        tile.metricCol || cfg.valueField || (rows[0] ? Object.keys(rows[0])[0] : "");
+      const agg = (tile.defaultAggregation || "SUM").toUpperCase();
 
       let total = 0;
-      if (valField === "__count__") {
+      if (valField === "__count__" || agg === "COUNT") {
         total = rows.length;
       } else {
+        const nums: number[] = [];
         for (const r of rows) {
           const raw = resolveRowFieldValue(r, valField);
           const num = Number(raw);
-          if (!Number.isNaN(num)) total += num;
+          if (!Number.isNaN(num)) nums.push(num);
+        }
+        if (nums.length === 0) {
+          total = 0;
+        } else if (agg === "AVG") {
+          total = nums.reduce((a, b) => a + b, 0) / nums.length;
+        } else if (agg === "MIN") {
+          total = Math.min(...nums);
+        } else if (agg === "MAX") {
+          total = Math.max(...nums);
+        } else {
+          total = nums.reduce((a, b) => a + b, 0);
         }
       }
 
@@ -502,14 +590,26 @@ export function useDashboardManager(
         valueMetrics: [],
       };
 
-      const rowField = cfg.rowDimensions[0] || (rows[0] ? Object.keys(rows[0])[0] : "row");
-      const colField = cfg.columnDimensions[0] || (rows[0] ? Object.keys(rows[0])[1] : "col");
-      const metricField = cfg.valueMetrics[0]?.field || (rows[0] ? Object.keys(rows[0])[2] : "val");
-      const metricAgg = cfg.valueMetrics[0]?.agg || "sum";
+      const rowField =
+        tile.categoryCol ||
+        cfg.rowDimensions[0] ||
+        (rows[0] ? Object.keys(rows[0])[0] : "row");
+      const colField =
+        cfg.columnDimensions[0] || (rows[0] ? Object.keys(rows[0])[1] || Object.keys(rows[0])[0] : "col");
+      const metricField =
+        tile.metricCol ||
+        cfg.valueMetrics[0]?.field ||
+        (rows[0] ? Object.keys(rows[0])[2] || Object.keys(rows[0])[1] || Object.keys(rows[0])[0] : "val");
+      const metricAgg = (
+        tile.defaultAggregation ||
+        cfg.valueMetrics[0]?.agg ||
+        "sum"
+      ).toLowerCase();
 
       const rowKeysSet = new Set<string>();
       const colKeysSet = new Set<string>();
       const data: Record<string, Record<string, number>> = {};
+      const counts: Record<string, Record<string, number>> = {};
 
       for (const r of rows) {
         const rk = String(resolveRowFieldValue(r, rowField) ?? "N/A");
@@ -521,7 +621,27 @@ export function useDashboardManager(
         colKeysSet.add(ck);
 
         if (!data[rk]) data[rk] = {};
-        data[rk][ck] = (data[rk][ck] || 0) + val;
+        if (!counts[rk]) counts[rk] = {};
+        counts[rk][ck] = (counts[rk][ck] || 0) + 1;
+
+        if (metricAgg === "min") {
+          data[rk][ck] =
+            data[rk][ck] === undefined ? val : Math.min(data[rk][ck], val);
+        } else if (metricAgg === "max") {
+          data[rk][ck] =
+            data[rk][ck] === undefined ? val : Math.max(data[rk][ck], val);
+        } else {
+          data[rk][ck] = (data[rk][ck] || 0) + val;
+        }
+      }
+
+      if (metricAgg === "avg") {
+        for (const rk of Object.keys(data)) {
+          for (const ck of Object.keys(data[rk])) {
+            const cnt = counts[rk]?.[ck] || 1;
+            data[rk][ck] = Number((data[rk][ck] / cnt).toFixed(2));
+          }
+        }
       }
 
       return {

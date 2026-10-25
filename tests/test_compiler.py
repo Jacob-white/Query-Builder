@@ -445,3 +445,90 @@ def test_schema_qualified_tables_meta():
     assert 'WHERE "t1"."tenant_id" = %s' in sql
     assert "t-100" in params
     assert 'LEFT JOIN "public"."users" "t2"' in sql
+
+
+def test_compiler_camelcase_time_grain_bucketing():
+    schema = {
+        "tables": {
+            "orders": {
+                "columns": [
+                    {"name": "id"},
+                    {"name": "created_at"},
+                    {"name": "total"},
+                ],
+            }
+        }
+    }
+    spec = {
+        "table": "orders",
+        "columns": [
+            {
+                "column": "orders.created_at",
+                "timeGrain": "month",
+                "alias": "order_month",
+            },
+            {
+                "column": "orders.total",
+                "agg": "sum",
+                "alias": "total_revenue",
+            },
+        ],
+    }
+    compiler = QueryCompiler(spec, schema=schema)
+    sql, _params, _, _ = compiler.compile()
+    assert 'DATE_TRUNC(\'month\', "t1"."created_at") AS "order_month"' in sql
+    assert 'SUM("t1"."total") AS "total_revenue"' in sql
+    assert 'GROUP BY DATE_TRUNC(\'month\', "t1"."created_at")' in sql
+
+
+def test_sqlite_quarter_time_grain_evaluates_to_valid_quarters():
+    import sqlite3
+
+    schema = {
+        "tables": {
+            "orders": {
+                "columns": [
+                    {"name": "id"},
+                    {"name": "created_at"},
+                    {"name": "total"},
+                ],
+            }
+        }
+    }
+    spec = {
+        "table": "orders",
+        "columns": [
+            {
+                "column": "orders.created_at",
+                "timeGrain": "quarter",
+                "alias": "order_quarter",
+            },
+            {
+                "column": "orders.total",
+                "agg": "sum",
+                "alias": "total_revenue",
+            },
+        ],
+    }
+    compiler = QueryCompiler(spec, schema=schema, dialect="sqlite")
+    sql, params, _, _ = compiler.compile()
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE orders (id INT, created_at TEXT, total REAL)")
+    conn.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?)",
+        [
+            (1, "2025-02-15", 100.0),
+            (2, "2025-05-10", 200.0),
+            (3, "2025-08-20", 300.0),
+            (4, "2025-11-05", 400.0),
+        ],
+    )
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    assert dict(rows) == {
+        "2025-Q1": 100.0,
+        "2025-Q2": 200.0,
+        "2025-Q3": 300.0,
+        "2025-Q4": 400.0,
+    }

@@ -1,6 +1,11 @@
 import React from "react";
 import type { VisualJoin, TableMeta, SchemaSnapshot, QueryBuilderClassNames } from "../types";
-import { findBestJoinCondition, classifyJoinCondition, type JoinTier } from "../utils/joinUtils";
+import {
+  findBestJoinCondition,
+  classifyJoinCondition,
+  findMultiHopJoinPath,
+  type JoinTier,
+} from "../utils/joinUtils";
 import { isProvenJoin } from "../utils/queryHelpers/joinLinks";
 import { cx } from "../utils/classNames";
 
@@ -109,6 +114,25 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
     onChange([...joins, newJoin]);
   };
 
+  const activeTableNames = React.useMemo(() => {
+    const names = activeTables.map((a) => a.name);
+    for (const j of joins) {
+      if (j.table && !names.includes(j.table)) {
+        names.push(j.table);
+      }
+    }
+    return names;
+  }, [activeTables, joins]);
+
+  const handleAddMultiHopJoin = (targetTable: string) => {
+    const multiHop = findMultiHopJoinPath(activeTableNames, targetTable, effectiveSchema);
+    const existingTables = new Set(joins.map((j) => j.table));
+    const newJoins = multiHop.joins.filter((j) => !existingTables.has(j.table));
+    if (newJoins.length > 0) {
+      onChange([...joins, ...newJoins]);
+    }
+  };
+
   const handleUpdate = (id: string, updates: Partial<VisualJoin>) => {
     onChange(joins.map((j) => (j.id === id ? { ...j, ...updates } : j)));
   };
@@ -133,7 +157,11 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
   const unjoinedWithMatch = unjoinedTables.map((t) => {
     const match = getBestCandidateJoin(t.name);
     const tier: JoinTier = match.joinTier || (match.isFk ? "confirmed" : "none");
-    return { table: t, match, tier };
+    const multiHop =
+      tier === "none" && activeTableNames.length > 0
+        ? findMultiHopJoinPath(activeTableNames, t.name, effectiveSchema)
+        : undefined;
+    return { table: t, match, tier, multiHop };
   });
 
   const tierCounts = {
@@ -429,6 +457,72 @@ export const TableJoinEditor: React.FC<TableJoinEditorProps> = ({
               );
             })}
           </div>
+          {filteredUnjoinedTables.some(
+            (u) => u.multiHop?.isConnected && u.multiHop.joins.length > 1,
+          ) && (
+            <div
+              data-qb="multihop-join-strip"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                flexWrap: "wrap",
+                paddingTop: "6px",
+                borderTop: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.06))",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  color: "var(--qb-color-primary, #38bdf8)",
+                }}
+              >
+                🌉 Multi-Hop Auto-Join:
+              </span>
+              {filteredUnjoinedTables
+                .filter((u) => u.multiHop?.isConnected && u.multiHop.joins.length > 1)
+                .map(({ table: t, multiHop }) => {
+                  const bridges = multiHop!.bridgeTables.join(" → ");
+                  return (
+                    <button
+                      key={`mh-${t.name}`}
+                      type="button"
+                      data-qb="btn-auto-join-multihop"
+                      data-qb-target-table={t.name}
+                      data-qb-bridge-path={multiHop!.bridgeTables.join(",")}
+                      onClick={() => handleAddMultiHopJoin(t.name)}
+                      title={`Automatically join ${t.name} across bridge table(s): ${bridges}`}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        background: "rgba(139, 92, 246, 0.14)",
+                        color: "#ddd6fe",
+                        border: "1px solid rgba(139, 92, 246, 0.4)",
+                        borderRadius: "999px",
+                        padding: "3px 9px",
+                        fontSize: "0.74rem",
+                        fontWeight: 600,
+                        fontFamily: "var(--qb-font-mono, monospace)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span>{`+ ${t.name}`}</span>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          fontFamily: "var(--qb-font-family, system-ui, sans-serif)",
+                          color: "#c4b5fd",
+                        }}
+                      >
+                        {`via ${bridges}`}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
         </div>
       )}
 

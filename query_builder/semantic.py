@@ -564,6 +564,8 @@ def expand_time_grain_sql(
     elif d in ("bigquery",):
         return f"DATE_TRUNC({expr}, {g.upper()})"
     elif d in ("sqlite",):
+        if g == "quarter":
+            return f"(STRFTIME('%Y-Q', {expr}) || ((CAST(STRFTIME('%m', {expr}) AS INTEGER) + 2) / 3))"
         sqlite_format_map = {
             "second": "%Y-%m-%d %H:%M:%S",
             "minute": "%Y-%m-%d %H:%M:00",
@@ -571,7 +573,6 @@ def expand_time_grain_sql(
             "day": "%Y-%m-%d",
             "week": "%Y-%W",
             "month": "%Y-%m-01",
-            "quarter": "%Y-m",  # simplified
             "year": "%Y-01-01",
         }
         fmt = sqlite_format_map.get(g, "%Y-%m-%d")
