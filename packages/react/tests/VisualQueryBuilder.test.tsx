@@ -1108,6 +1108,109 @@ describe("VisualQueryBuilder", () => {
     expect(summaryBar2.getAttribute("data-qb-hidden")).toBe("true");
     expect(summaryBar2.style.position).toBe("absolute");
   });
+
+  it("provides full interactive Studio Mode step actions, subview navigation bar, and visible dock header", async () => {
+    const onExecuteQuery = vi.fn().mockResolvedValue({
+      columns: ["id", "name"],
+      rows: [{ id: 1, name: "Alice" }],
+      count: 1,
+    });
+
+    const { container } = render(
+      <VisualQueryBuilder
+        schema={mockSchema}
+        initialTable="users"
+        studioMode={true}
+        defaultAdvancedMode={false}
+        showPlanTab={true}
+        showPipelineTab={true}
+        features={{ raw_sql: "standard", schema_tools: "standard", window_functions: "standard" }}
+        onExecuteQuery={onExecuteQuery}
+      />
+    );
+
+    const studioActions = container.querySelector('[data-qb="studio-step-actions"]');
+    expect(studioActions).toBeTruthy();
+
+    // Toggle a column to enable Undo
+    const idCheckbox = screen.getAllByRole("checkbox")[0];
+    fireEvent.click(idCheckbox);
+
+    const undoBtn = container.querySelector('[data-qb="studio-btn-undo"]') as HTMLButtonElement;
+    const redoBtn = container.querySelector('[data-qb="studio-btn-redo"]') as HTMLButtonElement;
+    expect(undoBtn).toBeTruthy();
+    expect(redoBtn).toBeTruthy();
+    fireEvent.click(undoBtn);
+    fireEvent.click(redoBtn);
+
+    // Open ERD and Window Function modals via studio step actions and close via Escape
+    const erdBtn = container.querySelector('[data-qb="studio-btn-erd"]') as HTMLButtonElement;
+    expect(erdBtn).toBeTruthy();
+    fireEvent.click(erdBtn);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    const wfBtn = container.querySelector('[data-qb="studio-btn-window"]') as HTMLButtonElement;
+    expect(wfBtn).toBeTruthy();
+    fireEvent.click(wfBtn);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    // Execute query via studio-btn-run and verify WorkspaceDock header stays visible in studioMode
+    const runBtn = container.querySelector('[data-qb="studio-btn-run"]') as HTMLButtonElement;
+    expect(runBtn).toBeTruthy();
+    fireEvent.click(runBtn);
+
+    await waitFor(() => {
+      expect(onExecuteQuery).toHaveBeenCalledTimes(1);
+    });
+
+    const dockHeader = container.querySelector('[data-qb="workspace-dock-header"]') as HTMLElement;
+    expect(dockHeader).toBeTruthy();
+    expect(dockHeader.style.position).not.toBe("absolute");
+
+    // Navigate to CTE Pipeline, Plan & Advisor, Live SQL, Results, and Chart via studio step actions & subview bar
+    const pipelineBtn = container.querySelector('[data-qb="studio-btn-pipeline"]') as HTMLButtonElement;
+    expect(pipelineBtn).toBeTruthy();
+    fireEvent.click(pipelineBtn);
+
+    const subviewBar = container.querySelector('[data-qb="studio-subview-bar"]');
+    expect(subviewBar).toBeTruthy();
+
+    const subviewPlanBtn = container.querySelector('[data-qb="studio-subview-plan"]') as HTMLButtonElement;
+    expect(subviewPlanBtn).toBeTruthy();
+    fireEvent.click(subviewPlanBtn);
+
+    const subviewSqlBtn = container.querySelector('[data-qb="studio-subview-sql"]') as HTMLButtonElement;
+    expect(subviewSqlBtn).toBeTruthy();
+    fireEvent.click(subviewSqlBtn);
+
+    const subviewResultsBtn = container.querySelector('[data-qb="studio-subview-results"]') as HTMLButtonElement;
+    expect(subviewResultsBtn).toBeTruthy();
+    fireEvent.click(subviewResultsBtn);
+
+    const subviewChartBtn = container.querySelector('[data-qb="studio-subview-chart"]') as HTMLButtonElement;
+    expect(subviewChartBtn).toBeTruthy();
+    fireEvent.click(subviewChartBtn);
+
+    const subviewPipelineBtn = container.querySelector('[data-qb="studio-subview-pipeline"]') as HTMLButtonElement;
+    fireEvent.click(subviewPipelineBtn);
+
+    const subviewRunBtn = container.querySelector('[data-qb="studio-subview-btn-run"]') as HTMLButtonElement;
+    fireEvent.click(subviewRunBtn);
+    await waitFor(() => {
+      expect(onExecuteQuery).toHaveBeenCalledTimes(2);
+    });
+
+    const backVisualBtn = container.querySelector('[data-qb="studio-btn-back-visual"]') as HTMLButtonElement;
+    fireEvent.click(backVisualBtn);
+    expect(container.querySelector('[data-qb="studio-subview-bar"]')).toBeNull();
+
+    // Also test studio-btn-plan directly from visual canvas
+    const planBtn = container.querySelector('[data-qb="studio-btn-plan"]') as HTMLButtonElement;
+    expect(planBtn).toBeTruthy();
+    fireEvent.click(planBtn);
+    expect(container.querySelector('[data-qb="studio-subview-bar"]')).toBeTruthy();
+  });
 });
+
 
 

@@ -710,6 +710,19 @@ def create_query_builder_router(
                     status_code=400,
                     detail="Missing required 'table' in query specification.",
                 )
+            if payload.spec.get("ctes"):
+                effective_capabilities.require_feature("ctes")
+            if payload.spec.get("window_functions"):
+                effective_capabilities.require_feature("window_functions")
+            if (
+                payload.spec.get("rollup")
+                or payload.spec.get("cube")
+                or payload.spec.get("grouping_sets")
+                or payload.spec.get("pivot")
+            ):
+                effective_capabilities.require_feature("analytical_grouping")
+            if payload.spec.get("vector_search") or payload.spec.get("hybrid_search"):
+                effective_capabilities.require_feature("vector_search")
             if policy is not None or tenant_ctx is not None:
                 active_spec = apply_security_policy(
                     payload.spec,
@@ -789,6 +802,11 @@ def create_query_builder_router(
             )
         except HTTPException:
             raise
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
         except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (ExportError, Exception) as exc:
@@ -811,6 +829,11 @@ def create_query_builder_router(
             )
         except HTTPException:
             raise
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
         except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (ExportError, Exception) as exc:
@@ -857,9 +880,14 @@ def create_query_builder_router(
             sql, params = compiler.compile()[0:2]
             plan = estimate_plan_from_spec(active_spec, schema=payload.schema_snapshot)
             perf = analyze_query_performance(
-                active_spec, sql=sql, dialect=str(dialect or "postgres")
+                active_spec,
+                sql=sql,
+                dialect=str(dialect or "postgres"),
+                schema_snapshot=payload.schema_snapshot,
             )
-            rec_indexes = recommend_indexes(active_spec)
+            rec_indexes = recommend_indexes(
+                active_spec, schema_snapshot=payload.schema_snapshot
+            )
             return {
                 "sql": sql,
                 "params": params,
@@ -868,8 +896,11 @@ def create_query_builder_router(
                 "performance": perf,
                 "recommended_indexes": rec_indexes,
             }
-        except HTTPException:
-            raise
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
         except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:
@@ -1090,8 +1121,11 @@ def create_query_builder_router(
                 "provider": used_provider,
                 "model": used_model,
             }
-        except HTTPException:
-            raise
+        except DisabledFeatureError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=disabled_feature_message(exc, effective_capabilities),
+            ) from exc
         except SecurityError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except Exception as exc:

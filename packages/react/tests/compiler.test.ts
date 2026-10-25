@@ -1393,4 +1393,86 @@ describe("compileVisualState", () => {
     expect(res.sql).toContain("COUNT(*) OVER ()");
     expect(res.sql).toContain("LEAD(salary, 1) OVER ()");
   });
+
+  it("compiles case_when projections and inner_product vector distance metric", () => {
+    const res1 = compileVisualState(
+      "users",
+      {
+        "users.tier": {
+          table: "users",
+          name: "tier",
+          alias: "tier_label",
+          caseWhen: {
+            branches: [
+              {
+                condition: { column: "deleted_at", op: "IS NULL" },
+                then_column: "status",
+              },
+              {
+                condition: { tablePrefix: "users", column: "score", op: ">=", value: 90 },
+                then_value: 1,
+              },
+              {
+                condition: { column: "score", op: ">=", value: "50" },
+                then_value: "mid",
+              },
+              {
+                condition: { column: "role", op: "", value: "vip" },
+                then_value: "vip_tier",
+              },
+            ],
+            else_column: "fallback_tier",
+          },
+        },
+        "users.tier_num": {
+          table: "users",
+          name: "tier_num",
+          caseWhen: {
+            branches: [
+              {
+                condition: { column: "score", op: "=", value: null as unknown as string },
+                then_value: null as unknown as string,
+              },
+            ],
+            else_value: 0,
+          },
+        },
+        "users.tier_str": {
+          table: "users",
+          name: "tier_str",
+          caseWhen: {
+            branches: [
+              {
+                condition: { column: "deleted_at", op: "IS NOT NULL" },
+                then_value: "deleted",
+              },
+            ],
+            else_value: "none",
+          },
+        },
+      },
+      ["users.tier", "users.tier_num", "users.tier_str"],
+      [],
+      [],
+      [],
+      false,
+      10,
+      null,
+      "postgres",
+      "AND",
+      undefined,
+      {
+        column: "embedding",
+        vector: [0.1, 0.2],
+        metric: "inner_product",
+        top_k: 5,
+      },
+    );
+    expect(res1.sql).toContain("CASE WHEN");
+    expect(res1.sql).toContain('ELSE "fallback_tier" END');
+    expect(res1.sql).toContain("ELSE 0 END");
+    expect(res1.sql).toContain("ELSE 'none' END");
+    expect(res1.sql).toContain("<#>");
+  });
 });
+

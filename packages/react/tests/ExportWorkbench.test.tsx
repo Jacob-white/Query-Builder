@@ -343,5 +343,94 @@ describe("ExportWorkbench Component", () => {
     const code = generateSdkSnippet(minimalSpec);
     expect(code).toContain('.from("table")');
     expect(code).toContain(".select([])");
+    expect(generateSdkSnippet(minimalSpec, "python")).toContain('table="table"');
+    expect(generateSdkSnippet(minimalSpec, "go")).toContain('qb.From("table")');
+    expect(generateSdkSnippet(minimalSpec, "rust")).toContain('QueryBuilder::from("table")');
+    expect(generateSdkSnippet(minimalSpec, "prisma")).toContain("prisma.table.findMany");
+
+    const joinNoCols: Partial<QuerySpec> = {
+      table: "t",
+      columns: ["*"],
+      joins: [{ table: "j", type: "INNER" }],
+    };
+    expect(generateSdkSnippet(joinNoCols, "go")).toContain('Join("j", "id", "=", "id")');
+    expect(generateSdkSnippet(joinNoCols, "rust")).toContain('.join("j", "id", "=", "id")');
+    expect(generateSdkSnippet(joinNoCols, "prisma")).toContain("prisma.t.findMany");
+  });
+
+  it("generates SDK snippet with groupBy, having, and offset across TypeScript, Python, Go, Rust, and Prisma", () => {
+    const richSpec: Partial<QuerySpec> = {
+      table: "public.orders",
+      columns: ["customer_id", { column: "amount", agg: "SUM", alias: "total" }],
+      joins: [{ table: "customers", type: "INNER", left_col: "customer_id", right_col: "id" }],
+      filters: [{ column: "orders.status", op: "=", value: "paid" }],
+      group_by: ["customer_id"],
+      having: [{ column: "SUM(amount)", op: ">", value: 100 }],
+      order_by: [{ column: "orders.created_at", direction: "DESC" }],
+      distinct: true,
+      limit: 20,
+      offset: 40,
+    };
+    const tsCode = generateSdkSnippet(richSpec, "typescript");
+    expect(tsCode).toContain('.groupBy(["customer_id"])');
+    expect(tsCode).toContain('.having("SUM(amount)", ">", 100)');
+    expect(tsCode).toContain(".offset(40)");
+
+    const pyCode = generateSdkSnippet(richSpec, "python");
+    expect(pyCode).toContain("from query_builder import QueryCompiler, QuerySpec");
+    expect(pyCode).toContain('group_by=["customer_id"]');
+    expect(pyCode).toContain('having=[["SUM(amount)",">",100]]');
+    expect(pyCode).toContain("offset=40");
+
+    const goCode = generateSdkSnippet(richSpec, "go");
+    expect(goCode).toContain('GroupBy("customer_id")');
+    expect(goCode).toContain('Having("SUM(amount)", ">", 100)');
+    expect(goCode).toContain("Offset(40)");
+
+    const rustCode = generateSdkSnippet(richSpec, "rust");
+    expect(rustCode).toContain('group_by(&["customer_id"])');
+    expect(rustCode).toContain('having("SUM(amount)", ">", 100)');
+    expect(rustCode).toContain("offset(40)");
+
+    const prismaGroupCode = generateSdkSnippet(richSpec, "prisma");
+    expect(prismaGroupCode).toContain("prisma.orders.groupBy");
+    expect(prismaGroupCode).toContain('"by"');
+    expect(prismaGroupCode).toContain('"skip": 40');
+
+    const prismaFindMany = generateSdkSnippet(
+      { table: "users", columns: ["id", "email"], limit: 5 },
+      "prisma",
+    );
+    expect(prismaFindMany).toContain("prisma.users.findMany");
+    expect(prismaFindMany).toContain('"select"');
+  });
+
+  it("switches SDK language via pill buttons and select dropdown", () => {
+    const { container } = render(<ExportWorkbench spec={sampleSpec} />);
+    const pyBtn = container.querySelector('[data-qb="codegen-lang-python"]') as HTMLElement;
+    expect(pyBtn).toBeTruthy();
+    act(() => {
+      fireEvent.click(pyBtn);
+    });
+    expect(screen.getByText(/from query_builder import QueryCompiler/)).toBeTruthy();
+
+    const goBtn = container.querySelector('[data-qb="codegen-lang-go"]') as HTMLElement;
+    act(() => {
+      fireEvent.click(goBtn);
+    });
+    expect(screen.getByText(/func buildQuery/)).toBeTruthy();
+
+    const rustBtn = container.querySelector('[data-qb="codegen-lang-rust"]') as HTMLElement;
+    act(() => {
+      fireEvent.click(rustBtn);
+    });
+    expect(screen.getByText(/use query_builder::QueryBuilder/)).toBeTruthy();
+
+    const langSelect = screen.getByLabelText("Select SDK Language");
+    act(() => {
+      fireEvent.change(langSelect, { target: { value: "prisma" } });
+    });
+    expect(screen.getByText(/prisma\.users\.findMany/)).toBeTruthy();
   });
 });
+

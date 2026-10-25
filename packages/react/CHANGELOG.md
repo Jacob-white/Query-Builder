@@ -27,6 +27,11 @@
 - **Two-Tier Decluttered Studio Toolbar in `<VisualQueryBuilder>`**:
   - Primary tier dedicated to main view navigation tabs and execution controls (Run, Cancel, Undo, Redo).
   - Secondary tier for schema explorer toggling, sample query presets, and layout tools.
+- **`ExportWorkbench` Streaming & Format Gating:**
+  - Added optional `onStreamExport?: (config: ExportConfig) => void | Promise<void>` prop to `<ExportWorkbench>` to trigger streaming NDJSON/CSV exports directly from the workbench modal.
+  - Added optional `availableFormats?: ExportFormat[]` prop to filter selectable export formats based on server capabilities.
+- **`VisualQueryBuilder` Schema-Aware Plan Estimation & Index Advisor:**
+  - Wired `schema` into `estimateClientPlan` and `recommendIndexes` inside `<VisualQueryBuilder>` so client-side plan estimation and index recommendations honor declared primary keys.
 - **`VisualQueryBuilder` Studio tabs & controls:**
   - Optional **`⚡ Plan & Cost`** (`showPlanTab?: boolean`) and **`🧬 Pipeline`** (`showPipelineTab?: boolean`) tabs in the Visual Studio output dock, wiring `<QueryPlanVisualizer>` and `<MultiStagePipelineBuilder>` directly into the workspace.
   - Optional **`✨ Ask AI / NLQ`** (`showNlqBar?: boolean`) collapsible natural-language query bar (`<NaturalLanguageBar>`) in the workspace header.
@@ -34,6 +39,10 @@
   - Confirmation prompt (`window.confirm`) before resetting an active query in `<VisualQueryBuilder>`.
 
 ### Fixed
+- **Ordered Composite Primary Keys & Cross-Table Composite Index Advisor (`estimateClientPlan`, `recommendIndexes`):**
+  - Preserved primary key column order in `estimateClientPlan` (`src/utils/compiler.ts`) and `recommendIndexes` (`src/utils/performanceAdvisor.ts`) so composite primary keys require a contiguous leading prefix before emitting `Index Scan` or suppressing index recommendations.
+  - Respected explicit `is_primary: false` on `id` columns when another primary key exists on a table, while retaining default `["id"]` PK suppression when `schema` is omitted.
+  - Resolved both filter and sort table qualifiers in `recommendIndexes` to prevent invalid cross-table composite index recommendations and target joined tables when both filter and sort reference the same joined table alias.
 - **SQL Parser (`parseSqlToSpec`):**
   - Resolves table aliases (`FROM users u`, `JOIN orders o`) in `SELECT` projections, `WHERE` filters, and `ORDER BY` clauses back to their canonical table names (`users.id`, `orders.total`).
   - Preserves `COUNT(DISTINCT col)` as `agg: "COUNT_DISTINCT"` (both plain and `FILTER (WHERE ...)` aggregates) instead of collapsing it to `COUNT`.

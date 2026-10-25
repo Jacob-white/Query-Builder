@@ -1022,13 +1022,50 @@ export function compileVisualState(
 /**
  * Estimates a client-side QueryPlanNode hierarchy from a compiled QuerySpec.
  */
-export function estimateClientPlan(spec: SerializedQuerySpec | null | undefined): QueryPlanNode {
+export function estimateClientPlan(
+  spec: SerializedQuerySpec | null | undefined,
+  schema?: SchemaSnapshot | null,
+): QueryPlanNode {
   const table = spec?.table || "unknown";
   const limit = spec?.limit || 50;
   const joins = spec?.joins || [];
   const filters = spec?.filters || [];
   const isVector = Boolean(spec?.vector_search);
   const isHybrid = Boolean(spec?.hybrid_search);
+
+  const getTablePrimaryKeys = (tblName: string): string[] => {
+    const pks: string[] = [];
+    if (!schema?.tables) return pks;
+    const cleanTarget = tblName.slice(tblName.lastIndexOf(".") + 1).toLowerCase();
+    for (const [k, meta] of Object.entries(schema.tables)) {
+      const cleanK = k.slice(k.lastIndexOf(".") + 1).toLowerCase();
+      if (cleanK === cleanTarget) {
+        for (const c of meta.columns) {
+          if (c.is_primary) {
+            pks.push(c.name.toLowerCase());
+          }
+        }
+      }
+    }
+    return pks;
+  };
+
+  const cleanPrimary = table.slice(table.lastIndexOf(".") + 1).toLowerCase();
+  const primaryPks = getTablePrimaryKeys(table);
+  const hasIndexedFilter =
+    primaryPks.length > 0 &&
+    filters.some((f) => {
+      const rawCol = f.column || "";
+      const dotIdx = rawCol.lastIndexOf(".");
+      const prefix = (
+        f.tablePrefix || (dotIdx > 0 ? rawCol.slice(0, dotIdx) : "")
+      ).toLowerCase();
+      if (prefix && prefix !== "t1" && prefix !== cleanPrimary) {
+        return false;
+      }
+      const col = rawCol.slice(dotIdx + 1).toLowerCase();
+      return col === primaryPks[0];
+    });
 
   let scanNode: QueryPlanNode;
   if (isHybrid) {
@@ -1069,6 +1106,14 @@ export function estimateClientPlan(spec: SerializedQuerySpec | null | undefined)
         "Create an HNSW or IVFFlat vector index to accelerate nearest neighbor retrieval.",
       ],
     };
+  } else if (filters.length > 0 && hasIndexedFilter) {
+    scanNode = {
+      node_type: "Index Scan",
+      table,
+      cost_estimate: 35,
+      rows_estimated: 100,
+      cost_percentage: 40,
+    };
   } else if (filters.length > 0) {
     scanNode = {
       node_type: "Seq Scan",
@@ -1092,21 +1137,32 @@ export function estimateClientPlan(spec: SerializedQuerySpec | null | undefined)
 
   let currentNode = scanNode;
   for (const j of joins) {
-    const jTable = j?.table || "joined_table";
+    const jTable = j.table || "joined_table";
+    const joinPks = getTablePrimaryKeys(jTable);
+    const rightCol = j.right_col ? j.right_col.slice(j.right_col.lastIndexOf(".") + 1).toLowerCase() : "";
+    const isIndexedJoin = joinPks.length > 0 && Boolean(rightCol && rightCol === joinPks[0]);
     currentNode = {
       node_type: `${j?.type || "LEFT"} Join`,
-      cost_estimate: currentNode.cost_estimate! + 100,
+      cost_estimate: currentNode.cost_estimate! + (isIndexedJoin ? 30 : 100),
       rows_estimated: currentNode.rows_estimated,
       cost_percentage: 85,
       children: [
         currentNode,
-        {
-          node_type: "Seq Scan",
-          table: jTable,
-          cost_estimate: 60,
-          rows_estimated: 2000,
-          cost_percentage: 15,
-        },
+        isIndexedJoin
+          ? {
+              node_type: "Index Scan",
+              table: jTable,
+              cost_estimate: 15,
+              rows_estimated: 1,
+              cost_percentage: 10,
+            }
+          : {
+              node_type: "Seq Scan",
+              table: jTable,
+              cost_estimate: 60,
+              rows_estimated: 2000,
+              cost_percentage: 15,
+            },
       ],
     };
   }

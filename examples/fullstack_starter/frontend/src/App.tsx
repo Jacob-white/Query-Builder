@@ -3028,7 +3028,14 @@ export function App() {
                 presets={[]}
                 semanticModels={activeDbId === "starter_demo" ? STARTER_SEMANTIC_MODELS : []}
                 defaultAdvancedMode={false}
-                features={{ raw_sql: "standard", schema_tools: "advanced" }}
+                features={{
+                  raw_sql: "standard",
+                  schema_tools: "standard",
+                  window_functions: "standard",
+                  ctes: "standard",
+                  query_plan: "standard",
+                  calculated_fields: "standard",
+                }}
                 showPlanTab={true}
                 showPipelineTab={true}
                 showNlqBar={false}

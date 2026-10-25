@@ -110,18 +110,20 @@ def _declared_links(
                 links.add((name, fk["column"]))
             elif hasattr(fk, "column") and isinstance(fk.column, str):
                 links.add((name, fk.column))
-    top: Iterable[Any] = getattr(schema, "foreign_keys", None) or (
-        schema.get("foreign_keys", []) if isinstance(schema, Mapping) else []
+    raw_top = getattr(schema, "foreign_keys", None) or (
+        schema.get("foreign_keys") if isinstance(schema, Mapping) else None
     )
-    for fk in top or []:
+    top: Iterable[Any] = raw_top or []
+    for fk in top:
         if isinstance(fk, Mapping):
             links.add((str(fk.get("table", "")), str(fk.get("column", ""))))
         elif hasattr(fk, "table") and hasattr(fk, "column"):
             links.add((str(fk.table), str(fk.column)))
-    relationships: Iterable[Any] = getattr(schema, "relationships", None) or (
-        schema.get("relationships", []) if isinstance(schema, Mapping) else []
+    raw_relationships = getattr(schema, "relationships", None) or (
+        schema.get("relationships") if isinstance(schema, Mapping) else None
     )
-    for rel in relationships or []:
+    relationships: Iterable[Any] = raw_relationships or []
+    for rel in relationships:
         if isinstance(rel, Mapping):
             links.add(
                 (str(rel.get("source_table", "")), str(rel.get("source_column", "")))

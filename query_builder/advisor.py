@@ -101,26 +101,61 @@ def recommend_indexes(
             if j_dict.get("alias"):
                 alias_map[str(j_dict["alias"]).split(".")[-1]] = j_tbl
 
-    pk_by_table: dict[str, set[str]] = {}
+    pk_by_table: dict[str, list[str]] = {}
     if schema_snapshot is not None:
         tables_meta = getattr(schema_snapshot, "tables", None) or (
-            schema_snapshot.get("tables") if isinstance(schema_snapshot, dict) else None
+            schema_snapshot.get("tables", schema_snapshot)
+            if isinstance(schema_snapshot, dict)
+            else None
         )
         if isinstance(tables_meta, dict):
             for t_name, t_meta in tables_meta.items():
+                if not isinstance(t_meta, dict) and not hasattr(t_meta, "columns"):
+                    continue
                 clean_t = str(t_name).split(".")[-1].lower()
                 cols = (
                     t_meta.get("columns", [])
                     if isinstance(t_meta, dict)
                     else getattr(t_meta, "columns", [])
                 )
-                pks = {"id"}
-                if isinstance(cols, list):
+                pks: list[str] = []
+                explicit_pks = (
+                    t_meta.get("primary_keys")
+                    if isinstance(t_meta, dict)
+                    else getattr(t_meta, "primary_keys", None)
+                )
+                if isinstance(explicit_pks, (list, tuple)):
+                    for pk in explicit_pks:
+                        if pk and str(pk).lower() not in pks:
+                            pks.append(str(pk).lower())
+                id_explicitly_non_pk = False
+                if isinstance(cols, dict):
+                    for c_name, c_meta in cols.items():
+                        is_pk = (
+                            c_meta.get("is_primary") or c_meta.get("primary_key")
+                            if isinstance(c_meta, dict)
+                            else getattr(c_meta, "is_primary", False)
+                            or getattr(c_meta, "primary_key", False)
+                        )
+                        if is_pk and c_name:
+                            c_lower = str(c_name).lower()
+                            if c_lower not in pks:
+                                pks.append(c_lower)
+                        elif str(c_name).lower() == "id" and isinstance(c_meta, dict):
+                            if (
+                                c_meta.get("is_primary") is False
+                                or c_meta.get("primary_key") is False
+                            ):
+                                id_explicitly_non_pk = True
+                elif isinstance(cols, list):
                     for c in cols:
                         is_pk = (
-                            c.get("is_primary")
+                            (c.get("is_primary") or c.get("primary_key"))
                             if isinstance(c, dict)
-                            else getattr(c, "is_primary", False)
+                            else (
+                                getattr(c, "is_primary", False)
+                                or getattr(c, "primary_key", False)
+                            )
                         )
                         c_name = (
                             c.get("name")
@@ -128,7 +163,21 @@ def recommend_indexes(
                             else getattr(c, "name", None)
                         )
                         if is_pk and c_name:
-                            pks.add(str(c_name).lower())
+                            c_lower = str(c_name).lower()
+                            if c_lower not in pks:
+                                pks.append(c_lower)
+                        elif (
+                            c_name
+                            and str(c_name).lower() == "id"
+                            and isinstance(c, dict)
+                        ):
+                            if (
+                                c.get("is_primary") is False
+                                or c.get("primary_key") is False
+                            ):
+                                id_explicitly_non_pk = True
+                if not pks and not id_explicitly_non_pk:
+                    pks.append("id")
                 pk_by_table[clean_t] = pks
 
     def _resolve_tbl(raw_prefix: str | None) -> str:
@@ -137,15 +186,23 @@ def recommend_indexes(
         cleaned = str(raw_prefix).split(".")[-1]
         return alias_map.get(cleaned, cleaned)
 
-    def _is_indexed_pk(tbl: str, col_name: str) -> bool:
-        pks = pk_by_table.get(tbl.lower(), {"id"})
-        return col_name.lower() in pks
+    def _covered_pk_cols(tbl: str, active_cols: set[str]) -> set[str]:
+        pks = pk_by_table.get(tbl.lower(), ["id"])
+        covered: set[str] = set()
+        for pk_col in pks:
+            if pk_col in active_cols:
+                covered.add(pk_col)
+            else:
+                break
+        return covered
 
     recommendations: list[dict[str, Any]] = []
     seen_indexes: set[tuple[str, tuple[str, ...]]] = set()
 
     # 1. Filters
     filters = spec_dict.get("filters", [])
+    parsed_filters: list[tuple[str, str, str]] = []
+    filter_cols_by_table: dict[str, set[str]] = {}
     for f in filters:
         if hasattr(f, "to_dict"):
             f_dict = f.to_dict()
@@ -156,7 +213,7 @@ def recommend_indexes(
         else:
             continue
         raw_col = str(f_dict.get("column", "") or "")
-        op = str(f_dict.get("op", "") or "")
+        op = str(f_dict.get("op") or f_dict.get("operator") or "")
         if not raw_col or raw_col == "*" or op == "RAW":
             continue
 
@@ -169,8 +226,15 @@ def recommend_indexes(
             or (col_parts[-2] if len(col_parts) > 1 else None)
         )
         target_table = _resolve_tbl(prefix)
+        parsed_filters.append((target_table, col, op))
+        filter_cols_by_table.setdefault(target_table.lower(), set()).add(col.lower())
+
+    for target_table, col, op in parsed_filters:
+        covered_pks = _covered_pk_cols(
+            target_table, filter_cols_by_table.get(target_table.lower(), set())
+        )
         dedup_key = (target_table.lower(), (col.lower(),))
-        if not _is_indexed_pk(target_table, col) and dedup_key not in seen_indexes:
+        if col.lower() not in covered_pks and dedup_key not in seen_indexes:
             seen_indexes.add(dedup_key)
             idx_name = f"idx_{target_table}_{col.lower()}"
             recommendations.append(
@@ -192,12 +256,28 @@ def recommend_indexes(
             if hasattr(j, "to_dict")
             else (dict(j) if isinstance(j, dict) else {})
         )
-        raw_right_col = j_dict.get("right_col") or j_dict.get("rightCol")
+        on_pair = j_dict.get("on")
+        raw_right_col = (
+            j_dict.get("right_col")
+            or j_dict.get("rightCol")
+            or (
+                on_pair[1]
+                if isinstance(on_pair, (list, tuple)) and len(on_pair) >= 2
+                else None
+            )
+        )
         j_table = _resolve_tbl(j_dict.get("table", ""))
         if raw_right_col and j_table:
             right_col = str(raw_right_col).split(".")[-1]
+            active_join_cols = {right_col.lower()} | filter_cols_by_table.get(
+                j_table.lower(), set()
+            )
+            covered_join_pks = _covered_pk_cols(j_table, active_join_cols)
             dedup_key = (j_table.lower(), (right_col.lower(),))
-            if not _is_indexed_pk(j_table, right_col) and dedup_key not in seen_indexes:
+            if (
+                right_col.lower() not in covered_join_pks
+                and dedup_key not in seen_indexes
+            ):
                 seen_indexes.add(dedup_key)
                 idx_name = f"idx_{j_table}_{right_col.lower()}"
                 recommendations.append(
@@ -238,23 +318,49 @@ def recommend_indexes(
             o0 = {"column": first_o.strip().split()[0]}
         else:
             o0 = {}
-        f_col = (f0.get("column", "") or "").split(".")[-1]
-        o_col = (o0.get("column", "") or "").split(".")[-1]
-        if f_col and o_col and f_col != o_col and f0.get("op") != "RAW":
+        raw_f_col = str(f0.get("column", "") or "")
+        f_parts = raw_f_col.split(".")
+        f_col = f_parts[-1]
+        f_prefix = (
+            f0.get("table_prefix")
+            or f0.get("tablePrefix")
+            or f0.get("table")
+            or (f_parts[-2] if len(f_parts) > 1 else None)
+        )
+        f_table = _resolve_tbl(f_prefix)
+
+        raw_o_col = str(o0.get("column", "") or "")
+        o_parts = raw_o_col.split(".")
+        o_col = o_parts[-1]
+        o_prefix = (
+            o0.get("table_prefix")
+            or o0.get("tablePrefix")
+            or o0.get("table")
+            or (o_parts[-2] if len(o_parts) > 1 else None)
+        )
+        o_table = _resolve_tbl(o_prefix)
+
+        if (
+            f_col
+            and o_col
+            and f_col != o_col
+            and f0.get("op") != "RAW"
+            and f_table.lower() == o_table.lower()
+        ):
             comp_key: tuple[str, tuple[str, ...]] = (
-                clean_primary.lower(),
+                f_table.lower(),
                 (f_col.lower(), o_col.lower()),
             )
             if comp_key not in seen_indexes:
                 seen_indexes.add(comp_key)
-                idx_name = f"idx_{clean_primary}_comp_{f_col.lower()}_{o_col.lower()}"
+                idx_name = f"idx_{f_table}_comp_{f_col.lower()}_{o_col.lower()}"
                 recommendations.append(
                     {
-                        "id": f"idx_comp_{clean_primary}_{f_col}_{o_col}",
-                        "table": clean_primary,
+                        "id": f"idx_comp_{f_table}_{f_col}_{o_col}",
+                        "table": f_table,
                         "columns": [f_col, o_col],
                         "index_name": idx_name,
-                        "ddl": f"CREATE INDEX {idx_name} ON {clean_primary} ({f_col}, {o_col});",
+                        "ddl": f"CREATE INDEX {idx_name} ON {f_table} ({f_col}, {o_col});",
                         "rationale": f"Composite index satisfies both WHERE {f_col} and ORDER BY {o_col} avoiding file-sort.",
                         "estimated_impact": "medium",
                     }
@@ -268,6 +374,7 @@ def analyze_query_performance(
     sql: str,
     dialect: str = "postgres",
     table_stats: dict[str, dict[str, Any]] | None = None,
+    schema_snapshot: Any = None,
 ) -> list[dict[str, Any]]:
     """Analyzes query and produces complete performance and cloud cost insights."""
     spec_dict = spec.to_dict() if hasattr(spec, "to_dict") else dict(spec)
@@ -318,7 +425,7 @@ def analyze_query_performance(
         )
 
     # 4. Index recommendations
-    recs = recommend_indexes(spec)
+    recs = recommend_indexes(spec, schema_snapshot=schema_snapshot)
     for rec in recs:
         insights.append(
             {
