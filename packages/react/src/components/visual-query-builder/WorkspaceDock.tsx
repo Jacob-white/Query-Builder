@@ -33,6 +33,7 @@ export interface WorkspaceDockProps {
   classNames?: QueryBuilderClassNames;
   unstyled?: boolean;
   theme?: QueryBuilderTheme;
+  studioMode?: boolean;
 }
 
 /**
@@ -57,6 +58,7 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
   classNames,
   unstyled = false,
   theme: _theme,
+  studioMode = false,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -165,7 +167,7 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
     transition: "all 0.15s ease",
   });
 
-  const isSeamlessResults = isOpen && dockTab === "results";
+  const isSeamlessResults = !studioMode && isOpen && dockTab === "results";
 
   return (
     <div

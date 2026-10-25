@@ -64,6 +64,18 @@ export interface QueryCanvasProps {
   onAddCalculatedField?: (field: CalculatedFieldSpec) => void;
   onRemoveWindowFunction?: (index: number) => void;
   onOpenWindowFunctions?: () => void;
+  onOpenErd?: () => void;
+  onOpenPipeline?: () => void;
+  onOpenPlan?: () => void;
+  cteCount?: number;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onRunQuery?: () => void;
+  isRunning?: boolean;
+  isSafe?: boolean;
+  readOnly?: boolean;
   onJoinsChange: (joins: VisualJoin[]) => void;
   onFiltersChange: (filters: VisualFilter[]) => void;
   onSortsChange: (sorts: VisualSort[]) => void;
@@ -154,6 +166,19 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
   onRemoveColumnProjection,
   onAddCalculatedField,
   onRemoveWindowFunction,
+  onOpenWindowFunctions,
+  onOpenErd,
+  onOpenPipeline,
+  onOpenPlan,
+  cteCount: _cteCount = 0,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  onRunQuery,
+  isRunning = false,
+  isSafe = true,
+  readOnly = false,
   onJoinsChange,
   onFiltersChange,
   onSortsChange,
@@ -677,6 +702,163 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
                 </button>
               );
             })}
+
+          {studioMode && (
+            <div
+              data-qb="studio-step-actions"
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                data-qb="studio-btn-undo"
+                title="Undo"
+                disabled={!canUndo}
+                onClick={onUndo}
+                style={{
+                  background: "transparent",
+                  color: "var(--qb-color-text-secondary, #cbd5e1)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                  borderRadius: "6px",
+                  padding: "4px 8px",
+                  fontSize: "0.78rem",
+                  cursor: "pointer",
+                }}
+              >
+                ↶
+              </button>
+              <button
+                type="button"
+                data-qb="studio-btn-redo"
+                title="Redo"
+                disabled={!canRedo}
+                onClick={onRedo}
+                style={{
+                  background: "transparent",
+                  color: "var(--qb-color-text-secondary, #cbd5e1)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                  borderRadius: "6px",
+                  padding: "4px 8px",
+                  fontSize: "0.78rem",
+                  cursor: "pointer",
+                }}
+              >
+                ↷
+              </button>
+
+              {onOpenErd && (
+                <button
+                  type="button"
+                  data-qb="studio-btn-erd"
+                  title="Open Schema ERD Diagram"
+                  onClick={onOpenErd}
+                  style={{
+                    background: "rgba(56, 189, 248, 0.08)",
+                    color: "var(--qb-color-text-secondary, #bae6fd)",
+                    border: "1px solid rgba(56, 189, 248, 0.25)",
+                    borderRadius: "6px",
+                    padding: "4px 9px",
+                    fontSize: "0.76rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  🗺️ ERD
+                </button>
+              )}
+
+              {onOpenWindowFunctions && (
+                <button
+                  type="button"
+                  data-qb="studio-btn-window"
+                  title="Add Window Function (OVER / PARTITION BY)"
+                  onClick={onOpenWindowFunctions}
+                  style={{
+                    background: "rgba(139, 92, 246, 0.1)",
+                    color: "var(--qb-color-text-secondary, #ddd6fe)",
+                    border: "1px solid rgba(139, 92, 246, 0.28)",
+                    borderRadius: "6px",
+                    padding: "4px 9px",
+                    fontSize: "0.76rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  ƒx Window
+                </button>
+              )}
+
+              {onOpenPipeline && (
+                <button
+                  type="button"
+                  data-qb="studio-btn-pipeline"
+                  title="Open Multi-Stage CTE Pipeline"
+                  onClick={onOpenPipeline}
+                  style={{
+                    background: "rgba(245, 158, 11, 0.1)",
+                    color: "var(--qb-color-text-secondary, #fde68a)",
+                    border: "1px solid rgba(245, 158, 11, 0.28)",
+                    borderRadius: "6px",
+                    padding: "4px 9px",
+                    fontSize: "0.76rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⛓️ Pipeline
+                </button>
+              )}
+
+              {onOpenPlan && (
+                <button
+                  type="button"
+                  data-qb="studio-btn-plan"
+                  title="Open Query Execution Plan & Performance Advisor"
+                  onClick={onOpenPlan}
+                  style={{
+                    background: "rgba(16, 185, 129, 0.1)",
+                    color: "var(--qb-color-text-secondary, #a7f3d0)",
+                    border: "1px solid rgba(16, 185, 129, 0.28)",
+                    borderRadius: "6px",
+                    padding: "4px 9px",
+                    fontSize: "0.76rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⚡ Plan
+                </button>
+              )}
+
+              {onRunQuery && !readOnly && (
+                <button
+                  type="button"
+                  data-qb="studio-btn-run"
+                  title="Execute query"
+                  disabled={isRunning || !isSafe}
+                  onClick={onRunQuery}
+                  style={{
+                    background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                    color: "#ffffff",
+                    border: "1px solid rgba(96, 165, 250, 0.45)",
+                    borderRadius: "6px",
+                    padding: "5px 12px",
+                    fontSize: "0.8rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 1px 4px rgba(37, 99, 235, 0.35)",
+                  }}
+                >
+                  ▶ Execute
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

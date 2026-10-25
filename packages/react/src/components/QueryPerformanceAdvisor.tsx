@@ -30,7 +30,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   querySpec,
   sql,
   dialect = "postgres",
-  schema: _schema,
+  schema,
   tableStats,
   onApplyIndexDdl,
   unstyled = false,
@@ -42,8 +42,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   const [copiedDdlId, setCopiedDdlId] = useState<string | null>(null);
 
   const insights = useMemo(() => {
-    return analyzeQueryPerformance(querySpec, sql, dialect, tableStats);
-  }, [querySpec, sql, dialect, tableStats]);
+    return analyzeQueryPerformance(querySpec, sql, dialect, tableStats, schema);
+  }, [querySpec, sql, dialect, tableStats, schema]);
 
   const costInsight = insights.find((i) => i.type === "cost");
   const warnings = insights.filter((i) => i.type === "warning");

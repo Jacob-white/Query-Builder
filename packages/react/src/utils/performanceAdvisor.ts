@@ -97,21 +97,103 @@ export function recommendIndexes(
   const primaryTable = spec.table;
   if (!primaryTable) return recommendations;
 
-  const existingIndexes = new Set<string>();
-  if (schema?.tables?.[primaryTable]) {
-    schema.tables[primaryTable].columns.forEach((c) => {
-      if (c.is_primary) existingIndexes.add(c.name.toLowerCase());
+  const cleanPrimary = primaryTable.slice(primaryTable.lastIndexOf(".") + 1);
+  const aliasMap = new Map<string, string>([
+    ["t0", cleanPrimary],
+    ["t1", cleanPrimary],
+    [cleanPrimary, cleanPrimary],
+    [primaryTable, cleanPrimary],
+  ]);
+
+  if (spec.joins) {
+    const usesOneBasedJoinAliases = Boolean(
+      spec.filters?.some((f) => {
+        const pref = f.tablePrefix || (f.column?.includes(".") ? f.column.split(".")[0] : "");
+        return pref === `t${spec.joins!.length + 1}`;
+      }),
+    );
+    spec.joins.forEach((j, idx) => {
+      const cleanJoinTbl = j.table.slice(j.table.lastIndexOf(".") + 1);
+      aliasMap.set(`t${idx + 2}`, cleanJoinTbl);
+      if (!usesOneBasedJoinAliases) {
+        aliasMap.set(`t${idx + 1}`, cleanJoinTbl);
+      }
+      aliasMap.set(j.table, cleanJoinTbl);
+      aliasMap.set(cleanJoinTbl, cleanJoinTbl);
+      if (j.alias) {
+        aliasMap.set(j.alias, cleanJoinTbl);
+      }
     });
   }
+
+  const pkByTable = new Map<string, string[]>();
+  if (schema?.tables) {
+    for (const [tName, tMeta] of Object.entries(schema.tables)) {
+      const cleanT = tName.slice(tName.lastIndexOf(".") + 1).toLowerCase();
+      const pks: string[] = [];
+      let idExplicitlyNonPk = false;
+      for (const c of tMeta.columns) {
+        if (c.is_primary) {
+          pks.push(c.name.toLowerCase());
+        } else if (c.name.toLowerCase() === "id" && c.is_primary === false) {
+          idExplicitlyNonPk = true;
+        }
+      }
+      if (pks.length === 0 && !idExplicitlyNonPk) {
+        pks.push("id");
+      }
+      pkByTable.set(cleanT, pks);
+    }
+  }
+
+  const resolveTable = (rawPrefix?: string): string => {
+    if (!rawPrefix) return cleanPrimary;
+    const cleaned = rawPrefix.slice(rawPrefix.lastIndexOf(".") + 1);
+    return aliasMap.get(cleaned) || cleaned;
+  };
+
+  const getCoveredPkCols = (tbl: string, activeCols: Set<string>): Set<string> => {
+    const cleanT = tbl.slice(tbl.lastIndexOf(".") + 1).toLowerCase();
+    const pks = pkByTable.get(cleanT) ?? ["id"];
+    const covered = new Set<string>();
+    for (const pkCol of pks) {
+      if (activeCols.has(pkCol)) {
+        covered.add(pkCol);
+      } else {
+        break;
+      }
+    }
+    return covered;
+  };
+
+  const seenIndexes = new Set<string>();
+  const filterColsByTable = new Map<string, Set<string>>();
+  const parsedFilters: Array<{ targetTable: string; col: string; op: string }> = [];
 
   // 1. Check WHERE filter columns
   if (spec.filters && spec.filters.length > 0) {
     for (const f of spec.filters) {
-      const col = f.column;
-      if (!col || col === "*" || f.op === "RAW") continue;
-      const targetTable = f.tablePrefix || primaryTable;
+      const rawCol = f.column;
+      if (!rawCol || rawCol === "*" || f.op === "RAW") continue;
+      const colParts = rawCol.split(".");
+      const col = colParts[colParts.length - 1];
+      const prefix = f.tablePrefix || (colParts.length > 1 ? colParts[colParts.length - 2] : undefined);
+      const targetTable = resolveTable(prefix);
+      const tblKey = targetTable.toLowerCase();
+      if (!filterColsByTable.has(tblKey)) {
+        filterColsByTable.set(tblKey, new Set<string>());
+      }
+      filterColsByTable.get(tblKey)!.add(col.toLowerCase());
+      parsedFilters.push({ targetTable, col, op: f.op });
+    }
 
-      if (!existingIndexes.has(col.toLowerCase())) {
+    for (const { targetTable, col, op } of parsedFilters) {
+      const activeCols = filterColsByTable.get(targetTable.toLowerCase()) ?? new Set<string>();
+      const coveredPks = getCoveredPkCols(targetTable, activeCols);
+      const dedupKey = `${targetTable.toLowerCase()}:${col.toLowerCase()}`;
+
+      if (!coveredPks.has(col.toLowerCase()) && !seenIndexes.has(dedupKey)) {
+        seenIndexes.add(dedupKey);
         const idxName = `idx_${targetTable}_${col.toLowerCase()}`;
         recommendations.push({
           id: `idx_rec_${targetTable}_${col}`,
@@ -119,7 +201,7 @@ export function recommendIndexes(
           columns: [col],
           indexName: idxName,
           ddl: `CREATE INDEX ${idxName} ON ${targetTable} (${col});`,
-          rationale: `Accelerates filter condition (${col} ${f.op} ...) from sequential table scan to B-Tree index scan.`,
+          rationale: `Accelerates filter condition (${col} ${op} ...) from sequential table scan to B-Tree index scan.`,
           estimatedImpact: "high",
         });
       }
@@ -129,33 +211,59 @@ export function recommendIndexes(
   // 2. Check JOIN foreign key columns
   if (spec.joins && spec.joins.length > 0) {
     for (const j of spec.joins) {
-      if (j.right_col && !existingIndexes.has(j.right_col.toLowerCase())) {
-        const idxName = `idx_${j.table}_${j.right_col.toLowerCase()}`;
-        recommendations.push({
-          id: `idx_join_${j.table}_${j.right_col}`,
-          table: j.table,
-          columns: [j.right_col],
-          indexName: idxName,
-          ddl: `CREATE INDEX ${idxName} ON ${j.table} (${j.right_col});`,
-          rationale: `Improves ${j.type || "LEFT"} JOIN performance between ${primaryTable} and ${j.table}.`,
-          estimatedImpact: "high",
-        });
+      if (j.right_col) {
+        const cleanRight = j.right_col.slice(j.right_col.lastIndexOf(".") + 1);
+        const cleanJoinTable = resolveTable(j.table);
+        const activeJoinCols = new Set<string>(
+          filterColsByTable.get(cleanJoinTable.toLowerCase()) ?? [],
+        );
+        activeJoinCols.add(cleanRight.toLowerCase());
+        const coveredJoinPks = getCoveredPkCols(cleanJoinTable, activeJoinCols);
+        const dedupKey = `${cleanJoinTable.toLowerCase()}:${cleanRight.toLowerCase()}`;
+        if (!coveredJoinPks.has(cleanRight.toLowerCase()) && !seenIndexes.has(dedupKey)) {
+          seenIndexes.add(dedupKey);
+          const idxName = `idx_${cleanJoinTable}_${cleanRight.toLowerCase()}`;
+          recommendations.push({
+            id: `idx_join_${cleanJoinTable}_${cleanRight}`,
+            table: cleanJoinTable,
+            columns: [cleanRight],
+            indexName: idxName,
+            ddl: `CREATE INDEX ${idxName} ON ${cleanJoinTable} (${cleanRight});`,
+            rationale: `Improves ${j.type || "LEFT"} JOIN performance between ${cleanPrimary} and ${cleanJoinTable}.`,
+            estimatedImpact: "high",
+          });
+        }
       }
     }
   }
 
   // 3. Composite Index on (filter, sort)
   if (spec.filters && spec.filters.length > 0 && spec.order_by && spec.order_by.length > 0) {
-    const filterCol = spec.filters[0].column;
-    const sortCol = spec.order_by[0].column;
-    if (filterCol && sortCol && filterCol !== sortCol && spec.filters[0].op !== "RAW") {
-      const idxName = `idx_${primaryTable}_comp_${filterCol}_${sortCol}`;
+    const rawFilterCol = spec.filters[0].column;
+    const rawSortCol = spec.order_by[0].column;
+    const fParts = rawFilterCol.split(".");
+    const sParts = rawSortCol.split(".");
+    const filterCol = fParts[fParts.length - 1];
+    const sortCol = sParts[sParts.length - 1];
+    const filterPrefix =
+      spec.filters[0].tablePrefix || (fParts.length > 1 ? fParts[fParts.length - 2] : undefined);
+    const sortPrefix = sParts.length > 1 ? sParts[sParts.length - 2] : undefined;
+    const filterTable = resolveTable(filterPrefix);
+    const sortTable = resolveTable(sortPrefix);
+    if (
+      filterCol &&
+      sortCol &&
+      filterCol !== sortCol &&
+      spec.filters[0].op !== "RAW" &&
+      filterTable.toLowerCase() === sortTable.toLowerCase()
+    ) {
+      const idxName = `idx_${filterTable}_comp_${filterCol}_${sortCol}`;
       recommendations.push({
-        id: `idx_comp_${primaryTable}_${filterCol}_${sortCol}`,
-        table: primaryTable,
+        id: `idx_comp_${filterTable}_${filterCol}_${sortCol}`,
+        table: filterTable,
         columns: [filterCol, sortCol],
         indexName: idxName,
-        ddl: `CREATE INDEX ${idxName} ON ${primaryTable} (${filterCol}, ${sortCol});`,
+        ddl: `CREATE INDEX ${idxName} ON ${filterTable} (${filterCol}, ${sortCol});`,
         rationale: `Composite index satisfies both WHERE ${filterCol} and ORDER BY ${sortCol} avoiding file-sort.`,
         estimatedImpact: "medium",
       });
@@ -173,6 +281,7 @@ export function analyzeQueryPerformance(
   sql: string,
   dialect: SqlDialect = "postgres",
   tableStats?: Record<string, { rowCount?: number; byteSize?: number }>,
+  schema?: SchemaSnapshot | null,
 ): PerformanceAdvisorInsight[] {
   const insights: PerformanceAdvisorInsight[] = [];
 
@@ -216,7 +325,7 @@ export function analyzeQueryPerformance(
   }
 
   // 4. Index Recommendations
-  const idxRecs = recommendIndexes(spec);
+  const idxRecs = recommendIndexes(spec, schema);
   for (const rec of idxRecs) {
     insights.push({
       type: "index",

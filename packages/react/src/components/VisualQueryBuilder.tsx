@@ -330,8 +330,20 @@ export const VisualQueryBuilder = React.forwardRef<
     normalizedSchema,
   });
 
-  const hasPlanTab = Boolean((queryPlan || showPlanTab) && isFeatureVisible("query_plan"));
-  const hasPipelineTab = Boolean((showPipelineTab || ctes.length > 0) && isFeatureVisible("ctes"));
+  const hasPlanTab = Boolean(
+    (queryPlan || showPlanTab) &&
+      (isFeatureVisible("query_plan") ||
+        (studioMode &&
+          showPlanTab &&
+          resolvedFeatures.query_plan !== "disabled")),
+  );
+  const hasPipelineTab = Boolean(
+    (showPipelineTab || ctes.length > 0) &&
+      (isFeatureVisible("ctes") ||
+        (studioMode &&
+          showPipelineTab &&
+          resolvedFeatures.ctes !== "disabled")),
+  );
   const hasRawSqlTab = Boolean(isFeatureVisible("raw_sql"));
   const hasVisualChartTab = Boolean(isFeatureVisible("visual_chart"));
   const [activeTab, setActiveTab] = useTabState({
@@ -386,8 +398,16 @@ export const VisualQueryBuilder = React.forwardRef<
       { isOpen: isSchemaExplorerOpen, close: () => setIsSchemaExplorerOpen(false) },
       { isOpen: isTemplateManagerOpen, close: () => setIsTemplateManagerOpen(false) },
       { isOpen: isConnectDbOpen, close: () => setIsConnectDbOpen(false) },
+      { isOpen: isWfBuilderOpen, close: () => setIsWfBuilderOpen(false) },
     ],
-    [isErdOpen, isSchemaExplorerOpen, isTemplateManagerOpen, isConnectDbOpen],
+    [
+      isErdOpen,
+      isSchemaExplorerOpen,
+      isTemplateManagerOpen,
+      isConnectDbOpen,
+      isWfBuilderOpen,
+      setIsWfBuilderOpen,
+    ],
   );
   useKeyboardShortcuts({
     modals,
@@ -849,7 +869,31 @@ export const VisualQueryBuilder = React.forwardRef<
                 leaveRawMode();
                 actions.setWindowFunctions(windowFunctions.filter((_, i) => i !== idx));
               },
-              onOpenWindowFunctions: () => setIsWfBuilderOpen(true),
+              onOpenWindowFunctions: isFeatureVisible("window_functions")
+                ? () => setIsWfBuilderOpen(true)
+                : undefined,
+              onOpenErd: isFeatureVisible("schema_tools")
+                ? () => setIsErdOpen(true)
+                : undefined,
+              onOpenPipeline: hasPipelineTab ? () => setActiveTab("pipeline") : undefined,
+              onOpenPlan: hasPlanTab ? () => setActiveTab("plan") : undefined,
+              cteCount: ctes.length,
+              canUndo: history.canUndo,
+              canRedo: history.canRedo,
+              onUndo: () => {
+                leaveRawMode();
+                actions.undo();
+              },
+              onRedo: () => {
+                leaveRawMode();
+                actions.redo();
+              },
+              onRunQuery: () => {
+                void handleRunQuery();
+              },
+              isRunning,
+              isSafe: safety.valid,
+              readOnly,
               onJoinsChange: canvasHandlers.handleJoinsChange,
               onAddJoin: canvasHandlers.handleAddJoinToTable,
               onReorderProjections: (keys) => {
@@ -917,8 +961,160 @@ export const VisualQueryBuilder = React.forwardRef<
               onFilterByCell: handleFilterByCell,
               onDrillDownForeignKey: handleDrillDownForeignKey,
               onPinToDashboard: handlePinToDashboard,
+              studioMode,
             }}
           />
+        )}
+
+        {studioMode && !unstyled && activeTab !== "visual" && (
+          <div
+            data-qb="studio-subview-bar"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "8px",
+              flexWrap: "wrap",
+              padding: "6px 10px",
+              marginBottom: "8px",
+              background: "var(--qb-color-surface, #10141f)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                data-qb="studio-btn-back-visual"
+                onClick={() => setActiveTab("visual")}
+                style={{
+                  background: "rgba(56, 189, 248, 0.14)",
+                  color: "var(--qb-color-active-text, #f8fafc)",
+                  border: "1px solid rgba(56, 189, 248, 0.4)",
+                  borderRadius: "6px",
+                  padding: "5px 10px",
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ← Back to Visual Builder
+              </button>
+              {hasPipelineTab && (
+                <button
+                  type="button"
+                  data-qb="studio-subview-pipeline"
+                  onClick={() => setActiveTab("pipeline")}
+                  style={{
+                    background: "rgba(245, 158, 11, 0.15)",
+                    color: "var(--qb-color-warning, #f59e0b)",
+                    border: "1px solid rgba(245, 158, 11, 0.35)",
+                    borderRadius: "6px",
+                    padding: "5px 10px",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⛓️ CTE Pipeline
+                </button>
+              )}
+              {hasPlanTab && (
+                <button
+                  type="button"
+                  data-qb="studio-subview-plan"
+                  onClick={() => setActiveTab("plan")}
+                  style={{
+                    background: "rgba(16, 185, 129, 0.15)",
+                    color: "var(--qb-color-success, #10b981)",
+                    border: "1px solid rgba(16, 185, 129, 0.35)",
+                    borderRadius: "6px",
+                    padding: "5px 10px",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⚡ Plan & Advisor
+                </button>
+              )}
+              {hasRawSqlTab && (
+                <button
+                  type="button"
+                  data-qb="studio-subview-sql"
+                  onClick={() => setActiveTab("sql")}
+                  style={{
+                    background: "rgba(56, 189, 248, 0.12)",
+                    color: "var(--qb-color-primary, #38bdf8)",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    borderRadius: "6px",
+                    padding: "5px 10px",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {"</>"} Live SQL
+                </button>
+              )}
+              <button
+                type="button"
+                data-qb="studio-subview-results"
+                onClick={() => setActiveTab("results")}
+                style={{
+                  background: "rgba(99, 102, 241, 0.12)",
+                  color: "var(--qb-color-text, #f8fafc)",
+                  border: "1px solid var(--qb-color-border, rgba(148, 163, 184, 0.3))",
+                  borderRadius: "6px",
+                  padding: "5px 10px",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                📊 Results
+              </button>
+              {hasVisualChartTab && (
+                <button
+                  type="button"
+                  data-qb="studio-subview-chart"
+                  onClick={() => setActiveTab("chart")}
+                  style={{
+                    background: "rgba(168, 85, 247, 0.12)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid rgba(168, 85, 247, 0.3)",
+                    borderRadius: "6px",
+                    padding: "5px 10px",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  📈 Chart
+                </button>
+              )}
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                data-qb="studio-subview-btn-run"
+                disabled={isRunning || !safety.valid}
+                onClick={() => void handleRunQuery()}
+                style={{
+                  background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                  color: "#ffffff",
+                  border: "1px solid rgba(96, 165, 250, 0.45)",
+                  borderRadius: "6px",
+                  padding: "5px 12px",
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ▶ Execute
+              </button>
+            )}
+          </div>
         )}
 
         {activeTab === "sql" && (
@@ -956,7 +1152,7 @@ export const VisualQueryBuilder = React.forwardRef<
 
         {hasPlanTab && activeTab === "plan" && (
           <PlanPanel
-            plan={queryPlan || estimateClientPlan(compiled.spec)}
+            plan={queryPlan || estimateClientPlan(compiled.spec, augmentedSchema)}
             spec={compiled.spec}
             sql={currentSql}
             dialect={dialect}

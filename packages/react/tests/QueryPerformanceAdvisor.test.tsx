@@ -79,4 +79,34 @@ describe("QueryPerformanceAdvisor Component", () => {
     );
     expect(screen.getByText("✓ Copied")).toBeDefined();
   });
+
+  it("uses schema prop to suppress redundant primary-key index recommendations", () => {
+    const spec: Partial<QuerySpec> = {
+      table: "orders",
+      columns: ["order_uuid"],
+      filters: [{ column: "order_uuid", op: "=", value: "ord-1" }],
+      limit: 10,
+    };
+    const sql = "SELECT order_uuid FROM orders WHERE order_uuid = 'ord-1' LIMIT 10;";
+    render(
+      <QueryPerformanceAdvisor
+        querySpec={spec}
+        sql={sql}
+        dialect="postgres"
+        schema={{
+          tables: {
+            orders: {
+              name: "orders",
+              columns: [
+                { name: "order_uuid", data_type: "uuid", is_nullable: false, is_primary: true },
+              ],
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("index-rec-count-badge")).toBeNull();
+  });
 });
+

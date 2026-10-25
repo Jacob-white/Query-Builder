@@ -441,6 +441,7 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
   joins: {
     table: SchemaTableNames<Schema>;
     type: string;
+    alias?: string;
     on?: { left: string; right: string }[];
     left_table?: SchemaTableNames<Schema>;
     left_col?: string;
@@ -501,6 +502,7 @@ export interface LooseSpecJoin {
   id?: string;
   table: string;
   type?: string;
+  alias?: string;
   left_table?: string;
   left_col?: string;
   right_col?: string;

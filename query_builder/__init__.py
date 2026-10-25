@@ -109,7 +109,7 @@ from query_builder.fluent import (
     query,
 )
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from query_builder.connectors import (
         ADXConnector,
         AlloyDBConnector,
@@ -474,6 +474,14 @@ from query_builder.executor import (
     execute_compiled_spec,
     execute_cursor_query,
 )
+from query_builder.explain import (
+    QueryPlanNode,
+    estimate_plan_from_spec,
+    normalize_explain_output,
+    parse_mysql_plan,
+    parse_postgres_plan,
+    parse_sqlite_plan,
+)
 from query_builder.export import (
     EXTENSIONS,
     MIME_TYPES,
@@ -494,10 +502,15 @@ from query_builder.fusion import (
     reciprocal_rank_fusion,
 )
 from query_builder.integrations import (
+    SQLAlchemyIntegration,
+    compile_to_sqlalchemy,
     create_django_urls,
     create_drf_views,
+    create_flask_blueprint,
+    create_litestar_router,
     create_ninja_router,
     create_query_builder_router,
+    create_sqlalchemy_integration,
 )
 from query_builder.join_solver import (
     find_best_join_condition,
@@ -1214,6 +1227,21 @@ __all__ = [
     "SpecColumnError",
     "FluentQuery",
     "query",
+    "QueryPlanNode",
+    "estimate_plan_from_spec",
+    "normalize_explain_output",
+    "parse_mysql_plan",
+    "parse_postgres_plan",
+    "parse_sqlite_plan",
+    "SQLAlchemyIntegration",
+    "compile_to_sqlalchemy",
+    "create_django_urls",
+    "create_drf_views",
+    "create_flask_blueprint",
+    "create_litestar_router",
+    "create_ninja_router",
+    "create_query_builder_router",
+    "create_sqlalchemy_integration",
 ]
 
 
