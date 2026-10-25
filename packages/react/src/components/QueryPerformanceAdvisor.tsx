@@ -5,7 +5,7 @@
  * full table scan warnings, and 1-click index recommendations with copyable DDL.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { analyzeQueryPerformance } from "../utils/performanceAdvisor";
 import { useTheme } from "../theme/ThemeProvider";
 import type {
@@ -41,6 +41,12 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedDdlId, setCopiedDdlId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!copiedDdlId) return;
+    const timer = setTimeout(() => setCopiedDdlId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedDdlId]);
+
   const insights = useMemo(() => {
     return analyzeQueryPerformance(querySpec, sql, dialect, tableStats, schema);
   }, [querySpec, sql, dialect, tableStats, schema]);
@@ -52,7 +58,6 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   const handleCopyDdl = (id: string, ddl: string) => {
     navigator.clipboard?.writeText(ddl);
     setCopiedDdlId(id);
-    setTimeout(() => setCopiedDdlId(null), 2000);
     if (onApplyIndexDdl) {
       onApplyIndexDdl(ddl);
     }

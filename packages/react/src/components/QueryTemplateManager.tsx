@@ -255,6 +255,12 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!copiedPermalink) return;
+    const timer = setTimeout(() => setCopiedPermalink(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedPermalink]);
+
+  useEffect(() => {
     setMode(defaultMode);
   }, [defaultMode]);
 
@@ -483,7 +489,6 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                     /* ignore cross-origin history error */
                   }
                   setCopiedPermalink(true);
-                  setTimeout(() => setCopiedPermalink(false), 2000);
                 }}
                 style={{
                   background: copiedPermalink ? "rgba(16, 185, 129, 0.2)" : "rgba(56, 189, 248, 0.14)",

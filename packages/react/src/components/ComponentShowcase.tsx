@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import type {
   SchemaSnapshot,
   QueryResultData,
@@ -340,6 +340,12 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({
   const [activeTab, setActiveTab] = useState<ShowcaseTab>(initialTab);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (!copiedCode) return;
+    const timer = setTimeout(() => setCopiedCode(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedCode]);
+
   // Theming playground state
   const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
   const [primaryColor, setPrimaryColor] = useState<string>("#3b82f6");
@@ -451,9 +457,6 @@ export function TemplateLibrary() {
       await navigator.clipboard.writeText(textToCopy);
     }
     setCopiedCode(true);
-    setTimeout(() => {
-      setCopiedCode(false);
-    }, 2000);
   };
 
   const customThemingObj: QueryBuilderTheme = useMemo(() => {

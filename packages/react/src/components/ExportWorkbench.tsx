@@ -259,6 +259,12 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
   const [activeDialect, setActiveDialect] = useState<SqlDialect>(propDialect);
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!copiedTarget) return;
+    const timer = setTimeout(() => setCopiedTarget(null), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedTarget]);
+
   const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -307,9 +313,6 @@ export const ExportWorkbench: React.FC<ExportWorkbenchProps> = ({
       try {
         await navigator.clipboard.writeText(textToCopy);
         setCopiedTarget(activeTab);
-        setTimeout(() => {
-          setCopiedTarget(null);
-        }, 2000);
       } catch {
         /* ignore */
       }

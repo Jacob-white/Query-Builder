@@ -33,12 +33,17 @@ export function SqlPanel({
   const isSynced = isRawMode ? Boolean(parseSqlToSpec(rawSql, schema)) : false;
   const [copied, setCopied] = React.useState(false);
 
+  React.useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   const handleCopySql = () => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(currentSql);
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
   };
 
   return (

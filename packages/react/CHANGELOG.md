@@ -43,6 +43,7 @@
   - Added `"NOT LIKE"` and `"NOT ILIKE"` support across `parseSqlToSpec` (`src/utils/sqlParser.ts`), `compileVisualState` (`src/utils/compiler.ts`), `BuiltInFilterOperator` (`src/types.ts`), and `<TableFiltersEditor>`.
   - Added `HAVING` clause tokenization and parsing (including table alias resolution, `COUNT(DISTINCT ...)`, and `<>` normalization) to `parseSqlToSpec`.
   - Added `nulls?: "FIRST" | "LAST"` support across `VisualSort`, `QuerySpec["order_by"]`, `WindowFunctionSpec["order_by"]`, `parseSqlToSpec`, `compileVisualState`, `stateToSpec`, `specToState`, `specToBuilderPatch`, and segmented `Nulls First` / `Nulls Last` controls in `<TableSortsEditor>`.
+  - Cleared copy-feedback `setTimeout` timers on unmount across `<QueryPlanVisualizer>`, `<SqlPanel>`, `<WorkspaceDock>`, `<QueryPerformanceAdvisor>`, `<QueryCanvas>`, `<QueryTemplateManager>`, `<SchemaExplorer>`, `<ExportWorkbench>`, and `<ComponentShowcase>` to prevent post-unmount state updates.
 - **Ordered Composite Primary Keys & Cross-Table Composite Index Advisor (`estimateClientPlan`, `recommendIndexes`):**
   - Preserved primary key column order in `estimateClientPlan` (`src/utils/compiler.ts`) and `recommendIndexes` (`src/utils/performanceAdvisor.ts`) so composite primary keys require a contiguous leading prefix before emitting `Index Scan` or suppressing index recommendations.
   - Respected explicit `is_primary: false` on `id` columns when another primary key exists on a table, while retaining default `["id"]` PK suppression when `schema` is omitted.
