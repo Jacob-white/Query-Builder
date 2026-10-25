@@ -10,6 +10,7 @@ import { useQueryState } from "../hooks/useQueryState";
 import { useSqlCompiler } from "../hooks/useSqlCompiler";
 import { normalizeSchema } from "../utils/schemaUtils";
 import { ExportWorkbench } from "./ExportWorkbench";
+import { useTheme } from "../theme/ThemeProvider";
 
 export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
   schema,
@@ -23,6 +24,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
   onSqlChange,
   readOnly = false,
 }) => {
+  const { cssVariables } = useTheme();
   const normalizedSchema: SchemaSnapshot | null = useMemo(
     () => normalizeSchema(schema),
     [schema],
@@ -102,12 +104,13 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
         unstyled
           ? style
           : {
+              ...(cssVariables as React.CSSProperties),
               display: "flex",
               flexDirection: "column",
               gap: "16px",
-              background: "#0f172a",
-              color: "#f8fafc",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
+              background: "var(--qb-color-background, #0f172a)",
+              color: "var(--qb-color-text, #f8fafc)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
               borderRadius: "12px",
               padding: "16px",
               fontFamily: "system-ui, -apple-system, sans-serif",
@@ -128,7 +131,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                 flexWrap: "wrap",
                 gap: "12px",
                 paddingBottom: "12px",
-                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               }
         }
       >
@@ -145,11 +148,15 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                 ? undefined
                 : {
                     background: safety.valid
-                      ? "rgba(16, 185, 129, 0.15)"
+                      ? "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))"
                       : "rgba(239, 68, 68, 0.15)",
-                    color: safety.valid ? "#34d399" : "#f87171",
+                    color: safety.valid
+                      ? "var(--qb-color-confirmed-text, #34d399)"
+                      : "var(--qb-color-error, #f87171)",
                     border: `1px solid ${
-                      safety.valid ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"
+                      safety.valid
+                        ? "var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.3))"
+                        : "rgba(239, 68, 68, 0.3)"
                     }`,
                     padding: "2px 8px",
                     borderRadius: "12px",
@@ -171,10 +178,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               ? undefined
               : {
                   display: "flex",
-                  background: "#1e293b",
+                  background: "var(--qb-color-surface, #1e293b)",
                   borderRadius: "8px",
                   padding: "2px",
-                  border: "1px solid #334155",
+                  border: "1px solid var(--qb-color-border, #334155)",
                 }
           }
         >
@@ -188,8 +195,8 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: activeTab === "builder" ? "#3b82f6" : "transparent",
-                    color: activeTab === "builder" ? "#ffffff" : "#94a3b8",
+                    background: activeTab === "builder" ? "var(--qb-color-primary, #3b82f6)" : "transparent",
+                    color: activeTab === "builder" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
                     border: "none",
                     borderRadius: "6px",
                     padding: "6px 14px",
@@ -211,8 +218,8 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: activeTab === "ast" ? "#3b82f6" : "transparent",
-                    color: activeTab === "ast" ? "#ffffff" : "#94a3b8",
+                    background: activeTab === "ast" ? "var(--qb-color-primary, #3b82f6)" : "transparent",
+                    color: activeTab === "ast" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
                     border: "none",
                     borderRadius: "6px",
                     padding: "6px 14px",
@@ -234,8 +241,8 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: activeTab === "codegen" ? "#3b82f6" : "transparent",
-                    color: activeTab === "codegen" ? "#ffffff" : "#94a3b8",
+                    background: activeTab === "codegen" ? "var(--qb-color-primary, #3b82f6)" : "transparent",
+                    color: activeTab === "codegen" ? "#ffffff" : "var(--qb-color-text-secondary, #94a3b8)",
                     border: "none",
                     borderRadius: "6px",
                     padding: "6px 14px",
@@ -273,9 +280,15 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                   unstyled
                     ? undefined
                     : {
-                        background: builderSubTab === "visual" ? "#334155" : "transparent",
-                        color: builderSubTab === "visual" ? "#38bdf8" : "#94a3b8",
-                        border: "1px solid #475569",
+                        background:
+                          builderSubTab === "visual"
+                            ? "var(--qb-color-surface-active, #334155)"
+                            : "transparent",
+                        color:
+                          builderSubTab === "visual"
+                            ? "var(--qb-color-primary, #38bdf8)"
+                            : "var(--qb-color-text-secondary, #94a3b8)",
+                        border: "1px solid var(--qb-color-border, #475569)",
                         borderRadius: "6px",
                         padding: "4px 10px",
                         fontSize: "0.75rem",
@@ -294,9 +307,15 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                   unstyled
                     ? undefined
                     : {
-                        background: builderSubTab === "json" ? "#334155" : "transparent",
-                        color: builderSubTab === "json" ? "#38bdf8" : "#94a3b8",
-                        border: "1px solid #475569",
+                        background:
+                          builderSubTab === "json"
+                            ? "var(--qb-color-surface-active, #334155)"
+                            : "transparent",
+                        color:
+                          builderSubTab === "json"
+                            ? "var(--qb-color-primary, #38bdf8)"
+                            : "var(--qb-color-text-secondary, #94a3b8)",
+                        border: "1px solid var(--qb-color-border, #475569)",
                         borderRadius: "6px",
                         padding: "4px 10px",
                         fontSize: "0.75rem",
@@ -309,7 +328,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               </button>
             </div>
 
-            <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "#64748b" }}>
+            <span style={unstyled ? undefined : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)" }}>
               Table: <strong>{state.primaryTable || "None"}</strong> | Columns:{" "}
               <strong>{Object.keys(state.selectedColumns).length}</strong>
             </span>
@@ -325,10 +344,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       display: "flex",
                       flexDirection: "column",
                       gap: "10px",
-                      background: "rgba(15, 23, 42, 0.4)",
+                      background: "var(--qb-color-surface, rgba(15, 23, 42, 0.4))",
                       padding: "12px",
                       borderRadius: "8px",
-                      border: "1px solid rgba(255, 255, 255, 0.05)",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.05))",
                     }
               }
             >
@@ -344,7 +363,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                   style={
                     unstyled
                       ? undefined
-                      : { fontSize: "0.8rem", color: "#94a3b8", fontWeight: 600 }
+                      : { fontSize: "0.8rem", color: "var(--qb-color-text-secondary, #94a3b8)", fontWeight: 600 }
                   }
                 >
                   Primary Table:
@@ -360,9 +379,9 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "#1e293b",
-                            color: "#f8fafc",
-                            border: "1px solid #475569",
+                            background: "var(--qb-color-background, #1e293b)",
+                            color: "var(--qb-color-text, #f8fafc)",
+                            border: "1px solid var(--qb-color-border, #475569)",
                             borderRadius: "6px",
                             padding: "4px 10px",
                             fontSize: "0.8rem",
@@ -387,9 +406,9 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "#1e293b",
-                            color: "#f8fafc",
-                            border: "1px solid #475569",
+                            background: "var(--qb-color-background, #1e293b)",
+                            color: "var(--qb-color-text, #f8fafc)",
+                            border: "1px solid var(--qb-color-border, #475569)",
                             borderRadius: "6px",
                             padding: "4px 8px",
                             fontSize: "0.8rem",
@@ -405,7 +424,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       ? undefined
                       : {
                           fontSize: "0.8rem",
-                          color: "#cbd5e1",
+                          color: "var(--qb-color-text-secondary, #cbd5e1)",
                           display: "flex",
                           alignItems: "center",
                           gap: "6px",
@@ -430,7 +449,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       : { display: "flex", alignItems: "center", gap: "6px" }
                   }
                 >
-                  <span style={unstyled ? undefined : { fontSize: "0.8rem", color: "#94a3b8" }}>
+                  <span style={unstyled ? undefined : { fontSize: "0.8rem", color: "var(--qb-color-text-secondary, #94a3b8)" }}>
                     Limit:
                   </span>
                   <input
@@ -444,9 +463,9 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "#1e293b",
-                            color: "#f8fafc",
-                            border: "1px solid #475569",
+                            background: "var(--qb-color-background, #1e293b)",
+                            color: "var(--qb-color-text, #f8fafc)",
+                            border: "1px solid var(--qb-color-border, #475569)",
                             borderRadius: "4px",
                             padding: "2px 6px",
                             fontSize: "0.8rem",
@@ -475,7 +494,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                     style={
                       unstyled
                         ? undefined
-                        : { fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }
+                        : { fontSize: "0.75rem", color: "var(--qb-color-text-muted, #64748b)", fontWeight: 600 }
                     }
                   >
                     Columns ({activeTableMeta.columns.length}):
@@ -503,11 +522,15 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                               ? undefined
                               : {
                                   background: isSelected
-                                    ? "rgba(59, 130, 246, 0.3)"
-                                    : "rgba(30, 41, 59, 0.6)",
-                                  color: isSelected ? "#93c5fd" : "#94a3b8",
+                                    ? "rgba(59, 130, 246, 0.18)"
+                                    : "var(--qb-color-background, rgba(30, 41, 59, 0.6))",
+                                  color: isSelected
+                                    ? "var(--qb-color-primary, #93c5fd)"
+                                    : "var(--qb-color-text-secondary, #94a3b8)",
                                   border: `1px solid ${
-                                    isSelected ? "#3b82f6" : "rgba(255, 255, 255, 0.1)"
+                                    isSelected
+                                      ? "var(--qb-color-primary, #3b82f6)"
+                                      : "var(--qb-color-border, rgba(255, 255, 255, 0.1))"
                                   }`,
                                   borderRadius: "4px",
                                   padding: "2px 8px",
@@ -545,11 +568,13 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                     ? undefined
                     : {
                         width: "100%",
-                        background: "#090d16",
-                        color: "#38bdf8",
+                        background: "var(--qb-color-surface, #090d16)",
+                        color: "var(--qb-color-primary, #38bdf8)",
                         fontFamily: "monospace",
                         fontSize: "0.8rem",
-                        border: jsonError ? "1px solid #ef4444" : "1px solid #334155",
+                        border: jsonError
+                          ? "1px solid var(--qb-color-error, #ef4444)"
+                          : "1px solid var(--qb-color-border, #334155)",
                         borderRadius: "8px",
                         padding: "10px",
                         lineHeight: 1.4,
@@ -566,7 +591,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                     unstyled
                       ? undefined
                       : {
-                          color: "#ef4444",
+                          color: "var(--qb-color-error, #ef4444)",
                           fontSize: "0.75rem",
                           background: "rgba(239, 68, 68, 0.1)",
                           padding: "6px 10px",
@@ -603,10 +628,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -614,12 +639,17 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               FROM (Data Source)
             </div>
-            <div style={unstyled ? undefined : { fontSize: "0.85rem", color: "#f8fafc" }}>
+            <div style={unstyled ? undefined : { fontSize: "0.85rem", color: "var(--qb-color-text, #f8fafc)" }}>
               Primary Table: <strong>{spec.table || "None"}</strong>
             </div>
           </div>
@@ -631,10 +661,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -642,7 +672,12 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               SELECT (Projections: {spec.columns.length})
@@ -662,8 +697,8 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                       unstyled
                         ? undefined
                         : {
-                            background: "rgba(59, 130, 246, 0.2)",
-                            color: "#93c5fd",
+                            background: "rgba(59, 130, 246, 0.16)",
+                            color: "var(--qb-color-primary, #93c5fd)",
                             padding: "2px 6px",
                             borderRadius: "4px",
                           }
@@ -673,7 +708,7 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                   </span>
                 ))
               ) : (
-                <span style={unstyled ? undefined : { color: "#64748b", fontStyle: "italic" }}>
+                <span style={unstyled ? undefined : { color: "var(--qb-color-text-muted, #64748b)", fontStyle: "italic" }}>
                   * (all columns)
                 </span>
               )}
@@ -687,10 +722,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -698,7 +733,12 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               JOIN (Relational: {spec.joins.length})
@@ -707,14 +747,14 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               {spec.joins.length > 0 ? (
                 spec.joins.map((j, i) => (
                   <div key={i} style={unstyled ? undefined : { marginBottom: "4px" }}>
-                    <span style={unstyled ? undefined : { color: "#f59e0b", fontWeight: 600 }}>
+                    <span style={unstyled ? undefined : { color: "var(--qb-color-suggested-text, #f59e0b)", fontWeight: 600 }}>
                       {j.type}{" "}
                     </span>
                     <span>{j.table}</span>
                   </div>
                 ))
               ) : (
-                <span style={unstyled ? undefined : { color: "#64748b", fontStyle: "italic" }}>
+                <span style={unstyled ? undefined : { color: "var(--qb-color-text-muted, #64748b)", fontStyle: "italic" }}>
                   No joins configured
                 </span>
               )}
@@ -728,10 +768,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -739,7 +779,12 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               WHERE (Filters: {spec.filters.length})
@@ -749,16 +794,16 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                 spec.filters.map((f, i) => (
                   <div key={i} style={unstyled ? undefined : { marginBottom: "4px" }}>
                     <span>{f.column}</span>{" "}
-                    <span style={unstyled ? undefined : { color: "#ec4899", fontWeight: 600 }}>
+                    <span style={unstyled ? undefined : { color: "#db2777", fontWeight: 600 }}>
                       {f.op}
                     </span>{" "}
-                    <span style={unstyled ? undefined : { color: "#a7f3d0" }}>
+                    <span style={unstyled ? undefined : { color: "var(--qb-color-confirmed-text, #a7f3d0)" }}>
                       {String(f.value)}
                     </span>
                   </div>
                 ))
               ) : (
-                <span style={unstyled ? undefined : { color: "#64748b", fontStyle: "italic" }}>
+                <span style={unstyled ? undefined : { color: "var(--qb-color-text-muted, #64748b)", fontStyle: "italic" }}>
                   No filters applied
                 </span>
               )}
@@ -772,10 +817,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -783,7 +828,12 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               ORDER BY (Sorts: {spec.order_by.length})
@@ -793,13 +843,13 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
                 spec.order_by.map((s, i) => (
                   <div key={i} style={unstyled ? undefined : { marginBottom: "4px" }}>
                     <span>{s.column}</span>{" "}
-                    <span style={unstyled ? undefined : { color: "#a855f7", fontWeight: 600 }}>
+                    <span style={unstyled ? undefined : { color: "var(--qb-color-custom-text, #a855f7)", fontWeight: 600 }}>
                       {s.direction}
                     </span>
                   </div>
                 ))
               ) : (
-                <span style={unstyled ? undefined : { color: "#64748b", fontStyle: "italic" }}>
+                <span style={unstyled ? undefined : { color: "var(--qb-color-text-muted, #64748b)", fontStyle: "italic" }}>
                   Default database ordering
                 </span>
               )}
@@ -813,10 +863,10 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "#1e293b",
+                    background: "var(--qb-color-surface, #1e293b)",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #334155",
+                    border: "1px solid var(--qb-color-border, #334155)",
                   }
             }
           >
@@ -824,7 +874,12 @@ export const QueryPlayground: React.FC<QueryPlaygroundProps> = ({
               style={
                 unstyled
                   ? undefined
-                  : { fontWeight: 700, fontSize: "0.82rem", color: "#38bdf8", marginBottom: "6px" }
+                  : {
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "var(--qb-color-primary, #38bdf8)",
+                      marginBottom: "6px",
+                    }
               }
             >
               OPTIONS (Limit & Distinct)

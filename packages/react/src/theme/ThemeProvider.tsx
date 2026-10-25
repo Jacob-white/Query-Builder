@@ -138,17 +138,22 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
 
+const NOOP = () => {};
+const DEFAULT_DARK_CSS_VARIABLES = themeToCssVariables(darkTheme);
+const DEFAULT_THEME_CONTEXT_VALUE: ThemeContextValue = {
+  theme: darkTheme,
+  mode: "dark",
+  cssVariables: DEFAULT_DARK_CSS_VARIABLES,
+  setTheme: NOOP,
+  setMode: NOOP,
+  toggleMode: NOOP,
+};
+
 export const useTheme = (): ThemeContextValue => {
   const context = useContext(ThemeContext);
   if (!context) {
-    return {
-      theme: darkTheme,
-      mode: "dark",
-      cssVariables: themeToCssVariables(darkTheme),
-      setTheme: () => {},
-      setMode: () => {},
-      toggleMode: () => {},
-    };
+    return DEFAULT_THEME_CONTEXT_VALUE;
   }
   return context;
 };
+

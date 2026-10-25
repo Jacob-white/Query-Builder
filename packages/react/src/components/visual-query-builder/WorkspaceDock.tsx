@@ -15,6 +15,7 @@ export interface WorkspaceDockProps {
   dockTab: DockTab;
   onSelectDockTab: (tab: DockTab) => void;
   onExpandFullTab: (tab: DockTab) => void;
+  onReorderColumns?: (newColumns: string[]) => void;
   cellRenderers?: Record<string, CellRenderer>;
   classNames?: QueryBuilderClassNames;
   unstyled?: boolean;
@@ -34,6 +35,7 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
   dockTab,
   onSelectDockTab,
   onExpandFullTab,
+  onReorderColumns,
   cellRenderers,
   classNames,
   unstyled = false,
@@ -95,6 +97,7 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
                 results={results}
                 isLoading={isLoading}
                 unstyled={unstyled}
+                onReorderColumns={onReorderColumns}
                 cellRenderers={cellRenderers}
                 classNames={classNames}
               />
@@ -114,103 +117,116 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
     );
   }
 
+  const srOnlyStyle: React.CSSProperties = {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clip: "rect(0, 0, 0, 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  };
+
+  const getDockTabStyle = (active: boolean): React.CSSProperties => ({
+    background: active ? "var(--qb-color-surface-active, rgba(255, 255, 255, 0.1))" : "transparent",
+    color: active ? "var(--qb-color-text, #f8fafc)" : "var(--qb-color-text-muted, #94a3b8)",
+    border: "1px solid",
+    borderColor: active
+      ? "var(--qb-color-border, rgba(255, 255, 255, 0.14))"
+      : "transparent",
+    borderRadius: "var(--qb-radius-sm, 6px)",
+    padding: "5px 12px",
+    fontSize: "0.85rem",
+    fontWeight: active ? 600 : 500,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  });
+
+  const isSeamlessResults = isOpen && dockTab === "results";
+
   return (
     <div
       data-qb="workspace-dock"
       aria-label="Workspace Dock"
-      style={{
-        marginTop: "16px",
-        background: "var(--qb-color-surface, rgba(15, 23, 42, 0.9))",
-        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
-        borderRadius: "var(--qb-radius-lg, 10px)",
-        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        transition: "all 0.2s ease",
-      }}
+      style={
+        isSeamlessResults
+          ? {
+              marginTop: "14px",
+              display: "flex",
+              flexDirection: "column",
+            }
+          : {
+              marginTop: "14px",
+              background: "var(--qb-color-surface, #10141f)",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+              borderRadius: "var(--qb-radius-md, 8px)",
+              boxShadow: "var(--qb-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25))",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              transition: "all 0.2s ease",
+            }
+      }
     >
-      {/* Dock Bar Header */}
+      {/* Dock Bar Header (visually hidden when showing results directly so top TabBar isn't duplicated) */}
       <div
         data-qb="workspace-dock-header"
-        style={{
-          padding: "8px 14px",
-          background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.95))",
-          borderBottom: isOpen ? "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))" : "none",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "10px",
-          flexWrap: "wrap",
-        }}
+        style={
+          isSeamlessResults
+            ? srOnlyStyle
+            : {
+                padding: "9px 14px",
+                background: "var(--qb-color-surface-hover, rgba(22, 27, 40, 0.85))",
+                borderBottom: isOpen ? "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.07))" : "none",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "10px",
+                flexWrap: "wrap",
+              }
+        }
       >
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--qb-color-text, #f8fafc)", marginRight: "6px" }}>
-            ⚡ Docked Workspace
-          </span>
+          <span style={srOnlyStyle}>⚡ Docked Workspace</span>
 
           <button
             type="button"
             data-qb-dock-tab="results"
             onClick={() => onSelectDockTab("results")}
-            style={{
-              background: dockTab === "results" ? "var(--qb-color-primary, #3b82f6)" : "transparent",
-              color: dockTab === "results" ? "#ffffff" : "var(--qb-color-text-muted, #94a3b8)",
-              border: "1px solid",
-              borderColor: dockTab === "results" ? "var(--qb-color-primary, #3b82f6)" : "var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-              borderRadius: "var(--qb-radius-sm, 6px)",
-              padding: "4px 10px",
-              fontSize: "0.78rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
+            style={getDockTabStyle(dockTab === "results")}
           >
-            📊 Results {rowCount !== null ? `(${rowCount})` : ""}
+            <span style={srOnlyStyle}>
+              {`📊 Results ${rowCount !== null ? `(${rowCount})` : ""}`}
+            </span>
+            <span aria-hidden="true">
+              {`Results ${rowCount !== null ? `(${rowCount})` : ""}`}
+            </span>
           </button>
 
           <button
             type="button"
             data-qb-dock-tab="chart"
             onClick={() => onSelectDockTab("chart")}
-            style={{
-              background: dockTab === "chart" ? "var(--qb-color-accent, #8b5cf6)" : "transparent",
-              color: dockTab === "chart" ? "#ffffff" : "var(--qb-color-text-muted, #94a3b8)",
-              border: "1px solid",
-              borderColor: dockTab === "chart" ? "var(--qb-color-accent, #8b5cf6)" : "var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-              borderRadius: "var(--qb-radius-sm, 6px)",
-              padding: "4px 10px",
-              fontSize: "0.78rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
+            style={getDockTabStyle(dockTab === "chart")}
           >
-            📈 Visual Chart
+            <span style={srOnlyStyle}>📈 Visual Chart</span>
+            <span aria-hidden="true">Chart</span>
           </button>
 
           <button
             type="button"
             data-qb-dock-tab="sql"
             onClick={() => onSelectDockTab("sql")}
-            style={{
-              background: dockTab === "sql" ? "var(--qb-color-secondary, #0ea5e9)" : "transparent",
-              color: dockTab === "sql" ? "#ffffff" : "var(--qb-color-text-muted, #94a3b8)",
-              border: "1px solid",
-              borderColor: dockTab === "sql" ? "var(--qb-color-secondary, #0ea5e9)" : "var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-              borderRadius: "var(--qb-radius-sm, 6px)",
-              padding: "4px 10px",
-              fontSize: "0.78rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
+            style={getDockTabStyle(dockTab === "sql")}
           >
-            📝 Live SQL
+            <span style={srOnlyStyle}>📝 Live SQL</span>
+            <span aria-hidden="true">SQL</span>
           </button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button
             type="button"
             data-qb="btn-dock-full-view"
@@ -219,16 +235,17 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
               background: "transparent",
               color: "var(--qb-color-text-muted, #94a3b8)",
               border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-              borderRadius: "var(--qb-radius-sm, 4px)",
-              padding: "3px 8px",
-              fontSize: "0.72rem",
+              borderRadius: "var(--qb-radius-sm, 6px)",
+              padding: "5px 10px",
+              fontSize: "0.82rem",
               fontWeight: 500,
               cursor: "pointer",
               transition: "all 0.15s ease",
             }}
             title="Open in full screen tab"
           >
-            ⤢ Full View
+            <span style={srOnlyStyle}>⤢ Full View</span>
+            <span aria-hidden="true">Full View</span>
           </button>
 
           <button
@@ -239,15 +256,16 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
               background: "transparent",
               color: "var(--qb-color-text-muted, #94a3b8)",
               border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
-              borderRadius: "var(--qb-radius-sm, 4px)",
-              padding: "3px 8px",
-              fontSize: "0.72rem",
-              fontWeight: 600,
+              borderRadius: "var(--qb-radius-sm, 6px)",
+              padding: "5px 10px",
+              fontSize: "0.82rem",
+              fontWeight: 500,
               cursor: "pointer",
             }}
             title={isOpen ? "Collapse dock" : "Expand dock"}
           >
-            {isOpen ? "▾ Collapse" : "▴ Expand"}
+            <span style={srOnlyStyle}>{isOpen ? "▾ Collapse" : "▴ Expand"}</span>
+            <span aria-hidden="true">{isOpen ? "Collapse" : "Expand"}</span>
           </button>
         </div>
       </div>
@@ -256,18 +274,26 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
       {isOpen && (
         <div
           data-qb="workspace-dock-body"
-          style={{
-            maxHeight: "450px",
-            overflowY: "auto",
-            padding: "12px",
-            background: "var(--qb-color-background, #0f172a)",
-          }}
+          style={
+            isSeamlessResults
+              ? {
+                  padding: 0,
+                  background: "transparent",
+                }
+              : {
+                  maxHeight: "460px",
+                  overflowY: "auto",
+                  padding: "14px",
+                  background: "var(--qb-color-background, #090d16)",
+                }
+          }
         >
           {dockTab === "results" && (
             <ResultsPanel
               results={results}
               isLoading={isLoading}
               unstyled={unstyled}
+              onReorderColumns={onReorderColumns}
               cellRenderers={cellRenderers}
               classNames={classNames}
             />
@@ -276,20 +302,20 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
           {dockTab === "chart" && <ChartPanel results={results} unstyled={unstyled} />}
 
           {dockTab === "sql" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button
                   type="button"
                   onClick={handleCopySql}
                   style={{
-                    background: "rgba(59, 130, 246, 0.15)",
-                    color: "var(--qb-color-primary, #60a5fa)",
-                    border: "1px solid rgba(59, 130, 246, 0.35)",
-                    borderRadius: "4px",
-                    padding: "3px 10px",
-                    fontSize: "0.75rem",
+                    background: "var(--qb-color-surface-hover, rgba(255, 255, 255, 0.05))",
+                    color: "var(--qb-color-text, #e2e8f0)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                    borderRadius: "6px",
+                    padding: "5px 12px",
+                    fontSize: "0.84rem",
                     cursor: "pointer",
-                    fontWeight: 600,
+                    fontWeight: 500,
                   }}
                 >
                   {copied ? "✓ Copied" : "Copy SQL"}
@@ -298,11 +324,12 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
               <pre
                 style={{
                   margin: 0,
-                  padding: "12px",
-                  background: "#090d16",
-                  color: "#38bdf8",
+                  padding: "14px",
+                  background: "var(--qb-color-surface, #10141f)",
+                  color: "var(--qb-color-text, #e2e8f0)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                   borderRadius: "6px",
-                  fontSize: "0.82rem",
+                  fontSize: "0.875rem",
                   fontFamily: "var(--qb-font-mono, monospace)",
                   whiteSpace: "pre-wrap",
                   lineHeight: 1.5,

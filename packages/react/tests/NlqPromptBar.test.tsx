@@ -323,4 +323,104 @@ describe("NlqPromptBar component", () => {
     expect(bar).toBeTruthy();
     expect(bar.getAttribute("style")).toBeNull();
   });
+
+  it("supports multi-shot follow-up refinement input, follow-up chips, and turn reversion", async () => {
+    const onApply = vi.fn();
+    const specTurn1: QuerySpec = { ...mockQuerySpec, table: "users", limit: 50 };
+    const specTurn2: QuerySpec = { ...mockQuerySpec, table: "users", limit: 5 };
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          spec: specTurn1,
+          confidence: 0.91,
+          explanation: "Initial users query",
+          follow_ups: ["Limit to 5 rows"],
+        }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          spec: specTurn2,
+          confidence: 0.96,
+          explanation: "Refined to 5 rows",
+          follow_ups: ["Sort by email"],
+        }),
+      });
+
+    render(<NlqPromptBar schema={mockSchema} onApplySpec={onApply} />);
+
+    // Turn 1
+    const input = screen.getByLabelText("NLQ Input");
+    fireEvent.change(input, { target: { value: "Show users" } });
+    fireEvent.click(screen.getByLabelText("Generate Query Button"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Initial users query")).toBeTruthy();
+    });
+    expect(screen.getByTestId("nlq-turn-badge").textContent).toBe("Turn 1");
+
+    // Turn 2 via Follow-up Refinement Input
+    const followUpInput = screen.getByTestId("nlq-followup-input") as HTMLInputElement;
+    fireEvent.change(followUpInput, { target: { value: "Only top 5" } });
+    fireEvent.click(screen.getByTestId("nlq-followup-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Refined to 5 rows")).toBeTruthy();
+    });
+    expect(screen.getByTestId("nlq-turn-badge").textContent).toBe("Turn 2");
+    expect(screen.getByTestId("nlq-conversation-thread")).toBeTruthy();
+
+    // Revert back to Turn 1
+    fireEvent.click(screen.getByLabelText("Restore turn 1"));
+    expect(screen.getByText("Initial users query")).toBeTruthy();
+    expect(onApply).toHaveBeenLastCalledWith(specTurn1);
+
+    // Follow-up chip click, Enter key on followUpInput, and New Chat button
+    const chipBtn = screen.getByLabelText("Follow-up: Limit to 5 rows");
+    fireEvent.click(chipBtn);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+
+    const fuInput2 = screen.getByTestId("nlq-followup-input") as HTMLInputElement;
+    fireEvent.change(fuInput2, { target: { value: "sort asc" } });
+    fireEvent.keyDown(fuInput2, { key: "Enter", shiftKey: false });
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByLabelText("New AI Conversation"));
+    expect(screen.queryByTestId("nlq-explanation-box")).toBeNull();
+  });
+
+  it("supports AI Engine Selector pills, showMoreProviders toggle, and >6 schema tables filter", () => {
+    const bigSchema = {
+      tables: {
+        t1: { name: "t1", columns: [] },
+        t2: { name: "t2", columns: [] },
+        t3: { name: "t3", columns: [] },
+        t4: { name: "t4", columns: [] },
+        t5: { name: "t5", columns: [] },
+        t6: { name: "t6", columns: [] },
+        t7_extra: { name: "t7_extra", columns: [] },
+      },
+    };
+    render(<NlqPromptBar schema={bigSchema} />);
+
+    // Provider pill selection and expand toggle
+    const engineGroup = screen.getByRole("group", { name: "AI Engine Selector" });
+    const expandProvidersBtn = engineGroup.querySelectorAll("button")[2];
+    fireEvent.click(expandProvidersBtn);
+    fireEvent.click(screen.getByText("OpenAI"));
+    fireEvent.click(expandProvidersBtn);
+
+    // Expand >6 tables and filter
+    const moreTablesBtn = screen.getByText(/\+1 more tables/i);
+    fireEvent.click(moreTablesBtn);
+    const filterInput = screen.getByPlaceholderText("Filter tables...");
+    fireEvent.change(filterInput, { target: { value: "t7" } });
+    expect(screen.getByLabelText("Insert table t7_extra")).toBeTruthy();
+    fireEvent.click(screen.getByText(/Show fewer/i));
+  });
 });

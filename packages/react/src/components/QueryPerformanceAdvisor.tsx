@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo } from "react";
 import { analyzeQueryPerformance } from "../utils/performanceAdvisor";
+import { useTheme } from "../theme/ThemeProvider";
 import type {
   QuerySpec,
   SchemaSnapshot,
@@ -36,6 +37,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
   className = "",
   style = {},
 }) => {
+  const { cssVariables } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedDdlId, setCopiedDdlId] = useState<string | null>(null);
 
@@ -60,11 +62,12 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
     unstyled ? undefined : styleObj;
 
   const containerStyle: React.CSSProperties | undefined = s({
-    backgroundColor: "#1e1e2e",
-    border: "1px solid #313244",
+    ...(cssVariables as React.CSSProperties),
+    backgroundColor: "var(--qb-color-surface, #1e1e2e)",
+    border: "1px solid var(--qb-color-border, #313244)",
     borderRadius: "8px",
     padding: "0.75rem 1rem",
-    color: "#cdd6f4",
+    color: "var(--qb-color-text, #cdd6f4)",
     fontSize: "0.85rem",
     display: "flex",
     flexDirection: "column",
@@ -90,7 +93,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
       >
         <div style={s({ display: "flex", alignItems: "center", gap: "0.6rem" })}>
           <span style={s({ fontSize: "1rem" })}>💡</span>
-          <span style={s({ fontWeight: 600, color: "#89b4fa" })}>
+          <span style={s({ fontWeight: 600, color: "var(--qb-color-primary, #2563eb)" })}>
             Performance & Cost Advisor:
           </span>
           {costInsight && (
@@ -99,8 +102,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                 fontSize: "0.8rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
-                backgroundColor: "rgba(137, 180, 250, 0.15)",
-                color: "#89b4fa",
+                backgroundColor: "rgba(59, 130, 246, 0.14)",
+                color: "var(--qb-color-primary, #2563eb)",
               })}
               data-testid="cost-estimate-badge"
             >
@@ -113,8 +116,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                 fontSize: "0.75rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
-                backgroundColor: "rgba(249, 226, 175, 0.15)",
-                color: "#f9e2af",
+                backgroundColor: "var(--qb-color-suggested-bg, rgba(245, 158, 11, 0.15))",
+                color: "var(--qb-color-suggested-text, #b45309)",
               })}
               data-testid="warning-count-badge"
             >
@@ -127,8 +130,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                 fontSize: "0.75rem",
                 padding: "0.15rem 0.5rem",
                 borderRadius: "12px",
-                backgroundColor: "rgba(166, 227, 161, 0.15)",
-                color: "#a6e3a1",
+                backgroundColor: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))",
+                color: "var(--qb-color-confirmed-text, #047857)",
               })}
               data-testid="index-rec-count-badge"
             >
@@ -141,9 +144,9 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
           onClick={() => setIsExpanded(!isExpanded)}
           style={s({
             background: "transparent",
-            border: "1px solid #45475a",
+            border: "1px solid var(--qb-color-border, #45475a)",
             borderRadius: "4px",
-            color: "#cdd6f4",
+            color: "var(--qb-color-text, #cdd6f4)",
             padding: "0.25rem 0.6rem",
             fontSize: "0.75rem",
             cursor: "pointer",
@@ -162,7 +165,7 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
             flexDirection: "column",
             gap: "0.75rem",
             paddingTop: "0.5rem",
-            borderTop: "1px solid #313244",
+            borderTop: "1px solid var(--qb-color-border, #313244)",
           })}
           data-testid="advisor-expanded-panel"
         >
@@ -171,13 +174,13 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
             <div
               style={s({
                 padding: "0.5rem 0.75rem",
-                backgroundColor: "#181825",
+                backgroundColor: "var(--qb-color-background, #181825)",
                 borderRadius: "6px",
-                borderLeft: "3px solid #89b4fa",
+                borderLeft: "3px solid var(--qb-color-primary, #2563eb)",
               })}
             >
-              <div style={s({ fontWeight: 600, color: "#89b4fa" })}>{costInsight.title}</div>
-              <div style={s({ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" })}>
+              <div style={s({ fontWeight: 600, color: "var(--qb-color-primary, #2563eb)" })}>{costInsight.title}</div>
+              <div style={s({ color: "var(--qb-color-text-secondary, #64748b)", fontSize: "0.8rem", marginTop: "0.2rem" })}>
                 {costInsight.message}
               </div>
             </div>
@@ -189,14 +192,14 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
               key={idx}
               style={s({
                 padding: "0.5rem 0.75rem",
-                backgroundColor: "#181825",
+                backgroundColor: "var(--qb-color-background, #181825)",
                 borderRadius: "6px",
-                borderLeft: "3px solid #f9e2af",
+                borderLeft: "3px solid var(--qb-color-suggested-text, #b45309)",
               })}
               data-testid={`advisor-warning-${idx}`}
             >
-              <div style={s({ fontWeight: 600, color: "#f9e2af" })}>⚠️ {w.title}</div>
-              <div style={s({ color: "#a6adc8", fontSize: "0.8rem", marginTop: "0.2rem" })}>
+              <div style={s({ fontWeight: 600, color: "var(--qb-color-suggested-text, #b45309)" })}>⚠️ {w.title}</div>
+              <div style={s({ color: "var(--qb-color-text-secondary, #64748b)", fontSize: "0.8rem", marginTop: "0.2rem" })}>
                 {w.message}
               </div>
             </div>
@@ -212,9 +215,9 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                 key={idx}
                 style={s({
                   padding: "0.6rem 0.75rem",
-                  backgroundColor: "#181825",
+                  backgroundColor: "var(--qb-color-background, #181825)",
                   borderRadius: "6px",
-                  borderLeft: "3px solid #a6e3a1",
+                  borderLeft: "3px solid var(--qb-color-confirmed-text, #047857)",
                   display: "flex",
                   flexDirection: "column",
                   gap: "0.4rem",
@@ -222,16 +225,16 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                 data-testid={`advisor-index-rec-${idx}`}
               >
                 <div style={s({ display: "flex", justifyContent: "space-between", alignItems: "center" })}>
-                  <div style={s({ fontWeight: 600, color: "#a6e3a1" })}>
+                  <div style={s({ fontWeight: 600, color: "var(--qb-color-confirmed-text, #047857)" })}>
                     🚀 Index Recommendation: {r.indexName}
                   </div>
                   <button
                     onClick={() => handleCopyDdl(r.id, r.ddl)}
                     style={s({
                       padding: "0.25rem 0.6rem",
-                      backgroundColor: isCopied ? "#a6e3a1" : "#313244",
-                      color: isCopied ? "#11111b" : "#cdd6f4",
-                      border: "none",
+                      backgroundColor: isCopied ? "#10b981" : "var(--qb-color-surface-hover, #313244)",
+                      color: isCopied ? "#ffffff" : "var(--qb-color-text, #cdd6f4)",
+                      border: "1px solid var(--qb-color-border, transparent)",
                       borderRadius: "4px",
                       fontSize: "0.75rem",
                       fontWeight: 600,
@@ -243,13 +246,14 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                     {isCopied ? "✓ Copied" : "Copy DDL"}
                   </button>
                 </div>
-                <div style={s({ color: "#a6adc8", fontSize: "0.8rem" })}>{r.rationale}</div>
+                <div style={s({ color: "var(--qb-color-text-secondary, #64748b)", fontSize: "0.8rem" })}>{r.rationale}</div>
                 <code
                   style={s({
-                    backgroundColor: "#11111b",
+                    backgroundColor: "var(--qb-color-surface, #11111b)",
+                    border: "1px solid var(--qb-color-border, transparent)",
                     padding: "0.35rem 0.5rem",
                     borderRadius: "4px",
-                    color: "#f5c2e7",
+                    color: "var(--qb-color-primary, #2563eb)",
                     fontFamily: "monospace",
                     fontSize: "0.8rem",
                     wordBreak: "break-all",

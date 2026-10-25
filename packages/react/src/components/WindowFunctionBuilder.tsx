@@ -21,6 +21,18 @@ export const SUPPORTED_WINDOW_FUNCTIONS = [
   "MAX",
 ] as const;
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export interface WindowFunctionBuilderProps {
   isOpen: boolean;
   onClose: () => void;
@@ -40,7 +52,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
   unstyled = false,
   className,
 }) => {
-  const { theme } = useTheme();
+  const { theme, cssVariables } = useTheme();
 
   const [func, setFunc] = useState<string>(initialSpec?.function || "ROW_NUMBER");
   const [argColumn, setArgColumn] = useState<string>(
@@ -157,6 +169,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
           unstyled
             ? undefined
             : {
+                ...(cssVariables as React.CSSProperties),
                 background: theme.colors.surface || "#1e293b",
                 color: theme.colors.text || "#f8fafc",
                 borderRadius: "8px",
@@ -247,18 +260,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
               data-testid="wf-function-select"
               value={func}
               onChange={(e) => setFunc(e.target.value)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      width: "100%",
-                      padding: "0.5rem 0.75rem",
-                      background: theme.colors.background || "#0f172a",
-                      color: theme.colors.text || "#f8fafc",
-                      border: `1px solid ${theme.colors.border || "#334155"}`,
-                      borderRadius: "6px",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               {SUPPORTED_WINDOW_FUNCTIONS.map((fn) => (
                 <option key={fn} value={fn}>
@@ -266,6 +268,38 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
                 </option>
               ))}
             </select>
+            {!unstyled && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                {SUPPORTED_WINDOW_FUNCTIONS.map((fn) => {
+                  const isSelected = func === fn;
+                  return (
+                    <button
+                      key={fn}
+                      type="button"
+                      onClick={() => setFunc(fn)}
+                      style={{
+                        padding: "4px 9px",
+                        borderRadius: "6px",
+                        fontSize: "0.73rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                        border: isSelected
+                          ? `1px solid ${theme.colors.primary}`
+                          : `1px solid ${theme.colors.border}`,
+                        background: isSelected
+                          ? "rgba(56, 189, 248, 0.16)"
+                          : theme.colors.background,
+                        color: isSelected
+                          ? theme.colors.primary
+                          : theme.colors.textSecondary,
+                      }}
+                    >
+                      {fn}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Argument Column (if applicable) */}
@@ -282,18 +316,7 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
                 data-testid="wf-arg-select"
                 value={argColumn}
                 onChange={(e) => setArgColumn(e.target.value)}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "100%",
-                        padding: "0.5rem 0.75rem",
-                        background: theme.colors.background || "#0f172a",
-                        color: theme.colors.text || "#f8fafc",
-                        border: `1px solid ${theme.colors.border || "#334155"}`,
-                        borderRadius: "6px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="">(None / Default)</option>
                 {availableColumns.map((col) => {
@@ -305,6 +328,49 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
                   );
                 })}
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", maxHeight: "100px", overflowY: "auto" }}>
+                  <button
+                    type="button"
+                    onClick={() => setArgColumn("")}
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: "5px",
+                      fontSize: "0.73rem",
+                      fontWeight: argColumn === "" ? 700 : 500,
+                      cursor: "pointer",
+                      border: argColumn === "" ? `1px solid ${theme.colors.primary}` : `1px solid ${theme.colors.border}`,
+                      background: argColumn === "" ? "rgba(56, 189, 248, 0.16)" : theme.colors.background,
+                      color: argColumn === "" ? theme.colors.primary : theme.colors.textMuted,
+                    }}
+                  >
+                    (Default)
+                  </button>
+                  {availableColumns.slice(0, 20).map((col) => {
+                    const key = col.table ? `${col.table}.${col.name}` : col.name;
+                    const isSelected = argColumn === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setArgColumn(key)}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: "5px",
+                          fontSize: "0.73rem",
+                          fontWeight: isSelected ? 700 : 500,
+                          cursor: "pointer",
+                          border: isSelected ? `1px solid ${theme.colors.primary}` : `1px solid ${theme.colors.border}`,
+                          background: isSelected ? "rgba(56, 189, 248, 0.16)" : theme.colors.background,
+                          color: isSelected ? theme.colors.primary : theme.colors.textSecondary,
+                        }}
+                      >
+                        {key}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -375,24 +441,13 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
             >
               Order By
             </label>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", flexDirection: "column" }}>
               <select
                 id="wf-order-select"
                 data-testid="wf-order-col-select"
                 value={orderByCol}
                 onChange={(e) => setOrderByCol(e.target.value)}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        flex: 1,
-                        padding: "0.5rem 0.75rem",
-                        background: theme.colors.background || "#0f172a",
-                        color: theme.colors.text || "#f8fafc",
-                        border: `1px solid ${theme.colors.border || "#334155"}`,
-                        borderRadius: "6px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="">(None)</option>
                 {availableColumns.map((col) => {
@@ -409,22 +464,77 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
                 data-testid="wf-order-dir-select"
                 value={orderDir}
                 onChange={(e) => setOrderDir(e.target.value as "ASC" | "DESC")}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "90px",
-                        padding: "0.5rem 0.75rem",
-                        background: theme.colors.background || "#0f172a",
-                        color: theme.colors.text || "#f8fafc",
-                        border: `1px solid ${theme.colors.border || "#334155"}`,
-                        borderRadius: "6px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="ASC">ASC</option>
                 <option value="DESC">DESC</option>
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", maxHeight: "90px", overflowY: "auto", flex: 1 }}>
+                    <button
+                      type="button"
+                      onClick={() => setOrderByCol("")}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: "5px",
+                        fontSize: "0.73rem",
+                        fontWeight: orderByCol === "" ? 700 : 500,
+                        cursor: "pointer",
+                        border: orderByCol === "" ? `1px solid ${theme.colors.primary}` : `1px solid ${theme.colors.border}`,
+                        background: orderByCol === "" ? "rgba(56, 189, 248, 0.16)" : theme.colors.background,
+                        color: orderByCol === "" ? theme.colors.primary : theme.colors.textMuted,
+                      }}
+                    >
+                      (None)
+                    </button>
+                    {availableColumns.slice(0, 20).map((col) => {
+                      const key = col.table ? `${col.table}.${col.name}` : col.name;
+                      const isSelected = orderByCol === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setOrderByCol(key)}
+                          style={{
+                            padding: "3px 8px",
+                            borderRadius: "5px",
+                            fontSize: "0.73rem",
+                            fontWeight: isSelected ? 700 : 500,
+                            cursor: "pointer",
+                            border: isSelected ? `1px solid ${theme.colors.primary}` : `1px solid ${theme.colors.border}`,
+                            background: isSelected ? "rgba(56, 189, 248, 0.16)" : theme.colors.background,
+                            color: isSelected ? theme.colors.primary : theme.colors.textSecondary,
+                          }}
+                        >
+                          {key}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "inline-flex", gap: "3px", background: theme.colors.background || "#0f172a", padding: "2px", borderRadius: "6px", border: `1px solid ${theme.colors.border || "#334155"}` }}>
+                    {(["ASC", "DESC"] as const).map((dir) => (
+                      <button
+                        key={dir}
+                        type="button"
+                        onClick={() => setOrderDir(dir)}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: "4px",
+                          fontSize: "0.72rem",
+                          fontWeight: orderDir === dir ? 700 : 500,
+                          border: "none",
+                          cursor: "pointer",
+                          background: orderDir === dir ? "rgba(56, 189, 248, 0.18)" : "transparent",
+                          color: orderDir === dir ? theme.colors.primary : theme.colors.textMuted,
+                        }}
+                      >
+                        {dir === "ASC" ? "↑ ASC" : "↓ DESC"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -542,7 +652,8 @@ export const WindowFunctionBuilder: React.FC<WindowFunctionBuilderProps> = ({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(0, 0, 0, 0.3)",
+                    background: theme.colors.background || "#0f172a",
+                    border: `1px solid ${theme.colors.border || "#334155"}`,
                     padding: "0.75rem",
                     borderRadius: "6px",
                     fontFamily: "monospace",

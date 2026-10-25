@@ -73,7 +73,7 @@ export const QueryBuilderCanvas: React.FC<QueryBuilderCanvasProps> = ({
             style={
               unstyled
                 ? undefined
-                : { fontSize: "0.88rem", fontWeight: 700, color: "#cbd5e1" }
+                : { fontSize: "0.88rem", fontWeight: 700, color: "var(--qb-color-text-secondary, #cbd5e1)" }
             }
           >
             {`📋 Active Tables in Query (${activeTables.length})`}
@@ -93,8 +93,8 @@ export const QueryBuilderCanvas: React.FC<QueryBuilderCanvasProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: "#1e293b",
-                      color: "#60a5fa",
+                      background: "var(--qb-color-surface, #1e293b)",
+                      color: "var(--qb-color-primary, #60a5fa)",
                       border: "1px solid rgba(59, 130, 246, 0.4)",
                       borderRadius: "6px",
                       padding: "4px 10px",
@@ -126,8 +126,8 @@ export const QueryBuilderCanvas: React.FC<QueryBuilderCanvasProps> = ({
                 : {
                     padding: "32px",
                     textAlign: "center",
-                    color: "#94a3b8",
-                    border: "2px dashed rgba(255, 255, 255, 0.1)",
+                    color: "var(--qb-color-text-muted, #94a3b8)",
+                    border: "2px dashed var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "10px",
                     width: "100%",
                   }

@@ -54,7 +54,7 @@ Query-Builder protects against the primary attack vectors targeting dynamic quer
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        APPLICATION LAYER                               │
-│           (Multi-Tenant SaaS, Enterprise, and Third-Party Apps)                │
+│         (REST API Clients, React Studio, Third-Party Apps)             │
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │
                                    ▼

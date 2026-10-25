@@ -9,11 +9,24 @@
 import React, { useState } from "react";
 import { useDashboardManager } from "../hooks/useDashboardManager";
 import { BiChartVisualizer } from "./BiChartVisualizer";
+import { useTheme } from "../theme/ThemeProvider";
 import type {
   DashboardState,
   DashboardTileType,
   ChartType,
 } from "../types";
+
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 export interface DashboardWorkbenchProps {
   initialState?: Partial<DashboardState>;
@@ -32,6 +45,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   className = "",
   style = {},
 }) => {
+  const { cssVariables } = useTheme();
   const {
     dashboard,
     tiles,
@@ -111,14 +125,15 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   const containerStyle: React.CSSProperties = unstyled
     ? {}
     : {
+        ...(cssVariables as React.CSSProperties),
         display: "flex",
         flexDirection: "column",
         gap: "1.25rem",
-        backgroundColor: "#181825",
-        color: "#cdd6f4",
+        backgroundColor: "var(--qb-color-background, #181825)",
+        color: "var(--qb-color-text, #cdd6f4)",
         padding: "1.5rem",
         borderRadius: "12px",
-        border: "1px solid #313244",
+        border: "1px solid var(--qb-color-border, #313244)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         ...style,
       };
@@ -136,10 +151,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
         }}
       >
         <div>
-          <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#cdd6f4" }}>
+          <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "var(--qb-color-text, #cdd6f4)" }}>
             {dashboard.title}
           </h2>
-          <span style={{ fontSize: "0.85rem", color: "#a6adc8" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
             {tiles.length} interactive tile{tiles.length === 1 ? "" : "s"} • Click data points to cross-filter
           </span>
         </div>
@@ -150,8 +165,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               onClick={() => setIsAddModalOpen(true)}
               style={{
                 padding: "0.5rem 1rem",
-                backgroundColor: "#89b4fa",
-                color: "#11111b",
+                backgroundColor: "var(--qb-color-primary, #89b4fa)",
+                color: "#ffffff",
                 border: "none",
                 borderRadius: "6px",
                 fontWeight: 600,
@@ -173,19 +188,19 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
           alignItems: "center",
           gap: "0.75rem",
           padding: "0.75rem 1rem",
-          backgroundColor: "#1e1e2e",
+          backgroundColor: "var(--qb-color-surface, #1e1e2e)",
           borderRadius: "8px",
-          border: "1px solid #313244",
+          border: "1px solid var(--qb-color-border, #313244)",
           flexWrap: "wrap",
         }}
         data-testid="global-filter-bar"
       >
-        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#89b4fa", textTransform: "uppercase" }}>
+        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--qb-color-primary, #89b4fa)", textTransform: "uppercase" }}>
           ⚡ Global Filters:
         </span>
 
         {globalFilters.length === 0 ? (
-          <span style={{ fontSize: "0.8rem", color: "#6c7086" }}>None active</span>
+          <span style={{ fontSize: "0.8rem", color: "var(--qb-color-text-muted, #6c7086)" }}>None active</span>
         ) : (
           globalFilters.map((gf) => (
             <span
@@ -196,10 +211,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                 gap: "0.4rem",
                 padding: "0.2rem 0.6rem",
                 borderRadius: "16px",
-                backgroundColor: "rgba(137, 180, 250, 0.2)",
-                border: "1px solid #89b4fa",
+                backgroundColor: "rgba(59, 130, 246, 0.14)",
+                border: "1px solid var(--qb-color-primary, #89b4fa)",
                 fontSize: "0.8rem",
-                color: "#cdd6f4",
+                color: "var(--qb-color-text, #cdd6f4)",
               }}
               data-testid={`global-filter-pill-${gf.field}`}
             >
@@ -210,7 +225,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   style={{
                     background: "transparent",
                     border: "none",
-                    color: "#f38ba8",
+                    color: "var(--qb-color-error, #f38ba8)",
                     cursor: "pointer",
                     padding: 0,
                     lineHeight: 1,
@@ -230,7 +245,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
             style={{
               background: "transparent",
               border: "none",
-              color: "#f38ba8",
+              color: "var(--qb-color-error, #f38ba8)",
               fontSize: "0.75rem",
               cursor: "pointer",
               textDecoration: "underline",
@@ -254,10 +269,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               onChange={(e) => setFilterField(e.target.value)}
               style={{
                 padding: "0.3rem 0.5rem",
-                backgroundColor: "#181825",
-                border: "1px solid #45475a",
+                backgroundColor: "var(--qb-color-background, #181825)",
+                border: "1px solid var(--qb-color-border, #45475a)",
                 borderRadius: "4px",
-                color: "#cdd6f4",
+                color: "var(--qb-color-text, #cdd6f4)",
                 fontSize: "0.8rem",
                 width: "120px",
               }}
@@ -270,10 +285,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               onChange={(e) => setFilterVal(e.target.value)}
               style={{
                 padding: "0.3rem 0.5rem",
-                backgroundColor: "#181825",
-                border: "1px solid #45475a",
+                backgroundColor: "var(--qb-color-background, #181825)",
+                border: "1px solid var(--qb-color-border, #45475a)",
                 borderRadius: "4px",
-                color: "#cdd6f4",
+                color: "var(--qb-color-text, #cdd6f4)",
                 fontSize: "0.8rem",
                 width: "100px",
               }}
@@ -283,10 +298,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               type="submit"
               style={{
                 padding: "0.3rem 0.6rem",
-                backgroundColor: "#313244",
+                backgroundColor: "var(--qb-color-border, #313244)",
                 border: "none",
                 borderRadius: "4px",
-                color: "#cdd6f4",
+                color: "var(--qb-color-text, #cdd6f4)",
                 fontSize: "0.8rem",
                 cursor: "pointer",
               }}
@@ -306,10 +321,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
             justifyContent: "space-between",
             alignItems: "center",
             padding: "0.6rem 1rem",
-            backgroundColor: "rgba(166, 227, 161, 0.15)",
-            border: "1px solid #a6e3a1",
+            backgroundColor: "rgba(16, 185, 129, 0.14)",
+            border: "1px solid var(--qb-color-success, #a6e3a1)",
             borderRadius: "6px",
-            color: "#a6e3a1",
+            color: "var(--qb-color-success, #a6e3a1)",
             fontSize: "0.85rem",
           }}
           data-testid="cross-filter-banner"
@@ -321,9 +336,9 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
             onClick={clearCrossFilter}
             style={{
               background: "transparent",
-              border: "1px solid #a6e3a1",
+              border: "1px solid var(--qb-color-success, #a6e3a1)",
               borderRadius: "4px",
-              color: "#a6e3a1",
+              color: "var(--qb-color-success, #a6e3a1)",
               fontSize: "0.75rem",
               padding: "0.2rem 0.5rem",
               cursor: "pointer",
@@ -350,15 +365,15 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               gridColumn: "span 4",
               textAlign: "center",
               padding: "4rem 2rem",
-              backgroundColor: "#1e1e2e",
+              backgroundColor: "var(--qb-color-surface, #1e1e2e)",
               borderRadius: "12px",
-              border: "2px dashed #45475a",
+              border: "2px dashed var(--qb-color-border, #45475a)",
             }}
             data-testid="empty-dashboard-state"
           >
             <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>📊</div>
-            <h3 style={{ margin: "0 0 0.5rem 0", color: "#cdd6f4" }}>Dashboard is Empty</h3>
-            <p style={{ margin: "0 0 1.5rem 0", color: "#a6adc8", fontSize: "0.9rem" }}>
+            <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--qb-color-text, #cdd6f4)" }}>Dashboard is Empty</h3>
+            <p style={{ margin: "0 0 1.5rem 0", color: "var(--qb-color-text-muted, #a6adc8)", fontSize: "0.9rem" }}>
               Add interactive chart tiles, KPI cards, or pivot tables to visualize your data.
             </p>
             {!readOnly && (
@@ -366,8 +381,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                 onClick={() => setIsAddModalOpen(true)}
                 style={{
                   padding: "0.6rem 1.5rem",
-                  backgroundColor: "#89b4fa",
-                  color: "#11111b",
+                  backgroundColor: "var(--qb-color-primary, #89b4fa)",
+                  color: "#ffffff",
                   border: "none",
                   borderRadius: "6px",
                   fontWeight: 600,
@@ -389,8 +404,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                 key={tile.id}
                 style={{
                   gridColumn: `span ${Math.min(4, Math.max(1, spanW))}`,
-                  backgroundColor: "#1e1e2e",
-                  border: "1px solid #313244",
+                  backgroundColor: "var(--qb-color-surface, #1e1e2e)",
+                  border: "1px solid var(--qb-color-border, #313244)",
                   borderRadius: "10px",
                   display: "flex",
                   flexDirection: "column",
@@ -402,15 +417,15 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                 <div
                   style={{
                     padding: "0.75rem 1rem",
-                    borderBottom: "1px solid #313244",
+                    borderBottom: "1px solid var(--qb-color-border, #313244)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    backgroundColor: "rgba(255, 255, 255, 0.02)",
+                    backgroundColor: "rgba(148, 163, 184, 0.05)",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "#cdd6f4" }}>
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--qb-color-text, #cdd6f4)" }}>
                       {tile.title}
                     </span>
                     <span
@@ -418,8 +433,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                         fontSize: "0.65rem",
                         padding: "0.1rem 0.35rem",
                         borderRadius: "3px",
-                        backgroundColor: "#313244",
-                        color: "#89b4fa",
+                        backgroundColor: "var(--qb-color-border, #313244)",
+                        color: "var(--qb-color-primary, #89b4fa)",
                         textTransform: "uppercase",
                       }}
                     >
@@ -433,9 +448,9 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                       <button
                         onClick={() => resizeTile(tile.id, spanW === 4 ? 1 : spanW + 1)}
                         style={{
-                          background: "#313244",
+                          background: "var(--qb-color-border, #313244)",
                           border: "none",
-                          color: "#cdd6f4",
+                          color: "var(--qb-color-text, #cdd6f4)",
                           fontSize: "0.75rem",
                           borderRadius: "3px",
                           padding: "0.2rem 0.4rem",
@@ -450,9 +465,9 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                       <button
                         onClick={() => duplicateTile(tile.id)}
                         style={{
-                          background: "#313244",
+                          background: "var(--qb-color-border, #313244)",
                           border: "none",
-                          color: "#cdd6f4",
+                          color: "var(--qb-color-text, #cdd6f4)",
                           fontSize: "0.75rem",
                           borderRadius: "3px",
                           padding: "0.2rem 0.4rem",
@@ -469,7 +484,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                         style={{
                           background: "transparent",
                           border: "none",
-                          color: "#f38ba8",
+                          color: "var(--qb-color-error, #f38ba8)",
                           fontSize: "0.9rem",
                           borderRadius: "3px",
                           padding: "0.1rem 0.3rem",
@@ -495,7 +510,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                             <div style={{ fontSize: "2.2rem", fontWeight: 700, color: kpi.color }}>
                               {kpi.value.toLocaleString()}
                             </div>
-                            <div style={{ fontSize: "0.85rem", color: "#a6adc8", marginTop: "0.25rem" }}>
+                            <div style={{ fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)", marginTop: "0.25rem" }}>
                               {kpi.title}
                             </div>
                             {kpi.delta !== undefined && (
@@ -503,7 +518,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                                 style={{
                                   fontSize: "0.8rem",
                                   marginTop: "0.5rem",
-                                  color: kpi.delta >= 0 ? "#a6e3a1" : "#f38ba8",
+                                  color: kpi.delta >= 0 ? "var(--qb-color-success, #a6e3a1)" : "var(--qb-color-error, #f38ba8)",
                                   fontWeight: 600,
                                 }}
                               >
@@ -521,7 +536,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                     <div style={{ overflowX: "auto", flex: 1 }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #313244", color: "#a6adc8", textAlign: "left" }}>
+                          <tr style={{ borderBottom: "1px solid var(--qb-color-border, #313244)", color: "var(--qb-color-text-muted, #a6adc8)", textAlign: "left" }}>
                             {rows[0] &&
                               Object.keys(rows[0]).map((col) => (
                                 <th key={col} style={{ padding: "0.4rem 0.6rem" }}>
@@ -534,7 +549,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                           {rows.slice(0, 5).map((r, rIdx) => (
                             <tr
                               key={rIdx}
-                              style={{ borderBottom: "1px solid #28293d", cursor: "pointer" }}
+                              style={{ borderBottom: "1px solid var(--qb-color-border, #28293d)", cursor: "pointer" }}
                               onClick={() => {
                                 const firstCol = Object.keys(r)[0];
                                 if (firstCol) setCrossFilter(tile.id, firstCol, r[firstCol]);
@@ -559,7 +574,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                         return (
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
                             <thead>
-                              <tr style={{ borderBottom: "1px solid #313244", color: "#89b4fa" }}>
+                              <tr style={{ borderBottom: "1px solid var(--qb-color-border, #313244)", color: "var(--qb-color-primary, #89b4fa)" }}>
                                 <th style={{ padding: "0.4rem 0.6rem", textAlign: "left" }}>Dimension</th>
                                 {pivot.colKeys.map((ck) => (
                                   <th key={ck} style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>
@@ -570,7 +585,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                             </thead>
                             <tbody>
                               {pivot.rowKeys.map((rk) => (
-                                <tr key={rk} style={{ borderBottom: "1px solid #28293d" }}>
+                                <tr key={rk} style={{ borderBottom: "1px solid var(--qb-color-border, #28293d)" }}>
                                   <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600 }}>{rk}</td>
                                   {pivot.colKeys.map((ck) => (
                                     <td key={ck} style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>
@@ -625,8 +640,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
         >
           <div
             style={{
-              backgroundColor: "#1e1e2e",
-              border: "1px solid #313244",
+              backgroundColor: "var(--qb-color-surface, #1e1e2e)",
+              border: "1px solid var(--qb-color-border, #313244)",
               borderRadius: "10px",
               padding: "1.5rem",
               width: "100%",
@@ -635,10 +650,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ margin: "0 0 1rem 0", color: "#cdd6f4" }}>Add Dashboard Tile</h3>
+            <h3 style={{ margin: "0 0 1rem 0", color: "var(--qb-color-text, #cdd6f4)" }}>Add Dashboard Tile</h3>
             <form onSubmit={handleAddTileSubmit}>
               <div style={{ marginBottom: "1rem" }}>
-                <label style={{ display: "block", fontSize: "0.85rem", color: "#a6adc8", marginBottom: "0.4rem" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)", marginBottom: "0.4rem" }}>
                   Tile Title
                 </label>
                 <input
@@ -650,10 +665,10 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   style={{
                     width: "100%",
                     padding: "0.5rem",
-                    backgroundColor: "#181825",
-                    border: "1px solid #45475a",
+                    backgroundColor: "var(--qb-color-background, #181825)",
+                    border: "1px solid var(--qb-color-border, #45475a)",
                     borderRadius: "6px",
-                    color: "#cdd6f4",
+                    color: "var(--qb-color-text, #cdd6f4)",
                     fontSize: "0.9rem",
                     boxSizing: "border-box",
                   }}
@@ -662,22 +677,13 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
               </div>
 
               <div style={{ marginBottom: "1rem" }}>
-                <label style={{ display: "block", fontSize: "0.85rem", color: "#a6adc8", marginBottom: "0.4rem" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)", marginBottom: "0.4rem" }}>
                   Tile Type
                 </label>
                 <select
                   value={newTileType}
                   onChange={(e) => setNewTileType(e.target.value as DashboardTileType)}
-                  style={{
-                    width: "100%",
-                    padding: "0.5rem",
-                    backgroundColor: "#181825",
-                    border: "1px solid #45475a",
-                    borderRadius: "6px",
-                    color: "#cdd6f4",
-                    fontSize: "0.9rem",
-                    boxSizing: "border-box",
-                  }}
+                  style={unstyled ? undefined : SR_ONLY_STYLE}
                   data-testid="new-tile-type-select"
                 >
                   <option value="chart">Chart Visualizer</option>
@@ -685,26 +691,51 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   <option value="pivot">Pivot Matrix Table</option>
                   <option value="table">Data Grid Table</option>
                 </select>
+                {!unstyled && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    {(
+                      [
+                        { v: "chart", l: "📊 Chart Visualizer" },
+                        { v: "kpi", l: "🎯 Single KPI Card" },
+                        { v: "pivot", l: "🔢 Pivot Matrix Table" },
+                        { v: "table", l: "📋 Data Grid Table" },
+                      ] as const
+                    ).map((opt) => {
+                      const isSelected = newTileType === opt.v;
+                      return (
+                        <button
+                          key={opt.v}
+                          type="button"
+                          onClick={() => setNewTileType(opt.v)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.8rem",
+                            fontWeight: isSelected ? 700 : 500,
+                            cursor: "pointer",
+                            border: isSelected ? "1px solid var(--qb-color-primary, #89b4fa)" : "1px solid var(--qb-color-border, #45475a)",
+                            backgroundColor: isSelected ? "rgba(59, 130, 246, 0.16)" : "var(--qb-color-background, #181825)",
+                            color: isSelected ? "var(--qb-color-primary, #89b4fa)" : "var(--qb-color-text, #cdd6f4)",
+                            textAlign: "left",
+                          }}
+                        >
+                          {opt.l}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {newTileType === "chart" && (
                 <div style={{ marginBottom: "1.5rem" }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", color: "#a6adc8", marginBottom: "0.4rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)", marginBottom: "0.4rem" }}>
                     Chart Type
                   </label>
                   <select
                     value={newTileChartType}
                     onChange={(e) => setNewTileChartType(e.target.value as ChartType)}
-                    style={{
-                      width: "100%",
-                      padding: "0.5rem",
-                      backgroundColor: "#181825",
-                      border: "1px solid #45475a",
-                      borderRadius: "6px",
-                      color: "#cdd6f4",
-                      fontSize: "0.9rem",
-                      boxSizing: "border-box",
-                    }}
+                    style={unstyled ? undefined : SR_ONLY_STYLE}
                     data-testid="new-tile-chart-select"
                   >
                     <option value="bar">Bar Chart</option>
@@ -712,6 +743,39 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                     <option value="area">Area Chart</option>
                     <option value="pie">Pie Chart</option>
                   </select>
+                  {!unstyled && (
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {(
+                        [
+                          { v: "bar", l: "📊 Bar" },
+                          { v: "line", l: "📈 Line" },
+                          { v: "area", l: "📉 Area" },
+                          { v: "pie", l: "🥧 Pie" },
+                        ] as const
+                      ).map((opt) => {
+                        const isSelected = newTileChartType === opt.v;
+                        return (
+                          <button
+                            key={opt.v}
+                            type="button"
+                            onClick={() => setNewTileChartType(opt.v)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "6px",
+                              fontSize: "0.8rem",
+                              fontWeight: isSelected ? 700 : 500,
+                              cursor: "pointer",
+                              border: isSelected ? "1px solid var(--qb-color-primary, #89b4fa)" : "1px solid var(--qb-color-border, #45475a)",
+                              backgroundColor: isSelected ? "rgba(59, 130, 246, 0.16)" : "var(--qb-color-background, #181825)",
+                              color: isSelected ? "var(--qb-color-primary, #89b4fa)" : "var(--qb-color-text, #cdd6f4)",
+                            }}
+                          >
+                            {opt.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -722,8 +786,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   style={{
                     padding: "0.5rem 1rem",
                     backgroundColor: "transparent",
-                    border: "1px solid #45475a",
-                    color: "#cdd6f4",
+                    border: "1px solid var(--qb-color-border, #45475a)",
+                    color: "var(--qb-color-text, #cdd6f4)",
                     borderRadius: "6px",
                     cursor: "pointer",
                   }}
@@ -734,8 +798,8 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                   type="submit"
                   style={{
                     padding: "0.5rem 1.25rem",
-                    backgroundColor: "#89b4fa",
-                    color: "#11111b",
+                    backgroundColor: "var(--qb-color-primary, #89b4fa)",
+                    color: "#ffffff",
                     border: "none",
                     borderRadius: "6px",
                     fontWeight: 600,

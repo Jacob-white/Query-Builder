@@ -401,6 +401,9 @@ function findTopLevelClauses(sql: string): ClauseToken[] {
   const KEYWORDS = [
     "SELECT",
     "FROM",
+    "LEFT OUTER JOIN",
+    "RIGHT OUTER JOIN",
+    "FULL OUTER JOIN",
     "LEFT JOIN",
     "INNER JOIN",
     "RIGHT JOIN",
@@ -788,7 +791,7 @@ function findTopLevelOperator(
  */
 export function parseSqlToSpec(
   sql: string,
-  _schema?: SchemaSnapshot | null,
+  schema?: SchemaSnapshot | null,
 ): QuerySpec | null {
   if (!sql || typeof sql !== "string") return null;
 
@@ -905,8 +908,16 @@ export function parseSqlToSpec(
     const content = cleanSql.slice(start, end).trim();
 
     if (curr.keyword.endsWith("JOIN")) {
+      const normalizedJoinType =
+        curr.keyword === "JOIN" || curr.keyword === "LEFT OUTER JOIN"
+          ? "LEFT JOIN"
+          : curr.keyword === "RIGHT OUTER JOIN"
+            ? "RIGHT JOIN"
+            : curr.keyword === "FULL OUTER JOIN"
+              ? "FULL JOIN"
+              : curr.keyword;
       joinClauses.push({
-        type: curr.keyword === "JOIN" ? "LEFT JOIN" : curr.keyword,
+        type: normalizedJoinType,
         content,
       });
     } else {
@@ -919,30 +930,173 @@ export function parseSqlToSpec(
   if (!fromContent) {
     return null;
   }
-  const { table: primaryTable, alias: primaryAlias } = parseTableRef(fromContent);
-  if (!primaryTable) return null;
+  const { table: rawPrimaryTable, alias: primaryAlias } = parseTableRef(fromContent);
+  if (!rawPrimaryTable) return null;
+
+  const schemaTableKeys = schema?.tables ? Object.keys(schema.tables) : [];
+  const resolveTableName = (rawTable: string): string => {
+    if (!rawTable) return rawTable;
+    if (schema?.tables) {
+      if (schema.tables[rawTable]) return rawTable;
+      const lowerRaw = rawTable.toLowerCase();
+      const exactCi = schemaTableKeys.find((k) => k.toLowerCase() === lowerRaw);
+      if (exactCi) return exactCi;
+      if (rawTable.includes(".")) {
+        const shortName = rawTable.split(".").pop()!;
+        if (schema.tables[shortName]) return shortName;
+        const lowerShort = shortName.toLowerCase();
+        const shortCi = schemaTableKeys.find((k) => k.toLowerCase() === lowerShort);
+        if (shortCi) return shortCi;
+      }
+    }
+    return rawTable;
+  };
+
+  const findOnClauseSplit = (content: string): { index: number; afterIndex: number } | null => {
+    for (let i = 0; i < content.length; i++) {
+      if (!isWs(content.charCodeAt(i))) continue;
+      const wordStart = skipWs(content, i + 1);
+      if (
+        wordStart + 2 < content.length &&
+        matchWordCI(content, wordStart, "ON") &&
+        isWs(content.charCodeAt(wordStart + 2))
+      ) {
+        return { index: i, afterIndex: wordStart + 2 };
+      }
+      i = wordStart - 1;
+    }
+    return null;
+  };
+
+  const primaryTable = resolveTableName(rawPrimaryTable);
 
   const aliasToTable: Record<string, string> = {};
+  const registerAlias = (key: string, target: string) => {
+    if (!key) return;
+    aliasToTable[key] = target;
+    aliasToTable[key.toLowerCase()] = target;
+  };
+  registerAlias(rawPrimaryTable, primaryTable);
+  registerAlias(primaryTable, primaryTable);
   if (primaryAlias) {
-    aliasToTable[primaryAlias] = primaryTable;
+    registerAlias(primaryAlias, primaryTable);
   }
-  aliasToTable[primaryTable] = primaryTable;
 
+  const joinedTableNames: string[] = [];
   for (const jc of joinClauses) {
-    const onIndex = jc.content.toUpperCase().indexOf(" ON ");
-    if (onIndex === -1) continue;
-    const tablePart = jc.content.slice(0, onIndex).trim();
-    const { table: targetTable, alias: als } = parseTableRef(tablePart);
-    aliasToTable[targetTable] = targetTable;
-    if (als) aliasToTable[als] = targetTable;
+    const onSplit = findOnClauseSplit(jc.content);
+    if (!onSplit) continue;
+    const tablePart = jc.content.slice(0, onSplit.index).trim();
+    const { table: rawTargetTable, alias: als } = parseTableRef(tablePart);
+    const targetTable = resolveTableName(rawTargetTable);
+    if (targetTable && !joinedTableNames.includes(targetTable)) {
+      joinedTableNames.push(targetTable);
+    }
+    registerAlias(rawTargetTable, targetTable);
+    registerAlias(targetTable, targetTable);
+    if (als) registerAlias(als, targetTable);
   }
 
-  const hasAliases = Boolean(primaryAlias) || joinClauses.length > 0;
+  const resolveCanonicalCol = (tableName: string, colName: string): string | null => {
+    const cols = schema?.tables?.[tableName]?.columns;
+    if (!cols) return null;
+    const exact = cols.find((c) => c.name === colName);
+    if (exact) return exact.name;
+    const lower = colName.toLowerCase();
+    const ci = cols.find((c) => c.name.toLowerCase() === lower);
+    return ci ? ci.name : null;
+  };
+
+  const hasAliases =
+    Boolean(primaryAlias) || joinClauses.length > 0 || rawPrimaryTable !== primaryTable;
+
+  const resolveQualifiedOrSchemaCol = (
+    colRef: string,
+  ): { tablePrefix: string; colName: string; fromJoinedUnqualified: boolean } => {
+    if (colRef.includes(".")) {
+      const colParts = colRef.split(".");
+      const prefixPart = colParts.slice(0, -1).join(".");
+      let tablePrefix = primaryTable;
+      let colName = colRef;
+      const mappedPrefix = aliasToTable[prefixPart] || aliasToTable[prefixPart.toLowerCase()];
+      if (mappedPrefix) {
+        tablePrefix = mappedPrefix;
+        colName = colParts[colParts.length - 1];
+      } else {
+        const firstMapped = aliasToTable[colParts[0]] || aliasToTable[colParts[0].toLowerCase()];
+        tablePrefix = hasAliases
+          ? firstMapped || resolveTableName(colParts[0])
+          : resolveTableName(colParts[0]);
+        colName = colParts.slice(1).join(".");
+      }
+      const canonical = resolveCanonicalCol(tablePrefix, colName);
+      return {
+        tablePrefix,
+        colName: canonical || colName,
+        fromJoinedUnqualified: false,
+      };
+    }
+
+    const primaryCanonical = resolveCanonicalCol(primaryTable, colRef);
+    if (primaryCanonical) {
+      return {
+        tablePrefix: primaryTable,
+        colName: primaryCanonical,
+        fromJoinedUnqualified: false,
+      };
+    }
+
+    if (joinedTableNames.length > 0 && schema?.tables) {
+      for (const jt of joinedTableNames) {
+        const joinedCanonical = resolveCanonicalCol(jt, colRef);
+        if (joinedCanonical) {
+          return {
+            tablePrefix: jt,
+            colName: joinedCanonical,
+            fromJoinedUnqualified: true,
+          };
+        }
+      }
+    }
+
+    return {
+      tablePrefix: primaryTable,
+      colName: colRef,
+      fromJoinedUnqualified: false,
+    };
+  };
+
   const resolveColAlias = (colRef: string): string => {
-    if (!hasAliases || !colRef || !colRef.includes(".")) return colRef;
-    const parts = colRef.split(".");
-    const resolvedTbl = aliasToTable[parts[0]] || parts[0];
-    return `${resolvedTbl}.${parts.slice(1).join(".")}`;
+    if (!colRef) return colRef;
+    if (!hasAliases && !schema?.tables) return colRef;
+    if (colRef.includes(".")) {
+      if (!hasAliases && !schema?.tables) return colRef;
+      const parts = colRef.split(".");
+      const prefixPart = parts.slice(0, -1).join(".");
+      const mappedPrefix = aliasToTable[prefixPart] || aliasToTable[prefixPart.toLowerCase()];
+      if (mappedPrefix) {
+        const rawCol = parts[parts.length - 1];
+        const canonical = resolveCanonicalCol(mappedPrefix, rawCol) || rawCol;
+        if (!hasAliases && prefixPart === mappedPrefix && canonical === rawCol) {
+          return colRef;
+        }
+        return `${mappedPrefix}.${canonical}`;
+      }
+      if (!hasAliases) return colRef;
+      const resolvedTbl =
+        aliasToTable[parts[0]] || aliasToTable[parts[0].toLowerCase()] || parts[0];
+      const restCol = parts.slice(1).join(".");
+      const canonical = resolveCanonicalCol(resolvedTbl, restCol) || restCol;
+      return `${resolvedTbl}.${canonical}`;
+    }
+    if (schema?.tables) {
+      const resolved = resolveQualifiedOrSchemaCol(colRef);
+      if (resolved.fromJoinedUnqualified) {
+        return `${resolved.tablePrefix}.${resolved.colName}`;
+      }
+      return resolved.colName;
+    }
+    return colRef;
   };
 
   // 2. Projections & DISTINCT (SELECT)
@@ -964,8 +1118,10 @@ export function parseSqlToSpec(
       const colExpr = rawCol.value.trim();
       if (!colExpr) continue;
 
-      if (colExpr === "*") {
-        columns.push("*");
+      if (colExpr === "*" || /^[a-zA-Z0-9_".`\[\]]+\.\*$/.test(colExpr)) {
+        if (!columns.includes("*")) {
+          columns.push("*");
+        }
         continue;
       }
 
@@ -1129,13 +1285,14 @@ export function parseSqlToSpec(
 
   for (const jc of joinClauses) {
     // Expected format: <tableName> [AS <alias>] ON <left> = <right>
-    const onIndex = jc.content.toUpperCase().indexOf(" ON ");
-    if (onIndex === -1) continue;
+    const onSplit = findOnClauseSplit(jc.content);
+    if (!onSplit) continue;
 
-    const tablePart = jc.content.slice(0, onIndex).trim();
-    const onPart = jc.content.slice(onIndex + 4).trim();
+    const tablePart = jc.content.slice(0, onSplit.index).trim();
+    const onPart = jc.content.slice(onSplit.afterIndex).trim();
 
-    const { table: targetTable, alias: targetAlias } = parseTableRef(tablePart);
+    const { table: rawTargetTable, alias: targetAlias } = parseTableRef(tablePart);
+    const targetTable = resolveTableName(rawTargetTable);
 
     // Parse ON: e.g. users.id = orders.user_id or u.id = o.user_id
     const onMatch = matchColumnEquality(onPart);
@@ -1149,25 +1306,43 @@ export function parseSqlToSpec(
 
       const lParts = leftExpr.split(".");
       const rParts = rightExpr.split(".");
+      const lPrefix = lParts.slice(0, -1).join(".");
+      const rPrefix = rParts.slice(0, -1).join(".");
+      const lCol = lParts[lParts.length - 1];
+      const rCol = rParts[rParts.length - 1];
 
       const isRightTarget =
-        rParts[0] === targetTable || (targetAlias !== "" && rParts[0] === targetAlias);
+        rPrefix === targetTable ||
+        rPrefix === rawTargetTable ||
+        rPrefix.toLowerCase() === targetTable.toLowerCase() ||
+        rPrefix.toLowerCase() === rawTargetTable.toLowerCase() ||
+        (targetAlias !== "" && rPrefix.toLowerCase() === targetAlias.toLowerCase());
       const isLeftTarget =
-        lParts[0] === targetTable || (targetAlias !== "" && lParts[0] === targetAlias);
+        lPrefix === targetTable ||
+        lPrefix === rawTargetTable ||
+        lPrefix.toLowerCase() === targetTable.toLowerCase() ||
+        lPrefix.toLowerCase() === rawTargetTable.toLowerCase() ||
+        (targetAlias !== "" && lPrefix.toLowerCase() === targetAlias.toLowerCase());
 
       if (isRightTarget && lParts.length > 1) {
-        const leftT = aliasToTable[lParts[0]] || lParts[0];
+        const leftT =
+          aliasToTable[lPrefix] ||
+          aliasToTable[lPrefix.toLowerCase()] ||
+          resolveTableName(lPrefix);
         leftTable = leftT;
-        leftCol = lParts[1];
-        rightCol = rParts[1];
+        leftCol = resolveCanonicalCol(leftT, lCol) || lCol;
+        rightCol = resolveCanonicalCol(targetTable, rCol) || rCol;
       } else if (isLeftTarget && rParts.length > 1) {
-        const leftT = aliasToTable[rParts[0]] || rParts[0];
+        const leftT =
+          aliasToTable[rPrefix] ||
+          aliasToTable[rPrefix.toLowerCase()] ||
+          resolveTableName(rPrefix);
         leftTable = leftT;
-        leftCol = rParts[1];
-        rightCol = lParts[1];
+        leftCol = resolveCanonicalCol(leftT, rCol) || rCol;
+        rightCol = resolveCanonicalCol(targetTable, lCol) || lCol;
       } else {
-        leftCol = lParts[lParts.length - 1];
-        rightCol = rParts[rParts.length - 1];
+        leftCol = resolveCanonicalCol(leftTable, lCol) || lCol;
+        rightCol = resolveCanonicalCol(targetTable, rCol) || rCol;
       }
     }
 
@@ -1219,14 +1394,7 @@ export function parseSqlToSpec(
           val = parseLiteralValue(afterOp);
         }
 
-        const colParts = colStr.split(".");
-        let tablePrefix = primaryTable;
-        let colName = colStr;
-
-        if (colParts.length > 1) {
-          tablePrefix = hasAliases ? (aliasToTable[colParts[0]] || colParts[0]) : colParts[0];
-          colName = colParts.slice(1).join(".");
-        }
+        const { tablePrefix, colName } = resolveQualifiedOrSchemaCol(colStr);
 
         filters.push({
           column: colName,
@@ -1258,13 +1426,7 @@ export function parseSqlToSpec(
       const colStr = cleanIdentifier(parts[0]);
       const dir = parts[1] && parts[1].toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-      const colParts = colStr.split(".");
-      let tablePrefix = primaryTable;
-      let colName = colStr;
-      if (colParts.length > 1) {
-        tablePrefix = hasAliases ? (aliasToTable[colParts[0]] || colParts[0]) : colParts[0];
-        colName = colParts.slice(1).join(".");
-      }
+      const { tablePrefix, colName } = resolveQualifiedOrSchemaCol(colStr);
 
       orderBy.push({
         column: colName,

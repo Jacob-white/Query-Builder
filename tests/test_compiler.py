@@ -106,7 +106,9 @@ def test_aggregations_and_group_by(mock_schema):
             {"column": "project_logs.score", "agg": "avg", "alias": "average_score"},
             {"column": "project_logs.id", "agg": "count", "alias": "log_count"},
         ],
-        "joins": [{"table": "project_logs", "left_col": "id", "right_col": "project_id"}],
+        "joins": [
+            {"table": "project_logs", "left_col": "id", "right_col": "project_id"}
+        ],
         "having": [
             {"column": "project_logs.id", "agg": "count", "op": "gt", "value": 5}
         ],

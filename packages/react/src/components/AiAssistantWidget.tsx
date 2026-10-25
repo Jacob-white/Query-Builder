@@ -6,6 +6,7 @@ import React, { useState, useRef, useEffect } from "react";
 import type { ByoAiConfig, ByoAiContext } from "../ai/types";
 import type { QuerySpec } from "../types";
 import { useBringYourOwnAi } from "../hooks/useBringYourOwnAi";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface AiAssistantWidgetProps extends ByoAiConfig {
   schema?: ByoAiContext["schema"];
@@ -41,6 +42,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
   className = "",
   style = {},
 }) => {
+  const { cssVariables } = useTheme();
   const [internalIsOpen, setInternalIsOpen] = useState<boolean>(false);
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
 
@@ -95,14 +97,23 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
     widgetPosition === "floating-bottom-right"
       ? { position: "fixed", bottom: "24px", right: "24px", zIndex: 9999 }
       : widgetPosition === "docked-right"
-      ? { position: "relative", width: "360px", height: "100%", borderLeft: "1px solid #374151" }
+      ? { position: "relative", width: "360px", height: "100%", borderLeft: "1px solid var(--qb-color-border, #374151)" }
       : { width: "100%", marginBottom: "16px" };
 
   return (
     <div
       data-testid="ai-assistant-widget"
       className={`qb-ai-assistant-widget ${className}`}
-      style={unstyled ? style : { ...positionStyles, fontFamily: "system-ui, -apple-system, sans-serif", ...style }}
+      style={
+        unstyled
+          ? style
+          : {
+              ...(cssVariables as React.CSSProperties),
+              ...positionStyles,
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              ...style,
+            }
+      }
     >
       {/* Floating Trigger Button */}
       {!isOpen && widgetPosition === "floating-bottom-right" && (
@@ -148,11 +159,11 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                   width: widgetPosition === "docked-right" ? "100%" : "380px",
                   height: widgetPosition === "docked-right" ? "100%" : "520px",
                   maxHeight: "85vh",
-                  background: "#1f2937",
-                  color: "#f9fafb",
+                  background: "var(--qb-color-surface, #1f2937)",
+                  color: "var(--qb-color-text, #f9fafb)",
                   borderRadius: widgetPosition === "docked-right" ? "0" : "16px",
                   boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4)",
-                  border: "1px solid #374151",
+                  border: "1px solid var(--qb-color-border, #374151)",
                   overflow: "hidden",
                 }
           }
@@ -167,16 +178,16 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                     alignItems: "center",
                     justifyContent: "space-between",
                     padding: "12px 16px",
-                    background: "#111827",
-                    borderBottom: "1px solid #374151",
+                    background: "var(--qb-color-background, #111827)",
+                    borderBottom: "1px solid var(--qb-color-border, #374151)",
                   }
             }
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontSize: "18px" }}>✨</span>
               <div>
-                <div style={{ fontSize: "14px", fontWeight: 700 }}>Bring Your Own AI</div>
-                <div style={{ fontSize: "11px", color: "#9ca3af" }}>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--qb-color-text, #f9fafb)" }}>Bring Your Own AI</div>
+                <div style={{ fontSize: "11px", color: "var(--qb-color-text-muted, #9ca3af)" }}>
                   {handler ? "Host AI Connected" : "Universal NLQ Engine"}
                 </div>
               </div>
@@ -194,7 +205,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "#9ca3af",
+                          color: "var(--qb-color-text-muted, #9ca3af)",
                           cursor: "pointer",
                           fontSize: "12px",
                           padding: "4px 8px",
@@ -217,7 +228,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                       : {
                           background: "transparent",
                           border: "none",
-                          color: "#9ca3af",
+                          color: "var(--qb-color-text-muted, #9ca3af)",
                           cursor: "pointer",
                           fontSize: "16px",
                           padding: "4px",
@@ -250,10 +261,10 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
             {messages.length === 0 && (
               <div style={{ textAlign: "center", margin: "auto", padding: "16px 0" }}>
                 <div style={{ fontSize: "28px", marginBottom: "8px" }}>🤖</div>
-                <div style={{ fontSize: "14px", fontWeight: 600, color: "#e5e7eb" }}>
+                <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--qb-color-text, #e5e7eb)" }}>
                   How can your AI help query your data?
                 </div>
-                <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "4px", maxWidth: "260px" }}>
+                <div style={{ fontSize: "12px", color: "var(--qb-color-text-muted, #9ca3af)", marginTop: "4px", maxWidth: "260px" }}>
                   Ask in plain English. Your AI will translate, synthesize joins, and build verified queries.
                 </div>
 
@@ -271,9 +282,9 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                             ? undefined
                             : {
                                 textAlign: "left",
-                                background: "#374151",
-                                color: "#e5e7eb",
-                                border: "1px solid #4b5563",
+                                background: "var(--qb-color-background, #374151)",
+                                color: "var(--qb-color-text, #e5e7eb)",
+                                border: "1px solid var(--qb-color-border, #4b5563)",
                                 padding: "6px 10px",
                                 borderRadius: "8px",
                                 fontSize: "12px",
@@ -314,8 +325,9 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                           background:
                             msg.role === "user"
                               ? "#4f46e5"
-                              : "#374151",
-                          color: "#ffffff",
+                              : "var(--qb-color-background, #374151)",
+                          color: msg.role === "user" ? "#ffffff" : "var(--qb-color-text, #ffffff)",
+                          border: msg.role === "user" ? "none" : "1px solid var(--qb-color-border, transparent)",
                         }
                   }
                 >
@@ -328,7 +340,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                     data-testid="ai-healing-notes"
                     style={{
                       fontSize: "11px",
-                      color: "#fbbf24",
+                      color: "var(--qb-color-suggested-text, #b45309)",
                       background: "rgba(251, 191, 36, 0.1)",
                       border: "1px solid rgba(251, 191, 36, 0.3)",
                       borderRadius: "6px",
@@ -343,10 +355,10 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                 {msg.sql && (
                   <div
                     style={{
-                      background: "#111827",
+                      background: "var(--qb-color-background, #111827)",
                       borderRadius: "8px",
                       padding: "8px 10px",
-                      border: "1px solid #374151",
+                      border: "1px solid var(--qb-color-border, #374151)",
                       marginTop: "4px",
                     }}
                   >
@@ -354,7 +366,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                       style={{
                         margin: 0,
                         fontSize: "11px",
-                        color: "#6ee7b7",
+                        color: "var(--qb-color-confirmed-text, #047857)",
                         overflowX: "auto",
                         fontFamily: "monospace",
                       }}
@@ -375,7 +387,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                                 marginTop: "6px",
                                 width: "100%",
                                 padding: "6px 10px",
-                                background: "#2563eb",
+                                background: "var(--qb-color-primary, #2563eb)",
                                 color: "#ffffff",
                                 border: "none",
                                 borderRadius: "6px",
@@ -398,8 +410,8 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                 data-testid="ai-generating-indicator"
                 style={{
                   alignSelf: "flex-start",
-                  background: "#374151",
-                  color: "#9ca3af",
+                  background: "var(--qb-color-background, #374151)",
+                  color: "var(--qb-color-text-muted, #9ca3af)",
                   padding: "8px 12px",
                   borderRadius: "12px",
                   fontSize: "12px",
@@ -423,7 +435,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
               style={{
                 padding: "8px 14px",
                 background: "rgba(239, 68, 68, 0.15)",
-                color: "#fca5a5",
+                color: "var(--qb-color-error, #ef4444)",
                 fontSize: "12px",
                 borderTop: "1px solid rgba(239, 68, 68, 0.3)",
               }}
@@ -443,8 +455,8 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                     alignItems: "center",
                     gap: "8px",
                     padding: "10px 14px",
-                    background: "#111827",
-                    borderTop: "1px solid #374151",
+                    background: "var(--qb-color-background, #111827)",
+                    borderTop: "1px solid var(--qb-color-border, #374151)",
                   }
             }
           >
@@ -460,9 +472,9 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                   ? undefined
                   : {
                       flex: 1,
-                      background: "#1f2937",
-                      color: "#f9fafb",
-                      border: "1px solid #4b5563",
+                      background: "var(--qb-color-surface, #1f2937)",
+                      color: "var(--qb-color-text, #f9fafb)",
+                      border: "1px solid var(--qb-color-border, #4b5563)",
                       borderRadius: "8px",
                       padding: "8px 12px",
                       fontSize: "13px",

@@ -61,9 +61,12 @@ def _dangerous_seeds() -> list[str]:
     return [s for s in plain if not validate_sql_ast(s)["valid"]]
 
 
+_DANGEROUS_SEEDS = _dangerous_seeds()
+
+
 @given(st.data())
 def test_comment_and_whitespace_insertion_cannot_unblock(data) -> None:
-    seed = data.draw(st.sampled_from(_dangerous_seeds()))
+    seed = data.draw(st.sampled_from(_DANGEROUS_SEEDS))
     parts = seed.split(" ")
     out = parts[0]
     for p in parts[1:]:

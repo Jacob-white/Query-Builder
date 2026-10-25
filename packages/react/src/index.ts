@@ -69,6 +69,16 @@ export { BiChartVisualizer } from "./components/BiChartVisualizer";
 export { QueryPlayground } from "./components/QueryPlayground";
 export { ExportWorkbench, type ExportWorkbenchProps } from "./components/ExportWorkbench";
 export { LocalDataModal, type LocalDataModalProps } from "./components/LocalDataModal";
+export {
+  DatabaseConnectionModal,
+  parseDatabaseUri,
+  type DatabaseConnectionModalProps,
+  type DatabaseConnectionInfo,
+  type DatabaseConnectionConfig,
+  type DatabaseTestResult,
+  type DatabaseEngineOption,
+  type ParsedDatabaseUri,
+} from "./components/DatabaseConnectionModal";
 export { DashboardWorkbench, type DashboardWorkbenchProps } from "./components/DashboardWorkbench";
 export {
   QueryPerformanceAdvisor,

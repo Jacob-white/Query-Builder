@@ -1,34 +1,43 @@
 import type { SchemaSnapshot, VisualJoin } from "../types";
 
+export type JoinTier = "confirmed" | "logical" | "none";
+export type JoinTierLabel = "Confirmed Join" | "Logical Join" | "No Dedicated Join";
+
 export interface JoinConditionMatch {
   leftTable: string;
   leftCol: string;
   rightTable: string;
   rightCol: string;
   isFk: boolean;
+  joinTier?: JoinTier;
+  joinLabel?: JoinTierLabel;
   reason?: string;
 }
 
 const CANONICAL_IDS = [
   "id",
   "user_id",
+  "customer_id",
+  "order_id",
+  "account_id",
+  "organization_id",
+  "company_id",
   "project_id",
   "goal_id",
   "task_id",
   "session_id",
-  "project_id",
   "customer_master_id",
-  "firm_id",
   "contact_master_id",
   "contact_id",
   "address_master_id",
   "address_id",
   "product_id",
-  "custodian_id",
+  "category_id",
+  "account_number",
   "registration_number",
-  "sec_number",
-  "cik",
 ];
+
+const LOGICAL_KEY_SUFFIXES = ["_id", "_number", "_uuid", "_code", "_key"];
 
 export const MAX_JOIN_DEPTH = 10;
 export const MAX_BFS_ITERATIONS = 2000;
@@ -49,6 +58,8 @@ export function findBestJoinCondition(
       rightTable: cleanRight || "t2",
       rightCol: "id",
       isFk: false,
+      joinTier: "none",
+      joinLabel: "No Dedicated Join",
       reason: "Fallback condition for empty/invalid table name",
     };
   }
@@ -58,7 +69,7 @@ export function findBestJoinCondition(
   const leftColNames = new Set(leftCols.map((c) => c.name));
   const rightColNames = new Set(rightCols.map((c) => c.name));
 
-  // 1. Explicit Schema Foreign Keys
+  // 1. Explicit Schema Foreign Keys -> Confirmed Join
   if (schemaData?.foreign_keys && Array.isArray(schemaData.foreign_keys)) {
     const directFk = schemaData.foreign_keys.find(
       (fk) => fk.table === cleanRight && fk.foreign_table === cleanLeft,
@@ -74,6 +85,8 @@ export function findBestJoinCondition(
         rightTable: cleanRight,
         rightCol: directFk.column,
         isFk: true,
+        joinTier: "confirmed",
+        joinLabel: "Confirmed Join",
         reason: "Schema foreign key constraint",
       };
     }
@@ -92,12 +105,14 @@ export function findBestJoinCondition(
         rightTable: cleanRight,
         rightCol: reverseFk.foreign_column,
         isFk: true,
+        joinTier: "confirmed",
+        joinLabel: "Confirmed Join",
         reason: "Schema foreign key constraint",
       };
     }
   }
 
-  // 2. Canonical Identifier Match
+  // 2. Canonical Identifier Match -> Logical Join
   for (const col of CANONICAL_IDS) {
     if (col !== "id" && leftColNames.has(col) && rightColNames.has(col)) {
       return {
@@ -106,12 +121,14 @@ export function findBestJoinCondition(
         rightTable: cleanRight,
         rightCol: col,
         isFk: false,
+        joinTier: "logical",
+        joinLabel: "Logical Join",
         reason: `Canonical identifier match (${col})`,
       };
     }
   }
 
-  // 3. Named Entity Foreign Key (e.g. users -> orders with user_id)
+  // 3. Named Entity Foreign Key (e.g. users -> orders with users_id or user_id) -> Logical Join
   const rightFk = `${cleanLeft}_id`;
   if (rightColNames.has(rightFk) && leftColNames.has("id")) {
     return {
@@ -120,6 +137,8 @@ export function findBestJoinCondition(
       rightTable: cleanRight,
       rightCol: rightFk,
       isFk: true,
+      joinTier: "logical",
+      joinLabel: "Logical Join",
       reason: `Inferred foreign key (${cleanRight}.${rightFk} -> ${cleanLeft}.id)`,
     };
   }
@@ -132,11 +151,62 @@ export function findBestJoinCondition(
       rightTable: cleanRight,
       rightCol: "id",
       isFk: true,
+      joinTier: "logical",
+      joinLabel: "Logical Join",
       reason: `Inferred foreign key (${cleanLeft}.${leftFk} -> ${cleanRight}.id)`,
     };
   }
 
-  // 4. Primary Key Fallback
+  const singularLeft = cleanLeft.endsWith("s") ? cleanLeft.slice(0, -1) : "";
+  if (singularLeft && rightColNames.has(`${singularLeft}_id`) && leftColNames.has("id")) {
+    return {
+      leftTable: cleanLeft,
+      leftCol: "id",
+      rightTable: cleanRight,
+      rightCol: `${singularLeft}_id`,
+      isFk: false,
+      joinTier: "logical",
+      joinLabel: "Logical Join",
+      reason: `Logical foreign key (${cleanRight}.${singularLeft}_id -> ${cleanLeft}.id)`,
+    };
+  }
+
+  const singularRight = cleanRight.endsWith("s") ? cleanRight.slice(0, -1) : "";
+  if (singularRight && leftColNames.has(`${singularRight}_id`) && rightColNames.has("id")) {
+    return {
+      leftTable: cleanLeft,
+      leftCol: `${singularRight}_id`,
+      rightTable: cleanRight,
+      rightCol: "id",
+      isFk: false,
+      joinTier: "logical",
+      joinLabel: "Logical Join",
+      reason: `Logical foreign key (${cleanLeft}.${singularRight}_id -> ${cleanRight}.id)`,
+    };
+  }
+
+  // Shared domain key column (e.g. both tables share *_id, *_number, *_uuid, *_code)
+  for (const col of leftColNames) {
+    const lower = col.toLowerCase();
+    if (
+      lower !== "id" &&
+      rightColNames.has(col) &&
+      LOGICAL_KEY_SUFFIXES.some((sfx) => lower.endsWith(sfx))
+    ) {
+      return {
+        leftTable: cleanLeft,
+        leftCol: col,
+        rightTable: cleanRight,
+        rightCol: col,
+        isFk: false,
+        joinTier: "logical",
+        joinLabel: "Logical Join",
+        reason: `Shared logical key (${col})`,
+      };
+    }
+  }
+
+  // 4. Primary Key Fallback -> No Dedicated Join
   const leftFallback =
     leftCols.find((c) => c.is_primary)?.name || leftCols[0]?.name || "id";
   const rightFallback =
@@ -148,7 +218,80 @@ export function findBestJoinCondition(
     rightTable: cleanRight,
     rightCol: rightFallback,
     isFk: false,
+    joinTier: "none",
+    joinLabel: "No Dedicated Join",
     reason: "Primary key fallback",
+  };
+}
+
+export function classifyJoinCondition(
+  leftTable: string,
+  leftCol: string,
+  rightTable: string,
+  rightCol: string,
+  schemaData?: SchemaSnapshot | null,
+): { joinTier: JoinTier; joinLabel: JoinTierLabel; reason: string } {
+  const cleanLeft = (leftTable || "").replace(/^(\w+\.)/, "");
+  const cleanRight = (rightTable || "").replace(/^(\w+\.)/, "");
+  const lCol = (leftCol || "").trim();
+  const rCol = (rightCol || "").trim();
+
+  // 1. Check explicit schema foreign keys
+  if (schemaData?.foreign_keys && Array.isArray(schemaData.foreign_keys)) {
+    const isDirectFk = schemaData.foreign_keys.some(
+      (fk) =>
+        (fk.table === cleanLeft &&
+          fk.column === lCol &&
+          fk.foreign_table === cleanRight &&
+          fk.foreign_column === rCol) ||
+        (fk.table === cleanRight &&
+          fk.column === rCol &&
+          fk.foreign_table === cleanLeft &&
+          fk.foreign_column === lCol),
+    );
+    if (isDirectFk) {
+      return {
+        joinTier: "confirmed",
+        joinLabel: "Confirmed Join",
+        reason: `Confirmed foreign key (${cleanLeft}.${lCol} = ${cleanRight}.${rCol})`,
+      };
+    }
+  }
+
+  // 2. Check logical join patterns on the selected columns
+  const lowerL = lCol.toLowerCase();
+  const lowerR = rCol.toLowerCase();
+  const singularLeft = cleanLeft.endsWith("s") ? cleanLeft.slice(0, -1).toLowerCase() : cleanLeft.toLowerCase();
+  const singularRight = cleanRight.endsWith("s") ? cleanRight.slice(0, -1).toLowerCase() : cleanRight.toLowerCase();
+
+  const isNamedEntityMatch =
+    (lowerL === "id" && (lowerR === `${cleanLeft.toLowerCase()}_id` || lowerR === `${singularLeft}_id`)) ||
+    (lowerR === "id" && (lowerL === `${cleanRight.toLowerCase()}_id` || lowerL === `${singularRight}_id`));
+
+  const isSharedKeyMatch =
+    lowerL &&
+    lowerL === lowerR &&
+    lowerL !== "id" &&
+    (CANONICAL_IDS.includes(lowerL) || LOGICAL_KEY_SUFFIXES.some((sfx) => lowerL.endsWith(sfx)));
+
+  const isCrossAliasMatch =
+    (lowerL.endsWith("_master_id") && lowerL.replace("_master_id", "_id") === lowerR) ||
+    (lowerR.endsWith("_master_id") && lowerR.replace("_master_id", "_id") === lowerL) ||
+    (lowerR.endsWith("_number") && lowerL.endsWith(`_${lowerR}`)) ||
+    (lowerL.endsWith("_number") && lowerR.endsWith(`_${lowerL}`));
+
+  if (isNamedEntityMatch || isSharedKeyMatch || isCrossAliasMatch) {
+    return {
+      joinTier: "logical",
+      joinLabel: "Logical Join",
+      reason: `Logical identifier match (${cleanLeft}.${lCol} = ${cleanRight}.${rCol})`,
+    };
+  }
+
+  return {
+    joinTier: "none",
+    joinLabel: "No Dedicated Join",
+    reason: `No dedicated join key (${cleanLeft}.${lCol} = ${cleanRight}.${rCol})`,
   };
 }
 

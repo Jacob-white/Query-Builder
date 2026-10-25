@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import type { QueryTemplate, QueryTemplateManagerProps } from "../types";
+import { useTheme } from "../theme/ThemeProvider";
 
 export const SEED_TEMPLATES: QueryTemplate[] = [
   {
@@ -116,6 +117,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
   defaultMode = "library",
   unstyled = false,
 }) => {
+  const { cssVariables } = useTheme();
   const [mode, setMode] = useState<"library" | "save">(defaultMode);
   const [templates, setTemplates] = useState<QueryTemplate[]>(() => loadTemplates(initialTemplates));
   const [searchQuery, setSearchQuery] = useState("");
@@ -246,14 +248,15 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
           unstyled
             ? undefined
             : {
+                ...(cssVariables as React.CSSProperties),
                 width: "100%",
                 maxWidth: "680px",
                 maxHeight: "90vh",
-                backgroundColor: "#0b1329",
-                border: "1px solid rgba(255, 255, 255, 0.12)",
+                backgroundColor: "var(--qb-color-surface, #0b1329)",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
                 borderRadius: "12px",
-                boxShadow: "0 20px 40px rgba(0, 0, 0, 0.6)",
-                color: "#f8fafc",
+                boxShadow: "0 20px 40px rgba(0, 0, 0, 0.35)",
+                color: "var(--qb-color-text, #f8fafc)",
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
@@ -268,14 +271,14 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
             justifyContent: "space-between",
             alignItems: "center",
             padding: "14px 20px",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-            background: "rgba(15, 23, 42, 0.6)",
+            borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+            background: "var(--qb-color-background, rgba(15, 23, 42, 0.6))",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <h3
               id="template-manager-title"
-              style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "#93c5fd" }}
+              style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--qb-color-primary, #2563eb)" }}
             >
               Query Template Manager
             </h3>
@@ -283,18 +286,18 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
             <div
               style={{
                 display: "flex",
-                background: "rgba(30, 41, 59, 0.7)",
+                background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.7))",
                 borderRadius: "6px",
                 padding: "2px",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
               }}
             >
               <button
                 type="button"
                 onClick={() => setMode("library")}
                 style={{
-                  background: mode === "library" ? "#3b82f6" : "transparent",
-                  color: mode === "library" ? "#ffffff" : "#94a3b8",
+                  background: mode === "library" ? "var(--qb-color-primary, #2563eb)" : "transparent",
+                  color: mode === "library" ? "#ffffff" : "var(--qb-color-text-secondary, #64748b)",
                   border: "none",
                   borderRadius: "4px",
                   padding: "4px 10px",
@@ -309,8 +312,8 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                 type="button"
                 onClick={() => setMode("save")}
                 style={{
-                  background: mode === "save" ? "#3b82f6" : "transparent",
-                  color: mode === "save" ? "#ffffff" : "#94a3b8",
+                  background: mode === "save" ? "var(--qb-color-primary, #2563eb)" : "transparent",
+                  color: mode === "save" ? "#ffffff" : "var(--qb-color-text-secondary, #64748b)",
                   border: "none",
                   borderRadius: "4px",
                   padding: "4px 10px",
@@ -330,7 +333,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
             style={{
               background: "transparent",
               border: "none",
-              color: "#94a3b8",
+              color: "var(--qb-color-text-secondary, #64748b)",
               fontSize: "1.2rem",
               cursor: "pointer",
               padding: "4px 8px",
@@ -356,9 +359,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: "100%",
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
+                    background: "var(--qb-color-background, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
                     borderRadius: "6px",
                     padding: "8px 12px",
                     fontSize: "0.85rem",
@@ -375,12 +378,17 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                       onClick={() => setSelectedCategory(cat)}
                       style={{
                         background:
-                          selectedCategory === cat ? "rgba(59, 130, 246, 0.2)" : "rgba(30, 41, 59, 0.5)",
-                        color: selectedCategory === cat ? "#60a5fa" : "#94a3b8",
+                          selectedCategory === cat
+                            ? "rgba(59, 130, 246, 0.16)"
+                            : "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.5))",
+                        color:
+                          selectedCategory === cat
+                            ? "var(--qb-color-primary, #2563eb)"
+                            : "var(--qb-color-text-secondary, #64748b)",
                         border:
                           selectedCategory === cat
-                            ? "1px solid rgba(59, 130, 246, 0.5)"
-                            : "1px solid rgba(255, 255, 255, 0.08)",
+                            ? "1px solid var(--qb-color-primary, rgba(59, 130, 246, 0.5))"
+                            : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                         borderRadius: "16px",
                         padding: "3px 10px",
                         fontSize: "0.75rem",
@@ -401,7 +409,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                     style={{
                       textAlign: "center",
                       padding: "32px 16px",
-                      color: "#64748b",
+                      color: "var(--qb-color-text-secondary, #64748b)",
                       fontStyle: "italic",
                       fontSize: "0.85rem",
                     }}
@@ -417,8 +425,8 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                         unstyled
                           ? undefined
                           : {
-                              background: "rgba(15, 23, 42, 0.6)",
-                              border: "1px solid rgba(255, 255, 255, 0.08)",
+                              background: "var(--qb-color-background, rgba(15, 23, 42, 0.6))",
+                              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                               borderRadius: "8px",
                               padding: "12px 14px",
                               display: "flex",
@@ -438,13 +446,13 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                       >
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                            <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "#f1f5f9" }}>
+                            <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--qb-color-text, #f1f5f9)" }}>
                               {t.title}
                             </span>
                             <span
                               style={{
                                 background: "rgba(99, 102, 241, 0.15)",
-                                color: "#818cf8",
+                                color: "var(--qb-color-primary, #4f46e5)",
                                 border: "1px solid rgba(99, 102, 241, 0.3)",
                                 borderRadius: "4px",
                                 padding: "1px 6px",
@@ -457,9 +465,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                             {t.isDefault && (
                               <span
                                 style={{
-                                  background: "rgba(16, 185, 129, 0.15)",
-                                  color: "#34d399",
-                                  border: "1px solid rgba(16, 185, 129, 0.3)",
+                                  background: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))",
+                                  color: "var(--qb-color-confirmed-text, #047857)",
+                                  border: "1px solid var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.3))",
                                   borderRadius: "4px",
                                   padding: "1px 6px",
                                   fontSize: "0.7rem",
@@ -471,7 +479,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                             )}
                           </div>
                           {t.description && (
-                            <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "4px" }}>
+                            <div style={{ fontSize: "0.8rem", color: "var(--qb-color-text-secondary, #64748b)", marginTop: "4px" }}>
                               {t.description}
                             </div>
                           )}
@@ -486,7 +494,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                               onClose();
                             }}
                             style={{
-                              background: "#3b82f6",
+                              background: "var(--qb-color-primary, #2563eb)",
                               color: "#ffffff",
                               border: "none",
                               borderRadius: "6px",
@@ -505,9 +513,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                             }
                             aria-label={`Preview SQL for ${t.title}`}
                             style={{
-                              background: "rgba(30, 41, 59, 0.8)",
-                              color: "#94a3b8",
-                              border: "1px solid rgba(255, 255, 255, 0.1)",
+                              background: "var(--qb-color-surface-hover, rgba(30, 41, 59, 0.8))",
+                              color: "var(--qb-color-text-secondary, #64748b)",
+                              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                               borderRadius: "6px",
                               padding: "4px 8px",
                               fontSize: "0.76rem",
@@ -523,7 +531,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                               aria-label={`Delete ${t.title}`}
                               style={{
                                 background: "rgba(239, 68, 68, 0.15)",
-                                color: "#f87171",
+                                color: "var(--qb-color-error, #dc2626)",
                                 border: "1px solid rgba(239, 68, 68, 0.3)",
                                 borderRadius: "6px",
                                 padding: "4px 8px",
@@ -541,8 +549,8 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                       {expandedSqlId === t.id && (
                         <div
                           style={{
-                            background: "#090d16",
-                            border: "1px solid #1e293b",
+                            background: "var(--qb-color-surface, #090d16)",
+                            border: "1px solid var(--qb-color-border, #1e293b)",
                             borderRadius: "6px",
                             padding: "8px 10px",
                             marginTop: "4px",
@@ -556,7 +564,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                             style={{
                               width: "100%",
                               background: "transparent",
-                              color: "#38bdf8",
+                              color: "var(--qb-color-primary, #2563eb)",
                               fontFamily: "monospace",
                               fontSize: "0.76rem",
                               border: "none",
@@ -582,7 +590,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   style={{
                     background: "rgba(239, 68, 68, 0.15)",
                     border: "1px solid rgba(239, 68, 68, 0.3)",
-                    color: "#fca5a5",
+                    color: "var(--qb-color-error, #dc2626)",
                     padding: "8px 12px",
                     borderRadius: "6px",
                     fontSize: "0.82rem",
@@ -596,9 +604,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label
                   htmlFor="template-title-input"
-                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "#cbd5e1" }}
+                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--qb-color-text-secondary, #475569)" }}
                 >
-                  Template Title <span style={{ color: "#f87171" }}>*</span>
+                  Template Title <span style={{ color: "var(--qb-color-error, #dc2626)" }}>*</span>
                 </label>
                 <input
                   id="template-title-input"
@@ -611,9 +619,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                     if (validationError) setValidationError(null);
                   }}
                   style={{
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
+                    background: "var(--qb-color-background, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
                     borderRadius: "6px",
                     padding: "8px 12px",
                     fontSize: "0.85rem",
@@ -626,7 +634,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label
                   htmlFor="template-category-input"
-                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "#cbd5e1" }}
+                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--qb-color-text-secondary, #475569)" }}
                 >
                   Category
                 </label>
@@ -638,9 +646,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   value={saveCategory}
                   onChange={(e) => setSaveCategory(e.target.value)}
                   style={{
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
+                    background: "var(--qb-color-background, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
                     borderRadius: "6px",
                     padding: "8px 12px",
                     fontSize: "0.85rem",
@@ -653,7 +661,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label
                   htmlFor="template-desc-input"
-                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "#cbd5e1" }}
+                  style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--qb-color-text-secondary, #475569)" }}
                 >
                   Description
                 </label>
@@ -665,9 +673,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   value={saveDescription}
                   onChange={(e) => setSaveDescription(e.target.value)}
                   style={{
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #475569",
+                    background: "var(--qb-color-background, #1e293b)",
+                    color: "var(--qb-color-text, #f8fafc)",
+                    border: "1px solid var(--qb-color-border, #475569)",
                     borderRadius: "6px",
                     padding: "8px 12px",
                     fontSize: "0.85rem",
@@ -679,7 +687,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
 
               {/* SQL Code to Save */}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#cbd5e1" }}>
+                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--qb-color-text-secondary, #475569)" }}>
                   Query SQL
                 </label>
                 <textarea
@@ -688,9 +696,9 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   aria-label="Query SQL to be saved"
                   rows={4}
                   style={{
-                    background: "#090d16",
-                    color: "#38bdf8",
-                    border: "1px solid #334155",
+                    background: "var(--qb-color-background, #090d16)",
+                    color: "var(--qb-color-primary, #2563eb)",
+                    border: "1px solid var(--qb-color-border, #334155)",
                     borderRadius: "6px",
                     padding: "8px 12px",
                     fontSize: "0.8rem",
@@ -708,8 +716,8 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
                   onClick={() => setMode("library")}
                   style={{
                     background: "transparent",
-                    color: "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    color: "var(--qb-color-text-secondary, #64748b)",
+                    border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                     borderRadius: "6px",
                     padding: "8px 16px",
                     fontSize: "0.85rem",

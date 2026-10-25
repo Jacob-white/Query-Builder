@@ -1,4 +1,23 @@
 import "@testing-library/jest-dom";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+afterEach(() => {
+  cleanup();
+  try {
+    globalThis.localStorage?.clear?.();
+    globalThis.sessionStorage?.clear?.();
+    if (typeof navigator !== "undefined") {
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: () => Promise.resolve() },
+        writable: true,
+        configurable: true,
+      });
+    }
+  } catch {
+    // ignore
+  }
+});
 
 /**
  * Newer Node versions ship a built-in Web Storage global that is unusable without

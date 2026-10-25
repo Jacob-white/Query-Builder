@@ -17,23 +17,24 @@ if TYPE_CHECKING:
 
 CANONICAL_ENTITY_COLUMNS: list[str] = [
     "user_id",
+    "customer_id",
+    "order_id",
+    "account_id",
+    "organization_id",
+    "company_id",
     "project_id",
     "goal_id",
     "task_id",
     "session_id",
-    "project_id",
-    "project_id",
     "customer_master_id",
-    "firm_id",
     "contact_master_id",
     "contact_id",
     "address_master_id",
     "address_id",
     "product_id",
-    "custodian_id",
+    "category_id",
+    "account_number",
     "registration_number",
-    "sec_number",
-    "cik",
 ]
 
 

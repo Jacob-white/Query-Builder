@@ -54,9 +54,15 @@ export function wouldLoseRawSql(snap: RawSqlSnapshot): boolean {
   if (!snap.isRawMode || !snap.rawSql.trim()) return false;
   if (hasSqlComments(snap.rawSql)) return true;
   const parsed = parseSqlToSpec(snap.rawSql, snap.schema);
+  if (!parsed) return true;
+  const normalizedSpec = {
+    ...parsed,
+    columns: Array.isArray(parsed.columns)
+      ? parsed.columns.filter((c) => c !== "*")
+      : parsed.columns,
+  };
   return (
-    !parsed ||
-    normalizeSqlForCompare(compileSpecToSql(parsed, snap.dialect, snap.schema)) !==
+    normalizeSqlForCompare(compileSpecToSql(normalizedSpec, snap.dialect, snap.schema)) !==
       normalizeSqlForCompare(snap.compiledSql)
   );
 }

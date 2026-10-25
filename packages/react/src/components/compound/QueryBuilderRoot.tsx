@@ -33,8 +33,9 @@ import { normalizeSchema, validateSchema } from "../../utils/schemaUtils";
 import { parseSqlToSpec } from "../../utils/sqlParser";
 import { cx } from "../../utils/classNames";
 import { fastCanonicalSpec } from "../../utils/canonicalSpec";
-import { useTheme } from "../../theme/ThemeProvider";
-import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../../theme/tokens";
+import { ThemeContext } from "../../theme/ThemeProvider";
+import { type QueryBuilderTheme } from "../../theme/tokens";
+import { useBuilderTheme } from "../visual-query-builder/useBuilderTheme";
 import {
   QueryBuilderCompoundContext,
   type CompoundQueryBuilderContextValue,
@@ -97,21 +98,7 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
     },
     ref,
   ) {
-    const { theme: contextTheme } = useTheme();
-
-    const activeTheme: QueryBuilderTheme = useMemo(() => {
-      if (propTheme && typeof propTheme === "object" && "colors" in propTheme) {
-        return propTheme as QueryBuilderTheme;
-      }
-      if (propTheme === "light") return lightTheme;
-      if (propTheme === "dark") return darkTheme;
-      return contextTheme;
-    }, [propTheme, contextTheme]);
-
-    const cssVars = useMemo(
-      () => (unstyled ? {} : themeToCssVariables(activeTheme)),
-      [activeTheme, unstyled],
-    );
+    const { activeTheme, cssVars, themeContextValue } = useBuilderTheme(propTheme, unstyled);
 
     // Auto-wire schema from client if client is provided without schema
     const [clientSchema, setClientSchema] = useState<SchemaSnapshot | null>(null);
@@ -490,31 +477,33 @@ export const QueryBuilderRoot = forwardRef<VisualQueryBuilderRef, QueryBuilderRo
     );
 
     return (
-      <QueryBuilderCompoundContext.Provider value={contextValue}>
-        <div
-          data-qb="root"
-          data-qb-compound="root"
-          className={cx(className, classNames?.root)}
-          style={
-            unstyled
-              ? undefined
-              : {
-                  ...cssVars,
-                  background: activeTheme.colors.background,
-                  color: activeTheme.colors.text,
-                  fontFamily: activeTheme.typography.fontFamily,
-                  borderRadius: activeTheme.radii.lg,
-                  border: `1px solid ${activeTheme.colors.border}`,
-                  padding: "16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "16px",
-                }
-          }
-        >
-          {children}
-        </div>
-      </QueryBuilderCompoundContext.Provider>
+      <ThemeContext.Provider value={themeContextValue}>
+        <QueryBuilderCompoundContext.Provider value={contextValue}>
+          <div
+            data-qb="root"
+            data-qb-compound="root"
+            className={cx(className, classNames?.root)}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    ...cssVars,
+                    background: activeTheme.colors.background,
+                    color: activeTheme.colors.text,
+                    fontFamily: activeTheme.typography.fontFamily,
+                    borderRadius: activeTheme.radii.lg,
+                    border: `1px solid ${activeTheme.colors.border}`,
+                    padding: "16px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "16px",
+                  }
+            }
+          >
+            {children}
+          </div>
+        </QueryBuilderCompoundContext.Provider>
+      </ThemeContext.Provider>
     );
   },
 );

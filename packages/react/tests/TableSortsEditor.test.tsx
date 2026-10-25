@@ -168,4 +168,73 @@ describe("TableSortsEditor", () => {
       twoSorts[1],
     ]);
   });
+
+  it("reorders sorts when dragging and dropping sort-row items", () => {
+    const handleReorder = vi.fn();
+    const twoSorts: VisualSort[] = [
+      { id: "s1", tablePrefix: "users", column: "id", direction: "ASC" },
+      { id: "s2", tablePrefix: "users", column: "created_at", direction: "DESC" },
+    ];
+    const { container } = render(
+      <TableSortsEditor
+        sorts={twoSorts}
+        activeTables={activeTables}
+        onChange={handleReorder}
+      />
+    );
+
+    const rows = container.querySelectorAll('[data-qb="sort-row"]');
+    expect(rows.length).toBe(2);
+    expect(rows[0].getAttribute("draggable")).toBe("true");
+
+    fireEvent.dragStart(rows[1]);
+    fireEvent.dragEnter(rows[0]);
+    fireEvent.dragOver(rows[0]);
+    fireEvent.drop(rows[0]);
+    fireEvent.dragEnd(rows[1]);
+
+    expect(handleReorder).toHaveBeenCalledWith([twoSorts[1], twoSorts[0]]);
+  });
+
+  it("renders clean sort column pills and badges without table prefix repetition and segmented limit controls", () => {
+    const handleLimitChange = vi.fn();
+    const sorts: VisualSort[] = [
+      { id: "s1", tablePrefix: "users", column: "id", direction: "ASC" },
+    ];
+
+    const { container } = render(
+      <TableSortsEditor
+        sorts={sorts}
+        activeTables={activeTables}
+        limit={25}
+        onLimitChange={handleLimitChange}
+        onChange={vi.fn()}
+      />
+    );
+
+    // Sort column pills should show "↕ id (ASC)" and "↕ created_at", without "users." prefix
+    const pills = container.querySelectorAll('[data-qb="sort-column-pill"]');
+    const pillTexts = Array.from(pills).map((p) => p.textContent?.trim());
+    expect(pillTexts).toContain("↕ id (ASC)");
+    expect(pillTexts).toContain("↕ created_at");
+    expect(pillTexts.some((t) => t?.includes("users."))).toBe(false);
+
+    // Sort column badge should show "id" without table prefix
+    const badge = container.querySelector('[data-qb="sort-column-badge"]');
+    expect(badge?.textContent?.trim()).toBe("id");
+
+    // Segmented sort direction buttons
+    const ascBtn = container.querySelector('[data-qb="sort-dir-asc"]');
+    const descBtn = container.querySelector('[data-qb="sort-dir-desc"]');
+    expect(ascBtn).toBeTruthy();
+    expect(descBtn).toBeTruthy();
+
+    // Segmented row limit controls
+    const limitPills = container.querySelectorAll('[data-qb="sort-limit-pill"]');
+    expect(limitPills.length).toBeGreaterThan(0);
+    const limitPill50 = container.querySelector('[data-qb="sort-limit-pill"][data-qb-limit="50"]');
+    expect(limitPill50).toBeTruthy();
+    fireEvent.click(limitPill50!);
+    expect(handleLimitChange).toHaveBeenCalledWith(50);
+  });
 });

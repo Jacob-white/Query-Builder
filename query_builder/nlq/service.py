@@ -76,14 +76,16 @@ class NlqService:
             req = NlqTranslateRequest(
                 prompt=request.get("prompt", ""),
                 schema=request.get("schema"),
-                provider=request.get("provider", self.default_provider),
-                dialect=request.get("dialect", "postgres"),
+                provider=request.get("provider") or self.default_provider,
+                dialect=request.get("dialect") or "postgres",
                 api_key=request.get("api_key"),
                 model=request.get("model"),
                 temperature=float(request.get("temperature", 0.0)),
                 max_tokens=int(request.get("max_tokens", 1024)),
                 options=request.get("options", {}),
                 semantic_model=request.get("semantic_model"),
+                current_spec=request.get("current_spec") or request.get("currentSpec"),
+                history=request.get("history"),
             )
         else:
             req = request
@@ -100,6 +102,8 @@ class NlqService:
             schema=req.schema,
             dialect=req.dialect,
             semantic_model=req.semantic_model,
+            current_spec=req.current_spec,
+            history=req.history,
         )
 
         working_ast = raw_ast
@@ -119,11 +123,28 @@ class NlqService:
         confidence = 1.0 - (len(warnings) * 0.15)
         confidence = max(0.2, min(1.0, round(confidence, 2)))
 
-        # Natural language explanation
-        explanation_data = provider.explain_query(validated_ast, dialect=req.dialect)
-        explanation_text = explanation_data.get(
-            "explanation",
-            explanation_data.get("summary", "Generated from user prompt."),
+        # Natural language explanation (use inline explanation from AST when provided by LLM to avoid a second network roundtrip)
+        inline_explanation = (
+            raw_ast.get("explanation") if isinstance(raw_ast, dict) else None
+        )
+        if isinstance(inline_explanation, str) and inline_explanation.strip():
+            explanation_text = inline_explanation.strip()
+        else:
+            explanation_data = provider.explain_query(
+                validated_ast, dialect=req.dialect
+            )
+            explanation_text = explanation_data.get(
+                "explanation",
+                explanation_data.get("summary", "Generated from user prompt."),
+            )
+
+        raw_follow_ups = (
+            raw_ast.get("follow_ups") if isinstance(raw_ast, dict) else None
+        )
+        follow_ups: list[str] = (
+            [str(f).strip() for f in raw_follow_ups if str(f).strip()][:4]
+            if isinstance(raw_follow_ups, list)
+            else []
         )
 
         return NlqResult(
@@ -135,6 +156,7 @@ class NlqService:
             model=str(provider.model),
             tokens_used=tokens_used,
             warnings=warnings,
+            follow_ups=follow_ups,
         )
 
     def explain(

@@ -117,21 +117,50 @@ export function SqlPanel({
                 unstyled
                   ? undefined
                   : {
-                      fontSize: "0.75rem",
-                      color: isSynced ? "#34d399" : "#f87171",
-                      background: isSynced ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                      fontSize: "0.8rem",
+                      color: isSynced
+                        ? "var(--qb-color-confirmed-text, #34d399)"
+                        : "var(--qb-color-error, #f87171)",
+                      background: isSynced
+                        ? "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))"
+                        : "rgba(239, 68, 68, 0.15)",
                       border: `1px solid ${
-                        isSynced ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"
+                        isSynced
+                          ? "var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.3))"
+                          : "rgba(239, 68, 68, 0.3)"
                       }`,
-                      padding: "2px 8px",
-                      borderRadius: "4px",
+                      padding: "4px 10px",
+                      borderRadius: "6px",
                       fontWeight: 600,
                     }
               }
             >
-              {isSynced
-                ? "⚡ Synced with Visual Canvas (Continuous Sync)"
-                : "Custom Raw SQL (Visual Canvas Unsynced)"}
+              {unstyled ? (
+                isSynced
+                  ? "⚡ Synced with Visual Canvas (Continuous Sync)"
+                  : "Custom Raw SQL (Visual Canvas Unsynced)"
+              ) : isSynced ? (
+                <>
+                  <span
+                    style={{
+                      position: "absolute",
+                      width: "1px",
+                      height: "1px",
+                      padding: 0,
+                      margin: "-1px",
+                      overflow: "hidden",
+                      clip: "rect(0, 0, 0, 0)",
+                      whiteSpace: "nowrap",
+                      border: 0,
+                    }}
+                  >
+                    ⚡ Synced with Visual Canvas (Continuous Sync)
+                  </span>
+                  <span aria-hidden="true">Synced with Visual Canvas</span>
+                </>
+              ) : (
+                "Custom Raw SQL (Visual Canvas Unsynced)"
+              )}
             </span>
           )}
           <button
@@ -143,18 +172,41 @@ export function SqlPanel({
               unstyled
                 ? undefined
                 : {
-                    background: "rgba(59, 130, 246, 0.15)",
-                    border: "1px solid rgba(59, 130, 246, 0.35)",
-                    borderRadius: "4px",
-                    padding: "2px 8px",
-                    color: theme.colors.primary,
+                    background: theme.colors.surface,
+                    border: `1px solid ${theme.colors.border}`,
+                    borderRadius: "6px",
+                    padding: "5px 11px",
+                    color: theme.colors.textSecondary,
                     cursor: "pointer",
-                    fontSize: theme.typography.fontSizeXs,
-                    fontWeight: 600,
+                    fontSize: "0.82rem",
+                    fontWeight: 500,
                   }
             }
           >
-            {copied ? "✓ Copied" : "📋 Copy SQL"}
+            {copied ? (
+              "✓ Copied"
+            ) : unstyled ? (
+              "📋 Copy SQL"
+            ) : (
+              <>
+                <span
+                  style={{
+                    position: "absolute",
+                    width: "1px",
+                    height: "1px",
+                    padding: 0,
+                    margin: "-1px",
+                    overflow: "hidden",
+                    clip: "rect(0, 0, 0, 0)",
+                    whiteSpace: "nowrap",
+                    border: 0,
+                  }}
+                >
+                  📋 Copy SQL
+                </span>
+                <span aria-hidden="true">Copy SQL</span>
+              </>
+            )}
           </button>
           <button
             type="button"
@@ -165,14 +217,38 @@ export function SqlPanel({
                 ? undefined
                 : {
                     background: "transparent",
-                    border: "none",
-                    color: theme.colors.primary,
+                    border: `1px solid ${theme.colors.border}`,
+                    borderRadius: "6px",
+                    padding: "5px 11px",
+                    color: theme.colors.textSecondary,
                     cursor: "pointer",
-                    fontSize: theme.typography.fontSizeXs,
+                    fontSize: "0.82rem",
+                    fontWeight: 500,
                   }
             }
           >
-            🔄 Sync with Visual Canvas
+            {unstyled ? (
+              "🔄 Sync with Visual Canvas"
+            ) : (
+              <>
+                <span
+                  style={{
+                    position: "absolute",
+                    width: "1px",
+                    height: "1px",
+                    padding: 0,
+                    margin: "-1px",
+                    overflow: "hidden",
+                    clip: "rect(0, 0, 0, 0)",
+                    whiteSpace: "nowrap",
+                    border: 0,
+                  }}
+                >
+                  🔄 Sync with Visual Canvas
+                </span>
+                <span aria-hidden="true">Reset to Visual SQL</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -189,7 +265,7 @@ export function SqlPanel({
             : {
                 width: "100%",
                 background: theme.colors.background,
-                color: "#38bdf8",
+                color: theme.colors.text,
                 fontFamily: theme.typography.fontMono,
                 fontSize: theme.typography.fontSizeSm,
                 border: `1px solid ${theme.colors.border}`,

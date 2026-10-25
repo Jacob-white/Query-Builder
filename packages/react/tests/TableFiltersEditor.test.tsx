@@ -229,4 +229,30 @@ describe("TableFiltersEditor", () => {
       twoFilters[1],
     ]);
   });
+
+  it("renders clean column pills and badges without table prefix repetition on single-table queries", () => {
+    const singleTable: TableMeta[] = [activeTables[0]]; // users table only
+    const filters: VisualFilter[] = [
+      { id: "f1", tablePrefix: "users", column: "email", operator: "=", value: "test@example.com" },
+    ];
+
+    const { container } = render(
+      <TableFiltersEditor
+        filters={filters}
+        activeTables={singleTable}
+        onChange={vi.fn()}
+      />
+    );
+
+    // Filter column pills should be "+ id" and "+ email", not "+ users.id" or "+ users.email"
+    const pills = container.querySelectorAll('[data-qb="filter-column-pill"]');
+    const pillTexts = Array.from(pills).map((p) => p.textContent?.trim());
+    expect(pillTexts).toContain("+ id");
+    expect(pillTexts).toContain("+ email");
+    expect(pillTexts.some((t) => t?.includes("users."))).toBe(false);
+
+    // Filter column badge should show "email" without table prefix
+    const badge = container.querySelector('[data-qb="filter-column-badge"]');
+    expect(badge?.textContent?.trim()).toBe("email");
+  });
 });

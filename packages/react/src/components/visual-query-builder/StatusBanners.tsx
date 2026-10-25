@@ -41,7 +41,25 @@ export function AdvancedClausesBanner({
       }
     >
       <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "8px" }}>
-        <span>⚠️</span>
+        {unstyled ? (
+          <span>⚠️</span>
+        ) : (
+          <span
+            style={{
+              position: "absolute",
+              width: "1px",
+              height: "1px",
+              padding: 0,
+              margin: "-1px",
+              overflow: "hidden",
+              clip: "rect(0, 0, 0, 0)",
+              whiteSpace: "nowrap",
+              border: 0,
+            }}
+          >
+            ⚠️
+          </span>
+        )}
         <span>
           <strong>{labels.length} hidden advanced clause(s) active</strong> ({labels.join(", ")}).
           These clauses continue compiling.
@@ -60,8 +78,8 @@ export function AdvancedClausesBanner({
                   color: "#000",
                   border: "none",
                   borderRadius: theme.radii.xs,
-                  padding: "3px 8px",
-                  fontSize: theme.typography.fontSizeXs,
+                  padding: "4px 10px",
+                  fontSize: "0.8rem",
                   fontWeight: theme.typography.fontWeightBold,
                   cursor: "pointer",
                 }
@@ -81,8 +99,8 @@ export function AdvancedClausesBanner({
                   color: theme.colors.textMuted,
                   border: `1px solid ${theme.colors.border}`,
                   borderRadius: theme.radii.xs,
-                  padding: "3px 8px",
-                  fontSize: theme.typography.fontSizeXs,
+                  padding: "4px 10px",
+                  fontSize: "0.8rem",
                   cursor: "pointer",
                 }
           }
@@ -102,6 +120,17 @@ export interface SafetyBadgeProps extends BannerProps {
 
 /** Read-only protection / security notice badge. */
 export function SafetyBadge({ valid, message, dialect, unstyled, theme }: SafetyBadgeProps) {
+  const srOnly: React.CSSProperties = {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clip: "rect(0, 0, 0, 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  };
   return (
     <div
       role="status"
@@ -112,22 +141,32 @@ export function SafetyBadge({ valid, message, dialect, unstyled, theme }: Safety
         unstyled
           ? undefined
           : {
-              display: "flex",
-              justifyContent: "space-between",
+              display: "inline-flex",
               alignItems: "center",
-              fontSize: theme.typography.fontSizeXs,
-              padding: "6px 12px",
-              borderRadius: theme.radii.sm,
-              background: valid ? theme.colors.successLight : theme.colors.errorLight,
+              gap: "8px",
+              fontSize: "0.8rem",
+              padding: valid ? "2px 6px" : "4px 10px",
+              borderRadius: "6px",
+              background: valid ? "transparent" : theme.colors.errorLight,
               border: valid
-                ? `1px solid ${theme.colors.success}`
+                ? "none"
                 : `1px solid ${theme.colors.error}`,
-              color: valid ? theme.colors.success : theme.colors.error,
+              color: valid ? theme.colors.textMuted : theme.colors.error,
+              fontWeight: 500,
             }
       }
     >
-      <span>{valid ? "🛡️ Read-Only Protected (AST Verified)" : `⚠️ Security Notice: ${message}`}</span>
-      <span style={unstyled ? undefined : { color: theme.colors.textMuted }}>
+      {unstyled ? (
+        <span>{valid ? "🛡️ Read-Only Protected (AST Verified)" : `⚠️ Security Notice: ${message}`}</span>
+      ) : valid ? (
+        <>
+          <span style={srOnly}>🛡️ Read-Only Protected (AST Verified)</span>
+          <span aria-hidden="true">Read-Only Protected (AST Verified)</span>
+        </>
+      ) : (
+        <span>{`Security Notice: ${message}`}</span>
+      )}
+      <span style={unstyled ? undefined : { color: theme.colors.textMuted, fontWeight: 400, opacity: 0.75 }}>
         Dialect: {(dialect || "postgres").toUpperCase()}
       </span>
     </div>

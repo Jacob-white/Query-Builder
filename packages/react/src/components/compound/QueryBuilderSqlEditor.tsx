@@ -72,7 +72,7 @@ export const QueryBuilderSqlEditor: React.FC<QueryBuilderSqlEditorProps> = ({
               ? undefined
               : {
                   fontSize: "0.88rem",
-                  color: "#94a3b8",
+                  color: "var(--qb-color-text-secondary, #94a3b8)",
                   fontWeight: 600,
                 }
           }
@@ -89,13 +89,15 @@ export const QueryBuilderSqlEditor: React.FC<QueryBuilderSqlEditorProps> = ({
                   ? undefined
                   : {
                       fontSize: "0.75rem",
-                      color: isParseable ? "#34d399" : "#f87171",
+                      color: isParseable
+                        ? "var(--qb-color-confirmed-text, #34d399)"
+                        : "var(--qb-color-error, #f87171)",
                       background: isParseable
-                        ? "rgba(16, 185, 129, 0.15)"
+                        ? "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))"
                         : "rgba(239, 68, 68, 0.15)",
                       border: `1px solid ${
                         isParseable
-                          ? "rgba(16, 185, 129, 0.3)"
+                          ? "var(--qb-color-confirmed-border, rgba(16, 185, 129, 0.3))"
                           : "rgba(239, 68, 68, 0.3)"
                       }`,
                       padding: "2px 8px",
@@ -119,7 +121,7 @@ export const QueryBuilderSqlEditor: React.FC<QueryBuilderSqlEditorProps> = ({
                 : {
                     background: "transparent",
                     border: "none",
-                    color: "#38bdf8",
+                    color: "var(--qb-color-primary, #38bdf8)",
                     cursor: "pointer",
                     fontSize: "0.78rem",
                   }
@@ -140,7 +142,7 @@ export const QueryBuilderSqlEditor: React.FC<QueryBuilderSqlEditorProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      background: "#3b82f6",
+                      background: "var(--qb-color-primary, #3b82f6)",
                       color: "#ffffff",
                       border: "none",
                       borderRadius: "6px",
@@ -174,11 +176,11 @@ export const QueryBuilderSqlEditor: React.FC<QueryBuilderSqlEditorProps> = ({
             ? undefined
             : {
                 width: "100%",
-                background: "#0f172a",
-                color: "#38bdf8",
+                background: "var(--qb-color-surface, #0f172a)",
+                color: "var(--qb-color-primary, #38bdf8)",
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
                 fontSize: "0.85rem",
-                border: "1px solid rgba(255, 255, 255, 0.12)",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
                 borderRadius: "6px",
                 padding: "12px",
                 lineHeight: 1.5,

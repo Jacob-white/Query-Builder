@@ -8,6 +8,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { useClientOlap } from "../hooks/useClientOlap";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface LocalDataModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
   onTableSelected,
   unstyled = false,
 }) => {
+  const { cssVariables } = useTheme();
   const { tables, activeTable, isLoading, error, ingestFile, dropTable, clear, setActiveTable } =
     useClientOlap();
 
@@ -101,9 +103,10 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
   const modalStyle: React.CSSProperties = unstyled
     ? {}
     : {
-        backgroundColor: "#1e1e2e",
-        color: "#cdd6f4",
-        border: "1px solid #313244",
+        ...(cssVariables as React.CSSProperties),
+        backgroundColor: "var(--qb-color-surface, #1e1e2e)",
+        color: "var(--qb-color-text, #cdd6f4)",
+        border: "1px solid var(--qb-color-border, #313244)",
         borderRadius: "12px",
         width: "100%",
         maxWidth: "680px",
@@ -117,8 +120,8 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
   const dropzoneStyle: React.CSSProperties = unstyled
     ? {}
     : {
-        border: dragOver ? "2px dashed #89b4fa" : "2px dashed #45475a",
-        backgroundColor: dragOver ? "rgba(137, 180, 250, 0.1)" : "#181825",
+        border: dragOver ? "2px dashed var(--qb-color-primary, #89b4fa)" : "2px dashed var(--qb-color-border, #45475a)",
+        backgroundColor: dragOver ? "rgba(59, 130, 246, 0.1)" : "var(--qb-color-background, #181825)",
         borderRadius: "8px",
         padding: "2rem",
         textAlign: "center",
@@ -134,17 +137,17 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
         <div
           style={{
             padding: "1.25rem 1.5rem",
-            borderBottom: "1px solid #313244",
+            borderBottom: "1px solid var(--qb-color-border, #313244)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
           }}
         >
           <div>
-            <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 600, color: "#cdd6f4" }}>
+            <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 600, color: "var(--qb-color-text, #cdd6f4)" }}>
               Client-Side OLAP & File Intake
             </h3>
-            <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem", color: "#a6adc8" }}>
+            <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
               Drag-and-drop CSV, TSV, JSON, or Parquet files for sub-10ms in-browser analytics.
             </p>
           </div>
@@ -153,7 +156,7 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
             style={{
               background: "transparent",
               border: "none",
-              color: "#a6adc8",
+              color: "var(--qb-color-text-muted, #a6adc8)",
               fontSize: "1.5rem",
               cursor: "pointer",
               lineHeight: 1,
@@ -184,10 +187,10 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
               data-testid="local-data-file-input"
             />
             <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📁</div>
-            <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "#cdd6f4" }}>
+            <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--qb-color-text, #cdd6f4)" }}>
               {isLoading ? "Ingesting file..." : "Drop file here or click to browse"}
             </div>
-            <div style={{ fontSize: "0.8rem", color: "#a6adc8", marginTop: "0.25rem" }}>
+            <div style={{ fontSize: "0.8rem", color: "var(--qb-color-text-muted, #a6adc8)", marginTop: "0.25rem" }}>
               Supports .csv, .tsv, .json, .parquet
             </div>
           </div>
@@ -197,10 +200,10 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
             <div
               style={{
                 padding: "0.75rem 1rem",
-                backgroundColor: "rgba(243, 139, 168, 0.15)",
-                border: "1px solid #f38ba8",
+                backgroundColor: "rgba(239, 68, 68, 0.14)",
+                border: "1px solid var(--qb-color-error, #f38ba8)",
                 borderRadius: "6px",
-                color: "#f38ba8",
+                color: "var(--qb-color-error, #f38ba8)",
                 fontSize: "0.85rem",
                 marginBottom: "1rem",
               }}
@@ -214,10 +217,10 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
             <div
               style={{
                 padding: "0.75rem 1rem",
-                backgroundColor: "rgba(166, 227, 161, 0.15)",
-                border: "1px solid #a6e3a1",
+                backgroundColor: "rgba(16, 185, 129, 0.14)",
+                border: "1px solid var(--qb-color-success, #a6e3a1)",
                 borderRadius: "6px",
-                color: "#a6e3a1",
+                color: "var(--qb-color-success, #a6e3a1)",
                 fontSize: "0.85rem",
                 marginBottom: "1rem",
               }}
@@ -229,7 +232,7 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
 
           {/* Ingested Tables */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-            <h4 style={{ margin: 0, fontSize: "0.95rem", color: "#cdd6f4" }}>
+            <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--qb-color-text, #cdd6f4)" }}>
               In-Memory Tables ({tableList.length})
             </h4>
             {tableList.length > 0 && (
@@ -238,7 +241,7 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
                 style={{
                   background: "transparent",
                   border: "none",
-                  color: "#f38ba8",
+                  color: "var(--qb-color-error, #f38ba8)",
                   fontSize: "0.8rem",
                   cursor: "pointer",
                   textDecoration: "underline",
@@ -255,9 +258,9 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
               style={{
                 textAlign: "center",
                 padding: "2rem",
-                color: "#6c7086",
+                color: "var(--qb-color-text-muted, #6c7086)",
                 fontSize: "0.85rem",
-                backgroundColor: "#181825",
+                backgroundColor: "var(--qb-color-background, #181825)",
                 borderRadius: "6px",
               }}
             >
@@ -272,8 +275,8 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
                     key={tbl.name}
                     style={{
                       padding: "0.75rem 1rem",
-                      backgroundColor: isActive ? "rgba(137, 180, 250, 0.15)" : "#181825",
-                      border: isActive ? "1px solid #89b4fa" : "1px solid #313244",
+                      backgroundColor: isActive ? "rgba(59, 130, 246, 0.15)" : "var(--qb-color-background, #181825)",
+                      border: isActive ? "1px solid var(--qb-color-primary, #89b4fa)" : "1px solid var(--qb-color-border, #313244)",
                       borderRadius: "6px",
                       display: "flex",
                       justifyContent: "space-between",
@@ -283,21 +286,21 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
                   >
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <span style={{ fontWeight: 600, color: "#cdd6f4" }}>{tbl.name}</span>
+                        <span style={{ fontWeight: 600, color: "var(--qb-color-text, #cdd6f4)" }}>{tbl.name}</span>
                         <span
                           style={{
                             fontSize: "0.7rem",
                             padding: "0.15rem 0.4rem",
                             borderRadius: "4px",
-                            backgroundColor: "#313244",
-                            color: "#89b4fa",
+                            backgroundColor: "var(--qb-color-border, #313244)",
+                            color: "var(--qb-color-primary, #89b4fa)",
                             textTransform: "uppercase",
                           }}
                         >
                           {tbl.sourceType}
                         </span>
                       </div>
-                      <div style={{ fontSize: "0.8rem", color: "#a6adc8", marginTop: "0.2rem" }}>
+                      <div style={{ fontSize: "0.8rem", color: "var(--qb-color-text-muted, #a6adc8)", marginTop: "0.2rem" }}>
                         {tbl.rowCount.toLocaleString()} rows • {tbl.columns.length} columns
                         {tbl.fileSource ? ` • ${tbl.fileSource}` : ""}
                       </div>
@@ -311,8 +314,8 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
                         }}
                         style={{
                           padding: "0.35rem 0.75rem",
-                          backgroundColor: isActive ? "#89b4fa" : "#313244",
-                          color: isActive ? "#11111b" : "#cdd6f4",
+                          backgroundColor: isActive ? "var(--qb-color-primary, #89b4fa)" : "var(--qb-color-border, #313244)",
+                          color: isActive ? "#ffffff" : "var(--qb-color-text, #cdd6f4)",
                           border: "none",
                           borderRadius: "4px",
                           fontSize: "0.8rem",
@@ -328,8 +331,8 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
                         style={{
                           padding: "0.35rem 0.5rem",
                           backgroundColor: "transparent",
-                          color: "#f38ba8",
-                          border: "1px solid rgba(243, 139, 168, 0.4)",
+                          color: "var(--qb-color-error, #f38ba8)",
+                          border: "1px solid rgba(239, 68, 68, 0.4)",
                           borderRadius: "4px",
                           fontSize: "0.8rem",
                           cursor: "pointer",
@@ -351,7 +354,7 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
         <div
           style={{
             padding: "1rem 1.5rem",
-            borderTop: "1px solid #313244",
+            borderTop: "1px solid var(--qb-color-border, #313244)",
             display: "flex",
             justifyContent: "flex-end",
           }}
@@ -360,8 +363,8 @@ export const LocalDataModal: React.FC<LocalDataModalProps> = ({
             onClick={onClose}
             style={{
               padding: "0.5rem 1.25rem",
-              backgroundColor: "#89b4fa",
-              color: "#11111b",
+              backgroundColor: "var(--qb-color-primary, #89b4fa)",
+              color: "#ffffff",
               border: "none",
               borderRadius: "6px",
               fontWeight: 600,

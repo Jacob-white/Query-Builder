@@ -5,7 +5,11 @@ from query_builder.cli import main
 
 def test_cli_validate_valid(capsys):
     ret = main(
-        ["validate", "--json", "SELECT legal_name FROM production.customer_master LIMIT 5;"]
+        [
+            "validate",
+            "--json",
+            "SELECT legal_name FROM production.customer_master LIMIT 5;",
+        ]
     )
     assert ret == 0
     captured = capsys.readouterr()

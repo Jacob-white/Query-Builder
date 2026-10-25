@@ -5,6 +5,7 @@ import type {
   TableMeta,
   ColumnMeta,
 } from "../types";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface VectorHybridControlProps {
   vectorSearch?: VectorSearchSpec | null;
@@ -17,6 +18,18 @@ export interface VectorHybridControlProps {
 
 export type SearchMode = "off" | "vector" | "hybrid";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
   vectorSearch,
   hybridSearch,
@@ -25,6 +38,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
   onHybridChange,
   unstyled = false,
 }) => {
+  const { cssVariables } = useTheme();
   const allColumns = activeTables.flatMap((tbl) =>
     tbl.columns.map((c) => ({
       table: tbl.name,
@@ -269,13 +283,14 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
         unstyled
           ? undefined
           : {
-              background: "rgba(15, 23, 42, 0.6)",
+              ...(cssVariables as React.CSSProperties),
+              background: "var(--qb-color-surface, rgba(15, 23, 42, 0.6))",
               borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              padding: "12px",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+              padding: mode === "off" ? "8px 12px" : "12px",
               display: "flex",
               flexDirection: "column",
-              gap: "12px",
+              gap: mode === "off" ? "6px" : "12px",
             }
       }
     >
@@ -300,7 +315,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   fontWeight: 600,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color: "#94a3b8",
+                  color: "var(--qb-color-text-muted, #94a3b8)",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
@@ -331,12 +346,12 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       borderColor:
                         mode === m
                           ? "rgba(99, 102, 241, 0.8)"
-                          : "rgba(255, 255, 255, 0.1)",
+                          : "var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                       background:
                         mode === m
-                          ? "rgba(99, 102, 241, 0.25)"
-                          : "rgba(255, 255, 255, 0.03)",
-                      color: mode === m ? "#a5b4fc" : "#94a3b8",
+                          ? "rgba(99, 102, 241, 0.2)"
+                          : "var(--qb-color-background, rgba(255, 255, 255, 0.03))",
+                      color: mode === m ? "var(--qb-color-primary, #4338ca)" : "var(--qb-color-text-muted, #94a3b8)",
                       transition: "all 0.15s ease",
                     }
               }
@@ -380,7 +395,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     ? undefined
                     : {
                         fontSize: "11px",
-                        color: "#94a3b8",
+                        color: "var(--qb-color-text-muted, #94a3b8)",
                         marginBottom: "4px",
                         display: "block",
                       }
@@ -396,19 +411,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   setVectorColumn(nextCol);
                   emitChange({ vectorColumn: nextCol });
                 }}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "100%",
-                        background: "#0f172a",
-                        color: "#e2e8f0",
-                        border: "1px solid rgba(255, 255, 255, 0.15)",
-                        borderRadius: "4px",
-                        padding: "4px 8px",
-                        fontSize: "12px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 {allColumns.map((col) => (
                   <option key={col.label} value={col.column}>
@@ -416,6 +419,42 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   </option>
                 ))}
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {allColumns.slice(0, 12).map((col) => {
+                    const isSelected = vectorColumn === col.column;
+                    return (
+                      <button
+                        key={col.label}
+                        type="button"
+                        aria-label={`Select vector column ${col.label}`}
+                        onClick={() => {
+                          setVectorColumn(col.column);
+                          emitChange({ vectorColumn: col.column });
+                        }}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: "5px",
+                          fontSize: "11px",
+                          fontWeight: isSelected ? 600 : 500,
+                          cursor: "pointer",
+                          border: isSelected
+                            ? "1px solid var(--qb-color-primary, rgba(56, 189, 248, 0.7))"
+                            : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
+                          background: isSelected
+                            ? "rgba(56, 189, 248, 0.16)"
+                            : "var(--qb-color-background, rgba(15, 23, 42, 0.7))",
+                          color: isSelected
+                            ? "var(--qb-color-primary, #38bdf8)"
+                            : "var(--qb-color-text-muted, #94a3b8)",
+                        }}
+                      >
+                        {col.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
@@ -425,7 +464,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     ? undefined
                     : {
                         fontSize: "11px",
-                        color: "#94a3b8",
+                        color: "var(--qb-color-text-muted, #94a3b8)",
                         marginBottom: "4px",
                         display: "block",
                       }
@@ -446,24 +485,53 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   setMetric(nextMetric);
                   emitChange({ metric: nextMetric });
                 }}
-                style={
-                  unstyled
-                    ? undefined
-                    : {
-                        width: "100%",
-                        background: "#0f172a",
-                        color: "#e2e8f0",
-                        border: "1px solid rgba(255, 255, 255, 0.15)",
-                        borderRadius: "4px",
-                        padding: "4px 8px",
-                        fontSize: "12px",
-                      }
-                }
+                style={unstyled ? undefined : SR_ONLY_STYLE}
               >
                 <option value="cosine">Cosine Distance (&lt;=&gt;)</option>
                 <option value="l2">Euclidean / L2 (&lt;-&gt;)</option>
                 <option value="inner_product">Inner Product (&lt;#&gt;)</option>
               </select>
+              {!unstyled && (
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {(
+                    [
+                      { value: "cosine", label: "Cosine (<=>)" },
+                      { value: "l2", label: "L2 (<->)" },
+                      { value: "inner_product", label: "Inner (<#>)" },
+                    ] as const
+                  ).map((opt) => {
+                    const isSelected = metric === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setMetric(opt.value);
+                          emitChange({ metric: opt.value });
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "5px",
+                          fontSize: "11px",
+                          fontWeight: isSelected ? 600 : 500,
+                          cursor: "pointer",
+                          border: isSelected
+                            ? "1px solid rgba(99, 102, 241, 0.7)"
+                            : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
+                          background: isSelected
+                            ? "rgba(99, 102, 241, 0.2)"
+                            : "var(--qb-color-background, rgba(15, 23, 42, 0.7))",
+                          color: isSelected
+                            ? "var(--qb-color-primary, #4338ca)"
+                            : "var(--qb-color-text-muted, #94a3b8)",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -481,7 +549,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     }
               }
             >
-              <label style={unstyled ? undefined : { fontSize: "11px", color: "#94a3b8" }}>
+              <label style={unstyled ? undefined : { fontSize: "11px", color: "var(--qb-color-text-muted, #94a3b8)" }}>
                 Query Embedding Vector (float array)
               </label>
               <button
@@ -494,7 +562,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     : {
                         background: "none",
                         border: "none",
-                        color: "#818cf8",
+                        color: "var(--qb-color-primary, #4f46e5)",
                         fontSize: "11px",
                         cursor: "pointer",
                         textDecoration: "underline",
@@ -520,11 +588,11 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                   : {
                       width: "100%",
                       boxSizing: "border-box",
-                      background: "#090d16",
-                      color: "#38bdf8",
+                      background: "var(--qb-color-background, #090d16)",
+                      color: "var(--qb-color-primary, #38bdf8)",
                       fontFamily: "monospace",
                       fontSize: "11px",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                       borderRadius: "4px",
                       padding: "6px",
                       resize: "vertical",
@@ -546,7 +614,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
             }
           >
             <div style={unstyled ? undefined : { display: "flex", alignItems: "center", gap: "6px" }}>
-              <label style={unstyled ? undefined : { fontSize: "11px", color: "#94a3b8" }}>Top K:</label>
+              <label style={unstyled ? undefined : { fontSize: "11px", color: "var(--qb-color-text-muted, #94a3b8)" }}>Top K:</label>
               <input
                 data-qb="top-k-input"
                 type="number"
@@ -563,9 +631,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     ? undefined
                     : {
                         width: "60px",
-                        background: "#0f172a",
-                        color: "#e2e8f0",
-                        border: "1px solid rgba(255, 255, 255, 0.15)",
+                        background: "var(--qb-color-background, #0f172a)",
+                        color: "var(--qb-color-text, #e2e8f0)",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                         borderRadius: "4px",
                         padding: "3px 6px",
                         fontSize: "12px",
@@ -583,7 +651,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       alignItems: "center",
                       gap: "6px",
                       fontSize: "11px",
-                      color: "#cbd5e1",
+                      color: "var(--qb-color-text, #cbd5e1)",
                       cursor: "pointer",
                     }
               }
@@ -610,7 +678,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                 unstyled
                   ? undefined
                   : {
-                      borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                      borderTop: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                       paddingTop: "10px",
                       display: "flex",
                       flexDirection: "column",
@@ -625,7 +693,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                     : {
                         fontSize: "11px",
                         fontWeight: 600,
-                        color: "#c084fc",
+                        color: "var(--qb-color-custom-text, #7c3aed)",
                         display: "flex",
                         alignItems: "center",
                         gap: "6px",
@@ -642,7 +710,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       ? undefined
                       : {
                           fontSize: "11px",
-                          color: "#94a3b8",
+                          color: "var(--qb-color-text-muted, #94a3b8)",
                           marginBottom: "4px",
                           display: "block",
                         }
@@ -666,9 +734,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       : {
                           width: "100%",
                           boxSizing: "border-box",
-                          background: "#0f172a",
-                          color: "#e2e8f0",
-                          border: "1px solid rgba(255, 255, 255, 0.15)",
+                          background: "var(--qb-color-background, #0f172a)",
+                          color: "var(--qb-color-text, #e2e8f0)",
+                          border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                           borderRadius: "4px",
                           padding: "6px 8px",
                           fontSize: "12px",
@@ -685,7 +753,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       ? undefined
                       : {
                           fontSize: "11px",
-                          color: "#94a3b8",
+                          color: "var(--qb-color-text-muted, #94a3b8)",
                           marginBottom: "4px",
                           display: "block",
                         }
@@ -716,11 +784,13 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                                 border: "1px solid",
                                 borderColor: isSelected
                                   ? "rgba(192, 132, 252, 0.8)"
-                                  : "rgba(255, 255, 255, 0.1)",
+                                  : "var(--qb-color-border, rgba(255, 255, 255, 0.1))",
                                 background: isSelected
                                   ? "rgba(192, 132, 252, 0.2)"
-                                  : "rgba(255, 255, 255, 0.02)",
-                                color: isSelected ? "#e9d5ff" : "#94a3b8",
+                                  : "var(--qb-color-background, rgba(255, 255, 255, 0.02))",
+                                color: isSelected
+                                  ? "var(--qb-color-custom-text, #6d28d9)"
+                                  : "var(--qb-color-text-muted, #94a3b8)",
                               }
                         }
                       >
@@ -752,7 +822,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                         ? undefined
                         : {
                             fontSize: "11px",
-                            color: "#94a3b8",
+                            color: "var(--qb-color-text-muted, #94a3b8)",
                             marginBottom: "4px",
                             display: "block",
                           }
@@ -768,23 +838,51 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                       setFusion(nextFusion);
                       emitChange({ fusion: nextFusion });
                     }}
-                    style={
-                      unstyled
-                        ? undefined
-                        : {
-                            width: "100%",
-                            background: "#0f172a",
-                            color: "#e2e8f0",
-                            border: "1px solid rgba(255, 255, 255, 0.15)",
-                            borderRadius: "4px",
-                            padding: "4px 8px",
-                            fontSize: "12px",
-                          }
-                    }
+                    style={unstyled ? undefined : SR_ONLY_STYLE}
                   >
                     <option value="rrf">Reciprocal Rank Fusion (RRF)</option>
                     <option value="linear">Linear Combination (Weighted)</option>
                   </select>
+                  {!unstyled && (
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      {(
+                        [
+                          { value: "rrf", label: "RRF (Rank)" },
+                          { value: "linear", label: "Linear (Weighted)" },
+                        ] as const
+                      ).map((opt) => {
+                        const isSelected = fusion === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setFusion(opt.value);
+                              emitChange({ fusion: opt.value });
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "5px",
+                              fontSize: "11px",
+                              fontWeight: isSelected ? 600 : 500,
+                              cursor: "pointer",
+                              border: isSelected
+                                ? "1px solid rgba(192, 132, 252, 0.7)"
+                                : "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.12))",
+                              background: isSelected
+                                ? "rgba(192, 132, 252, 0.22)"
+                                : "var(--qb-color-background, rgba(15, 23, 42, 0.7))",
+                              color: isSelected
+                                ? "var(--qb-color-custom-text, #6d28d9)"
+                                : "var(--qb-color-text-muted, #94a3b8)",
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {fusion === "rrf" ? (
@@ -795,7 +893,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                           ? undefined
                           : {
                               fontSize: "11px",
-                              color: "#94a3b8",
+                              color: "var(--qb-color-text-muted, #94a3b8)",
                               marginBottom: "4px",
                               display: "block",
                             }
@@ -820,9 +918,9 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                           : {
                               width: "100%",
                               boxSizing: "border-box",
-                              background: "#0f172a",
-                              color: "#e2e8f0",
-                              border: "1px solid rgba(255, 255, 255, 0.15)",
+                              background: "var(--qb-color-background, #0f172a)",
+                              color: "var(--qb-color-text, #e2e8f0)",
+                              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                               borderRadius: "4px",
                               padding: "4px 8px",
                               fontSize: "12px",
@@ -838,7 +936,7 @@ export const VectorHybridControl: React.FC<VectorHybridControlProps> = ({
                           ? undefined
                           : {
                               fontSize: "11px",
-                              color: "#94a3b8",
+                              color: "var(--qb-color-text-muted, #94a3b8)",
                               marginBottom: "4px",
                               display: "block",
                             }

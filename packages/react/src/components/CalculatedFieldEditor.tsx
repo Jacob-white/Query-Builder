@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTheme } from "../theme/ThemeProvider";
 import type {
   CalculatedFieldSpec,
   CaseWhenBranch,
@@ -6,6 +7,18 @@ import type {
   ColumnMeta,
   TableMeta,
 } from "../types";
+
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 export interface CalculatedFieldEditorProps {
   isOpen: boolean;
@@ -24,6 +37,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
   initialField,
   unstyled = false,
 }) => {
+  const { cssVariables } = useTheme();
   const [alias, setAlias] = useState<string>(initialField?.alias || "calculated_col");
   const [type, setType] = useState<"case_when" | "expression">(
     initialField?.type || "case_when",
@@ -153,9 +167,10 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
           unstyled
             ? undefined
             : {
-                background: "var(--qb-bg-surface, #1e293b)",
-                color: "var(--qb-text-primary, #f8fafc)",
-                border: "1px solid var(--qb-border-subtle, #334155)",
+                ...(cssVariables as React.CSSProperties),
+                background: "var(--qb-color-surface, #1e293b)",
+                color: "var(--qb-color-text, #f8fafc)",
+                border: "1px solid var(--qb-color-border, #334155)",
                 borderRadius: "var(--qb-radius-lg, 8px)",
                 padding: "24px",
                 width: "90%",
@@ -177,7 +192,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
             style={{
               background: "transparent",
               border: "none",
-              color: "#94a3b8",
+              color: "var(--qb-color-text-muted, #94a3b8)",
               cursor: "pointer",
               fontSize: "1.2rem",
             }}
@@ -202,9 +217,9 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
               style={{
                 width: "100%",
                 padding: "8px 12px",
-                background: "var(--qb-bg-canvas, #0f172a)",
-                color: "inherit",
-                border: "1px solid var(--qb-border-subtle, #334155)",
+                background: "var(--qb-color-background, #0f172a)",
+                color: "var(--qb-color-text, #f8fafc)",
+                border: "1px solid var(--qb-color-border, #334155)",
                 borderRadius: "6px",
               }}
             />
@@ -243,7 +258,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                   data-qb="btn-add-branch"
                   onClick={handleAddBranch}
                   style={{
-                    background: "var(--qb-primary, #3b82f6)",
+                    background: "var(--qb-color-primary, #3b82f6)",
                     color: "#fff",
                     border: "none",
                     borderRadius: "4px",
@@ -260,8 +275,8 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                 <div
                   key={idx}
                   style={{
-                    background: "var(--qb-bg-canvas, #0f172a)",
-                    border: "1px solid var(--qb-border-subtle, #334155)",
+                    background: "var(--qb-color-background, #0f172a)",
+                    border: "1px solid var(--qb-color-border, #334155)",
                     borderRadius: "6px",
                     padding: "10px",
                     marginBottom: "8px",
@@ -270,7 +285,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                     gap: "6px",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", color: "#94a3b8" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", color: "var(--qb-color-text-muted, #94a3b8)" }}>
                     <span>WHEN:</span>
                     {branches.length > 1 && (
                       <button
@@ -283,12 +298,12 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       </button>
                     )}
                   </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                     <select
                       value={b.condition.column}
                       onChange={(e) => handleUpdateBranch(idx, "column", e.target.value)}
                       aria-label={`Branch ${idx + 1} column`}
-                      style={{ padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={unstyled ? undefined : SR_ONLY_STYLE}
                     >
                       <option value="">Select Column...</option>
                       {allColumns.map((col, cidx) => (
@@ -297,12 +312,44 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                         </option>
                       ))}
                     </select>
+                    {!unstyled && (
+                      <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "3px" }}>
+                        {allColumns.slice(0, 10).map((col, cidx) => {
+                          const isSelected = b.condition.column === col.column.name;
+                          return (
+                            <button
+                              key={cidx}
+                              type="button"
+                              onClick={() => handleUpdateBranch(idx, "column", col.column.name)}
+                              style={{
+                                padding: "3px 7px",
+                                borderRadius: "4px",
+                                fontSize: "0.72rem",
+                                fontWeight: isSelected ? 700 : 500,
+                                cursor: "pointer",
+                                border: isSelected
+                                  ? "1px solid var(--qb-color-primary, #3b82f6)"
+                                  : "1px solid var(--qb-color-border, #475569)",
+                                background: isSelected
+                                  ? "rgba(59, 130, 246, 0.16)"
+                                  : "var(--qb-color-surface, #1e293b)",
+                                color: isSelected
+                                  ? "var(--qb-color-primary, #2563eb)"
+                                  : "var(--qb-color-text-secondary, #cbd5e1)",
+                              }}
+                            >
+                              {col.table}.{col.column.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <select
                       value={b.condition.op}
                       onChange={(e) => handleUpdateBranch(idx, "op", e.target.value)}
                       aria-label={`Branch ${idx + 1} operator`}
-                      style={{ padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={unstyled ? undefined : SR_ONLY_STYLE}
                     >
                       <option value="eq">=</option>
                       <option value="neq">!=</option>
@@ -313,6 +360,45 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       <option value="is_null">IS NULL</option>
                       <option value="is_not_null">IS NOT NULL</option>
                     </select>
+                    {!unstyled && (
+                      <div style={{ display: "inline-flex", gap: "2px", background: "var(--qb-color-surface, #1e293b)", padding: "2px", borderRadius: "5px", border: "1px solid var(--qb-color-border, #475569)" }}>
+                        {(
+                          [
+                            { v: "eq", l: "=" },
+                            { v: "neq", l: "!=" },
+                            { v: "gt", l: ">" },
+                            { v: "gte", l: ">=" },
+                            { v: "lt", l: "<" },
+                            { v: "lte", l: "<=" },
+                            { v: "is_null", l: "NULL" },
+                            { v: "is_not_null", l: "!NULL" },
+                          ] as const
+                        ).map((op) => {
+                          const isSelected = b.condition.op === op.v;
+                          return (
+                            <button
+                              key={op.v}
+                              type="button"
+                              onClick={() => handleUpdateBranch(idx, "op", op.v)}
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                fontSize: "0.7rem",
+                                fontWeight: isSelected ? 700 : 500,
+                                border: "none",
+                                cursor: "pointer",
+                                background: isSelected ? "rgba(59, 130, 246, 0.16)" : "transparent",
+                                color: isSelected
+                                  ? "var(--qb-color-primary, #2563eb)"
+                                  : "var(--qb-color-text-secondary, #94a3b8)",
+                              }}
+                            >
+                              {op.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <input
                       type="text"
@@ -320,12 +406,12 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       value={b.condition.value ?? ""}
                       onChange={(e) => handleUpdateBranch(idx, "value", e.target.value)}
                       aria-label={`Branch ${idx + 1} condition value`}
-                      style={{ flex: 1, minWidth: "80px", padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={{ flex: 1, minWidth: "80px", padding: "6px", background: "var(--qb-color-surface, #1e293b)", color: "var(--qb-color-text, #f8fafc)", border: "1px solid var(--qb-color-border, #475569)", borderRadius: "4px" }}
                     />
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
-                    <span style={{ fontSize: "0.8rem", color: "#10b981", fontWeight: 600 }}>THEN:</span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--qb-color-confirmed-text, #047857)", fontWeight: 600 }}>THEN:</span>
                     <input
                       type="text"
                       placeholder="Then Result"
@@ -333,21 +419,21 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                       onChange={(e) => handleUpdateBranch(idx, "then_value", e.target.value)}
                       aria-label={`Branch ${idx + 1} then value`}
                       required
-                      style={{ flex: 1, padding: "6px", background: "#1e293b", color: "#fff", border: "1px solid #475569", borderRadius: "4px" }}
+                      style={{ flex: 1, padding: "6px", background: "var(--qb-color-surface, #1e293b)", color: "var(--qb-color-text, #f8fafc)", border: "1px solid var(--qb-color-border, #475569)", borderRadius: "4px" }}
                     />
                   </div>
                 </div>
               ))}
 
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
-                <span style={{ fontSize: "0.8rem", color: "#f59e0b", fontWeight: 600 }}>ELSE:</span>
+                <span style={{ fontSize: "0.8rem", color: "var(--qb-color-suggested-text, #b45309)", fontWeight: 600 }}>ELSE:</span>
                 <input
                   type="text"
                   placeholder="Default / fallback value"
                   value={elseValue}
                   onChange={(e) => setElseValue(e.target.value)}
                   aria-label="Else fallback value"
-                  style={{ flex: 1, padding: "6px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: "4px" }}
+                  style={{ flex: 1, padding: "6px", background: "var(--qb-color-background, #0f172a)", color: "var(--qb-color-text, #f8fafc)", border: "1px solid var(--qb-color-border, #334155)", borderRadius: "4px" }}
                 />
               </div>
             </div>
@@ -366,9 +452,9 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
                 style={{
                   width: "100%",
                   padding: "8px 12px",
-                  background: "var(--qb-bg-canvas, #0f172a)",
-                  color: "inherit",
-                  border: "1px solid var(--qb-border-subtle, #334155)",
+                  background: "var(--qb-color-background, #0f172a)",
+                  color: "var(--qb-color-text, #f8fafc)",
+                  border: "1px solid var(--qb-color-border, #334155)",
                   borderRadius: "6px",
                   fontFamily: "monospace",
                 }}
@@ -384,8 +470,8 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
               style={{
                 padding: "8px 16px",
                 background: "transparent",
-                color: "#94a3b8",
-                border: "1px solid #475569",
+                color: "var(--qb-color-text-secondary, #94a3b8)",
+                border: "1px solid var(--qb-color-border, #475569)",
                 borderRadius: "6px",
                 cursor: "pointer",
               }}
@@ -397,7 +483,7 @@ export const CalculatedFieldEditor: React.FC<CalculatedFieldEditorProps> = ({
               data-qb="btn-save-calc"
               style={{
                 padding: "8px 16px",
-                background: "var(--qb-primary, #3b82f6)",
+                background: "var(--qb-color-primary, #3b82f6)",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: "6px",

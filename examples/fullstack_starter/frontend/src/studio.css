@@ -1,0 +1,123 @@
+/* Query Studio 5-Pillar IDE Stylesheet */
+
+:root {
+  --studio-bg-dark: #070b14;
+  --studio-surface-dark: #0d1322;
+  --studio-elevated-dark: #131c31;
+  --studio-border-dark: rgba(148, 163, 184, 0.12);
+  --studio-text-dark: #f8fafc;
+  --studio-muted-dark: #94a3b8;
+
+  --studio-bg-light: #f8fafc;
+  --studio-surface-light: #ffffff;
+  --studio-elevated-light: #f1f5f9;
+  --studio-border-light: #e2e8f0;
+  --studio-text-light: #0f172a;
+  --studio-muted-light: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Thin Studio Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.55);
+}
+
+/* Zero-lag CSS hover states for sidebar rows (replaces React state re-renders on hover) */
+.studio-table-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.studio-table-row:hover {
+  background-color: rgba(148, 163, 184, 0.14);
+}
+
+.studio-table-row .studio-row-actions {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.studio-table-row .studio-row-meta {
+  display: inline-flex;
+  align-items: center;
+}
+
+.studio-table-row:hover .studio-row-meta {
+  display: none;
+}
+
+.studio-table-row:hover .studio-row-actions {
+  display: flex;
+}
+
+/* AI Assistant turn card & preset item hover states */
+.studio-preset-item {
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.studio-preset-item:hover {
+  background-color: rgba(148, 163, 184, 0.14) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+.studio-ai-chip {
+  transition: all 0.12s ease;
+}
+
+.studio-ai-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.12);
+}
+
+/* Studio Mode visually-hidden top-bar & query-summary-bar defense-in-depth */
+[data-qb-studio="true"] [data-qb="top-bar"],
+[data-qb-studio="true"] [data-qb="query-summary-bar"],
+.qb-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+

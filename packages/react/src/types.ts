@@ -504,7 +504,7 @@ export interface LooseSpecJoin {
   left_table?: string;
   left_col?: string;
   right_col?: string;
-  on?: { left?: string; right?: string }[];
+  on?: { left?: string; op?: string; right?: string }[] | { left?: string; op?: string; right?: string };
 }
 
 export interface LooseSpecFilter {
@@ -764,8 +764,8 @@ export interface VisualQueryBuilderRef {
   setSpec(spec: QuerySpec): void;
   /** Resets visual canvas back to initial state */
   reset(): void;
-  /** Imperatively triggers query execution */
-  execute(): Promise<QueryResultData | void>;
+  /** Imperatively triggers query execution (optionally with an immediate override spec) */
+  execute(overrideSpec?: QuerySpec): Promise<QueryResultData | void>;
   /** Undoes last state change */
   undo(): void;
   /** Redoes previously undone state change */
@@ -886,6 +886,14 @@ export interface VisualQueryBuilderProps<Schema extends DatabaseSchemaDefinition
   defaultAdvancedMode?: boolean;
   onAdvancedModeChange?: (isAdvanced: boolean) => void;
   storageKey?: string | null;
+  hideNlqBar?: boolean;
+  compactHeader?: boolean;
+  /** When true or when in studioMode, visually hides the inner builder toolbar (data-qb="top-bar") using srOnlyStyle to eliminate stacked chrome while keeping selectors in the DOM. */
+  hideInnerToolbar?: boolean;
+  /** When true or when in studioMode, visually hides QuerySummaryBar (data-qb="query-summary-bar") using srOnlyStyle while preserving DOM selectors. */
+  hideSummaryBar?: boolean;
+  /** Studio mode: consolidates top chrome into a single top header bar by visually hiding both the inner toolbar and QuerySummaryBar via srOnlyStyle. */
+  studioMode?: boolean;
 }
 
 // ==========================================

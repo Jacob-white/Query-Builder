@@ -23,9 +23,9 @@ All verification steps were performed sequentially in the order below:
 
 | # | Step | Target | Command | Result |
 |---|------|--------|---------|--------|
-| 1 | Python Linter | `query_builder/`, `tests/` | `./.venv/bin/ruff check query_builder tests` | Pass (0 errors) |
-| 2 | Python Formatter | `query_builder/`, `tests/` | `./.venv/bin/ruff format --check query_builder tests` | Pass (70 files formatted) |
-| 3 | Python Pytest & Branch Coverage | `query_builder/` | `./.venv/bin/pytest --cov=query_builder --cov-branch --cov-report=term-missing` | Pass (245/245 tests, 100% stmts, 100% branches) |
+| 1 | Python Linter | `query_builder/`, `tests/` | `.venv/bin/ruff check query_builder tests` | Pass (0 errors) |
+| 2 | Python Formatter | `query_builder/`, `tests/` | `.venv/bin/ruff format --check query_builder tests` | Pass (70 files formatted) |
+| 3 | Python Pytest & Branch Coverage | `query_builder/` | `.venv/bin/pytest --cov=query_builder --cov-branch --cov-report=term-missing` | Pass (245/245 tests, 100% stmts, 100% branches) |
 | 4 | React TypeScript Typecheck | `packages/react` | `cd packages/react && pnpm exec tsc --noEmit` | Pass (0 errors) |
 | 5 | React Vitest & V8 Coverage | `packages/react` | `cd packages/react && VITEST_MAX_WORKERS=2 pnpm exec vitest run --coverage` | Pass (20 files, 276/276 tests, 100% all metrics) |
 

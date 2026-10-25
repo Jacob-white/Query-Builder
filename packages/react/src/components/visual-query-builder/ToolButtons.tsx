@@ -13,13 +13,23 @@ interface ToolButtonProps {
   children: React.ReactNode;
 }
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 function ToolButton({
   label,
   onClick,
   unstyled,
   theme,
-  color,
-  borderColor,
   dataQb,
   dataTestId,
   children,
@@ -35,14 +45,15 @@ function ToolButton({
         unstyled
           ? undefined
           : {
-              background: "rgba(30, 41, 59, 0.5)",
-              color,
-              border: `1px solid ${borderColor}`,
-              borderRadius: theme.radii.sm,
-              padding: "6px 12px",
-              fontSize: theme.typography.fontSizeSm,
-              fontWeight: theme.typography.fontWeightSemibold,
+              background: "transparent",
+              color: theme.colors.textSecondary,
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: "6px",
+              padding: "5px 11px",
+              fontSize: "0.84rem",
+              fontWeight: 500,
               cursor: "pointer",
+              transition: "all 0.12s ease",
             }
       }
     >
@@ -60,9 +71,11 @@ export interface ToolButtonsProps {
   showSchemaTools: boolean;
   onOpenSchemaExplorer: () => void;
   onOpenErd: () => void;
+  showConnectDatabase?: boolean;
+  onOpenConnectDatabase?: () => void;
 }
 
-/** Buttons that open the window-function builder, schema explorer and ERD modals. */
+/** Buttons that open the window-function builder, schema explorer, ERD, and database connection modals. */
 export function ToolButtons({
   unstyled,
   theme,
@@ -72,9 +85,26 @@ export function ToolButtons({
   showSchemaTools,
   onOpenSchemaExplorer,
   onOpenErd,
+  showConnectDatabase = false,
+  onOpenConnectDatabase,
 }: ToolButtonsProps) {
   return (
     <>
+      {showConnectDatabase && onOpenConnectDatabase && (
+        <ToolButton
+          label="Connect or switch database"
+          onClick={onOpenConnectDatabase}
+          unstyled={unstyled}
+          theme={theme}
+          color="#38bdf8"
+          borderColor="rgba(56, 189, 248, 0.3)"
+          dataQb="btn-connect-database"
+          dataTestId="btn-open-connect-database"
+        >
+          <span style={SR_ONLY_STYLE}>🔌 Connect Database</span>
+          <span aria-hidden="true">+ Connect Database</span>
+        </ToolButton>
+      )}
       {showWindowFunctions && (
         <ToolButton
           label="Open window functions builder"
@@ -86,7 +116,18 @@ export function ToolButtons({
           dataQb="btn-window-functions"
           dataTestId="btn-open-wf-builder"
         >
-          🪟 Window Functions {windowFunctionCount > 0 ? `(${windowFunctionCount})` : ""}
+          {unstyled ? (
+            `🪟 Window Functions ${windowFunctionCount > 0 ? `(${windowFunctionCount})` : ""}`
+          ) : (
+            <>
+              <span style={SR_ONLY_STYLE}>
+                🪟 Window Functions {windowFunctionCount > 0 ? `(${windowFunctionCount})` : ""}
+              </span>
+              <span aria-hidden="true">
+                Window Functions {windowFunctionCount > 0 ? `(${windowFunctionCount})` : ""}
+              </span>
+            </>
+          )}
         </ToolButton>
       )}
       {showSchemaTools && (
@@ -99,7 +140,14 @@ export function ToolButtons({
           borderColor="rgba(56, 189, 248, 0.3)"
           dataQb="btn-schema-explorer"
         >
-          🗄️ Schema Explorer
+          {unstyled ? (
+            "🗄️ Schema Explorer"
+          ) : (
+            <>
+              <span style={SR_ONLY_STYLE}>🗄️ Schema Explorer</span>
+              <span aria-hidden="true">Schema Explorer</span>
+            </>
+          )}
         </ToolButton>
       )}
       {showSchemaTools && (
@@ -112,7 +160,14 @@ export function ToolButtons({
           borderColor="rgba(56, 189, 248, 0.3)"
           dataQb="btn-erd"
         >
-          🗺️ Schema ERD
+          {unstyled ? (
+            "🗺️ Schema ERD"
+          ) : (
+            <>
+              <span style={SR_ONLY_STYLE}>🗺️ Schema ERD</span>
+              <span aria-hidden="true">Schema ERD</span>
+            </>
+          )}
         </ToolButton>
       )}
     </>

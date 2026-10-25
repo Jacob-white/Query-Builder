@@ -345,6 +345,46 @@ class MockNlqProvider(NlqProvider):
             "vector_search": vector_search,
             "hybrid_search": None,
         }
+        current_spec = kwargs.get("current_spec")
+        if (
+            isinstance(current_spec, dict)
+            and current_spec.get("table")
+            and not re.search(r"\b(?:from|table)\s+[a-zA-Z0-9_]+", lower_prompt)
+        ):
+            matched_explicit = any(st.lower() in lower_prompt for st in schema_tables)
+            if not matched_explicit or table == current_spec.get("table"):
+                ast["table"] = current_spec["table"]
+                if columns == ["*"] and current_spec.get("columns"):
+                    ast["columns"] = list(current_spec["columns"])
+                if current_spec.get("joins"):
+                    existing_j_tables = {j.get("table") for j in joins}
+                    ast["joins"] = [
+                        *(
+                            j
+                            for j in current_spec["joins"]
+                            if isinstance(j, dict)
+                            and j.get("table") not in existing_j_tables
+                        ),
+                        *joins,
+                    ]
+                if current_spec.get("filters"):
+                    new_f_cols = {f.get("column") for f in filters}
+                    ast["filters"] = [
+                        *(
+                            f
+                            for f in current_spec["filters"]
+                            if isinstance(f, dict) and f.get("column") not in new_f_cols
+                        ),
+                        *filters,
+                    ]
+                if not order_by and current_spec.get("order_by"):
+                    ast["order_by"] = list(current_spec["order_by"])
+                if not limit_match and current_spec.get("limit"):
+                    ast["limit"] = current_spec["limit"]
+                ast["follow_ups"] = [
+                    f"Limit {ast['table']} to 10 rows",
+                    f"Sort {ast['table']} by id descending",
+                ]
         return ast, 42
 
     def explain_query(
@@ -410,16 +450,23 @@ class GeminiProvider(NlqProvider):
 
         schema_str = serialize_schema_for_prompt(schema)
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
-        user_prompt = build_user_prompt(prompt)
+        user_prompt = build_user_prompt(
+            prompt,
+            current_spec=kwargs.get("current_spec"),
+            history=kwargs.get("history"),
+        )
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        gen_config: dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "temperature": 0.0,
+        }
+        if self.model and "2.5" in self.model:
+            gen_config["thinkingConfig"] = {"thinkingBudget": 0}
         payload = {
             "system_instruction": {"parts": [{"text": sys_prompt}]},
             "contents": [{"parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                "temperature": 0.0,
-            },
+            "generationConfig": gen_config,
         }
 
         data, tokens = self._execute_http(url, payload)
@@ -445,12 +492,15 @@ class GeminiProvider(NlqProvider):
 
         prompt = build_explain_prompt(query_dict, dialect=dialect)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        explain_config: dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "temperature": 0.2,
+        }
+        if self.model and "2.5" in self.model:
+            explain_config["thinkingConfig"] = {"thinkingBudget": 0}
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                "temperature": 0.2,
-            },
+            "generationConfig": explain_config,
         }
         data, _ = self._execute_http(url, payload)
         clean_text = _strip_markdown_code_blocks(data)
@@ -514,7 +564,11 @@ class OpenAiProvider(NlqProvider):
 
         schema_str = serialize_schema_for_prompt(schema)
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
-        user_prompt = build_user_prompt(prompt)
+        user_prompt = build_user_prompt(
+            prompt,
+            current_spec=kwargs.get("current_spec"),
+            history=kwargs.get("history"),
+        )
 
         url = f"{self._root_url()}/chat/completions"
         payload = {
@@ -618,7 +672,11 @@ class AnthropicProvider(NlqProvider):
 
         schema_str = serialize_schema_for_prompt(schema)
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
-        user_prompt = build_user_prompt(prompt)
+        user_prompt = build_user_prompt(
+            prompt,
+            current_spec=kwargs.get("current_spec"),
+            history=kwargs.get("history"),
+        )
 
         url = f"{self._root_url()}/messages"
         payload = {
@@ -722,7 +780,11 @@ class OllamaProvider(NlqProvider):
     ) -> tuple[dict[str, Any], int | None]:
         schema_str = serialize_schema_for_prompt(schema)
         sys_prompt = build_system_prompt(schema_str, dialect=dialect)
-        user_prompt = build_user_prompt(prompt)
+        user_prompt = build_user_prompt(
+            prompt,
+            current_spec=kwargs.get("current_spec"),
+            history=kwargs.get("history"),
+        )
 
         url = f"{self._root_url()}/api/generate"
         payload = {

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import type { QueryPlanNode } from "../types";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface QueryPlanVisualizerProps {
   /** The standardized QueryPlanNode root hierarchy. */
@@ -294,6 +295,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
   className = "",
   unstyled = false,
 }) => {
+  const { cssVariables } = useTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab>("tree");
   const [selectedNode, setSelectedNode] = useState<QueryPlanNode | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -317,6 +319,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
     unstyled ? undefined : st;
 
   const baseContainerStyle: React.CSSProperties | undefined = s({
+    ...(cssVariables as React.CSSProperties),
     border: "1px solid var(--qb-color-border, #e2e8f0)",
     borderRadius: "8px",
     backgroundColor: "var(--qb-color-background, #f8fafc)",
@@ -589,7 +592,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
                   padding: "12px 16px",
                   borderRadius: "6px",
                   backgroundColor: "var(--qb-color-surface, #ffffff)",
-                  border: "1px solid #fde68a",
+                  border: "1px solid var(--qb-color-suggested-border, #fde68a)",
                   borderLeft: "4px solid #f59e0b",
                   display: "flex",
                   gap: "12px",
@@ -598,7 +601,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
               >
                 <span style={s({ fontSize: "18px" })}>⚠️</span>
                 <div>
-                  <div style={s({ fontSize: "13px", fontWeight: 600, color: "#f59e0b" })}>
+                  <div style={s({ fontSize: "13px", fontWeight: 600, color: "var(--qb-color-suggested-text, #b45309)" })}>
                     {item.nodeType} {item.table ? `on ${item.table}` : ""}
                   </div>
                   <div
@@ -639,8 +642,9 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
           </div>
           <pre
             style={s({
-              backgroundColor: "#1e293b",
-              color: "#f8fafc",
+              backgroundColor: "var(--qb-color-surface, #1e293b)",
+              color: "var(--qb-color-text, #f8fafc)",
+              border: "1px solid var(--qb-color-border, #334155)",
               padding: "14px",
               borderRadius: "6px",
               fontSize: "12px",

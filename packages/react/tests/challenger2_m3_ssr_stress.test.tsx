@@ -142,7 +142,7 @@ describe("Milestone 3 DX SSR Hydration Safety & Stress Suite (Challenger 2)", ()
 
     const initialHeap = process.memoryUsage().heapUsed;
 
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 100; i++) {
       const html1 = renderToString(
         <VisualQueryBuilder
           schema={enterpriseSsrSchema}

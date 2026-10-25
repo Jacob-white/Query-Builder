@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findBestJoinCondition, findJoinPath } from "../src/utils/joinUtils";
+import { findBestJoinCondition, findJoinPath, classifyJoinCondition } from "../src/utils/joinUtils";
 import type { ColumnMeta, SchemaSnapshot, TableMeta } from "../src/types";
 import { invalid } from "./helpers";
 
@@ -125,30 +125,30 @@ describe("joinUtils", () => {
     expect(match.rightTable).toBe("transactions");
   });
 
-  it("matches tables on canonical identifier like firm_id when no FK is defined", () => {
+  it("matches tables on canonical identifier like organization_id when no FK is defined", () => {
     const canonicalSchema: SchemaSnapshot = {
       tables: {
-        advisors: {
-          name: "advisors",
+        departments: {
+          name: "departments",
           columns: [
             { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
-            { name: "firm_id", data_type: "integer", is_nullable: false, is_primary: false },
+            { name: "organization_id", data_type: "integer", is_nullable: false, is_primary: false },
           ],
         },
         branches: {
           name: "branches",
           columns: [
             { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
-            { name: "firm_id", data_type: "integer", is_nullable: false, is_primary: false },
+            { name: "organization_id", data_type: "integer", is_nullable: false, is_primary: false },
           ],
         },
       },
       foreign_keys: [],
     };
 
-    const match = findBestJoinCondition("advisors", "branches", canonicalSchema);
-    expect(match.leftCol).toBe("firm_id");
-    expect(match.rightCol).toBe("firm_id");
+    const match = findBestJoinCondition("departments", "branches", canonicalSchema);
+    expect(match.leftCol).toBe("organization_id");
+    expect(match.rightCol).toBe("organization_id");
     expect(match.reason).toContain("Canonical identifier match");
   });
 
@@ -261,5 +261,78 @@ describe("joinUtils", () => {
 
     const path = findJoinPath(["", "users"], "orders", mockSchema);
     expect(path.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("classifies joins into 3 tiers: Confirmed Join, Logical Join, and No Dedicated Join", () => {
+    const tierSchema: SchemaSnapshot = {
+      tables: {
+        users: {
+          name: "users",
+          columns: [
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "registration_number", data_type: "integer", is_nullable: true, is_primary: false },
+          ],
+        },
+        orders: {
+          name: "orders",
+          columns: [
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          ],
+        },
+        organizations: {
+          name: "organizations",
+          columns: [
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "registration_number", data_type: "integer", is_nullable: false, is_primary: false },
+          ],
+        },
+        profiles: {
+          name: "profiles",
+          columns: [
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          ],
+        },
+        audit_logs: {
+          name: "audit_logs",
+          columns: [
+            { name: "log_id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "message", data_type: "text", is_nullable: false, is_primary: false },
+          ],
+        },
+      },
+      foreign_keys: [
+        {
+          table: "orders",
+          column: "user_id",
+          foreign_table: "users",
+          foreign_column: "id",
+        },
+      ],
+    };
+
+    // 1. Confirmed Join (backed by schema foreign_keys)
+    const confirmed = findBestJoinCondition("users", "orders", tierSchema);
+    expect(confirmed.joinTier).toBe("confirmed");
+    expect(confirmed.joinLabel).toBe("Confirmed Join");
+    expect(classifyJoinCondition("users", "id", "orders", "user_id", tierSchema).joinTier).toBe("confirmed");
+
+    // 2. Logical Join (canonical identifier match or singular entity _id without explicit FK)
+    const logicalCanonical = findBestJoinCondition("users", "organizations", tierSchema);
+    expect(logicalCanonical.joinTier).toBe("logical");
+    expect(logicalCanonical.joinLabel).toBe("Logical Join");
+    expect(classifyJoinCondition("users", "registration_number", "organizations", "registration_number", tierSchema).joinTier).toBe("logical");
+
+    const logicalSingular = findBestJoinCondition("users", "profiles", tierSchema);
+    expect(logicalSingular.joinTier).toBe("logical");
+    expect(logicalSingular.joinLabel).toBe("Logical Join");
+    expect(classifyJoinCondition("users", "id", "profiles", "user_id", tierSchema).joinTier).toBe("logical");
+
+    // 3. No Dedicated Join (unrelated tables falling back to PK)
+    const noJoin = findBestJoinCondition("users", "audit_logs", tierSchema);
+    expect(noJoin.joinTier).toBe("none");
+    expect(noJoin.joinLabel).toBe("No Dedicated Join");
+    expect(classifyJoinCondition("users", "id", "audit_logs", "log_id", tierSchema).joinTier).toBe("none");
   });
 });

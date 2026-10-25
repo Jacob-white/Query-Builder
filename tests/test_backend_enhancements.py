@@ -327,21 +327,21 @@ def test_explain_and_executor_handle_none_limit_and_zero_user_id() -> None:
     conn.close()
 
 
-def test_join_solver_habit_id_and_schema_snapshot_pk() -> None:
+def test_join_solver_project_id_and_schema_snapshot_pk() -> None:
     snap = _sample_snapshot()
     cond = find_best_join_condition("users", "orders", snap)
     assert cond["left_col"] == "id"
     assert cond["right_col"] == "user_id"
 
-    habit_schema = {
+    project_schema = {
         "tables": {
             "logs": {"columns": [{"name": "id"}, {"name": "project_id"}]},
-            "streaks": {"columns": [{"name": "id"}, {"name": "project_id"}]},
+            "milestones": {"columns": [{"name": "id"}, {"name": "project_id"}]},
         }
     }
-    cond_habit = find_best_join_condition("logs", "streaks", habit_schema)
-    assert cond_habit["left_col"] == "project_id"
-    assert cond_habit["right_col"] == "project_id"
+    cond_project = find_best_join_condition("logs", "milestones", project_schema)
+    assert cond_project["left_col"] == "project_id"
+    assert cond_project["right_col"] == "project_id"
 
 
 def test_security_masking_complexity_and_policy_clac_wildcard() -> None:

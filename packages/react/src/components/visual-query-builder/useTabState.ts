@@ -25,10 +25,10 @@ export function useTabState(availability: TabAvailability) {
   const { hasRawSqlTab, hasPipelineTab, hasPlanTab, hasVisualChartTab } = availability;
 
   useEffect(() => {
-    if (activeTab === "sql" && !hasRawSqlTab) setActiveTab("visual");
-    if (activeTab === "pipeline" && !hasPipelineTab) setActiveTab("visual");
-    if (activeTab === "plan" && !hasPlanTab) setActiveTab("visual");
-    if (activeTab === "chart" && !hasVisualChartTab) setActiveTab("visual");
+    const allowed = visibleTabs({ hasRawSqlTab, hasVisualChartTab, hasPipelineTab, hasPlanTab });
+    if (!allowed.includes(activeTab)) {
+      setActiveTab("visual");
+    }
   }, [activeTab, hasRawSqlTab, hasPipelineTab, hasPlanTab, hasVisualChartTab]);
 
   return [activeTab, setActiveTab] as const;

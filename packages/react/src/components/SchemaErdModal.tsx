@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import type { SchemaSnapshot, VisualJoin } from "../types";
 import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface SchemaErdModalProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
   onSelectTable,
   onAddJoins,
 }) => {
+  const { cssVariables } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
   const [bridgeSource, setBridgeSource] = useState("");
   const [bridgeTarget, setBridgeTarget] = useState("");
@@ -141,8 +143,9 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
         aria-modal="true"
         aria-labelledby="schema-erd-title"
         style={{
-          background: "#0f172a",
-          border: "1px solid rgba(255, 255, 255, 0.15)",
+          ...(cssVariables as React.CSSProperties),
+          background: "var(--qb-color-surface, #0f172a)",
+          border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
           borderRadius: "14px",
           width: "90vw",
           maxWidth: "1100px",
@@ -150,8 +153,8 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)",
-          color: "#f8fafc",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.45)",
+          color: "var(--qb-color-text, #f8fafc)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -159,19 +162,19 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
         <div
           style={{
             padding: "16px 20px",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+            borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            background: "rgba(30, 41, 59, 0.5)",
+            background: "var(--qb-color-background, rgba(30, 41, 59, 0.5))",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ fontSize: "1.2rem" }}>🗺️</span>
-            <span id="schema-erd-title" style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+            <span id="schema-erd-title" style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--qb-color-text, #f8fafc)" }}>
               Schema Entity Relationship Diagram (ERD)
             </span>
-            <span style={{ fontSize: "0.8rem", color: "#64748b", marginLeft: "8px" }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--qb-color-text-secondary, #64748b)", marginLeft: "8px" }}>
               {tables.length} tables · {foreignKeys.length} foreign keys
             </span>
           </div>
@@ -182,7 +185,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
             style={{
               background: "transparent",
               border: "none",
-              color: "#94a3b8",
+              color: "var(--qb-color-text-secondary, #64748b)",
               cursor: "pointer",
               fontSize: "1.2rem",
             }}
@@ -195,8 +198,8 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
         <div
           style={{
             padding: "12px 20px",
-            background: "rgba(15, 23, 42, 0.7)",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+            background: "var(--qb-color-surface, rgba(15, 23, 42, 0.7))",
+            borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
             display: "flex",
             flexDirection: "column",
             gap: "10px",
@@ -213,11 +216,11 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
                 flex: "1 1 240px",
-                background: "rgba(30, 41, 59, 0.8)",
-                border: "1px solid rgba(255, 255, 255, 0.15)",
+                background: "var(--qb-color-background, rgba(30, 41, 59, 0.8))",
+                border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                 borderRadius: "6px",
                 padding: "6px 12px",
-                color: "#f8fafc",
+                color: "var(--qb-color-text, #f8fafc)",
                 fontSize: "0.82rem",
                 outline: "none",
               }}
@@ -228,8 +231,8 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
           <div
             data-qb="erd-bridge-tool"
             style={{
-              background: "rgba(30, 41, 59, 0.4)",
-              border: "1px solid rgba(255, 255, 255, 0.06)",
+              background: "var(--qb-color-background, rgba(30, 41, 59, 0.4))",
+              border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.06))",
               borderRadius: "6px",
               padding: "8px 12px",
               display: "flex",
@@ -237,7 +240,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
               gap: "6px",
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: "0.78rem", color: "#38bdf8" }}>
+            <div style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--qb-color-primary, #2563eb)" }}>
               🌉 Foreign Key Bridge Discovery
             </div>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -248,9 +251,9 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                 value={bridgeSource}
                 onChange={(e) => setBridgeSource(e.target.value)}
                 style={{
-                  background: "#1e293b",
-                  color: "#cbd5e1",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  background: "var(--qb-color-surface, #1e293b)",
+                  color: "var(--qb-color-text, #cbd5e1)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                   borderRadius: "4px",
                   padding: "3px 8px",
                   fontSize: "0.75rem",
@@ -263,7 +266,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                   </option>
                 ))}
               </select>
-              <span style={{ color: "#64748b", fontSize: "0.8rem" }}>➔</span>
+              <span style={{ color: "var(--qb-color-text-secondary, #64748b)", fontSize: "0.8rem" }}>➔</span>
               <select
                 ref={targetSelectRef}
                 aria-label="Bridge target table"
@@ -271,9 +274,9 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                 value={bridgeTarget}
                 onChange={(e) => setBridgeTarget(e.target.value)}
                 style={{
-                  background: "#1e293b",
-                  color: "#cbd5e1",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  background: "var(--qb-color-surface, #1e293b)",
+                  color: "var(--qb-color-text, #cbd5e1)",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.15))",
                   borderRadius: "4px",
                   padding: "3px 8px",
                   fontSize: "0.75rem",
@@ -291,7 +294,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                 data-qb="erd-bridge-find-btn"
                 onClick={handleFindBridge}
                 style={{
-                  background: "#3b82f6",
+                  background: "var(--qb-color-primary, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "4px",
@@ -317,7 +320,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                   gap: "6px",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", color: "#34d399" }}>
+                <div style={{ fontSize: "0.75rem", color: "var(--qb-color-confirmed-text, #047857)", fontWeight: 600 }}>
                   Path ({bridgePath.length} hop{bridgePath.length > 1 ? "s" : ""}):{" "}
                   {bridgeSource} ➔{" "}
                   {bridgePath.map((j) => `${j.table} (${j.left_col}=${j.right_col})`).join(" ➔ ")}
@@ -350,7 +353,7 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
             {bridgeSearched && (!bridgePath || bridgePath.length === 0) && (
               <div
                 data-qb="erd-bridge-no-path"
-                style={{ fontSize: "0.72rem", color: "#f87171", marginTop: "2px" }}
+                style={{ fontSize: "0.72rem", color: "var(--qb-color-error, #dc2626)", marginTop: "2px" }}
               >
                 No bridge path found between selected tables.
               </div>
@@ -379,8 +382,8 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                 data-qb="erd-table-card"
                 data-qb-table={t.name}
                 style={{
-                  background: "rgba(30, 41, 59, 0.7)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  background: "var(--qb-color-background, rgba(30, 41, 59, 0.7))",
+                  border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
                   borderRadius: "8px",
                   overflow: "hidden",
                   display: "flex",
@@ -390,14 +393,14 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                 <div
                   style={{
                     padding: "10px 12px",
-                    background: "rgba(15, 23, 42, 0.8)",
-                    borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                    background: "var(--qb-color-surface-hover, rgba(15, 23, 42, 0.8))",
+                    borderBottom: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.06))",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
                   }}
                 >
-                  <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "#38bdf8" }}>
+                  <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--qb-color-primary, #2563eb)" }}>
                     {t.name}
                   </span>
                   {onSelectTable && (
@@ -409,12 +412,13 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                       }}
                       aria-label={`Select table ${t.name}`}
                       style={{
-                        background: "rgba(56, 189, 248, 0.15)",
-                        color: "#38bdf8",
-                        border: "1px solid rgba(56, 189, 248, 0.3)",
+                        background: "rgba(56, 189, 248, 0.14)",
+                        color: "var(--qb-color-primary, #2563eb)",
+                        border: "1px solid var(--qb-color-primary, rgba(56, 189, 248, 0.3))",
                         borderRadius: "4px",
                         padding: "2px 8px",
                         fontSize: "0.7rem",
+                        fontWeight: 600,
                         cursor: "pointer",
                       }}
                     >
@@ -432,13 +436,16 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                         fontSize: "0.75rem",
                         display: "flex",
                         justifyContent: "space-between",
-                        color: c.is_primary ? "#fbbf24" : "#cbd5e1",
+                        color: c.is_primary
+                          ? "var(--qb-color-suggested-text, #b45309)"
+                          : "var(--qb-color-text, #cbd5e1)",
+                        fontWeight: c.is_primary ? 700 : 400,
                       }}
                     >
                       <span>
                         {c.name} {c.is_primary ? "🔑" : ""}
                       </span>
-                      <span style={{ color: "#64748b", fontSize: "0.7rem" }}>
+                      <span style={{ color: "var(--qb-color-text-secondary, #64748b)", fontSize: "0.7rem" }}>
                         {c.data_type}
                       </span>
                     </div>
@@ -449,10 +456,10 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                   <div
                     style={{
                       padding: "6px 12px",
-                      background: "rgba(15, 23, 42, 0.4)",
-                      borderTop: "1px solid rgba(255, 255, 255, 0.05)",
+                      background: "var(--qb-color-surface, rgba(15, 23, 42, 0.4))",
+                      borderTop: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.05))",
                       fontSize: "0.7rem",
-                      color: "#94a3b8",
+                      color: "var(--qb-color-text-secondary, #64748b)",
                     }}
                   >
                     <div style={{ fontWeight: 600, marginBottom: "2px" }}>
@@ -466,7 +473,11 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
                         <div
                           key={idx}
                           data-qb="erd-relationship-item"
-                          style={{ fontSize: "0.68rem", color: "#38bdf8" }}
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--qb-color-confirmed-text, #047857)",
+                            fontWeight: 500,
+                          }}
                         >
                           {fk.table}.{fk.column} ➔ {fk.foreign_table}.{fk.foreign_column} (FK)
                         </div>

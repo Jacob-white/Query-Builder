@@ -36,6 +36,7 @@ export function ResultsPanel(props: {
   isLoading: boolean;
   unstyled: boolean;
   cellRenderers?: Record<string, CellRenderer>;
+  onReorderColumns?: (newColumns: string[]) => void;
   classNames?: QueryBuilderClassNames;
 }) {
   return (
@@ -45,6 +46,7 @@ export function ResultsPanel(props: {
         isLoading={props.isLoading}
         unstyled={props.unstyled}
         cellRenderers={props.cellRenderers}
+        onReorderColumns={props.onReorderColumns}
         classNames={props.classNames}
       />
     </Panel>

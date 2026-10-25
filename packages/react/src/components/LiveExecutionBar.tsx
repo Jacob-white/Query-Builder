@@ -1,5 +1,6 @@
 import React from "react";
 import type { LiveExecutionStatus } from "../hooks/useLiveExecution";
+import { useTheme } from "../theme/ThemeProvider";
 
 export interface LiveExecutionBarProps {
   onExecute?: () => void | Promise<void>;
@@ -34,6 +35,7 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
   className = "",
   showConnectionPill = true,
 }) => {
+  const { cssVariables } = useTheme();
   const s = (styleObj: React.CSSProperties): React.CSSProperties | undefined =>
     unstyled ? undefined : styleObj;
 
@@ -83,14 +85,15 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
       data-testid="live-execution-bar"
       className={className}
       style={s({
+        ...(cssVariables as React.CSSProperties),
         display: "flex",
         flexDirection: "column",
         gap: "8px",
         padding: "10px 14px",
-        background: "#0f172a",
+        background: "var(--qb-color-surface, #0f172a)",
         borderRadius: "8px",
-        border: "1px solid #1e293b",
-        color: "#f8fafc",
+        border: "1px solid var(--qb-color-border, #1e293b)",
+        color: "var(--qb-color-text, #f8fafc)",
         fontSize: "13px",
       })}
     >
@@ -120,8 +123,8 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
                 gap: "6px",
                 padding: "3px 10px",
                 borderRadius: "9999px",
-                background: "#1e293b",
-                border: "1px solid #334155",
+                background: "var(--qb-color-background, #1e293b)",
+                border: "1px solid var(--qb-color-border, #334155)",
                 fontSize: "12px",
               })}
             >
@@ -135,7 +138,7 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
                   display: "inline-block",
                 })}
               />
-              <span style={s({ color: "#e2e8f0" })}>{getStatusLabel()}</span>
+              <span style={s({ color: "var(--qb-color-text, #e2e8f0)" })}>{getStatusLabel()}</span>
               {onTestConnection && (
                 <button
                   type="button"
@@ -147,7 +150,7 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
                     marginLeft: "4px",
                     background: "transparent",
                     border: "none",
-                    color: "#38bdf8",
+                    color: "var(--qb-color-primary, #38bdf8)",
                     cursor: connectionStatus === "testing" ? "not-allowed" : "pointer",
                     fontSize: "11px",
                     padding: "0 2px",
@@ -173,7 +176,7 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
               gap: "6px",
               padding: "5px 12px",
               borderRadius: "6px",
-              background: isExecuting ? "#475569" : "#2563eb",
+              background: isExecuting ? "#475569" : "var(--qb-color-primary, #2563eb)",
               color: "#ffffff",
               border: "none",
               cursor: isExecuting ? "not-allowed" : "pointer",
@@ -224,8 +227,8 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
               style={s({
                 padding: "2px 8px",
                 borderRadius: "4px",
-                background: "#1e293b",
-                color: "#94a3b8",
+                background: "var(--qb-color-background, #1e293b)",
+                color: "var(--qb-color-text-muted, #94a3b8)",
                 fontSize: "12px",
                 fontFamily: "monospace",
               })}
@@ -241,8 +244,8 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
               style={s({
                 padding: "2px 8px",
                 borderRadius: "4px",
-                background: "#064e3b",
-                color: "#6ee7b7",
+                background: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.14))",
+                color: "var(--qb-color-confirmed-text, #047857)",
                 fontSize: "12px",
                 fontWeight: 500,
               })}
@@ -263,11 +266,11 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            background: "#450a0a",
-            border: "1px solid #7f1d1d",
+            background: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.35)",
             borderRadius: "6px",
             padding: "8px 12px",
-            color: "#fca5a5",
+            color: "var(--qb-color-error, #ef4444)",
             fontSize: "12px",
           })}
         >
@@ -284,7 +287,7 @@ export const LiveExecutionBar: React.FC<LiveExecutionBarProps> = ({
               style={s({
                 background: "transparent",
                 border: "none",
-                color: "#fca5a5",
+                color: "var(--qb-color-error, #ef4444)",
                 cursor: "pointer",
                 fontSize: "14px",
                 fontWeight: "bold",

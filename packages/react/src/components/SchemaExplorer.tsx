@@ -7,7 +7,7 @@ import type {
 } from "../types";
 import { normalizeSchema } from "../utils/schemaUtils";
 import { useTheme } from "../theme/ThemeProvider";
-import { darkTheme, lightTheme, type QueryBuilderTheme } from "../theme/tokens";
+import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 
 export interface SchemaExplorerProps {
   schema?: DatabaseSchemaDefinition | SchemaSnapshot | null;
@@ -34,27 +34,33 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
 }) => {
   const { theme: contextTheme } = useTheme();
 
-  const activeTheme: QueryBuilderTheme = useMemo(() => {
+  const resolvedTheme: QueryBuilderTheme = useMemo(() => {
     if (propTheme && typeof propTheme === "object" && "colors" in propTheme) {
       return propTheme as QueryBuilderTheme;
     }
     if (propTheme === "light") return lightTheme;
     if (propTheme === "dark") return darkTheme;
+    return contextTheme;
+  }, [propTheme, contextTheme]);
+
+  const cssVariables = useMemo(() => themeToCssVariables(resolvedTheme), [resolvedTheme]);
+
+  const activeTheme: QueryBuilderTheme = useMemo(() => {
     return {
-      ...contextTheme,
+      ...resolvedTheme,
       colors: {
-        ...contextTheme.colors,
-        background: `var(--qb-color-background, ${contextTheme.colors.background})`,
-        surface: `var(--qb-color-surface, ${contextTheme.colors.surface})`,
-        surfaceHover: `var(--qb-color-surface-hover, ${contextTheme.colors.surfaceHover})`,
-        surfaceActive: `var(--qb-color-surface-active, ${contextTheme.colors.surfaceActive})`,
-        text: `var(--qb-color-text, ${contextTheme.colors.text})`,
-        textSecondary: `var(--qb-color-text-secondary, ${contextTheme.colors.textSecondary})`,
-        textMuted: `var(--qb-color-text-muted, ${contextTheme.colors.textMuted})`,
-        border: `var(--qb-color-border, ${contextTheme.colors.border})`,
+        ...resolvedTheme.colors,
+        background: `var(--qb-color-background, ${resolvedTheme.colors.background})`,
+        surface: `var(--qb-color-surface, ${resolvedTheme.colors.surface})`,
+        surfaceHover: `var(--qb-color-surface-hover, ${resolvedTheme.colors.surfaceHover})`,
+        surfaceActive: `var(--qb-color-surface-active, ${resolvedTheme.colors.surfaceActive})`,
+        text: `var(--qb-color-text, ${resolvedTheme.colors.text})`,
+        textSecondary: `var(--qb-color-text-secondary, ${resolvedTheme.colors.textSecondary})`,
+        textMuted: `var(--qb-color-text-muted, ${resolvedTheme.colors.textMuted})`,
+        border: `var(--qb-color-border, ${resolvedTheme.colors.border})`,
       },
     };
-  }, [propTheme, contextTheme]);
+  }, [resolvedTheme]);
 
   const normalizedSchema = useMemo(() => normalizeSchema(schema), [schema]);
   const tablesMap = useMemo(() => normalizedSchema?.tables || {}, [normalizedSchema]);
@@ -221,21 +227,21 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
   const getTypeColor = (dataType: string): { bg: string; text: string } => {
     const dt = dataType.toLowerCase();
     if (dt.includes("int") || dt.includes("num") || dt.includes("dec") || dt.includes("float")) {
-      return { bg: "rgba(59, 130, 246, 0.15)", text: "#60a5fa" };
+      return { bg: "rgba(59, 130, 246, 0.14)", text: "var(--qb-color-primary, #2563eb)" };
     }
     if (dt.includes("char") || dt.includes("text") || dt.includes("str")) {
-      return { bg: "rgba(16, 185, 129, 0.15)", text: "#34d399" };
+      return { bg: "var(--qb-color-confirmed-bg, rgba(16, 185, 129, 0.15))", text: "var(--qb-color-confirmed-text, #047857)" };
     }
     if (dt.includes("date") || dt.includes("time")) {
-      return { bg: "rgba(168, 85, 247, 0.15)", text: "#c084fc" };
+      return { bg: "var(--qb-color-custom-bg, rgba(168, 85, 247, 0.15))", text: "var(--qb-color-custom-text, #6d28d9)" };
     }
     if (dt.includes("bool")) {
-      return { bg: "rgba(245, 158, 11, 0.15)", text: "#fbbf24" };
+      return { bg: "var(--qb-color-suggested-bg, rgba(245, 158, 11, 0.15))", text: "var(--qb-color-suggested-text, #b45309)" };
     }
     if (dt.includes("json") || dt.includes("uuid")) {
-      return { bg: "rgba(6, 182, 212, 0.15)", text: "#22d3ee" };
+      return { bg: "rgba(6, 182, 212, 0.15)", text: "var(--qb-color-primary, #0284c7)" };
     }
-    return { bg: "rgba(148, 163, 184, 0.15)", text: "#94a3b8" };
+    return { bg: "rgba(148, 163, 184, 0.15)", text: "var(--qb-color-text-secondary, #64748b)" };
   };
 
   return (
@@ -248,6 +254,7 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
         unstyled
           ? undefined
           : {
+              ...(cssVariables as React.CSSProperties),
               display: "flex",
               flexDirection: "column",
               gap: "14px",

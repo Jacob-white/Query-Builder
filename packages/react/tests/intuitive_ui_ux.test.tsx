@@ -256,7 +256,29 @@ describe("Progressive disclosure compact clause strips", () => {
   });
 
   it("verifies proven foreign keys with FK Verified badge in TableJoinEditor", () => {
-    render(
+    const extraTables: TableMeta[] = [
+      ...Object.values(mockSchema.tables),
+      {
+        name: "profiles",
+        columns: [
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+          { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+        ],
+      },
+      {
+        name: "audit_logs",
+        columns: [
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+        ],
+      },
+      {
+        name: "unjoined_logs",
+        columns: [
+          { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+        ],
+      },
+    ];
+    const { container } = render(
       <TableJoinEditor
         joins={[
           {
@@ -267,15 +289,35 @@ describe("Progressive disclosure compact clause strips", () => {
             left_col: "user_id",
             right_col: "id",
           },
+          {
+            id: "j2",
+            table: "profiles",
+            type: "LEFT JOIN",
+            left_table: "orders",
+            left_col: "user_id",
+            right_col: "user_id",
+          },
+          {
+            id: "j3",
+            table: "audit_logs",
+            type: "LEFT JOIN",
+            left_table: "orders",
+            left_col: "id",
+            right_col: "id",
+          },
         ]}
-        activeTables={[mockSchema.tables.orders, mockSchema.tables.users]}
-        allTables={Object.values(mockSchema.tables)}
+        activeTables={[mockSchema.tables.orders]}
+        allTables={extraTables}
         schema={mockSchema}
         onChange={vi.fn()}
       />
     );
 
     expect(screen.getByText("✓ FK Verified")).toBeTruthy();
+    expect(screen.getAllByText("✓ Confirmed Join").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("⇄ Logical Join").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("○ No Dedicated Join").length).toBeGreaterThan(0);
+    expect(container.querySelector('[data-qb="join-tier-filter-bar"]')).not.toBeNull();
   });
 });
 
@@ -392,4 +434,308 @@ describe("Split-View WorkspaceDock & 1-Click FK Suggestions", () => {
     fireEvent.click(screen.getByText("Chart"));
     expect(handleSelectTab).toHaveBeenCalledWith("chart");
   });
+
+  it("joins the clicked target FK table in a 2-table schema and caps inline suggestions at 4 with a searchable popover", () => {
+    const sixTableSchema: SchemaSnapshot = {
+      tables: {
+        hub: {
+          name: "hub",
+          columns: [{ name: "id", data_type: "integer", is_nullable: false, is_primary: true }],
+        },
+        t1: { name: "t1", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+        t2: { name: "t2", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+        t3: { name: "t3", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+        t4: { name: "t4", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+        t5: { name: "t5", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+        t6: { name: "t6", columns: [{ name: "hub_id", data_type: "integer", is_nullable: false, is_primary: false }] },
+      },
+      foreign_keys: [
+        { table: "t1", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+        { table: "t2", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+        { table: "t3", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+        { table: "t4", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+        { table: "t5", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+        { table: "t6", column: "hub_id", foreign_table: "hub", foreign_column: "id" },
+      ],
+    };
+
+    const { unmount } = render(
+      <VisualQueryBuilder schema={sixTableSchema} initialTable="hub" />,
+    );
+
+    // Inline suggestions capped at 4; "+2 more FK joins ▾" button rendered
+    expect(screen.getByTestId("fk-join-suggestion-t1")).toBeTruthy();
+    expect(screen.getByTestId("fk-join-suggestion-t4")).toBeTruthy();
+    expect(screen.queryByTestId("fk-join-suggestion-t6")).toBeNull();
+
+    const moreBtn = document.querySelector<HTMLButtonElement>('[data-qb="btn-more-suggested-joins"]')!;
+    expect(moreBtn).toBeTruthy();
+    expect(moreBtn.textContent).toContain("+2 more FK joins");
+    fireEvent.click(moreBtn);
+
+    // Popover opens and shows t5, t6
+    const searchBox = screen.getByPlaceholderText(/Search 2 more FK tables/i);
+    fireEvent.change(searchBox, { target: { value: "t6" } });
+    const t6Btn = screen.getByTestId("fk-join-suggestion-t6");
+    fireEvent.click(t6Btn);
+
+    // t6 is now joined onto hub!
+    expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
+    expect(screen.getByText("✓ FK Verified")).toBeTruthy();
+    unmount();
+
+    // Also test 2-table schema where clicking "+ Join users" joins orders -> users
+    render(<VisualQueryBuilder schema={mockSchema} initialTable="orders" />);
+    expect(screen.getByText("📋 Active Tables in Query (1)")).toBeTruthy();
+    expect(screen.getByText("✨ Projections: All Columns (SELECT *)")).toBeTruthy();
+    expect(document.querySelector('[data-qb="checkbox-distinct"]')).not.toBeNull();
+    expect(document.querySelector('[data-qb="input-limit"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId("fk-join-suggestion-users"));
+    expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
+    expect(screen.getByText("✓ FK Verified")).toBeTruthy();
+  });
+
+  it("filters TableCard columns to selected-only when Selected pill is clicked and auto-resets when selection empties", () => {
+    const wideTable: TableMeta = {
+      name: "wide_tbl",
+      columns: [
+        { name: "c1", data_type: "int", is_nullable: false, is_primary: true },
+        { name: "c2", data_type: "text", is_nullable: true, is_primary: false },
+        { name: "c3", data_type: "text", is_nullable: true, is_primary: false },
+        { name: "c4", data_type: "text", is_nullable: true, is_primary: false },
+        { name: "c5", data_type: "text", is_nullable: true, is_primary: false },
+        { name: "c6", data_type: "text", is_nullable: true, is_primary: false },
+        { name: "c7", data_type: "text", is_nullable: true, is_primary: false },
+      ],
+    };
+
+    const { rerender } = render(
+      <TableCard
+        table={wideTable}
+        selectedColumns={{
+          "wide_tbl.c1": { table: "wide_tbl", name: "c1" },
+          "wide_tbl.c5": { table: "wide_tbl", name: "c5" },
+        }}
+        onToggleColumn={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("c2")).toBeTruthy();
+    const selectedPill = document.querySelector<HTMLButtonElement>('[data-qb="table-card-filter-selected"]')!;
+    expect(selectedPill).toBeTruthy();
+    expect(selectedPill.textContent).toContain("All (7) | Selected (2)");
+    fireEvent.click(selectedPill);
+
+    expect(screen.getByText("c1")).toBeTruthy();
+    expect(screen.getByText("c5")).toBeTruthy();
+    expect(screen.queryByText("c2")).toBeNull();
+
+    // When all columns are unchecked (selectedColumns becomes {}), showSelectedOnly auto-resets so all columns reappear
+    rerender(
+      <TableCard
+        table={wideTable}
+        selectedColumns={{}}
+        onToggleColumn={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("c2")).toBeTruthy();
+    expect(selectedPill.textContent).toBe("All (7) | Selected (0)");
+  });
+
+  it("guards against duplicate FK join clicks and joins unjoined canvas tables as targets", () => {
+    const threeTableSchema: SchemaSnapshot = {
+      tables: {
+        orders: mockSchema.tables.orders,
+        users: mockSchema.tables.users,
+        audit_logs: {
+          name: "audit_logs",
+          columns: [
+            { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+            { name: "user_id", data_type: "integer", is_nullable: false, is_primary: false },
+          ],
+        },
+      },
+      foreign_keys: [
+        { table: "orders", column: "user_id", foreign_table: "users", foreign_column: "id" },
+        { table: "audit_logs", column: "user_id", foreign_table: "users", foreign_column: "id" },
+      ],
+    };
+
+    render(<VisualQueryBuilder schema={threeTableSchema} initialTable="orders" />);
+
+    // Click 🔗 users on orders.user_id once -> joins users
+    const fkBtn = screen.getByText("🔗 users");
+    fireEvent.click(fkBtn);
+    expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
+
+    // Click 🔗 users on orders.user_id a second time -> should NOT join audit_logs or duplicate users
+    fireEvent.click(screen.getAllByText("🔗 users")[0]);
+    expect(screen.getByText("📋 Active Tables in Query (2)")).toBeTruthy();
+    expect(screen.queryByText("audit_logs")).toBeNull();
+  });
+
+  it("executes overrideSpec immediately when passed to ref.execute(overrideSpec) without waiting for re-render", async () => {
+    const builderRef = React.createRef<import("../src/types").VisualQueryBuilderRef>();
+    const handleExecute = vi.fn().mockResolvedValue({
+      columns: ["id", "email"],
+      rows: [{ id: 1, email: "a@b.com" }],
+      count: 1,
+      durationMs: 2,
+    });
+
+    render(
+      <VisualQueryBuilder
+        ref={builderRef}
+        schema={mockSchema}
+        initialTable="orders"
+        compactHeader={true}
+        hideNlqBar={true}
+        onExecuteQuery={handleExecute}
+      />,
+    );
+
+    const nextSpec = {
+      table: "users",
+      columns: ["users.id", "users.email"],
+      joins: [],
+      filters: [],
+      filter_join: "AND" as const,
+      order_by: [],
+      distinct: false,
+      limit: 10,
+    };
+
+    await React.act(async () => {
+      builderRef.current!.setSpec(nextSpec);
+      await builderRef.current!.execute(nextSpec);
+    });
+
+    expect(handleExecute).toHaveBeenCalledTimes(1);
+    const [executedSql, executedSpec] = handleExecute.mock.calls[0];
+    expect(executedSql).toContain('FROM "users"');
+    expect(executedSpec.table).toBe("users");
+  });
+
+  it("collapses idle column quick-actions to zero width, prevents reverse-FK pills on PK columns, and uses 3-col grid when clauses are empty", () => {
+    const { container } = render(
+      <VisualQueryBuilder schema={mockSchema} initialTable="users" />,
+    );
+
+    // 1. users.id is referenced by orders.user_id (reverse FK), so it should NOT render an inline col-btn-fk-join pill on users.id
+    expect(container.querySelector('[data-qb="col-btn-fk-join"]')).toBeNull();
+    // Instead, orders is offered in Suggested Joins bar
+    const suggestedOrders = screen.getByTestId("fk-join-suggestion-orders");
+    expect(suggestedOrders.textContent).toBe("+ Join orders");
+    expect(suggestedOrders.getAttribute("title")).toContain("orders.user_id → users.id");
+
+    // 2. Per-column quick-action buttons remain visually hidden (srOnlyStyle) even on row hover so TableCard is a focused column selector
+    const firstRow = container.querySelector('[data-qb="table-card-column-row"]') as HTMLElement;
+    const filterBtn = firstRow.querySelector('[data-qb="col-btn-filter"]') as HTMLElement;
+    expect(filterBtn.style.width).toBe("1px");
+    fireEvent.mouseEnter(firstRow);
+    expect(filterBtn.style.width).toBe("1px");
+    fireEvent.mouseLeave(firstRow);
+    expect(filterBtn.style.width).toBe("1px");
+
+    // 3. Clause editors grid is 3-column when empty, and expands to 1fr when a filter is added
+    const clauseGrid = container.querySelector('[data-qb="clause-editors-grid"]') as HTMLElement;
+    expect(clauseGrid.style.gridTemplateColumns).toContain("minmax(250px, 1fr)");
+    fireEvent.click(filterBtn);
+    expect(clauseGrid.style.gridTemplateColumns).toBe("1fr");
+
+    // 4. TableCard uses 3-column grid, 8px 12px cell padding, short type tags, and supports collapsing the column grid
+    const colGrid = container.querySelector('[data-qb="table-card-columns-list"]') as HTMLElement;
+    expect(colGrid.style.gridTemplateColumns).toBe("repeat(3, minmax(240px, 1fr))");
+    expect(firstRow.style.padding).toBe("8px 12px");
+    const allRows = container.querySelectorAll('[data-qb="table-card-column-row"]');
+    expect(allRows[1].textContent).toContain("str");
+
+    const collapseBtn = container.querySelector('[data-qb="table-card-btn-collapse-columns"]') as HTMLButtonElement;
+    expect(collapseBtn).toBeTruthy();
+    expect(collapseBtn.textContent).toContain("Hide columns");
+    fireEvent.click(collapseBtn);
+    expect(colGrid.style.width).toBe("1px");
+    expect(collapseBtn.textContent).toContain("Columns (2)");
+    fireEvent.click(collapseBtn);
+    expect(colGrid.style.display).toBe("grid");
+
+    // 5. Clicking Select all in VisualQueryBuilder selects all columns (not just the last one), and Clear clears all
+    const selectAllBtn = container.querySelector('[data-qb="table-card-btn-select-all"]') as HTMLButtonElement;
+    const clearAllBtn = container.querySelector('[data-qb="table-card-btn-clear-all"]') as HTMLButtonElement;
+    fireEvent.click(selectAllBtn);
+    expect(screen.getByTitle("2 of 2 columns selected")).toBeTruthy();
+    expect(container.querySelectorAll('[data-qb="projection-item"]').length).toBe(2);
+    expect(clearAllBtn.textContent).toContain("Clear (2)");
+
+    fireEvent.click(clearAllBtn);
+    expect(screen.getByTitle("0 of 2 columns selected")).toBeTruthy();
+    expect(container.querySelectorAll('[data-qb="projection-item"]').length).toBe(0);
+  });
+
+  it("renders plain-English non-SQL labels across projections, joins, filters, sorts, and primary keys", () => {
+    const { container } = render(
+      <div>
+        <VisualQueryBuilder schema={mockSchema} initialTable="orders" />
+        <TableJoinEditor
+          joins={[
+            {
+              id: "j1",
+              table: "users",
+              type: "LEFT JOIN",
+              left_table: "orders",
+              left_col: "user_id",
+              right_col: "id",
+            },
+          ]}
+          activeTables={[mockSchema.tables.orders]}
+          allTables={Object.values(mockSchema.tables)}
+          schema={mockSchema}
+          onChange={vi.fn()}
+        />
+        <TableFiltersEditor
+          filters={[
+            {
+              id: "f1",
+              combiner: "AND",
+              tablePrefix: "orders",
+              column: "status",
+              operator: "=",
+              value: "PAID",
+            },
+          ]}
+          activeTables={[mockSchema.tables.orders]}
+          onChange={vi.fn()}
+        />
+        <TableSortsEditor
+          sorts={[
+            {
+              id: "s1",
+              tablePrefix: "orders",
+              column: "total",
+              direction: "DESC",
+            },
+          ]}
+          activeTables={[mockSchema.tables.orders]}
+          onChange={vi.fn()}
+        />
+      </div>,
+    );
+
+    expect(screen.getAllByText("Columns to show: All columns").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unique rows only").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Max rows:").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Keep all rows (LEFT)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Matches only (INNER)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("matched where").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Keep rows where").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("equals (=)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("contains text").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("is empty").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Ascending ↑").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Descending ↓").length).toBeGreaterThan(0);
+    expect(container.querySelector('[data-qb="table-card-badge-pk"]')?.textContent).toContain("ID");
+  });
 });
+
+

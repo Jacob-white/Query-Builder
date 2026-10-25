@@ -27,13 +27,13 @@
 ## Test Architecture
 - **Python Test Harness**:
   - Framework: `pytest`, `pytest-cov`
-  - Command: `./.venv/bin/pytest --cov=query_builder --cov-branch --cov-report=term-missing`
+  - Command: `.venv/bin/pytest --cov=query_builder --cov-branch --cov-report=term-missing`
   - Targets: `tests/test_server.py`, `tests/test_policy.py`, `tests/test_export.py`, `tests/test_telemetry.py`, `tests/test_pool.py`, `tests/test_templates.py`, plus existing test suite.
 - **React Test Harness**:
   - Framework: `vitest` with JSDOM environment, `@testing-library/react`
-  - Command: `cd ./packages/react && VITEST_MAX_WORKERS=2 pnpm exec vitest run --coverage`
-  - Typecheck: `cd ./packages/react && pnpm exec tsc --noEmit`
-  - Linter: `./.venv/bin/ruff check query_builder tests && ./.venv/bin/ruff format --check query_builder tests`
+  - Command: `cd packages/react && VITEST_MAX_WORKERS=2 pnpm exec vitest run --coverage`
+  - Typecheck: `cd packages/react && pnpm exec tsc --noEmit`
+  - Linter: `.venv/bin/ruff check query_builder tests && .venv/bin/ruff format --check query_builder tests`
 - **Execution Sequencing**:
   1. Python tests run to completion.
   2. React tests run only AFTER Python tests finish.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSqlToSpec, cleanIdentifier } from "../src/utils/sqlParser";
+import type { SchemaSnapshot } from "../src/types";
 import { invalid } from "./helpers";
 
 describe("sqlParser", () => {
@@ -393,5 +394,177 @@ describe("sqlParser", () => {
       expect(spec).not.toBeNull();
       expect(spec?.filters).toHaveLength(2);
     });
+
+    it("resolves schema-qualified tables, table aliases, and table.* wildcards when schema is provided", () => {
+      const mockSchema = {
+        tables: {
+          customer_master: {
+            name: "customer_master",
+            columns: [
+              { name: "registration_number", data_type: "text", is_nullable: false, is_primary: true },
+              { name: "company_name", data_type: "text", is_nullable: false, is_primary: false },
+              { name: "annual_revenue", data_type: "numeric", is_nullable: true, is_primary: false },
+            ],
+          },
+          compliance_filings: {
+            name: "compliance_filings",
+            columns: [
+              { name: "filing_id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "registration_number", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+        foreign_keys: [],
+      };
+
+      const sql = `
+        SELECT cm.registration_number, cm.company_name, cf.*
+        FROM production.customer_master cm
+        LEFT JOIN production.compliance_filings AS cf ON cm.registration_number = cf.registration_number
+        WHERE cm.annual_revenue > 1000000
+        ORDER BY cm.annual_revenue DESC
+        LIMIT 25;
+      `;
+
+      const spec = parseSqlToSpec(sql, mockSchema);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("customer_master");
+      expect(spec?.columns).toContain("customer_master.registration_number");
+      expect(spec?.columns).toContain("customer_master.company_name");
+      expect(spec?.columns).toContain("*");
+      expect(spec?.joins).toHaveLength(1);
+      expect(spec?.joins[0]).toMatchObject({
+        type: "LEFT JOIN",
+        table: "compliance_filings",
+        left_table: "customer_master",
+        left_col: "registration_number",
+        right_col: "registration_number",
+      });
+      expect(spec?.filters).toHaveLength(1);
+      expect(spec?.filters[0]).toMatchObject({
+        tablePrefix: "customer_master",
+        column: "annual_revenue",
+        op: ">",
+        value: 1000000,
+      });
+      expect(spec?.order_by).toHaveLength(1);
+      expect(spec?.order_by[0]).toMatchObject({
+        tablePrefix: "customer_master",
+        column: "annual_revenue",
+        direction: "DESC",
+      });
+      expect(spec?.limit).toBe(25);
+    });
+
+    it("parses multi-line JOIN ... ON clauses and LEFT/RIGHT/FULL OUTER JOIN keywords", () => {
+      const schemaWithThree: SchemaSnapshot = {
+        tables: {
+          customer_master: {
+            name: "customer_master",
+            columns: [
+              { name: "registration_number", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "legal_name", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+          compliance_filings: {
+            name: "compliance_filings",
+            columns: [
+              { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "registration_number", data_type: "integer", is_nullable: false, is_primary: false },
+              { name: "filing_date", data_type: "date", is_nullable: false, is_primary: false },
+            ],
+          },
+          filing_attachments: {
+            name: "filing_attachments",
+            columns: [
+              { name: "id", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "filing_id", data_type: "integer", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+      };
+
+      const sql = `
+        SELECT cm.registration_number, cf.id, fa.id
+        FROM production.customer_master cm
+        LEFT OUTER JOIN production.compliance_filings cf
+          ON cm.registration_number = cf.registration_number
+        RIGHT OUTER JOIN production.filing_attachments fa
+          ON cf.id = fa.filing_id
+        WHERE cf.filing_date >= '2024-01-01'
+        ORDER BY fa.id DESC
+      `;
+      const spec = parseSqlToSpec(sql, schemaWithThree);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("customer_master");
+      expect(spec?.columns).toEqual([
+        "customer_master.registration_number",
+        "compliance_filings.id",
+        "filing_attachments.id",
+      ]);
+      expect(spec?.joins).toHaveLength(2);
+      expect(spec?.joins[0]).toMatchObject({
+        table: "compliance_filings",
+        type: "LEFT JOIN",
+        left_table: "customer_master",
+        left_col: "registration_number",
+        right_col: "registration_number",
+      });
+      expect(spec?.joins[1]).toMatchObject({
+        table: "filing_attachments",
+        type: "RIGHT JOIN",
+        left_table: "compliance_filings",
+        left_col: "id",
+        right_col: "filing_id",
+      });
+    });
+
+    it("resolves unqualified joined-table columns and case-insensitive identifiers against schema", () => {
+      const customerSchema: SchemaSnapshot = {
+        tables: {
+          customer_master: {
+            name: "customer_master",
+            columns: [
+              { name: "registration_number", data_type: "integer", is_nullable: false, is_primary: true },
+              { name: "legal_name", data_type: "text", is_nullable: false, is_primary: false },
+            ],
+          },
+          compliance_filings: {
+            name: "compliance_filings",
+            columns: [
+              { name: "registration_number", data_type: "integer", is_nullable: false, is_primary: false },
+              { name: "filing_date", data_type: "date", is_nullable: false, is_primary: false },
+            ],
+          },
+        },
+      };
+
+      const sql = `
+        SELECT LEGAL_NAME, filing_date
+        FROM PRODUCTION.CUSTOMER_MASTER
+        FULL OUTER JOIN production.compliance_filings
+          ON customer_master.registration_number = compliance_filings.registration_number
+        WHERE filing_date >= '2024-01-01'
+        ORDER BY filing_date DESC
+      `;
+      const spec = parseSqlToSpec(sql, customerSchema);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("customer_master");
+      expect(spec?.columns).toEqual(["legal_name", "compliance_filings.filing_date"]);
+      expect(spec?.joins[0]?.type).toBe("FULL JOIN");
+      expect(spec?.filters[0]).toMatchObject({
+        tablePrefix: "compliance_filings",
+        column: "filing_date",
+        op: ">=",
+        value: "2024-01-01",
+      });
+      expect(spec?.order_by[0]).toMatchObject({
+        tablePrefix: "compliance_filings",
+        column: "filing_date",
+        direction: "DESC",
+      });
+    });
   });
 });
+
+

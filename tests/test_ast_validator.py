@@ -10,7 +10,7 @@ def test_validate_sql_ast_empty():
 
 def test_validate_sql_ast_valid_select():
     res = validate_sql_ast(
-        "SELECT legal_name, total_aum FROM production.customer_master WHERE total_aum > 1000000 LIMIT 50;"
+        "SELECT legal_name, annual_revenue FROM production.customer_master WHERE annual_revenue > 1000000 LIMIT 50;"
     )
     assert res["valid"] is True
     assert res["ast_validated"] is True
@@ -21,14 +21,14 @@ def test_validate_sql_ast_valid_select():
 
 def test_validate_sql_ast_valid_cte():
     sql = """
-    WITH top_firms AS (
-        SELECT customer_master_id, legal_name, total_aum
+    WITH top_customers AS (
+        SELECT customer_master_id, legal_name, annual_revenue
         FROM production.customer_master
-        WHERE total_aum IS NOT NULL
-        ORDER BY total_aum DESC
+        WHERE annual_revenue IS NOT NULL
+        ORDER BY annual_revenue DESC
         LIMIT 20
     )
-    SELECT * FROM top_firms;
+    SELECT * FROM top_customers;
     """
     res = validate_sql_ast(sql, allowed_schemas=["production"])
     assert res["valid"] is True
@@ -88,7 +88,9 @@ def test_validate_sql_ast_blocks_restricted_schemas():
 
 
 def test_validate_sql_ast_permits_safe_set_transaction():
-    sql = "SET TRANSACTION READ ONLY; SELECT legal_name FROM production.customer_master;"
+    sql = (
+        "SET TRANSACTION READ ONLY; SELECT legal_name FROM production.customer_master;"
+    )
     # Semicolon chaining still flags multi statement
     res = validate_sql_ast(sql)
     assert res["valid"] is False

@@ -200,6 +200,35 @@ describe("VisualQueryBuilder characterization: raw SQL mode", () => {
     expect(panel("sql")).not.toBeNull();
     expect(sqlEditor().value).toBe("SELECT id FROM users");
   });
+
+  it("does not report false loss or discard notice for SELECT * or SELECT alias.* queries, and syncs fresh compiled SQL", () => {
+    const ref = createRef<VisualQueryBuilderRef>();
+    const { container } = render(<VisualQueryBuilder ref={ref} schema={schema} initialTable="users" />);
+    const freeFormEditor = container.querySelector('[data-qb="free-form-sql-editor"]') as HTMLTextAreaElement;
+    expect(freeFormEditor).not.toBeNull();
+
+    fireEvent.change(freeFormEditor, {
+      target: { value: "SELECT o.* FROM public.orders o WHERE o.amount > 100 ORDER BY o.amount DESC LIMIT 10" },
+    });
+    expect(ref.current?.getSpec()?.table).toBe("orders");
+    expect(ref.current?.getSpec()?.columns).toEqual([]);
+    expect(ref.current?.getSpec()?.limit).toBe(10);
+
+    // Clicking 'Format & Sync SQL' should update rawSql to the newly compiled SQL for orders (not stale users)
+    const syncBtn = container.querySelector('[data-qb="btn-sync-free-form-sql"]') as HTMLElement;
+    expect(syncBtn).not.toBeNull();
+    fireEvent.click(syncBtn);
+    expect(ref.current?.getSql()).toContain('"orders"');
+    expect(ref.current?.getSql()).toContain("LIMIT 10");
+
+    // Re-enter SELECT * FROM orders and perform a visual reset: should NOT show discard notice
+    fireEvent.change(freeFormEditor, { target: { value: "SELECT * FROM orders" } });
+    expect(ref.current?.getSpec()?.table).toBe("orders");
+    act(() => {
+      ref.current?.reset();
+    });
+    expect(document.querySelector('[data-qb="raw-sql-discarded-notice"]')).toBeNull();
+  });
 });
 
 describe("VisualQueryBuilder characterization: undo/redo shortcuts", () => {

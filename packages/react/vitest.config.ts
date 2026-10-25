@@ -4,10 +4,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    isolate: false,
     setupFiles: ["./tests/setup.ts"],
     // Exposes global.gc so heap-growth leak guards can force a collection before measuring.
     execArgv: ["--expose-gc"],
-    maxWorkers: 2,
+    maxWorkers: Number(process.env.VITEST_MAX_WORKERS) || (process.env.CI ? 4 : 2),
     minWorkers: 1,
     coverage: {
       provider: "v8",

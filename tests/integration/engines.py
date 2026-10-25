@@ -234,8 +234,9 @@ class Engine:
         keys = []
         for reg_name in (self.connector, self.async_connector):
             if reg_name:
-                cls = ConnectorRegistry._registry[reg_name]
-                keys.append(f"{cls.__module__}.{cls.__qualname__}")
+                cls = ConnectorRegistry._registry.get(reg_name)
+                if cls is not None:
+                    keys.append(f"{cls.__module__}.{cls.__qualname__}")
         return keys
 
     # ---- native seeding ------------------------------------------------

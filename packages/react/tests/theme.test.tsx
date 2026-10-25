@@ -5,9 +5,14 @@ import {
   darkTheme,
   lightTheme,
   mergeTheme,
+  themeToCssVariables,
   ThemeProvider,
   useTheme,
   VisualQueryBuilder,
+  DashboardWorkbench,
+  NlqPromptBar,
+  LiveExecutionBar,
+  LocalDataModal,
   type QueryBuilderTheme,
 } from "../src/index";
 
@@ -26,6 +31,26 @@ describe("Theme Tokens & Utilities", () => {
     expect(lightTheme.typography.fontFamily).toContain("system-ui");
     expect(lightTheme.radii.md).toBe("8px");
     expect(lightTheme.shadows.md).toBeDefined();
+  });
+
+  it("emits join-tier and legacy alias CSS variables for both dark and light themes", () => {
+    const darkVars = themeToCssVariables(darkTheme) as Record<string, string>;
+    const lightVars = themeToCssVariables(lightTheme) as Record<string, string>;
+
+    for (const vars of [darkVars, lightVars]) {
+      expect(vars["--qb-color-suggested-text"]).toBeDefined();
+      expect(vars["--qb-color-suggested-bg"]).toBeDefined();
+      expect(vars["--qb-color-suggested-border"]).toBeDefined();
+      expect(vars["--qb-color-custom-text"]).toBeDefined();
+      expect(vars["--qb-color-custom-bg"]).toBeDefined();
+      expect(vars["--qb-color-custom-border"]).toBeDefined();
+      expect(vars["--qb-bg-surface"]).toBeDefined();
+      expect(vars["--qb-border-subtle"]).toBeDefined();
+      expect(vars["--qb-text-primary"]).toBeDefined();
+      expect(vars["--qb-text-secondary"]).toBeDefined();
+    }
+    expect(darkVars["--qb-color-suggested-text"]).not.toBe(lightVars["--qb-color-suggested-text"]);
+    expect(darkVars["--qb-color-custom-text"]).not.toBe(lightVars["--qb-color-custom-text"]);
   });
 
   it("mergeTheme creates deep clone when overrides are omitted or empty", () => {
@@ -98,8 +123,20 @@ describe("ThemeProvider & useTheme Hook", () => {
     );
   };
 
-  it("falls back to default darkTheme when used outside ThemeProvider", () => {
-    render(<ThemeConsumer />);
+  it("falls back to a referentially stable default darkTheme when used outside ThemeProvider", () => {
+    const seenContexts: ReturnType<typeof useTheme>[] = [];
+    const Probe: React.FC<{ tick: number }> = () => {
+      const ctx = useTheme();
+      seenContexts.push(ctx);
+      return <ThemeConsumer />;
+    };
+
+    const { rerender } = render(<Probe tick={1} />);
+    rerender(<Probe tick={2} />);
+    expect(seenContexts).toHaveLength(2);
+    expect(seenContexts[0]).toBe(seenContexts[1]);
+    expect(seenContexts[0].cssVariables).toBe(seenContexts[1].cssVariables);
+
     expect(screen.getByTestId("mode").textContent).toBe("dark");
     expect(screen.getByTestId("bg").textContent).toBe(darkTheme.colors.background);
 
@@ -236,4 +273,48 @@ describe("ThemeProvider & useTheme Hook", () => {
     rerender(<VisualQueryBuilder theme={customThemeObj} />);
     expect(screen.getByRole("tablist")).toBeDefined();
   });
+
+  it("scopes active theme CSS variables onto standalone components inside ThemeProvider without polluting documentElement", () => {
+    const { rerender, container } = render(
+      <ThemeProvider mode="light">
+        <DashboardWorkbench />
+        <NlqPromptBar />
+        <LiveExecutionBar />
+        <LocalDataModal isOpen={true} onClose={() => {}} />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.style.getPropertyValue("--qb-color-surface")).toBe("");
+    const workbench = container.querySelector(".qb-dashboard-workbench") as HTMLElement;
+    const promptBar = screen.getByTestId("nlq-prompt-bar");
+    const execBar = screen.getByTestId("live-execution-bar");
+    const localModal = screen.getByRole("dialog");
+
+    expect(workbench.style.getPropertyValue("--qb-color-surface")).toBe(lightTheme.colors.surface);
+    expect(promptBar.style.getPropertyValue("--qb-color-surface")).toBe(lightTheme.colors.surface);
+    expect(execBar.style.getPropertyValue("--qb-color-surface")).toBe(lightTheme.colors.surface);
+    expect(localModal.style.getPropertyValue("--qb-color-surface")).toBe(lightTheme.colors.surface);
+
+    rerender(
+      <ThemeProvider mode="dark">
+        <DashboardWorkbench />
+        <NlqPromptBar />
+        <LiveExecutionBar />
+        <LocalDataModal isOpen={true} onClose={() => {}} />
+      </ThemeProvider>,
+    );
+    expect(workbench.style.getPropertyValue("--qb-color-surface")).toBe(darkTheme.colors.surface);
+    expect(promptBar.style.getPropertyValue("--qb-color-surface")).toBe(darkTheme.colors.surface);
+    expect(execBar.style.getPropertyValue("--qb-color-surface")).toBe(darkTheme.colors.surface);
+    expect(localModal.style.getPropertyValue("--qb-color-surface")).toBe(darkTheme.colors.surface);
+  });
+
+  it("VisualQueryBuilder propagates theme='light' and theme='dark' via ThemeContext to descendant useTheme() consumers", () => {
+    const { rerender } = render(<VisualQueryBuilder theme="light" showNlqBar={true} />);
+    const promptBar = screen.getByTestId("nlq-prompt-bar");
+    expect(promptBar.style.getPropertyValue("--qb-color-surface")).toBe(lightTheme.colors.surface);
+
+    rerender(<VisualQueryBuilder theme="dark" showNlqBar={true} />);
+    expect(promptBar.style.getPropertyValue("--qb-color-surface")).toBe(darkTheme.colors.surface);
+  });
 });
+

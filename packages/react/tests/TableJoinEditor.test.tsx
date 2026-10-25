@@ -287,4 +287,38 @@ describe("TableJoinEditor", () => {
       twoJoins[1],
     ]);
   });
+
+  it("renders clean scannable column pickers without table prefix repetition on single left table and right table", () => {
+    const joins: VisualJoin[] = [
+      {
+        id: "j1",
+        type: "LEFT JOIN",
+        left_table: "users",
+        left_col: "id",
+        table: "orders",
+        right_col: "user_id",
+      },
+    ];
+
+    const { container } = render(
+      <TableJoinEditor
+        joins={joins}
+        activeTables={[allTables[0]]}
+        allTables={allTables}
+        schema={mockSchema}
+        onChange={vi.fn()}
+      />
+    );
+
+    // Left column pill should display 'id' (not 'users.id')
+    const leftPill = container.querySelector('[data-qb="join-left-col-pill"]');
+    expect(leftPill?.textContent).toBe("id");
+
+    // Right column pill should display 'id' and 'user_id' (not 'orders.id' or 'orders.user_id')
+    const rightPills = container.querySelectorAll('[data-qb="join-right-col-pill"]');
+    const rightPillTexts = Array.from(rightPills).map((p) => p.textContent);
+    expect(rightPillTexts).toContain("id");
+    expect(rightPillTexts).toContain("user_id");
+    expect(rightPillTexts.some((t) => t?.includes("orders."))).toBe(false);
+  });
 });

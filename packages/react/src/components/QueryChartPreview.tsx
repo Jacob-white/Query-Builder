@@ -6,6 +6,18 @@ import type {
   ChartDataPoint,
 } from "../types";
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 const PALETTE = [
   "#3b82f6",
   "#10b981",
@@ -354,7 +366,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
               : { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px" }
           }
         >
-          {/* Category Dropdown */}
+          {/* Category Selector */}
           <label
             style={
               unstyled
@@ -363,7 +375,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
+                    fontSize: "0.75rem",
                     color: "#94a3b8",
                   }
             }
@@ -373,18 +385,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
               aria-label="Select Category column"
               value={effectiveCategory}
               onChange={(e) => setCategoryCol(e.target.value)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               {columns.map((c) => (
                 <option key={c} value={c}>
@@ -392,9 +393,35 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
                 </option>
               ))}
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                {columns.slice(0, 8).map((c) => {
+                  const isSelected = effectiveCategory === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCategoryCol(c)}
+                      style={{
+                        background: isSelected ? "rgba(59, 130, 246, 0.25)" : "#1e293b",
+                        color: isSelected ? "#60a5fa" : "#cbd5e1",
+                        border: isSelected ? "1px solid #3b82f6" : "1px solid #334155",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
 
-          {/* Metric Dropdown */}
+          {/* Metric Selector */}
           <label
             style={
               unstyled
@@ -403,7 +430,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
+                    fontSize: "0.75rem",
                     color: "#94a3b8",
                   }
             }
@@ -413,18 +440,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
               aria-label="Select Metric column"
               value={effectiveMetric}
               onChange={(e) => setMetricCol(e.target.value)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               {columns.map((c) => (
                 <option key={c} value={c}>
@@ -432,9 +448,35 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
                 </option>
               ))}
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "3px", flexWrap: "wrap" }}>
+                {columns.slice(0, 8).map((c) => {
+                  const isSelected = effectiveMetric === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setMetricCol(c)}
+                      style={{
+                        background: isSelected ? "rgba(16, 185, 129, 0.25)" : "#1e293b",
+                        color: isSelected ? "#34d399" : "#cbd5e1",
+                        border: isSelected ? "1px solid #10b981" : "1px solid #334155",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
 
-          {/* Aggregation Dropdown */}
+          {/* Aggregation Selector */}
           <label
             style={
               unstyled
@@ -443,7 +485,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontSize: "0.78rem",
+                    fontSize: "0.75rem",
                     color: "#94a3b8",
                   }
             }
@@ -453,18 +495,7 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
               aria-label="Select Aggregation"
               value={aggregation}
               onChange={(e) => setAggregation(e.target.value as AggregationMode)}
-              style={
-                unstyled
-                  ? undefined
-                  : {
-                      background: "#1e293b",
-                      color: "#f8fafc",
-                      border: "1px solid #475569",
-                      borderRadius: "6px",
-                      padding: "3px 8px",
-                      fontSize: "0.78rem",
-                    }
-              }
+              style={unstyled ? undefined : SR_ONLY_STYLE}
             >
               <option value="SUM">SUM</option>
               <option value="COUNT">COUNT</option>
@@ -473,6 +504,32 @@ export const QueryChartPreview: React.FC<QueryChartPreviewProps> = ({
               <option value="MAX">MAX</option>
               <option value="NONE">NONE (Raw)</option>
             </select>
+            {!unstyled && (
+              <div style={{ display: "inline-flex", gap: "2px", background: "#0f172a", padding: "2px", borderRadius: "6px", border: "1px solid #334155" }}>
+                {(["SUM", "COUNT", "AVG", "MIN", "MAX", "NONE"] as AggregationMode[]).map((agg) => {
+                  const isSelected = aggregation === agg;
+                  return (
+                    <button
+                      key={agg}
+                      type="button"
+                      onClick={() => setAggregation(agg)}
+                      style={{
+                        background: isSelected ? "rgba(168, 85, 247, 0.25)" : "transparent",
+                        color: isSelected ? "#c084fc" : "#94a3b8",
+                        border: "none",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "0.68rem",
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {agg === "NONE" ? "RAW" : agg}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </label>
         </div>
       </div>

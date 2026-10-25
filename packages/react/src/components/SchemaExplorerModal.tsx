@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { SchemaExplorer, type SchemaExplorerProps } from "./SchemaExplorer";
 import { useTheme } from "../theme/ThemeProvider";
-import { darkTheme, lightTheme, type QueryBuilderTheme } from "../theme/tokens";
+import { darkTheme, lightTheme, themeToCssVariables, type QueryBuilderTheme } from "../theme/tokens";
 
 export interface SchemaExplorerModalProps extends SchemaExplorerProps {
   isOpen: boolean;
@@ -31,6 +31,8 @@ export const SchemaExplorerModal: React.FC<SchemaExplorerModalProps> = ({
     if (propTheme === "dark") return darkTheme;
     return contextTheme;
   }, [propTheme, contextTheme]);
+
+  const cssVariables = React.useMemo(() => themeToCssVariables(activeTheme), [activeTheme]);
 
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -82,6 +84,7 @@ export const SchemaExplorerModal: React.FC<SchemaExplorerModalProps> = ({
           unstyled
             ? undefined
             : {
+                ...(cssVariables as React.CSSProperties),
                 background: activeTheme.colors.surface,
                 border: `1px solid ${activeTheme.colors.border}`,
                 borderRadius: activeTheme.radii.xl,
@@ -108,7 +111,7 @@ export const SchemaExplorerModal: React.FC<SchemaExplorerModalProps> = ({
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  background: "rgba(0, 0, 0, 0.2)",
+                  background: activeTheme.colors.background,
                 }
           }
         >

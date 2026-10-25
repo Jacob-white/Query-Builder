@@ -88,7 +88,56 @@ class NlqAstValidator:
                 f"Table '{table_str}' was not found in the supplied database schema."
             )
 
-        # 2. Columns validation
+        # 2. Joins validation (processed before columns so active tables are known)
+        raw_joins = raw_ast.get("joins", [])
+        sanitized_joins: list[dict[str, Any]] = []
+        if isinstance(raw_joins, list):
+            for join_item in raw_joins:
+                if not isinstance(join_item, dict):
+                    continue
+                j_table = join_item.get("table", "")
+                if not isinstance(j_table, str) or not j_table.strip():
+                    continue
+                j_type = (
+                    str(join_item.get("type", "INNER"))
+                    .upper()
+                    .replace(" JOIN", "")
+                    .strip()
+                )
+                if j_type not in VALID_JOIN_TYPES:
+                    j_type = "INNER"
+                resolved_j_table = (
+                    self._resolve_table(j_table.strip()) or j_table.strip()
+                )
+                raw_left_table = str(join_item.get("left_table", table_str)).strip()
+                left_table = (
+                    self._resolve_table(raw_left_table) or raw_left_table or table_str
+                )
+                raw_left_col = str(join_item.get("left_col", "id")).strip()
+                raw_right_col = str(join_item.get("right_col", "id")).strip()
+                left_col = (
+                    raw_left_col.rsplit(".", 1)[-1]
+                    if "." in raw_left_col
+                    else raw_left_col
+                )
+                right_col = (
+                    raw_right_col.rsplit(".", 1)[-1]
+                    if "." in raw_right_col
+                    else raw_right_col
+                )
+                sanitized_joins.append(
+                    {
+                        "table": resolved_j_table,
+                        "type": j_type,
+                        "left_table": left_table,
+                        "left_col": left_col,
+                        "right_col": right_col,
+                    }
+                )
+
+        active_tables = [table_str, *(j["table"] for j in sanitized_joins)]
+
+        # 3. Columns validation
         raw_cols = raw_ast.get("columns", [])
         if not isinstance(raw_cols, list):
             raw_cols = []
@@ -101,7 +150,9 @@ class NlqAstValidator:
             if isinstance(col, str):
                 col_name = col.strip()
                 if col_name:
-                    sanitized_cols.append(self._resolve_column(table_str, col_name))
+                    sanitized_cols.append(
+                        self._resolve_column(table_str, col_name, active_tables)
+                    )
             elif isinstance(col, dict):
                 c_name = col.get("column", "")
                 expr = col.get("expression") or col.get("raw_expression")
@@ -120,69 +171,36 @@ class NlqAstValidator:
                 sanitized_col: dict[str, Any] = {}
                 if c_name and isinstance(c_name, str) and c_name.strip():
                     sanitized_col["column"] = self._resolve_column(
-                        table_str, c_name.strip()
+                        table_str, c_name.strip(), active_tables
                     )
-                if expr:
-                    sanitized_col["expression"] = str(expr).strip()
-                if "raw_expression" in col:
-                    sanitized_col["raw_expression"] = str(col["raw_expression"]).strip()
-                if dim:
-                    sanitized_col["dimension"] = str(dim).strip()
-                if met:
-                    sanitized_col["metric"] = str(met).strip()
-                if "time_grain" in col:
-                    sanitized_col["time_grain"] = str(col["time_grain"]).strip()
-                if "grain" in col:
-                    sanitized_col["grain"] = str(col["grain"]).strip()
-                if "table" in col:
-                    sanitized_col["table"] = str(col["table"]).strip()
-                if "tablePrefix" in col:
-                    sanitized_col["tablePrefix"] = str(col["tablePrefix"]).strip()
+                for k in (
+                    "expression",
+                    "raw_expression",
+                    "dimension",
+                    "metric",
+                    "time_grain",
+                    "grain",
+                    "table",
+                    "tablePrefix",
+                    "alias",
+                ):
+                    if col.get(k):
+                        sanitized_col[k] = str(col[k]).strip()
 
                 agg = col.get("agg", col.get("aggregate"))
                 if agg:
                     agg_upper = str(agg).upper().strip()
                     if agg_upper in VALID_AGGREGATES:
-                        if agg_upper in {"DISTINCT_COUNT", "COUNT_DISTINCT"}:
+                        if agg_upper in {"DISTINCT_COUNT", "COUNT_DISTINCT"} or (
+                            agg_upper == "COUNT" and bool(col.get("distinct"))
+                        ):
                             sanitized_col["agg"] = "count_distinct"
                         else:
                             sanitized_col["agg"] = agg_upper
 
-                alias = col.get("alias")
-                if alias:
-                    sanitized_col["alias"] = str(alias).strip()
                 if "distinct" in col:
                     sanitized_col["distinct"] = bool(col["distinct"])
                 sanitized_cols.append(sanitized_col)
-
-        # 3. Joins validation
-        raw_joins = raw_ast.get("joins", [])
-        sanitized_joins: list[dict[str, Any]] = []
-        if isinstance(raw_joins, list):
-            for join_item in raw_joins:
-                if not isinstance(join_item, dict):
-                    continue
-                j_table = join_item.get("table", "")
-                if not isinstance(j_table, str) or not j_table.strip():
-                    continue
-                j_type = str(join_item.get("type", "INNER")).upper()
-                if j_type not in VALID_JOIN_TYPES:
-                    j_type = "INNER"
-                resolved_j_table = (
-                    self._resolve_table(j_table.strip()) or j_table.strip()
-                )
-                left_table = join_item.get("left_table", table_str)
-                left_col = join_item.get("left_col", "id")
-                right_col = join_item.get("right_col", "id")
-                sanitized_joins.append(
-                    {
-                        "table": resolved_j_table,
-                        "type": j_type,
-                        "left_table": left_table,
-                        "left_col": left_col,
-                        "right_col": right_col,
-                    }
-                )
 
         # 4. Filters validation
         raw_filters = raw_ast.get("filters", [])
@@ -212,28 +230,29 @@ class NlqAstValidator:
                 }:
                     op = "="
                 val = f.get("value")
+                resolved_filter_col = self._resolve_column(
+                    table_str, col_name.strip(), active_tables
+                )
                 f_entry: dict[str, Any] = {
-                    "column": col_name.strip(),
+                    "column": resolved_filter_col,
                     "op": op,
                     "value": val,
                 }
-                if "tablePrefix" in f:
-                    f_entry["tablePrefix"] = f["tablePrefix"]
-                if "table" in f:
-                    f_entry["table"] = f["table"]
+                for k in (
+                    "tablePrefix",
+                    "table",
+                    "parenOpen",
+                    "parenClose",
+                    "subquery",
+                    "id",
+                ):
+                    if k in f:
+                        f_entry[k] = f[k]
                 if (comb := str(f.get("combiner") or "").strip().upper()) in {
                     "AND",
                     "OR",
                 }:
                     f_entry["combiner"] = comb
-                if "parenOpen" in f:
-                    f_entry["parenOpen"] = f["parenOpen"]
-                if "parenClose" in f:
-                    f_entry["parenClose"] = f["parenClose"]
-                if "subquery" in f:
-                    f_entry["subquery"] = f["subquery"]
-                if "id" in f:
-                    f_entry["id"] = f["id"]
                 sanitized_filters.append(f_entry)
 
         filter_join = str(raw_ast.get("filter_join", "AND")).upper()
@@ -246,13 +265,36 @@ class NlqAstValidator:
         if isinstance(raw_having, list):
             for h in raw_having:
                 if isinstance(h, dict) and "column" in h:
-                    sanitized_having.append(
-                        {
-                            "column": str(h["column"]).strip(),
-                            "op": str(h.get("op", "=")).upper(),
-                            "value": h.get("value"),
-                        }
-                    )
+                    h_col = str(h["column"]).strip()
+                    h_agg = h.get("agg") or h.get("aggregate")
+                    for sc in sanitized_cols:
+                        if (
+                            isinstance(sc, dict)
+                            and sc.get("alias") == h_col
+                            and sc.get("column")
+                        ):
+                            h_col = str(sc["column"])
+                            if not h_agg and sc.get("agg"):
+                                h_agg = sc["agg"]
+                            break
+                    h_entry: dict[str, Any] = {
+                        "column": (
+                            self._resolve_column(table_str, h_col, active_tables)
+                            if h_col != "*"
+                            else "*"
+                        ),
+                        "op": str(h.get("op", "=")).upper(),
+                        "value": h.get("value"),
+                    }
+                    if h_agg:
+                        h_agg_upper = str(h_agg).upper().strip()
+                        if h_agg_upper in VALID_AGGREGATES:
+                            h_entry["agg"] = (
+                                "count_distinct"
+                                if h_agg_upper in {"DISTINCT_COUNT", "COUNT_DISTINCT"}
+                                else h_agg_upper
+                            )
+                    sanitized_having.append(h_entry)
 
         # 6. Order by validation
         raw_order_by = raw_ast.get("order_by", [])
@@ -269,7 +311,9 @@ class NlqAstValidator:
                     direction = "ASC"
                 sanitized_order_by.append(
                     {
-                        "column": col_name.strip(),
+                        "column": self._resolve_column(
+                            table_str, col_name.strip(), active_tables
+                        ),
                         "direction": direction,
                         **(
                             {"tablePrefix": ob["tablePrefix"]}
@@ -282,7 +326,7 @@ class NlqAstValidator:
         # 7. Pagination and flags
         limit = raw_ast.get("limit", 50)
         try:
-            limit = max(0, int(limit))
+            limit = min(10000, max(0, int(limit)))
         except (ValueError, TypeError):
             limit = 50
 
@@ -420,8 +464,48 @@ class NlqAstValidator:
             return str(self.tables_meta[t_lower]["original_name"])
         return None
 
-    def _resolve_column(self, table_name: str, col_name: str) -> str:
-        """Looks up column name in table schema case-insensitively if available."""
+    def _resolve_column(
+        self,
+        table_name: str,
+        col_name: str,
+        active_tables: list[str] | None = None,
+    ) -> str:
+        """Looks up column name in table schema case-insensitively and resolves table aliases."""
+        if "." in col_name:
+            prefix, bare_col = col_name.rsplit(".", 1)
+            resolved_prefix = self._resolve_table(prefix)
+            if resolved_prefix:
+                return f"{resolved_prefix}.{bare_col}"
+            candidates = active_tables or [table_name]
+            if prefix in candidates:
+                return col_name
+            # Try matching alias (e.g. 'oh' -> 'customer_order_history', 'ws' -> 'warehouse_shipment')
+            p_lower = prefix.lower()
+            for cand in candidates:
+                c_lower = cand.lower()
+                parts = [p for p in c_lower.replace(".", "_").split("_") if p]
+                initials = "".join(p[0] for p in parts)
+                if (
+                    p_lower == initials
+                    or (len(p_lower) >= 2 and p_lower in initials)
+                    or c_lower.startswith(p_lower)
+                    or any(
+                        part.startswith(p_lower) for part in parts if len(p_lower) >= 2
+                    )
+                ):
+                    return f"{cand}.{bare_col}"
+            # Or check if bare_col belongs uniquely to one of the active tables
+            matching_tables = [
+                cand
+                for cand in candidates
+                if cand.lower() in self.tables_meta
+                and bare_col.lower() in self.tables_meta[cand.lower()]["columns"]
+            ]
+            if len(matching_tables) == 1:
+                return f"{matching_tables[0]}.{bare_col}"
+            if len(candidates) == 1 and self.tables_meta:
+                return bare_col
+
         t_lower = table_name.lower()
         if t_lower in self.tables_meta:
             cols = self.tables_meta[t_lower]["columns"]
@@ -429,4 +513,13 @@ class NlqAstValidator:
             for original_c in cols:
                 if original_c == c_lower:
                     return col_name
+            # If column is not on primary table, check joined tables in active_tables
+            if active_tables and len(active_tables) > 1:
+                for joined_tbl in active_tables[1:]:
+                    jt_lower = joined_tbl.lower()
+                    if (
+                        jt_lower in self.tables_meta
+                        and c_lower in self.tables_meta[jt_lower]["columns"]
+                    ):
+                        return f"{joined_tbl}.{col_name}"
         return col_name

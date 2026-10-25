@@ -28,6 +28,18 @@ export function nextTabForKey(
   return null;
 }
 
+const SR_ONLY_STYLE: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 /** ARIA tablist with roving tabindex and arrow/Home/End keyboard navigation. */
 export function TabBar({
   activeTab,
@@ -44,10 +56,19 @@ export function TabBar({
   const labels: Record<ActiveTab, string> = {
     visual: "🎨 Visual Builder",
     sql: "📝 Raw SQL",
-    results: `📊 Results ${resultCount !== null ? `(${resultCount})` : ""}`,
+    results: `📊 Results ${resultCount != null ? `(${resultCount})` : ""}`,
     chart: "📈 Visual Chart",
     pipeline: `🔀 Pipeline ${cteCount > 0 ? `(${cteCount})` : ""}`,
     plan: "⚡ Query Plan",
+  };
+
+  const cleanLabels: Record<ActiveTab, string> = {
+    visual: "Builder",
+    sql: "SQL",
+    results: resultCount != null ? `Results (${resultCount.toLocaleString()})` : "Results",
+    chart: "Chart",
+    pipeline: cteCount > 0 ? `Pipeline (${cteCount})` : "Pipeline",
+    plan: "Query Plan",
   };
 
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, tab: ActiveTab) => {
@@ -69,48 +90,70 @@ export function TabBar({
           ? undefined
           : {
               display: "flex",
+              gap: "3px",
               background: theme.colors.surface,
               borderRadius: theme.radii.md,
-              padding: "2px",
+              padding: "3px",
               border: `1px solid ${theme.colors.border}`,
             }
       }
     >
-      {TAB_ORDER.filter((tab) => tabs.includes(tab)).map((tab) => (
-        <button
-          key={tab}
-          ref={(el) => {
-            tabRefs.current[tab] = el;
-          }}
-          role="tab"
-          id={`tab-${tab}`}
-          aria-controls={`panel-${tab}`}
-          aria-selected={activeTab === tab}
-          tabIndex={activeTab === tab ? 0 : -1}
-          onKeyDown={(e) => handleTabKeyDown(e, tab)}
-          type="button"
-          onClick={() => onSelectTab(tab)}
-          data-qb="tab"
-          data-qb-tab={tab}
-          className={cx(classNames?.tab, activeTab === tab && classNames?.tabActive)}
-          style={
-            unstyled
-              ? undefined
-              : {
-                  background: activeTab === tab ? theme.colors.primary : "transparent",
-                  color: activeTab === tab ? "#fff" : theme.colors.textMuted,
-                  border: "none",
-                  borderRadius: theme.radii.sm,
-                  padding: "6px 12px",
-                  fontSize: theme.typography.fontSizeSm,
-                  fontWeight: theme.typography.fontWeightSemibold,
-                  cursor: "pointer",
-                }
-          }
-        >
-          {labels[tab]}
-        </button>
-      ))}
+      {TAB_ORDER.filter((tab) => tabs.includes(tab)).map((tab) => {
+        const isActive = activeTab === tab;
+        return (
+          <button
+            key={tab}
+            ref={(el) => {
+              tabRefs.current[tab] = el;
+            }}
+            role="tab"
+            id={`tab-${tab}`}
+            aria-controls={`panel-${tab}`}
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
+            onKeyDown={(e) => handleTabKeyDown(e, tab)}
+            type="button"
+            onClick={() => onSelectTab(tab)}
+            data-qb="tab"
+            data-qb-tab={tab}
+            className={cx(classNames?.tab, isActive && classNames?.tabActive)}
+            style={
+              unstyled
+                ? undefined
+                : {
+                    background: isActive
+                      ? theme.mode === "dark"
+                        ? "rgba(255, 255, 255, 0.1)"
+                        : "#ffffff"
+                      : "transparent",
+                    color: isActive ? theme.colors.text : theme.colors.textMuted,
+                    border: "none",
+                    borderRadius: "5px",
+                    padding: "6px 14px",
+                    fontSize: "0.875rem",
+                    fontWeight: isActive ? 600 : 500,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    boxShadow: isActive
+                      ? theme.mode === "dark"
+                        ? "0 1px 2px rgba(0, 0, 0, 0.35)"
+                        : "0 1px 2px rgba(0, 0, 0, 0.08)"
+                      : "none",
+                    transition: "all 0.12s ease",
+                  }
+            }
+          >
+            {unstyled ? (
+              labels[tab]
+            ) : (
+              <>
+                <span style={SR_ONLY_STYLE}>{labels[tab]}</span>
+                <span aria-hidden="true">{cleanLabels[tab]}</span>
+              </>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

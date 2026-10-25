@@ -538,9 +538,7 @@ class McpServer:
                 args["spec"] = spec
 
         if name == "query_builder_compile":
-            spec = args.get("spec", {})
-            if isinstance(spec, str):
-                spec = json.loads(spec)
+            spec = args.get("spec") or {}
             dialect = args.get("dialect", "postgres")
             compiler = QueryCompiler(spec, dialect=dialect)
             sql, params, count_sql, count_params = compiler.compile()
@@ -575,9 +573,7 @@ class McpServer:
             }
 
         if name == "query_builder_explain_and_advise":
-            spec = args.get("spec", {})
-            if isinstance(spec, str):
-                spec = json.loads(spec)
+            spec = args.get("spec") or {}
             dialect = args.get("dialect", "postgres")
             compiler = QueryCompiler(spec, dialect=dialect)
             sql, _, _, _ = compiler.compile()
@@ -655,8 +651,6 @@ class McpServer:
             config = args.get("config") or {}
             max_rows = args.get("max_rows", 50)
 
-            if isinstance(spec, str):
-                spec = json.loads(spec)
             if isinstance(config, str):
                 config = json.loads(config)
 
