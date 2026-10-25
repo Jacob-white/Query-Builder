@@ -66,8 +66,11 @@ export {
 
 export {
   useDashboardManager,
+  inferDashboardColumns,
+  buildDashboardTilesFromResults,
   type UseDashboardManagerOptions,
   type UseDashboardManagerReturn,
+  type InferredDashboardColumns,
 } from "./useDashboardManager";
 
 export {

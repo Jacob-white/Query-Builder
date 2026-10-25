@@ -6,14 +6,16 @@
  * reactive click-to-filter cross-filtering across tiles.
  */
 
-import React, { useState } from "react";
-import { useDashboardManager } from "../hooks/useDashboardManager";
+import React, { useState, useEffect } from "react";
+import { useDashboardManager, inferDashboardColumns } from "../hooks/useDashboardManager";
 import { BiChartVisualizer } from "./BiChartVisualizer";
 import { useTheme } from "../theme/ThemeProvider";
 import type {
   DashboardState,
   DashboardTileType,
   ChartType,
+  QueryResultData,
+  QuerySpec,
 } from "../types";
 
 const SR_ONLY_STYLE: React.CSSProperties = {
@@ -30,6 +32,9 @@ const SR_ONLY_STYLE: React.CSSProperties = {
 
 export interface DashboardWorkbenchProps {
   initialState?: Partial<DashboardState>;
+  results?: QueryResultData | null;
+  querySpec?: QuerySpec | null;
+  sql?: string;
   onStateChange?: (state: DashboardState) => void;
   readOnly?: boolean;
   unstyled?: boolean;
@@ -39,7 +44,10 @@ export interface DashboardWorkbenchProps {
 
 export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   initialState,
-  onStateChange: _onStateChange,
+  results,
+  querySpec,
+  sql,
+  onStateChange,
   readOnly = false,
   unstyled = false,
   className = "",
@@ -63,7 +71,11 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
     getFilteredRowsForTile,
     computeKpi,
     computePivot,
-  } = useDashboardManager({ initialState });
+  } = useDashboardManager({ initialState, results });
+
+  useEffect(() => {
+    onStateChange?.(dashboard);
+  }, [dashboard, onStateChange]);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTileTitle, setNewTileTitle] = useState("");
@@ -78,30 +90,47 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
     e.preventDefault();
     if (!newTileTitle.trim()) return;
 
-    const sampleRows = [
-      { category: "Hardware", region: "North", sales: 12000, margin: 3400 },
-      { category: "Software", region: "North", sales: 25000, margin: 9200 },
-      { category: "Hardware", region: "South", sales: 18000, margin: 4800 },
-      { category: "Software", region: "South", sales: 31000, margin: 11500 },
-      { category: "Services", region: "East", sales: 9500, margin: 2800 },
-    ];
+    const existingTile = tiles.find((t) => t.cachedRows?.length || t.columns?.length);
+    const hasQueryResults = results !== undefined && results !== null;
+    const activeRows = hasQueryResults
+      ? results.rows
+      : existingTile?.cachedRows || [];
+    const activeCols = hasQueryResults
+      ? results.columns
+      : existingTile?.columns;
+
+    const inferred = inferDashboardColumns(activeRows, activeCols);
 
     addTile({
       title: newTileTitle.trim(),
       type: newTileType,
       chartType: newTileType === "chart" ? newTileChartType : undefined,
-      cachedRows: sampleRows,
+      columns: inferred.columns,
+      categoryCol: newTileType === "chart" ? inferred.categoryCol : undefined,
+      metricCol: newTileType === "chart" ? inferred.metricCol : undefined,
+      defaultAggregation: newTileType === "chart" ? inferred.defaultAggregation : undefined,
+      querySpec: querySpec ?? undefined,
+      sql,
+      cachedRows: activeRows,
       layout: { w: newTileType === "kpi" ? 1 : 2, h: 1 },
       kpiConfig:
         newTileType === "kpi"
-          ? { title: newTileTitle.trim(), valueField: "sales", deltaPercentage: 14.5 }
+          ? {
+              title: newTileTitle.trim(),
+              valueField: inferred.hasNonIdMetric ? inferred.metricCol : "__count__",
+            }
           : undefined,
       pivotConfig:
         newTileType === "pivot"
           ? {
-              rowDimensions: ["category"],
-              columnDimensions: ["region"],
-              valueMetrics: [{ field: "sales", agg: "sum" }],
+              rowDimensions: [inferred.categoryCol],
+              columnDimensions: [inferred.secondaryCategoryCol],
+              valueMetrics: [
+                {
+                  field: inferred.metricCol,
+                  agg: inferred.hasNonIdMetric ? "sum" : "count",
+                },
+              ],
             }
           : undefined,
     });
@@ -534,36 +563,61 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
 
                   {tile.type === "table" && (
                     <div style={{ overflowX: "auto", flex: 1 }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid var(--qb-color-border, #313244)", color: "var(--qb-color-text-muted, #a6adc8)", textAlign: "left" }}>
-                            {rows[0] &&
-                              Object.keys(rows[0]).map((col) => (
-                                <th key={col} style={{ padding: "0.4rem 0.6rem" }}>
-                                  {col}
-                                </th>
-                              ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.slice(0, 5).map((r, rIdx) => (
-                            <tr
-                              key={rIdx}
-                              style={{ borderBottom: "1px solid var(--qb-color-border, #28293d)", cursor: "pointer" }}
-                              onClick={() => {
-                                const firstCol = Object.keys(r)[0];
-                                if (firstCol) setCrossFilter(tile.id, firstCol, r[firstCol]);
-                              }}
-                            >
-                              {Object.values(r).map((val, cIdx) => (
-                                <td key={cIdx} style={{ padding: "0.4rem 0.6rem" }}>
-                                  {String(val)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      {(() => {
+                        const tableCols = rows[0]
+                          ? Object.keys(rows[0])
+                          : tile.columns?.length
+                            ? tile.columns
+                            : results?.columns || [];
+                        return (
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+                            <thead>
+                              <tr style={{ borderBottom: "1px solid var(--qb-color-border, #313244)", color: "var(--qb-color-text-muted, #a6adc8)", textAlign: "left" }}>
+                                {tableCols.map((col) => (
+                                  <th key={col} style={{ padding: "0.4rem 0.6rem" }}>
+                                    {col}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.length === 0 ? (
+                                <tr>
+                                  <td
+                                    colSpan={Math.max(1, tableCols.length)}
+                                    style={{
+                                      padding: "1.25rem",
+                                      textAlign: "center",
+                                      color: "var(--qb-color-text-muted, #6c7086)",
+                                      fontStyle: "italic",
+                                    }}
+                                    data-testid={`empty-table-tile-${tile.id}`}
+                                  >
+                                    No matching records
+                                  </td>
+                                </tr>
+                              ) : (
+                                rows.slice(0, 25).map((r, rIdx) => (
+                                  <tr
+                                    key={rIdx}
+                                    style={{ borderBottom: "1px solid var(--qb-color-border, #28293d)", cursor: "pointer" }}
+                                    onClick={() => {
+                                      const firstCol = Object.keys(r)[0];
+                                      if (firstCol) setCrossFilter(tile.id, firstCol, r[firstCol]);
+                                    }}
+                                  >
+                                    {Object.values(r).map((val, cIdx) => (
+                                      <td key={cIdx} style={{ padding: "0.4rem 0.6rem" }}>
+                                        {String(val)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -603,16 +657,28 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
 
                   {tile.type === "chart" && (
                     <div style={{ flex: 1, minHeight: "160px" }}>
-                      <BiChartVisualizer
-                        results={{
-                          rows,
-                          columns: rows[0] ? Object.keys(rows[0]) : [],
-                          count: rows.length,
-                        }}
-                        chartType={tile.chartType || "bar"}
-                        defaultCategoryCol={rows[0] ? Object.keys(rows[0])[0] : undefined}
-                        defaultMetricCol={rows[0] ? Object.keys(rows[0])[2] || Object.keys(rows[0])[1] : undefined}
-                      />
+                      {(() => {
+                        const tileCols = rows[0]
+                          ? Object.keys(rows[0])
+                          : tile.columns?.length
+                            ? tile.columns
+                            : results?.columns || [];
+                        const tileInferred = inferDashboardColumns(rows, tileCols);
+                        return (
+                          <BiChartVisualizer
+                            results={{
+                              rows,
+                              columns: tileCols,
+                              count: rows.length,
+                            }}
+                            chartType={tile.chartType || "bar"}
+                            defaultCategoryCol={tile.categoryCol || tileInferred.categoryCol}
+                            defaultMetricCol={tile.metricCol || tileInferred.metricCol}
+                            defaultAggregation={tile.defaultAggregation || tileInferred.defaultAggregation}
+                            onDataPointClick={(cat, _val, field) => setCrossFilter(tile.id, field, cat)}
+                          />
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

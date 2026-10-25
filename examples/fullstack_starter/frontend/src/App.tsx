@@ -22,7 +22,6 @@ import {
   type CustomFilterOperator,
   type SqlPreset,
   type SemanticModel,
-  type DashboardState,
   type ExportFormat,
   type SqlDialect,
 } from "@jacob-white/query-builder-react";
@@ -543,53 +542,6 @@ const STARTER_SEMANTIC_MODELS: SemanticModel[] = [
   },
 ];
 
-// Initial Dashboard state for the Dashboard & Export tab
-const INITIAL_DASHBOARD_STATE: Partial<DashboardState> = {
-  title: "E-Commerce Executive Overview",
-  tiles: [
-    {
-      id: "tile-rev-kpi",
-      title: "Total Completed Revenue ($)",
-      type: "kpi",
-      kpiConfig: {
-        valueField: "revenue",
-        statusColor: "#a6e3a1",
-      },
-      layout: { x: 0, y: 0, w: 1, h: 1 },
-      cachedRows: [
-        { category: "Electronics", status: "COMPLETED", revenue: 2878.98, orders: 2 },
-        { category: "Home & Kitchen", status: "COMPLETED", revenue: 119.5, orders: 1 },
-      ],
-    },
-    {
-      id: "tile-cat-chart",
-      title: "Revenue by Product Category",
-      type: "chart",
-      chartType: "bar",
-      layout: { x: 1, y: 0, w: 2, h: 1 },
-      cachedRows: [
-        { category: "Electronics", region: "North America", revenue: 2828.98, units: 3 },
-        { category: "Apparel", region: "Europe", revenue: 234.95, units: 2 },
-        { category: "Home & Kitchen", region: "North America", revenue: 199.49, units: 2 },
-        { category: "Books & Media", region: "North America", revenue: 45.0, units: 1 },
-      ],
-    },
-    {
-      id: "tile-orders-table",
-      title: "Recent Customer Orders",
-      type: "table",
-      layout: { x: 0, y: 1, w: 3, h: 1 },
-      cachedRows: [
-        { order_id: 1, customer: "Bob Builder", category: "Electronics", status: "COMPLETED", revenue: 1428.99 },
-        { order_id: 2, customer: "Bob Builder", category: "Home & Kitchen", status: "COMPLETED", revenue: 119.5 },
-        { order_id: 3, customer: "Charlie Chen", category: "Apparel", status: "PENDING", revenue: 234.95 },
-        { order_id: 4, customer: "Diana Prince", category: "Electronics", status: "COMPLETED", revenue: 1344.99 },
-        { order_id: 5, customer: "Diana Prince", category: "Home & Kitchen", status: "CANCELLED", revenue: 79.99 },
-      ],
-    },
-  ],
-};
-
 // Sample ORM Schemas for Demo Tab
 const SAMPLE_PRISMA = `datasource db {
   provider = "sqlite"
@@ -838,13 +790,30 @@ export function App() {
     }
   };
 
+  const [lastQueryResults, setLastQueryResults] = useState<QueryResultData | null>(null);
+  const [lastQuerySpec, setLastQuerySpec] = useState<QuerySpec | null>(null);
+  const [lastQuerySql, setLastQuerySql] = useState<string>("");
+  const [isExecutingDashboardQuery, setIsExecutingDashboardQuery] = useState<boolean>(false);
+  const latestCanvasSpecRef = useRef<QuerySpec | null>(null);
+  const latestCanvasSqlRef = useRef<string>("");
+  const canvasDirtyRef = useRef<boolean>(false);
+  const executeSeqRef = useRef<number>(0);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("qb-active-database", activeDbId);
     }
+    executeSeqRef.current += 1;
+    setIsExecutingDashboardQuery(false);
     setSelectedPreset(null);
     setTableSearch("");
     setFedSourceFilter("ALL");
+    setLastQueryResults(null);
+    setLastQuerySpec(null);
+    setLastQuerySql("");
+    latestCanvasSpecRef.current = null;
+    latestCanvasSqlRef.current = "";
+    canvasDirtyRef.current = false;
     void fetchSchemaForDb(activeDbId, false);
   }, [activeDbId]);
 
@@ -922,16 +891,101 @@ export function App() {
     setSidebarPrimaryTable(resolvedInitialTable);
   }, [resolvedInitialTable]);
 
+  // Execution handler talking to backend /api/execute for the active database
+  const handleExecuteQuery = async (
+    sql: string,
+    spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
+  ): Promise<QueryResultData> => {
+    const reqSeq = ++executeSeqRef.current;
+    setIsExecutingDashboardQuery(true);
+    try {
+      const hasValidSpec = Boolean(
+        spec && typeof spec === "object" && "table" in spec && typeof spec.table === "string" && spec.table,
+      );
+      const res = await fetch(`/api/execute?db=${encodeURIComponent(activeDbId)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-QB-Database": activeDbId,
+        },
+        body: JSON.stringify({
+          db: activeDbId,
+          spec: hasValidSpec ? spec : undefined,
+          sql: sql || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Execution failed");
+      }
+      const resultData: QueryResultData & { sql?: string } = await res.json();
+      if (reqSeq === executeSeqRef.current) {
+        setLastQueryResults(resultData);
+        const resolvedSql = sql || resultData.sql || "";
+        if (resolvedSql) {
+          setLastQuerySql(resolvedSql);
+          latestCanvasSqlRef.current = resolvedSql;
+        }
+        if (hasValidSpec) {
+          setLastQuerySpec(spec as QuerySpec);
+          latestCanvasSpecRef.current = spec as QuerySpec;
+        } else if (sql) {
+          setLastQuerySpec(null);
+          latestCanvasSpecRef.current = null;
+        }
+        canvasDirtyRef.current = false;
+      }
+      return resultData;
+    } finally {
+      if (reqSeq === executeSeqRef.current) {
+        setIsExecutingDashboardQuery(false);
+      }
+    }
+  };
+
+  const runActiveDashboardQuery = () => {
+    if (latestCanvasSpecRef.current === null && latestCanvasSqlRef.current.trim()) {
+      void handleExecuteQuery(latestCanvasSqlRef.current, null).catch(() => {});
+      return;
+    }
+    const specToRun: QuerySpec =
+      latestCanvasSpecRef.current ||
+      lastQuerySpec ||
+      builderRef.current?.getSpec() ||
+      (selectedPreset?.spec as QuerySpec | undefined) || {
+        table: resolvedInitialTable,
+        columns: [],
+        joins: [],
+        filters: [],
+        filter_join: "AND",
+        order_by: [],
+        distinct: false,
+        limit: 25,
+      };
+    if (specToRun.table) {
+      if (builderRef.current) {
+        void builderRef.current.execute(specToRun);
+      } else {
+        void handleExecuteQuery(latestCanvasSqlRef.current || lastQuerySql || "", specToRun).catch(() => {});
+      }
+    }
+  };
+
   const applyAndExecuteSpec = (spec: QuerySpec) => {
-    setActiveTab("visual");
     if (spec.table) {
       setSidebarPrimaryTable(spec.table);
+    }
+    setLastQuerySpec(spec);
+    latestCanvasSpecRef.current = spec;
+    if (activeTab !== "visual" && activeTab !== "dashboard") {
+      setActiveTab("visual");
     }
     if (builderRef.current) {
       builderRef.current.setSpec(spec);
       void builderRef.current.execute(spec);
     } else {
       pendingSpecRef.current = spec;
+      void handleExecuteQuery("", spec).catch(() => {});
     }
   };
 
@@ -951,16 +1005,30 @@ export function App() {
     return () => clearTimeout(timer);
   }, [activeTab, loadedSchemaDbId, activeDbId]);
 
+  // Ensure BI tab always has fresh results from the active query spec or raw SQL
+  useEffect(() => {
+    if (activeTab !== "dashboard" || loadedSchemaDbId !== activeDbId) {
+      return;
+    }
+    if (!canvasDirtyRef.current && lastQueryResults) {
+      return;
+    }
+    runActiveDashboardQuery();
+  }, [activeTab, loadedSchemaDbId, activeDbId, resolvedInitialTable]);
+
   // Auto-run preview query (or pending Cross-DB spec) whenever a database's schema finishes loading
   useEffect(() => {
     if (loadedSchemaDbId !== activeDbId || schemaLoadCount === 0) return;
     const timer = setTimeout(() => {
-      if (!builderRef.current) return;
       if (pendingSpecRef.current) {
         const specToApply = pendingSpecRef.current;
-        pendingSpecRef.current = null;
-        builderRef.current.setSpec(specToApply);
-        void builderRef.current.execute(specToApply);
+        if (builderRef.current) {
+          pendingSpecRef.current = null;
+          builderRef.current.setSpec(specToApply);
+          void builderRef.current.execute(specToApply);
+        } else {
+          void handleExecuteQuery("", specToApply).catch(() => {});
+        }
         return;
       }
       const candidateDefault =
@@ -980,8 +1048,13 @@ export function App() {
           distinct: false,
           limit: 25,
         };
-        builderRef.current.setSpec(previewSpec);
-        void builderRef.current.execute(previewSpec);
+        if (builderRef.current) {
+          builderRef.current.setSpec(previewSpec);
+          void builderRef.current.execute(previewSpec);
+        } else {
+          pendingSpecRef.current = previewSpec;
+          void handleExecuteQuery("", previewSpec).catch(() => {});
+        }
       }
     }, 30);
     return () => clearTimeout(timer);
@@ -1032,26 +1105,6 @@ export function App() {
     return presets;
   }, [activeDbId, activeDbInfo, schema]);
 
-  // Execution handler talking to backend /api/execute for the active database
-  const handleExecuteQuery = async (
-    sql: string,
-    spec?: QuerySpec | SerializedQuerySpec | Record<string, unknown> | null,
-  ): Promise<QueryResultData> => {
-    const res = await fetch(`/api/execute?db=${encodeURIComponent(activeDbId)}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-QB-Database": activeDbId,
-      },
-      body: JSON.stringify({ db: activeDbId, spec: spec ?? undefined, sql }),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Execution failed");
-    }
-    return await res.json();
-  };
-
   const isDark = resolvedTheme === "dark";
 
   const handleSelectPreset = (preset: SqlPreset) => {
@@ -1079,15 +1132,21 @@ export function App() {
   };
 
   const handleSidebarJoinTable = (tblName: string) => {
-    const cur = builderRef.current?.getSpec() ?? pendingSpecRef.current;
-    const baseTbl = cur?.table || resolvedInitialTable;
+    const cur =
+      builderRef.current?.getSpec() ??
+      latestCanvasSpecRef.current ??
+      lastQuerySpec ??
+      pendingSpecRef.current;
+    const baseTbl = cur?.table || effectiveSidebarPrimaryTable || resolvedInitialTable;
     if (!baseTbl || baseTbl === tblName) {
       handleSidebarSetPrimary(tblName);
       return;
     }
     const existingJoins = Array.isArray(cur?.joins) ? cur.joins : [];
     if (existingJoins.some((j) => j.table === tblName)) {
-      setActiveTab("visual");
+      if (activeTab !== "visual" && activeTab !== "dashboard") {
+        setActiveTab("visual");
+      }
       return;
     }
     const cond = findBestJoinCondition(baseTbl, tblName, schema);
@@ -1120,8 +1179,12 @@ export function App() {
 
   // Cross-DB Pinning Join Handler: transparently joins a table from another database via federated_hub
   const handleCrossDbJoinTable = (targetDbId: string, targetTableName: string) => {
-    const cur = builderRef.current?.getSpec() ?? pendingSpecRef.current;
-    const rawBaseTbl = cur?.table || resolvedInitialTable;
+    const cur =
+      builderRef.current?.getSpec() ??
+      latestCanvasSpecRef.current ??
+      lastQuerySpec ??
+      pendingSpecRef.current;
+    const rawBaseTbl = cur?.table || effectiveSidebarPrimaryTable || resolvedInitialTable;
     const fedBaseTbl =
       activeDbId === "federated_hub"
         ? rawBaseTbl
@@ -1238,7 +1301,9 @@ export function App() {
     if (activeDbId === "federated_hub") {
       applyAndExecuteSpec(crossSpec);
     } else {
-      setActiveTab("visual");
+      if (activeTab !== "visual" && activeTab !== "dashboard") {
+        setActiveTab("visual");
+      }
       pendingSpecRef.current = crossSpec;
       setActiveDbId("federated_hub");
     }
@@ -1254,7 +1319,8 @@ export function App() {
     try {
       const latestTurnSpec =
         paletteTurns.length > 0 ? paletteTurns[paletteTurns.length - 1].spec : undefined;
-      const canvasSpec = builderRef.current?.getSpec();
+      const canvasSpec =
+        builderRef.current?.getSpec() || latestCanvasSpecRef.current || lastQuerySpec || undefined;
       const activeSpec = latestTurnSpec || (canvasSpec?.table ? canvasSpec : undefined);
 
       const resp = await fetch(`/api/nlq/translate?db=${encodeURIComponent(activeDbId)}`, {
@@ -2819,46 +2885,63 @@ export function App() {
 
         {/* Center Pane: Split Workspace */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0 }}>
-          {activeTab === "visual" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-              <QueryBuilderProvider
-                mode="styled"
-                themeMode={resolvedTheme}
-                customOperators={customOperators}
-                cellRenderers={cellRenderers}
-              >
-                <VisualQueryBuilder
-                  ref={builderRef}
-                  key={activeDbId}
-                  schema={schema}
-                  initialTable={resolvedInitialTable}
-                  initialSpec={selectedPreset?.spec}
-                  dialect={activeDialect}
-                  presets={[]}
-                  semanticModels={activeDbId === "starter_demo" ? STARTER_SEMANTIC_MODELS : []}
-                  defaultAdvancedMode={false}
-                  features={{ raw_sql: "standard", schema_tools: "advanced" }}
-                  showPlanTab={true}
-                  showPipelineTab={true}
-                  showNlqBar={false}
-                  hideNlqBar={true}
-                  compactHeader={true}
-                  studioMode={true}
-                  nlqApiUrl={`/api/nlq?db=${encodeURIComponent(activeDbId)}`}
-                  nlqDefaultProvider={geminiConfigured ? "gemini" : "mock"}
-                  onExecuteQuery={handleExecuteQuery}
-                />
-              </QueryBuilderProvider>
-            </div>
-          )}
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "12px 16px",
+              display: activeTab === "visual" ? "block" : "none",
+            }}
+          >
+            <QueryBuilderProvider
+              mode="styled"
+              themeMode={resolvedTheme}
+              customOperators={customOperators}
+              cellRenderers={cellRenderers}
+            >
+              <VisualQueryBuilder
+                ref={builderRef}
+                key={activeDbId}
+                schema={schema}
+                initialTable={resolvedInitialTable}
+                initialSpec={lastQuerySpec ?? selectedPreset?.spec}
+                onChange={(spec, sql) => {
+                  latestCanvasSpecRef.current = spec;
+                  latestCanvasSqlRef.current = sql;
+                  canvasDirtyRef.current = true;
+                }}
+                dialect={activeDialect}
+                presets={[]}
+                semanticModels={activeDbId === "starter_demo" ? STARTER_SEMANTIC_MODELS : []}
+                defaultAdvancedMode={false}
+                features={{ raw_sql: "standard", schema_tools: "advanced" }}
+                showPlanTab={true}
+                showPipelineTab={true}
+                showNlqBar={false}
+                hideNlqBar={true}
+                compactHeader={true}
+                studioMode={true}
+                nlqApiUrl={`/api/nlq?db=${encodeURIComponent(activeDbId)}`}
+                nlqDefaultProvider={geminiConfigured ? "gemini" : "mock"}
+                onExecuteQuery={handleExecuteQuery}
+              />
+            </QueryBuilderProvider>
+          </div>
 
           {activeTab === "dashboard" && (
             <QueryBuilderProvider mode="styled" themeMode={resolvedTheme}>
               <DashboardAndExportDemo
                 isDark={isDark}
                 activeDbId={activeDbId}
+                activeDbName={activeDbInfo?.name || activeDbId}
                 dialect={activeDialect}
                 defaultTable={resolvedInitialTable}
+                queryResults={lastQueryResults}
+                querySpec={lastQuerySpec ?? latestCanvasSpecRef.current}
+                querySql={lastQuerySql || latestCanvasSqlRef.current}
+                isLoading={isExecutingDashboardQuery}
+                onRefreshQuery={runActiveDashboardQuery}
+                onEditInStudio={() => setActiveTab("visual")}
               />
             </QueryBuilderProvider>
           )}
@@ -3251,13 +3334,27 @@ export function App() {
 function DashboardAndExportDemo({
   isDark = true,
   activeDbId = "starter_demo",
+  activeDbName = "Starter Demo",
   dialect = "sqlite",
   defaultTable = "orders",
+  queryResults = null,
+  querySpec = null,
+  querySql = "",
+  isLoading = false,
+  onRefreshQuery,
+  onEditInStudio,
 }: {
   isDark?: boolean;
   activeDbId?: string;
+  activeDbName?: string;
   dialect?: SqlDialect;
   defaultTable?: string;
+  queryResults?: QueryResultData | null;
+  querySpec?: QuerySpec | null;
+  querySql?: string;
+  isLoading?: boolean;
+  onRefreshQuery?: () => void;
+  onEditInStudio?: () => void;
 }) {
   const sampleExportSpec: QuerySpec = useMemo(
     () =>
@@ -3293,6 +3390,15 @@ function DashboardAndExportDemo({
     [activeDbId, defaultTable],
   );
 
+  const isRawSqlMode = !querySpec?.table && Boolean(querySql);
+  const activeSpec: QuerySpec = querySpec?.table ? querySpec : sampleExportSpec;
+  const activeTableLabel = isRawSqlMode ? "Custom SQL" : (activeSpec.table || defaultTable);
+  const joinedTablesLabel =
+    !isRawSqlMode && activeSpec.joins && activeSpec.joins.length > 0
+      ? ` + ${activeSpec.joins.map((j) => j.table).join(", ")}`
+      : "";
+  const dashboardTitle = `${activeDbName}: ${activeTableLabel}${joinedTablesLabel}`;
+
   const handleExportStream = async (format: ExportFormat) => {
     const res = await fetch(`/api/export?db=${encodeURIComponent(activeDbId)}`, {
       method: "POST",
@@ -3300,7 +3406,7 @@ function DashboardAndExportDemo({
         "Content-Type": "application/json",
         "X-QB-Database": activeDbId,
       },
-      body: JSON.stringify({ db: activeDbId, format, spec: sampleExportSpec, stream: true }),
+      body: JSON.stringify({ db: activeDbId, format, spec: activeSpec, stream: true }),
     });
     if (!res.ok) {
       throw new Error(`Export failed with HTTP ${res.status}`);
@@ -3309,10 +3415,13 @@ function DashboardAndExportDemo({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${defaultTable}_export.${format === "excel" ? "xlsx" : format}`;
+    a.download = `${activeTableLabel}_export.${format === "excel" ? "xlsx" : format}`;
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const rowCount = queryResults?.rows?.length ?? 0;
+  const colCount = queryResults?.columns?.length ?? (queryResults?.rows?.[0] ? Object.keys(queryResults.rows[0]).length : 0);
 
   return (
     <div
@@ -3324,27 +3433,133 @@ function DashboardAndExportDemo({
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        gap: "24px",
+        gap: "20px",
       }}
     >
-      <div>
-        <h2
-          style={{
-            color: isDark ? "#38bdf8" : "#0284c7",
-            marginTop: 0,
-            marginBottom: "6px",
-            fontSize: "1.3rem",
-            fontWeight: 700,
-          }}
-        >
-          📊 Interactive BI Dashboard & Multi-Format Export Workbench
-        </h2>
-        <p style={{ color: isDark ? "#94a3b8" : "#64748b", margin: 0, fontSize: "0.88rem" }}>
-          Click any bar in a chart tile to cross-filter sibling tiles, or export queries below as TypeScript SDK code, dialect SQL, AST JSON, or streaming files.
-        </p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+          gap: "12px",
+        }}
+      >
+        <div>
+          <h2
+            style={{
+              color: isDark ? "#38bdf8" : "#0284c7",
+              marginTop: 0,
+              marginBottom: "6px",
+              fontSize: "1.3rem",
+              fontWeight: 700,
+            }}
+          >
+            📊 Interactive BI Dashboard & Multi-Format Export Workbench
+          </h2>
+          <p style={{ color: isDark ? "#94a3b8" : "#64748b", margin: 0, fontSize: "0.88rem" }}>
+            Visualizing live queried data from <strong>{activeDbName}</strong> ({activeTableLabel}
+            {joinedTablesLabel}). Click any chart bar/slice or table row to cross-filter sibling tiles, or select tables/presets in the sidebar to switch datasets.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <span
+            data-testid="bi-live-query-badge"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 10px",
+              borderRadius: "6px",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              backgroundColor: isDark ? "rgba(16, 185, 129, 0.14)" : "#ecfdf5",
+              border: `1px solid ${isDark ? "rgba(16, 185, 129, 0.35)" : "#a7f3d0"}`,
+              color: isDark ? "#6ee7b7" : "#047857",
+            }}
+          >
+            <span>●</span>
+            <span>
+              {isLoading
+                ? "Running query..."
+                : queryResults
+                  ? `Live Query: ${rowCount} row${rowCount === 1 ? "" : "s"} • ${colCount} col${colCount === 1 ? "" : "s"}`
+                  : "Awaiting query results"}
+            </span>
+          </span>
+
+          {onRefreshQuery && (
+            <button
+              type="button"
+              data-testid="bi-refresh-query-btn"
+              onClick={onRefreshQuery}
+              disabled={isLoading}
+              style={{
+                padding: "5px 11px",
+                borderRadius: "6px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.25)" : "#cbd5e1"}`,
+                backgroundColor: isDark ? "#131c31" : "#ffffff",
+                color: isDark ? "#e2e8f0" : "#1e293b",
+                cursor: isLoading ? "wait" : "pointer",
+              }}
+            >
+              ↻ Refresh Query
+            </button>
+          )}
+
+          {onEditInStudio && (
+            <button
+              type="button"
+              data-testid="bi-edit-in-studio-btn"
+              onClick={onEditInStudio}
+              style={{
+                padding: "5px 11px",
+                borderRadius: "6px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                border: "1px solid rgba(56, 189, 248, 0.4)",
+                backgroundColor: isDark ? "rgba(56, 189, 248, 0.14)" : "#e0f2fe",
+                color: isDark ? "#38bdf8" : "#0284c7",
+                cursor: "pointer",
+              }}
+            >
+              ✎ Edit Query in Studio
+            </button>
+          )}
+        </div>
       </div>
 
-      <DashboardWorkbench initialState={INITIAL_DASHBOARD_STATE} />
+      {querySql && (
+        <div
+          data-testid="bi-active-sql-bar"
+          style={{
+            padding: "8px 12px",
+            borderRadius: "8px",
+            backgroundColor: isDark ? "#0d1322" : "#f8fafc",
+            border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.14)" : "#e2e8f0"}`,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: "0.78rem",
+            color: isDark ? "#93c5fd" : "#1d4ed8",
+            overflowX: "auto",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <strong style={{ color: isDark ? "#94a3b8" : "#64748b", marginRight: "8px" }}>Active SQL:</strong>
+          {querySql}
+        </div>
+      )}
+
+      <DashboardWorkbench
+        initialState={{
+          title: dashboardTitle,
+        }}
+        results={queryResults}
+        querySpec={isRawSqlMode ? null : activeSpec}
+        sql={querySql}
+      />
 
       <div>
         <h3
@@ -3355,10 +3570,10 @@ function DashboardAndExportDemo({
             fontWeight: 700,
           }}
         >
-          📦 Code Generation & Streaming Dataset Exporter ({defaultTable})
+          📦 Code Generation & Streaming Dataset Exporter ({activeTableLabel})
         </h3>
         <ExportWorkbench
-          spec={sampleExportSpec}
+          spec={activeSpec}
           dialect={dialect}
           streamEndpoint={`/api/export?db=${encodeURIComponent(activeDbId)}`}
           onExportStream={handleExportStream}
