@@ -196,7 +196,9 @@ export type BuiltInFilterOperator =
   | "ENDS_WITH"
   | "CONTAINS"
   | "LIKE"
+  | "NOT LIKE"
   | "ILIKE"
+  | "NOT ILIKE"
   | "IN"
   | "NOT IN"
   | "BETWEEN"
@@ -325,6 +327,7 @@ export interface VisualSort<Schema = DatabaseSchemaDefinition> {
   tablePrefix?: SchemaTableNames<Schema>;
   column: SchemaColumnNames<Schema, string> | string;
   direction: "ASC" | "DESC";
+  nulls?: "FIRST" | "LAST";
 }
 
 export interface VisualColumnSelect<Schema = DatabaseSchemaDefinition> {
@@ -465,6 +468,7 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
     column: string;
     direction: "ASC" | "DESC";
     tablePrefix?: SchemaTableNames<Schema>;
+    nulls?: "FIRST" | "LAST";
   }[];
   distinct: boolean;
   limit: number;
@@ -475,7 +479,7 @@ export interface QuerySpec<Schema = DatabaseSchemaDefinition> {
   window_functions?: WindowFunctionSpec[];
   set_operations?: SetOperationSpec<Schema>[];
   group_by?: string[];
-  having?: { column: string; op: string; value: unknown }[];
+  having?: { column: string; agg?: string; op: string; value: unknown }[];
   grouping_type?: "standard" | "rollup" | "cube" | "grouping_sets";
   grouping_sets?: string[][];
 }
@@ -529,8 +533,10 @@ export interface LooseSpecFilter {
 export interface LooseSpecSort {
   id?: string;
   tablePrefix?: string;
+  table_prefix?: string;
   column?: string;
-  direction?: "ASC" | "DESC";
+  direction?: "ASC" | "DESC" | "asc" | "desc";
+  nulls?: "FIRST" | "LAST" | string;
 }
 
 export interface LooseQuerySpec {
@@ -544,6 +550,7 @@ export interface LooseQuerySpec {
   filters?: LooseSpecFilter[];
   sorts?: VisualSort[];
   order_by?: LooseSpecSort[];
+  having?: { column: string; agg?: string; op: string; value: unknown }[] | null;
   filter_join?: "AND" | "OR";
   filterJoin?: "AND" | "OR";
   distinct?: boolean;
@@ -586,6 +593,7 @@ export interface WindowFunctionSpec {
     column: string;
     direction?: "ASC" | "DESC";
     tablePrefix?: string;
+    nulls?: "FIRST" | "LAST";
   }[];
   frame?: WindowFrameSpec;
   alias?: string;

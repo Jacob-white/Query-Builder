@@ -524,3 +524,82 @@ class TestSqlParser:
         assert not any(
             (c.get("alias") if isinstance(c, dict) else c) == "rn" for c in spec.columns
         )
+
+    def test_outer_joins_and_having_alias_resolution(self) -> None:
+        from query_builder.compiler import QueryCompiler
+
+        sql = """
+            SELECT
+                o.status,
+                ROW_NUMBER() OVER (PARTITION BY o.status ORDER BY o.amount DESC NULLS LAST) AS rn
+            FROM orders AS o
+            LEFT OUTER JOIN customers AS c ON o.customer_id = c.id
+            RIGHT OUTER JOIN shipments AS s ON s.order_id = o.id
+            FULL OUTER JOIN invoices AS inv ON inv.order_id = o.id
+            GROUP BY o.status
+            HAVING COUNT(DISTINCT c.id) >= 2 AND SUM(o.amount) <> 0 AND invalid_having_expr
+            ORDER BY o.status ASC NULLS FIRST
+        """
+        spec = parse_sql_to_spec(sql)
+        assert spec is not None
+        assert spec.table == "orders"
+        assert spec.columns == ["orders.status"]
+        assert len(spec.window_functions) == 1
+        assert spec.window_functions[0].order_by[0].nulls == "LAST"
+        assert spec.order_by[0].nulls == "FIRST"
+        assert len(spec.joins) == 3
+        assert spec.joins[0].table == "customers"
+        assert spec.joins[0].type == "LEFT"
+        assert spec.joins[0].left_table == "orders"
+        assert spec.joins[0].left_col == "customer_id"
+        assert spec.joins[0].right_col == "id"
+        assert spec.joins[1].table == "shipments"
+        assert spec.joins[1].type == "RIGHT"
+        assert spec.joins[2].table == "invoices"
+        assert spec.joins[2].type == "FULL"
+
+        assert len(spec.having) == 2
+        assert spec.having[0].column == "customers.id"
+        assert spec.having[0].agg == "count_distinct"
+        assert spec.having[0].op == ">="
+        assert spec.having[0].value == 2
+        assert spec.having[1].column == "orders.amount"
+        assert spec.having[1].agg == "sum"
+        assert spec.having[1].op == "!="
+        assert spec.having[1].value == 0
+
+        # Verify QueryCompiler emits GROUP BY when HAVING is present on non-aggregated projections
+        schema = {
+            "orders": {
+                "columns": [
+                    {"name": "id", "data_type": "integer"},
+                    {"name": "customer_id", "data_type": "integer"},
+                    {"name": "status", "data_type": "text"},
+                    {"name": "amount", "data_type": "numeric"},
+                ]
+            },
+            "customers": {"columns": [{"name": "id", "data_type": "integer"}]},
+            "shipments": {"columns": [{"name": "order_id", "data_type": "integer"}]},
+            "invoices": {"columns": [{"name": "order_id", "data_type": "integer"}]},
+        }
+        compiler = QueryCompiler(spec.to_dict(), schema, dialect="postgres")
+        main_sql, main_params, count_sql, count_params = compiler.compile()
+        assert 'GROUP BY "t1"."status"' in main_sql
+        assert (
+            'HAVING COUNT(DISTINCT "t2"."id") >= %s AND SUM("t1"."amount") != %s'
+            in main_sql
+        )
+        assert main_params[:2] == [2, 0]
+        assert count_params == [2, 0]
+        assert 'HAVING COUNT(DISTINCT "t2"."id") >= %s' in count_sql
+
+        # Also verify HAVING without GROUP BY wraps count_sql so count_params match placeholders
+        having_only_spec = {
+            "table": "orders",
+            "columns": [{"column": "id", "agg": "count", "alias": "total"}],
+            "having": [{"column": "id", "agg": "count", "op": "gt", "value": 5}],
+        }
+        c2 = QueryCompiler(having_only_spec, schema, dialect="postgres")
+        _, _, count_sql2, count_params2 = c2.compile()
+        assert 'HAVING COUNT("t1"."id") > %s' in count_sql2
+        assert count_params2 == [5]

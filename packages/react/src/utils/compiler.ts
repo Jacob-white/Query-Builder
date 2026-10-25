@@ -55,7 +55,12 @@ export interface CompiledVisualQuery {
       parenClose?: string;
     }[];
     filter_join: "AND" | "OR";
-    order_by: { column: string; direction: "ASC" | "DESC"; tablePrefix?: string }[];
+    order_by: {
+      column: string;
+      direction: "ASC" | "DESC";
+      tablePrefix?: string;
+      nulls?: "FIRST" | "LAST";
+    }[];
     distinct: boolean;
     limit: number;
     vector_search?: VectorSearchSpec;
@@ -77,7 +82,9 @@ const ALLOWED_OPERATORS = new Set([
   "ENDS_WITH",
   "CONTAINS",
   "LIKE",
+  "NOT LIKE",
   "ILIKE",
+  "NOT ILIKE",
   "IN",
   "NOT IN",
   "BETWEEN",
@@ -723,12 +730,22 @@ export function compileVisualState(
       } else if (f.operator === "ILIKE") {
         const clean = valStr.replace(/'/g, "''");
         expr = formatIlike(colRef, `'${clean}'`, dialect);
+      } else if (f.operator === "NOT ILIKE") {
+        const clean = valStr.replace(/'/g, "''");
+        expr = `NOT (${formatIlike(colRef, `'${clean}'`, dialect)})`;
       } else if (f.operator === "LIKE") {
         const clean = valStr.replace(/'/g, "''");
         if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
           expr = `${colRef} CONTAINS '${clean}'`;
         } else {
           expr = `${colRef} LIKE '${clean}'`;
+        }
+      } else if (f.operator === "NOT LIKE") {
+        const clean = valStr.replace(/'/g, "''");
+        if (dialect === "neo4j" || dialect === "cypher" || dialect === "neo4j_sql") {
+          expr = `NOT (${colRef} CONTAINS '${clean}')`;
+        } else {
+          expr = `${colRef} NOT LIKE '${clean}'`;
         }
       } else if (f.operator === "IN" || f.operator === "NOT IN") {
         const items = valStr
@@ -841,13 +858,30 @@ export function compileVisualState(
     const sortParts = activeSorts.map((s) => {
       const colName = sanitizeIdent(s.column);
       const direction = s.direction === "DESC" ? "DESC" : "ASC";
+      const rawNulls = typeof s.nulls === "string" ? s.nulls.trim().toUpperCase() : "";
+      const nullsVal: "FIRST" | "LAST" | undefined =
+        rawNulls === "FIRST" || rawNulls === "NULLS FIRST"
+          ? "FIRST"
+          : rawNulls === "LAST" || rawNulls === "NULLS LAST"
+            ? "LAST"
+            : undefined;
+      const nullsSuffix = nullsVal ? ` NULLS ${nullsVal}` : "";
       if (aggregateAliases.has(colName)) {
-        specSorts.push({ column: colName, direction });
-        return `${quoteAlias(colName, dialect)} ${direction}`;
+        specSorts.push({
+          column: colName,
+          direction,
+          ...(nullsVal ? { nulls: nullsVal } : {}),
+        });
+        return `${quoteAlias(colName, dialect)} ${direction}${nullsSuffix}`;
       }
       const tbl = cleanTableName(s.tablePrefix || cleanPrimary);
-      specSorts.push({ column: `${tbl}.${colName}`, direction, tablePrefix: tbl });
-      return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)} ${direction}`;
+      specSorts.push({
+        column: `${tbl}.${colName}`,
+        direction,
+        tablePrefix: tbl,
+        ...(nullsVal ? { nulls: nullsVal } : {}),
+      });
+      return `${quoteIdent(tbl, dialect)}.${quoteIdent(colName, dialect)} ${direction}${nullsSuffix}`;
     });
     orderClause = `ORDER BY ${sortParts.join(", ")}`;
   }
@@ -931,7 +965,18 @@ export function compileVisualState(
           : "";
       const part = wf.partition_by?.length ? `PARTITION BY ${wf.partition_by.map((c) => sanitizeIdent(c)).join(", ")}` : "";
       const ord = wf.order_by?.length
-        ? `ORDER BY ${wf.order_by.map((o) => `${sanitizeIdent(o.column)} ${safeDirection(o.direction)}`).join(", ")}`
+        ? `ORDER BY ${wf.order_by
+            .map((o) => {
+              const rawNulls = typeof o.nulls === "string" ? o.nulls.trim().toUpperCase() : "";
+              const nullsSuffix =
+                rawNulls === "FIRST" || rawNulls === "NULLS FIRST"
+                  ? " NULLS FIRST"
+                  : rawNulls === "LAST" || rawNulls === "NULLS LAST"
+                    ? " NULLS LAST"
+                    : "";
+              return `${sanitizeIdent(o.column)} ${safeDirection(o.direction)}${nullsSuffix}`;
+            })
+            .join(", ")}`
         : "";
       let frame = "";
       if (wf.frame) {

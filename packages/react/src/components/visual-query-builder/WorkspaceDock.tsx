@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { QueryResultData, QueryBuilderClassNames, SchemaSnapshot } from "../../types";
 import type { QueryBuilderTheme } from "../../theme/tokens";
 import type { CellRenderer } from "../../theme/QueryBuilderProvider";
@@ -62,6 +62,12 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   // If there are no results and not loading, keep dock dormant unless explicitly toggled
   if (!results && !isLoading && !isOpen) {
     return null;
@@ -71,7 +77,6 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(currentSql);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     }
   };
 

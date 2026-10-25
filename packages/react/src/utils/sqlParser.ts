@@ -12,7 +12,9 @@ const ALLOWED_OPERATORS = [
   "NOT IN",
   "IN",
   "BETWEEN",
+  "NOT ILIKE",
   "ILIKE",
+  "NOT LIKE",
   "LIKE",
   "STARTS_WITH",
   "ENDS_WITH",
@@ -412,6 +414,7 @@ function findTopLevelClauses(sql: string): ClauseToken[] {
     "JOIN",
     "WHERE",
     "GROUP BY",
+    "HAVING",
     "ORDER BY",
     "LIMIT",
     "OFFSET",
@@ -1136,20 +1139,39 @@ export function parseSqlToSpec(
         const alias = wfMatch[4] ? cleanIdentifier(wfMatch[4]) : `${fnName.toLowerCase()}_wf`;
 
         let partitionCols: string[] | undefined = undefined;
-        let orderSpecs: { column: string; direction?: "ASC" | "DESC" }[] | undefined = undefined;
+        let orderSpecs:
+          | { column: string; direction?: "ASC" | "DESC"; nulls?: "FIRST" | "LAST" }[]
+          | undefined = undefined;
 
         const partClause = extractPartitionBy(overClause);
         if (partClause !== undefined) {
-          partitionCols = partClause.split(",").map((c) => cleanIdentifier(c.trim()));
+          partitionCols = partClause
+            .split(",")
+            .map((c) => resolveColAlias(cleanIdentifier(c.trim())));
         }
 
         const ordClause = extractOrderBy(overClause);
         if (ordClause !== undefined) {
           orderSpecs = ordClause.split(",").map((o) => {
             const parts = o.trim().split(/\s+/);
-            const col = cleanIdentifier(parts[0]);
-            const dir = parts[1] && /^DESC$/i.test(parts[1]) ? "DESC" : "ASC";
-            return { column: col, direction: dir as "ASC" | "DESC" };
+            const col = resolveColAlias(cleanIdentifier(parts[0]));
+            const upperParts = parts.slice(1).map((p) => p.toUpperCase());
+            const dir: "ASC" | "DESC" = upperParts.includes("DESC") ? "DESC" : "ASC";
+            let nullsVal: "FIRST" | "LAST" | undefined;
+            for (let pIdx = 0; pIdx < upperParts.length - 1; pIdx++) {
+              if (
+                upperParts[pIdx] === "NULLS" &&
+                (upperParts[pIdx + 1] === "FIRST" || upperParts[pIdx + 1] === "LAST")
+              ) {
+                nullsVal = upperParts[pIdx + 1] as "FIRST" | "LAST";
+                break;
+              }
+            }
+            return {
+              column: col,
+              direction: dir,
+              ...(nullsVal ? { nulls: nullsVal } : {}),
+            };
           });
         }
 
@@ -1424,7 +1446,18 @@ export function parseSqlToSpec(
     for (const sc of sortChunks) {
       const parts = sc.value.trim().split(/\s+/);
       const colStr = cleanIdentifier(parts[0]);
-      const dir = parts[1] && parts[1].toUpperCase() === "DESC" ? "DESC" : "ASC";
+      const upperParts = parts.slice(1).map((p) => p.toUpperCase());
+      const dir: "ASC" | "DESC" = upperParts.includes("DESC") ? "DESC" : "ASC";
+      let nullsVal: "FIRST" | "LAST" | undefined;
+      for (let pIdx = 0; pIdx < upperParts.length - 1; pIdx++) {
+        if (
+          upperParts[pIdx] === "NULLS" &&
+          (upperParts[pIdx + 1] === "FIRST" || upperParts[pIdx + 1] === "LAST")
+        ) {
+          nullsVal = upperParts[pIdx + 1] as "FIRST" | "LAST";
+          break;
+        }
+      }
 
       const { tablePrefix, colName } = resolveQualifiedOrSchemaCol(colStr);
 
@@ -1432,7 +1465,43 @@ export function parseSqlToSpec(
         column: colName,
         direction: dir,
         tablePrefix,
+        ...(nullsVal ? { nulls: nullsVal } : {}),
       });
+    }
+  }
+
+  // 5b. Having
+  let having: QuerySpec["having"] = undefined;
+  const havingContent = clauseMap["HAVING"];
+  if (havingContent) {
+    const condItems = splitTopLevel(havingContent, /^\s+AND\b/i);
+    const parsedHaving: NonNullable<QuerySpec["having"]> = [];
+    for (const ci of condItems) {
+      const hStr = ci.value.trim();
+      const hMatch = hStr.match(
+        /^(COUNT|SUM|AVG|MIN|MAX)\s*\(([^)]+)\)\s*(>=|<=|!=|<>|=|>|<)([\s\S]+)$/i,
+      );
+      if (hMatch && hMatch[4].trim()) {
+        let hAgg = hMatch[1].toLowerCase();
+        let innerRaw = hMatch[2].trim();
+        if (hAgg === "count" && /^DISTINCT\b/i.test(innerRaw)) {
+          hAgg = "count_distinct";
+          innerRaw = innerRaw.replace(/^DISTINCT\s+/i, "").trim();
+        }
+        const hCol = resolveColAlias(cleanIdentifier(innerRaw));
+        const rawOp = hMatch[3];
+        const hOp = rawOp === "<>" ? "!=" : rawOp;
+        const hVal = parseLiteralValue(hMatch[4].trim());
+        parsedHaving.push({
+          column: hCol,
+          agg: hAgg,
+          op: hOp,
+          value: hVal,
+        });
+      }
+    }
+    if (parsedHaving.length > 0) {
+      having = parsedHaving;
     }
   }
 
@@ -1468,5 +1537,6 @@ export function parseSqlToSpec(
     offset,
     ctes,
     window_functions: windowFunctions,
+    ...(having ? { having } : {}),
   };
 }

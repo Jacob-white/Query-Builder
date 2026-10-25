@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import type { QueryPlanNode } from "../types";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -300,6 +300,12 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
   const [selectedNode, setSelectedNode] = useState<QueryPlanNode | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   const allWarnings = useMemo(() => collectAllWarnings(plan), [plan]);
 
   const handleNodeClick = (node: QueryPlanNode) => {
@@ -311,7 +317,6 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
     const dataToCopy = rawPlan || plan;
     navigator.clipboard.writeText(JSON.stringify(dataToCopy, null, 2)).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     });
   };
 

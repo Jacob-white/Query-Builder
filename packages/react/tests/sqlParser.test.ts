@@ -564,7 +564,52 @@ describe("sqlParser", () => {
         direction: "DESC",
       });
     });
+
+    it("parses NOT LIKE, NOT ILIKE, HAVING clauses, and NULLS FIRST/LAST ordering", () => {
+      const sql = `
+        SELECT
+          u.department,
+          ROW_NUMBER() OVER (PARTITION BY u.department ORDER BY u.salary DESC NULLS LAST, u.id ASC NULLS FIRST) AS dept_rank
+        FROM users u
+        WHERE u.name NOT LIKE '%bot%'
+          AND u.email NOT ILIKE '%@spam.org'
+        GROUP BY u.department
+        HAVING COUNT(DISTINCT u.id) >= 3 AND SUM(u.salary) <> 0 AND invalid_having_expr
+        ORDER BY u.department ASC NULLS FIRST, u.salary DESC NULLS LAST
+      `;
+      const spec = parseSqlToSpec(sql);
+      expect(spec).not.toBeNull();
+      expect(spec?.table).toBe("users");
+      expect(spec?.filters).toHaveLength(2);
+      expect(spec?.filters[0]).toMatchObject({
+        tablePrefix: "users",
+        column: "name",
+        op: "NOT LIKE",
+        value: "%bot%",
+      });
+      expect(spec?.filters[1]).toMatchObject({
+        tablePrefix: "users",
+        column: "email",
+        op: "NOT ILIKE",
+        value: "%@spam.org",
+      });
+      expect(spec?.window_functions).toHaveLength(1);
+      expect(spec?.window_functions?.[0]?.partition_by).toEqual(["users.department"]);
+      expect(spec?.window_functions?.[0]?.order_by).toEqual([
+        { column: "users.salary", direction: "DESC", nulls: "LAST" },
+        { column: "users.id", direction: "ASC", nulls: "FIRST" },
+      ]);
+      expect(spec?.having).toEqual([
+        { column: "users.id", agg: "count_distinct", op: ">=", value: 3 },
+        { column: "users.salary", agg: "sum", op: "!=", value: 0 },
+      ]);
+      expect(spec?.order_by).toEqual([
+        { tablePrefix: "users", column: "department", direction: "ASC", nulls: "FIRST" },
+        { tablePrefix: "users", column: "salary", direction: "DESC", nulls: "LAST" },
+      ]);
+    });
   });
 });
+
 
 

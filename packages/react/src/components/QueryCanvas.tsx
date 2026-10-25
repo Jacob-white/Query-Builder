@@ -532,6 +532,12 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
     );
   };
 
+  React.useEffect(() => {
+    if (!copiedSql) return;
+    const timer = setTimeout(() => setCopiedSql(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copiedSql]);
+
   const handleCopyLiveSql = () => {
     const sqlToCopy = effectiveSqlText || compiledSql;
     if (!sqlToCopy) return;
@@ -539,7 +545,6 @@ export const QueryCanvas: React.FC<QueryCanvasProps> = ({
       void navigator.clipboard.writeText(sqlToCopy);
     }
     setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 1500);
   };
 
   const stepTabs: { id: QueryStepTab; label: string; badge: string; visible: boolean }[] = [

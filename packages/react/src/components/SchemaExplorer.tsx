@@ -188,9 +188,14 @@ export const SchemaExplorer: React.FC<SchemaExplorerProps> = ({
     return activeTable ? tableFkMaps.incoming[activeTable.name] : [];
   }, [activeTable, tableFkMaps]);
 
+  useEffect(() => {
+    if (!copyFeedback) return;
+    const timer = setTimeout(() => setCopyFeedback(null), 1800);
+    return () => clearTimeout(timer);
+  }, [copyFeedback]);
+
   const showCopyMessage = (msg: string) => {
     setCopyFeedback(msg);
-    setTimeout(() => setCopyFeedback(null), 1800);
   };
 
   const handleCopyTableName = () => {
