@@ -376,4 +376,104 @@ describe("BiChartVisualizer Component", () => {
     render(<BiChartVisualizer results={sampleResults} unstyled={true} />);
     expect(screen.getByLabelText("Visual Chart Preview")).toBeTruthy();
   });
+
+  it("invokes onDataPointClick across bar, line, area, scatter, single-slice pie, and multi-slice donut charts", () => {
+    const onDataPointClick = vi.fn();
+    const { rerender } = render(
+      <BiChartVisualizer
+        results={sampleResults}
+        chartType="bar"
+        onDataPointClick={onDataPointClick}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("graphics-symbol")[0]);
+    expect(onDataPointClick).toHaveBeenLastCalledWith(
+      "Engineering",
+      120000,
+      "department",
+      expect.objectContaining({ category: "Engineering", value: 120000 }),
+    );
+
+    rerender(<BiChartVisualizer results={sampleResults} chartType="line" onDataPointClick={onDataPointClick} />);
+    fireEvent.click(screen.getAllByRole("graphics-symbol")[0]);
+    expect(onDataPointClick).toHaveBeenCalledTimes(2);
+
+    rerender(<BiChartVisualizer results={sampleResults} chartType="area" onDataPointClick={onDataPointClick} />);
+    fireEvent.click(screen.getAllByRole("graphics-symbol")[0]);
+    expect(onDataPointClick).toHaveBeenCalledTimes(3);
+
+    rerender(<BiChartVisualizer results={sampleResults} chartType="scatter" onDataPointClick={onDataPointClick} />);
+    fireEvent.click(screen.getAllByRole("graphics-symbol")[0]);
+    expect(onDataPointClick).toHaveBeenCalledTimes(4);
+
+    rerender(<BiChartVisualizer results={sampleResults} chartType="donut" onDataPointClick={onDataPointClick} />);
+    fireEvent.click(screen.getAllByRole("graphics-symbol")[0]);
+    expect(onDataPointClick).toHaveBeenCalledTimes(5);
+
+    const singleData: QueryResultData = {
+      columns: ["id", "category", "revenue"],
+      rows: [{ id: 1, category: "Solo", revenue: 500 }],
+      count: 1,
+    };
+    rerender(
+      <BiChartVisualizer
+        results={singleData}
+        defaultCategoryCol="category"
+        chartType="pie"
+        onDataPointClick={onDataPointClick}
+      />,
+    );
+    fireEvent.click(screen.getByRole("graphics-symbol"));
+    expect(onDataPointClick).toHaveBeenLastCalledWith(
+      "Solo",
+      500,
+      "category",
+      expect.objectContaining({ category: "Solo", value: 500 }),
+    );
+  });
+
+  it("prefers non-numeric category columns over id when defaultCategoryCol is omitted and resets overrides when default props change", () => {
+    const idFirstResults: QueryResultData = {
+      columns: ["id", "status", "total_amount"],
+      rows: [
+        { id: 1, status: "COMPLETED", total_amount: 100 },
+        { id: 2, status: "PENDING", total_amount: 50 },
+      ],
+      count: 2,
+    };
+
+    const { rerender } = render(<BiChartVisualizer results={idFirstResults} />);
+    const catSelect = screen.getByLabelText("Select Category column") as HTMLSelectElement;
+    const metricSelect = screen.getByLabelText("Select Metric column") as HTMLSelectElement;
+    // Should default category to non-numeric "status" and metric to non-ID numeric "total_amount"
+    expect(catSelect.value).toBe("status");
+    expect(metricSelect.value).toBe("total_amount");
+
+    // User manually overrides category and metric dropdowns
+    fireEvent.change(catSelect, { target: { value: "id" } });
+    fireEvent.change(metricSelect, { target: { value: "id" } });
+    expect(catSelect.value).toBe("id");
+    expect(metricSelect.value).toBe("id");
+
+    // When parent passes updated defaultCategoryCol / defaultMetricCol (e.g. new query), overrides reset
+    const nextResults: QueryResultData = {
+      columns: ["id", "category", "price"],
+      rows: [
+        { id: 1, category: "Hardware", price: 300 },
+        { id: 2, category: "Software", price: 150 },
+      ],
+      count: 2,
+    };
+    rerender(
+      <BiChartVisualizer
+        results={nextResults}
+        defaultCategoryCol="category"
+        defaultMetricCol="price"
+      />,
+    );
+    expect((screen.getByLabelText("Select Category column") as HTMLSelectElement).value).toBe("category");
+    expect((screen.getByLabelText("Select Metric column") as HTMLSelectElement).value).toBe("price");
+  });
 });
+

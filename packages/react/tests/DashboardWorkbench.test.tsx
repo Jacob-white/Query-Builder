@@ -151,4 +151,103 @@ describe("DashboardWorkbench Component", () => {
     expect(screen.queryByTestId("add-tile-btn")).toBeNull();
     expect(screen.queryByTestId("add-filter-form")).toBeNull();
   });
+
+  it("renders live QueryResultData, creates tiles bound to queried data, and cross-filters on chart bar click", async () => {
+    const onStateChange = vi.fn();
+    const liveResults = {
+      columns: ["project_category", "score_points"],
+      rows: [
+        { project_category: "Analytics", score_points: 14 },
+        { project_category: "Infrastructure", score_points: 21 },
+        { project_category: "Security", score_points: 30 },
+      ],
+      count: 3,
+    };
+
+    render(
+      <DashboardWorkbench
+        results={liveResults}
+        querySpec={{
+          table: "projects",
+          columns: ["project_category", "score_points"],
+          joins: [],
+          filters: [],
+          filter_join: "AND",
+          order_by: [],
+          limit: 50,
+          offset: 0,
+          distinct: false,
+        }}
+        sql="SELECT project_category, score_points FROM projects"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    expect(onStateChange).toHaveBeenCalled();
+    expect(screen.getByTestId("dashboard-tile-tile-query-kpi")).toBeDefined();
+    expect(screen.getByTestId("dashboard-tile-tile-query-chart")).toBeDefined();
+    expect(screen.getByTestId("dashboard-tile-tile-query-table")).toBeDefined();
+    expect(screen.getByText("65")).toBeDefined(); // 14 + 21 + 30
+
+    // Click a bar in the chart tile to cross-filter sibling tiles
+    const bars = screen.getAllByRole("graphics-symbol");
+    fireEvent.click(bars[0]);
+    expect(screen.getByTestId("cross-filter-banner")).toBeDefined();
+    expect(screen.getByTestId("cross-filter-banner").textContent).toContain("Analytics");
+
+    // Add a new Pivot tile and verify it uses liveResults rather than demo sales data
+    fireEvent.click(screen.getByTestId("add-tile-btn"));
+    fireEvent.change(screen.getByTestId("new-tile-title-input"), { target: { value: "Project Matrix" } });
+    fireEvent.change(screen.getByTestId("new-tile-type-select"), { target: { value: "pivot" } });
+    fireEvent.click(screen.getByTestId("confirm-add-tile-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Project Matrix")).toBeDefined();
+    });
+  });
+
+  it("handles 0-row QueryResultData cleanly without injecting hardcoded demo sales rows on + Add Tile", async () => {
+    const emptyQueryResults = {
+      columns: ["orders.id", "orders.status", "orders.total_amount"],
+      rows: [],
+      count: 0,
+    };
+
+    render(
+      <DashboardWorkbench
+        results={emptyQueryResults}
+        querySpec={{
+          table: "orders",
+          columns: ["orders.id", "orders.status", "orders.total_amount"],
+          joins: [],
+          filters: [],
+          filter_join: "AND",
+          order_by: [],
+          limit: 50,
+          offset: 0,
+          distinct: false,
+        }}
+        sql="SELECT orders.id, orders.status, orders.total_amount FROM orders WHERE 1=0"
+      />,
+    );
+
+    // Auto-generated table tile should display column headers and "No matching records"
+    expect(screen.getByTestId("empty-table-tile-tile-query-table")).toBeDefined();
+    expect(screen.getByText("orders.status")).toBeDefined();
+
+    // Add a new table tile when results has 0 rows
+    fireEvent.click(screen.getByTestId("add-tile-btn"));
+    fireEvent.change(screen.getByTestId("new-tile-title-input"), { target: { value: "Zero Row Table" } });
+    fireEvent.change(screen.getByTestId("new-tile-type-select"), { target: { value: "table" } });
+    fireEvent.click(screen.getByTestId("confirm-add-tile-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Zero Row Table")).toBeDefined();
+    });
+
+    // Must NOT inject fake Hardware / Software / North demo sales rows
+    expect(screen.queryByText("Hardware")).toBeNull();
+    expect(screen.queryByText("Software")).toBeNull();
+  });
 });
+

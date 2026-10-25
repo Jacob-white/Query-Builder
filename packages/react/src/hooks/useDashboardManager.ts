@@ -5,17 +5,179 @@
  * reactive cross-filtering event bus, and KPI/Pivot aggregation compute.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
+  AggregationMode,
   CrossFilterState,
   DashboardState,
   DashboardTile,
   DashboardTileLayout,
   GlobalFilter,
+  QueryResultData,
 } from "../types";
 
 export interface UseDashboardManagerOptions {
   initialState?: Partial<DashboardState>;
+  results?: QueryResultData | null;
+}
+
+function isNumericVal(val: unknown): boolean {
+  if (val === null || val === undefined || typeof val === "boolean") return false;
+  if (typeof val === "number") return !Number.isNaN(val);
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    return trimmed !== "" && !Number.isNaN(Number(trimmed));
+  }
+  return false;
+}
+
+function shortColName(col: string): string {
+  return col.slice(col.lastIndexOf(".") + 1);
+}
+
+function isIdColumnName(col: string): boolean {
+  const base = shortColName(col).toLowerCase();
+  return base === "id" || base.endsWith("_id");
+}
+
+const NUMERIC_COL_NAME_RE =
+  /^(?:amount|total|price|cost|revenue|sales|quantity|qty|count|sum|avg|min|max|balance|score|rate|tax|discount|margin|profit|salary|bonus|units|views|streak)$/i;
+const NUMERIC_COL_SUFFIX_RE =
+  /(?:_amount|_total|_price|_cost|_revenue|_sales|_quantity|_qty|_count|_sum|_avg|_min|_max|_balance|_score|_rate|_tax|_discount|_margin|_profit|_salary|_bonus|_units|_views|_days)$/i;
+
+function isLikelyNumericColName(col: string): boolean {
+  if (isIdColumnName(col)) return true;
+  const base = shortColName(col);
+  return NUMERIC_COL_NAME_RE.test(base) || NUMERIC_COL_SUFFIX_RE.test(base);
+}
+
+export interface InferredDashboardColumns {
+  columns: string[];
+  categoryCol: string;
+  secondaryCategoryCol: string;
+  metricCol: string;
+  hasNonIdMetric: boolean;
+  defaultAggregation: AggregationMode;
+}
+
+export function inferDashboardColumns(
+  rows: Record<string, unknown>[],
+  columns?: string[],
+): InferredDashboardColumns {
+  const cols = columns?.length ? columns : rows[0] ? Object.keys(rows[0]) : [];
+  const sample = rows.slice(0, 10);
+
+  const numericCols =
+    sample.length > 0
+      ? cols.filter((c) => sample.some((r) => isNumericVal(r[c])))
+      : cols.filter((c) => isLikelyNumericColName(c));
+  const nonIdNumericCols = numericCols.filter((c) => !isIdColumnName(c));
+  const nonNumericCols = cols.filter((c) => !numericCols.includes(c));
+
+  const categoryCol = nonNumericCols[0] ?? cols[0] ?? "";
+  const candidateMetrics = nonIdNumericCols.length > 0 ? nonIdNumericCols : numericCols;
+  const metricCol =
+    candidateMetrics.find((c) => c !== categoryCol) ??
+    candidateMetrics[0] ??
+    cols[1] ??
+    categoryCol;
+  const secondaryCategoryCol =
+    cols.find((c) => c !== categoryCol && c !== metricCol) ??
+    cols.find((c) => c !== categoryCol) ??
+    categoryCol;
+
+  const hasNonIdMetric = nonIdNumericCols.length > 0;
+  const defaultAggregation: AggregationMode = hasNonIdMetric ? "SUM" : "COUNT";
+
+  return {
+    columns: cols,
+    categoryCol,
+    secondaryCategoryCol,
+    metricCol,
+    hasNonIdMetric,
+    defaultAggregation,
+  };
+}
+
+export function buildDashboardTilesFromResults(
+  results: QueryResultData,
+  titlePrefix?: string,
+): DashboardTile[] {
+  const rows = results.rows;
+  const inferred = inferDashboardColumns(rows, results.columns);
+  if (inferred.columns.length === 0 && rows.length === 0) {
+    return [];
+  }
+
+  const metricLabel = shortColName(inferred.metricCol);
+  const categoryLabel = shortColName(inferred.categoryCol);
+  const prefix = titlePrefix ? `${titlePrefix} — ` : "";
+
+  const kpiTile: DashboardTile = {
+    id: "tile-query-kpi",
+    title: inferred.hasNonIdMetric
+      ? `Total ${metricLabel}`
+      : "Total Queried Records",
+    type: "kpi",
+    columns: inferred.columns,
+    kpiConfig: {
+      title: inferred.hasNonIdMetric
+        ? `Sum of ${metricLabel} (${rows.length} rows)`
+        : `Queried Row Count`,
+      valueField: inferred.hasNonIdMetric ? inferred.metricCol : "__count__",
+      statusColor: "#a6e3a1",
+    },
+    layout: { x: 0, y: 0, w: 1, h: 1 },
+    cachedRows: rows,
+  };
+
+  const chartTile: DashboardTile = {
+    id: "tile-query-chart",
+    title: inferred.hasNonIdMetric
+      ? `${metricLabel} by ${categoryLabel}`
+      : `Records by ${categoryLabel}`,
+    type: "chart",
+    chartType: "bar",
+    columns: inferred.columns,
+    categoryCol: inferred.categoryCol,
+    metricCol: inferred.metricCol,
+    defaultAggregation: inferred.defaultAggregation,
+    layout: { x: 1, y: 0, w: 3, h: 1 },
+    cachedRows: rows,
+  };
+
+  const tableTile: DashboardTile = {
+    id: "tile-query-table",
+    title: `${prefix}Queried Records (${rows.length})`,
+    type: "table",
+    columns: inferred.columns,
+    layout: { x: 0, y: 1, w: 4, h: 1 },
+    cachedRows: rows,
+  };
+
+  return [kpiTile, chartTile, tableTile];
+}
+
+function resolveRowFieldValue(row: Record<string, unknown>, field?: string): unknown {
+  if (!field) return undefined;
+  if (field in row) return row[field];
+  const lowerField = field.toLowerCase();
+  const keys = Object.keys(row);
+  for (const key of keys) {
+    if (key.toLowerCase() === lowerField) {
+      return row[key];
+    }
+  }
+  const fieldIsQualified = lowerField.includes(".");
+  const shortTarget = shortColName(lowerField);
+  for (const key of keys) {
+    const lowerKey = key.toLowerCase();
+    const keyIsQualified = lowerKey.includes(".");
+    if ((!fieldIsQualified || !keyIsQualified) && shortColName(lowerKey) === shortTarget) {
+      return row[key];
+    }
+  }
+  return undefined;
 }
 
 export interface UseDashboardManagerReturn {
@@ -52,13 +214,96 @@ export interface UseDashboardManagerReturn {
 export function useDashboardManager(
   options: UseDashboardManagerOptions = {},
 ): UseDashboardManagerReturn {
-  const [dashboard, setDashboard] = useState<DashboardState>(() => ({
-    id: options.initialState?.id || "dashboard_1",
-    title: options.initialState?.title || "Operational Analytics",
-    tiles: options.initialState?.tiles ? [...options.initialState.tiles] : [],
-    globalFilters: options.initialState?.globalFilters ? [...options.initialState.globalFilters] : [],
-    crossFilter: options.initialState?.crossFilter || null,
-  }));
+  const [dashboard, setDashboard] = useState<DashboardState>(() => {
+    const initialTiles = options.initialState?.tiles
+      ? [...options.initialState.tiles]
+      : options.results
+        ? buildDashboardTilesFromResults(options.results, options.initialState?.title)
+        : [];
+    return {
+      id: options.initialState?.id || "dashboard_1",
+      title: options.initialState?.title || "Operational Analytics",
+      tiles: initialTiles,
+      globalFilters: options.initialState?.globalFilters ? [...options.initialState.globalFilters] : [],
+      crossFilter: options.initialState?.crossFilter || null,
+    };
+  });
+
+  const prevResultsRef = useRef<QueryResultData | null | undefined>(options.results);
+  const initialTitle = options.initialState?.title;
+
+  useEffect(() => {
+    if (options.results === prevResultsRef.current) {
+      if (initialTitle) {
+        setDashboard((prev) =>
+          prev.title === initialTitle
+            ? prev
+            : { ...prev, title: initialTitle },
+        );
+      }
+      return;
+    }
+    const hadPreviousResults = Boolean(prevResultsRef.current);
+    prevResultsRef.current = options.results;
+
+    if (!options.results) {
+      if (hadPreviousResults) {
+        setDashboard((prev) => ({
+          ...prev,
+          title: initialTitle || prev.title,
+          tiles: prev.tiles
+            .filter((t) => !t.id.startsWith("tile-query-"))
+            .map((t) => ({ ...t, cachedRows: [] })),
+          crossFilter: null,
+        }));
+      }
+      return;
+    }
+
+    const nextResults = options.results;
+    const nextRows = nextResults.rows;
+    const inferred = inferDashboardColumns(nextRows, nextResults.columns);
+
+    setDashboard((prev) => {
+      const nextAutoTiles = buildDashboardTilesFromResults(nextResults);
+      const customTiles = prev.tiles
+        .filter((t) => !t.id.startsWith("tile-query-"))
+        .map((t): DashboardTile => ({
+          ...t,
+          cachedRows: nextRows,
+          columns: inferred.columns,
+          categoryCol: inferred.categoryCol,
+          metricCol: inferred.metricCol,
+          defaultAggregation: inferred.defaultAggregation,
+          kpiConfig: t.kpiConfig
+            ? {
+                ...t.kpiConfig,
+                valueField: inferred.hasNonIdMetric ? inferred.metricCol : "__count__",
+              }
+            : undefined,
+          pivotConfig: t.pivotConfig
+            ? {
+                rowDimensions: [inferred.categoryCol],
+                columnDimensions: [inferred.secondaryCategoryCol],
+                valueMetrics: [
+                  {
+                    field: inferred.metricCol,
+                    agg: inferred.hasNonIdMetric ? "sum" : "count",
+                  },
+                ],
+              }
+            : undefined,
+        }));
+      const includeAutoTiles =
+        prev.tiles.length === 0 || prev.tiles.some((t) => t.id.startsWith("tile-query-"));
+      return {
+        ...prev,
+        title: initialTitle || prev.title,
+        tiles: includeAutoTiles ? [...nextAutoTiles, ...customTiles] : customTiles,
+        crossFilter: null,
+      };
+    });
+  }, [options.results, initialTitle]);
 
   const addTile = useCallback((tileData: Omit<DashboardTile, "id">): string => {
     const id = `tile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -198,11 +443,12 @@ export function useDashboardManager(
 
       let rows = [...tile.cachedRows];
 
-      // 1. Apply global parameter filters if row has field
+      // 1. Apply global parameter filters if row has field (supports exact or table-qualified column match)
       for (const gf of dashboard.globalFilters) {
         rows = rows.filter((r) => {
-          if (r[gf.field] === undefined) return true; // Pass through if tile table doesn't have this column
-          return String(r[gf.field]).toLowerCase() === String(gf.value).toLowerCase();
+          const val = resolveRowFieldValue(r, gf.field);
+          if (val === undefined) return true; // Pass through if tile table doesn't have this column
+          return String(val).toLowerCase() === String(gf.value).toLowerCase();
         });
       }
 
@@ -210,8 +456,9 @@ export function useDashboardManager(
       if (dashboard.crossFilter && dashboard.crossFilter.sourceTileId !== tileId) {
         const { field, value } = dashboard.crossFilter;
         rows = rows.filter((r) => {
-          if (r[field] === undefined) return true;
-          return String(r[field]).toLowerCase() === String(value).toLowerCase();
+          const val = resolveRowFieldValue(r, field);
+          if (val === undefined) return true;
+          return String(val).toLowerCase() === String(value).toLowerCase();
         });
       }
 
@@ -226,9 +473,14 @@ export function useDashboardManager(
       const valField = cfg.valueField || (rows[0] ? Object.keys(rows[0])[0] : "");
 
       let total = 0;
-      for (const r of rows) {
-        const num = Number(r[valField]);
-        if (!Number.isNaN(num)) total += num;
+      if (valField === "__count__") {
+        total = rows.length;
+      } else {
+        for (const r of rows) {
+          const raw = resolveRowFieldValue(r, valField);
+          const num = Number(raw);
+          if (!Number.isNaN(num)) total += num;
+        }
       }
 
       return {
@@ -253,15 +505,17 @@ export function useDashboardManager(
       const rowField = cfg.rowDimensions[0] || (rows[0] ? Object.keys(rows[0])[0] : "row");
       const colField = cfg.columnDimensions[0] || (rows[0] ? Object.keys(rows[0])[1] : "col");
       const metricField = cfg.valueMetrics[0]?.field || (rows[0] ? Object.keys(rows[0])[2] : "val");
+      const metricAgg = cfg.valueMetrics[0]?.agg || "sum";
 
       const rowKeysSet = new Set<string>();
       const colKeysSet = new Set<string>();
       const data: Record<string, Record<string, number>> = {};
 
       for (const r of rows) {
-        const rk = String(r[rowField] ?? "N/A");
-        const ck = String(r[colField] ?? "N/A");
-        const val = Number(r[metricField]) || 0;
+        const rk = String(resolveRowFieldValue(r, rowField) ?? "N/A");
+        const ck = String(resolveRowFieldValue(r, colField) ?? "N/A");
+        const val =
+          metricAgg === "count" ? 1 : Number(resolveRowFieldValue(r, metricField)) || 0;
 
         rowKeysSet.add(rk);
         colKeysSet.add(ck);

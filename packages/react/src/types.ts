@@ -939,6 +939,7 @@ export interface BiChartVisualizerProps extends QueryChartPreviewProps {
   adapter?: "builtin" | "echarts" | "vega-lite" | ((context: BiChartAdapterContext) => React.ReactNode);
   kpiTitle?: string;
   kpiSubtitle?: string;
+  onDataPointClick?: (category: string, value: number, field: string, point: ChartDataPoint) => void;
 }
 
 export type ExportFormat = "csv" | "json" | "parquet" | "excel" | "xlsx" | "arrow" | "jsonl" | "ndjson";
@@ -1078,8 +1079,12 @@ export interface DashboardTile {
   querySpec?: QuerySpec;
   sql?: string;
   cachedRows?: Record<string, unknown>[];
+  columns?: string[];
   layout: DashboardTileLayout;
   chartType?: ChartType;
+  categoryCol?: string;
+  metricCol?: string;
+  defaultAggregation?: AggregationMode;
   kpiConfig?: KpiConfig;
   pivotConfig?: PivotConfig;
 }

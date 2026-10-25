@@ -74,6 +74,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
   adapter = "builtin",
   kpiTitle,
   kpiSubtitle,
+  onDataPointClick,
   className,
   style,
   unstyled = false,
@@ -87,6 +88,18 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
   const [aggregation, setAggregation] = useState<AggregationMode>(defaultAggregation);
   const [internalStacked, setInternalStacked] = useState<boolean>(false);
   const isStacked = propStacked !== undefined ? propStacked : internalStacked;
+
+  React.useEffect(() => {
+    setAggregation(defaultAggregation);
+  }, [defaultAggregation]);
+
+  React.useEffect(() => {
+    setCategoryCol("");
+  }, [defaultCategoryCol]);
+
+  React.useEffect(() => {
+    setMetricCol("");
+  }, [defaultMetricCol]);
 
   const [activeTooltip, setActiveTooltip] = useState<{
     category: string;
@@ -105,18 +118,38 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
   const effectiveCategory = useMemo(() => {
     if (categoryCol && columns.includes(categoryCol)) return categoryCol;
     if (defaultCategoryCol && columns.includes(defaultCategoryCol)) return defaultCategoryCol;
-    return columns[0] || "";
-  }, [categoryCol, defaultCategoryCol, columns]);
+    const nonNumeric = columns.find((col) =>
+      rows.slice(0, 5).some((r) => r[col] !== null && r[col] !== undefined && !isNumericValue(r[col])),
+    );
+    return nonNumeric || columns[0] || "";
+  }, [categoryCol, defaultCategoryCol, columns, rows]);
 
   // Resolve effective metric column
   const effectiveMetric = useMemo(() => {
     if (metricCol && columns.includes(metricCol)) return metricCol;
     if (defaultMetricCol && columns.includes(defaultMetricCol)) return defaultMetricCol;
+    const isIdCol = (c: string) => {
+      const base = c.slice(c.lastIndexOf(".") + 1).toLowerCase();
+      return base === "id" || base.endsWith("_id");
+    };
+    const nonIdNumeric = columns.find(
+      (col) =>
+        col !== effectiveCategory &&
+        !isIdCol(col) &&
+        rows.slice(0, 5).some((r) => isNumericValue(r[col])),
+    );
+    if (nonIdNumeric) return nonIdNumeric;
     const detected = columns.find((col) =>
       rows.slice(0, 5).some((r) => isNumericValue(r[col])),
     );
     return detected || columns[1] || columns[0] || "";
-  }, [metricCol, defaultMetricCol, columns, rows]);
+  }, [metricCol, defaultMetricCol, columns, rows, effectiveCategory]);
+
+  const handleDataPointClick = (p: ChartDataPoint) => {
+    if (onDataPointClick) {
+      onDataPointClick(p.category, p.value, effectiveCategory, p);
+    }
+  };
 
   // Transform and aggregate data points
   const points: ChartDataPoint[] = useMemo(() => {
@@ -944,6 +977,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                         tabIndex={0}
                         aria-label={`${p.category}: ${p.value}`}
                         style={{ cursor: "pointer", transition: "fill 0.15s ease" }}
+                        onClick={() => handleDataPointClick(p)}
                         onMouseEnter={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           handleShowTooltip(p.category, p.value, rect.left + barWidth / 2, rect.top);
@@ -1014,6 +1048,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                             tabIndex={0}
                             aria-label={`${c.p.category}: ${c.p.value}`}
                             style={{ cursor: "pointer", transition: "r 0.15s ease" }}
+                            onClick={() => handleDataPointClick(c.p)}
                             onMouseEnter={(e) => {
                               const rect = e.currentTarget.getBoundingClientRect();
                               handleShowTooltip(c.p.category, c.p.value, rect.left, rect.top);
@@ -1082,6 +1117,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                             role="graphics-symbol"
                             tabIndex={0}
                             aria-label={`${c.p.category}: ${c.p.value}`}
+                            onClick={() => handleDataPointClick(c.p)}
                             onMouseEnter={(e) => {
                               const rect = e.currentTarget.getBoundingClientRect();
                               handleShowTooltip(c.p.category, c.p.value, rect.left, rect.top);
@@ -1130,6 +1166,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                         role="graphics-symbol"
                         tabIndex={0}
                         aria-label={`${p.category}: ${p.value}`}
+                        onClick={() => handleDataPointClick(p)}
                         onMouseEnter={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           handleShowTooltip(p.category, p.value, rect.left, rect.top);
@@ -1182,6 +1219,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                           role="graphics-symbol"
                           tabIndex={0}
                           aria-label={`${p.category}: ${p.value} (100.0%)`}
+                          onClick={() => handleDataPointClick(p)}
                           onMouseEnter={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             handleShowTooltip(p.category, p.value, rect.left + rOuter, rect.top, "100.0%");
@@ -1230,6 +1268,7 @@ export const BiChartVisualizer: React.FC<BiChartVisualizerProps> = ({
                           tabIndex={0}
                           aria-label={`${p.category}: ${p.value} (${pctStr})`}
                           style={{ cursor: "pointer", transition: "opacity 0.15s ease" }}
+                          onClick={() => handleDataPointClick(p)}
                           onMouseEnter={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             handleShowTooltip(p.category, p.value, rect.left + 20, rect.top, pctStr);
