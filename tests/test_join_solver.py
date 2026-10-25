@@ -231,3 +231,100 @@ def test_join_solver_custom_canonical_columns():
     assert cond3["left_col"] == "org_uuid"
     path3 = find_join_path(["orders"], "invoices", snapshot)
     assert len(path3) == 1
+
+
+def test_join_solver_plural_entity_bridges_and_relationships():
+    schema = {
+        "tables": {
+            "users": {"columns": [{"name": "id", "is_primary": True}]},
+            "orders": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "user_id"},
+                ]
+            },
+            "order_items": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "order_id"},
+                    {"name": "product_id"},
+                ]
+            },
+            "products": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "category_id"},
+                ]
+            },
+            "categories": {"columns": [{"name": "id", "is_primary": True}]},
+        },
+        "relationships": [
+            {
+                "source_table": "products",
+                "source_column": "category_id",
+                "target_table": "categories",
+                "target_column": "id",
+            }
+        ],
+    }
+    path = find_join_path(["users"], "categories", schema)
+    assert [step["table"] for step in path] == [
+        "orders",
+        "order_items",
+        "products",
+        "categories",
+    ]
+
+    # Direct & reverse find_best_join_condition via relationships
+    cond_rel = find_best_join_condition("products", "categories", schema)
+    assert cond_rel["is_fk"] is True
+    assert cond_rel["left_col"] == "category_id"
+    assert cond_rel["right_col"] == "id"
+
+    cond_rel_rev = find_best_join_condition("categories", "products", schema)
+    assert cond_rel_rev["is_fk"] is True
+    assert cond_rel_rev["left_col"] == "id"
+    assert cond_rel_rev["right_col"] == "category_id"
+
+
+def test_find_join_path_prioritizes_confirmed_fk_over_inferred():
+    schema = {
+        "tables": {
+            "a": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "b_inferred_id"},
+                    {"name": "b_confirmed_id"},
+                ]
+            },
+            "b_inferred": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "c_id"},
+                ]
+            },
+            "b_confirmed": {
+                "columns": [
+                    {"name": "id", "is_primary": True},
+                    {"name": "c_id"},
+                ]
+            },
+            "c": {"columns": [{"name": "id", "is_primary": True}]},
+        },
+        "foreign_keys": [
+            {
+                "table": "a",
+                "column": "b_confirmed_id",
+                "foreign_table": "b_confirmed",
+                "foreign_column": "id",
+            },
+            {
+                "table": "b_confirmed",
+                "column": "c_id",
+                "foreign_table": "c",
+                "foreign_column": "id",
+            },
+        ],
+    }
+    path = find_join_path(["a"], "c", schema)
+    assert [step["table"] for step in path] == ["b_confirmed", "c"]

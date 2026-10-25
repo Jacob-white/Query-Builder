@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import type { SchemaSnapshot, VisualJoin } from "../types";
-import { findJoinPath, findBestJoinCondition } from "../utils/joinUtils";
+import { findMultiHopJoinPath } from "../utils/joinUtils";
 import { useTheme } from "../theme/ThemeProvider";
 
 export interface SchemaErdModalProps {
@@ -108,15 +108,12 @@ export const SchemaErdModal: React.FC<SchemaErdModalProps> = ({
       setBridgePath([]);
       return;
     }
-    const path = findJoinPath([src], tgt, schema);
-    if (path.length === 1) {
-      const cond = findBestJoinCondition(src, tgt, schema);
-      if (!cond.isFk) {
-        setBridgePath([]);
-        return;
-      }
+    const pathResult = findMultiHopJoinPath([src], tgt, schema);
+    if (!pathResult.isConnected) {
+      setBridgePath([]);
+      return;
     }
-    setBridgePath(path);
+    setBridgePath(pathResult.joins);
   };
 
   if (!isOpen) return null;

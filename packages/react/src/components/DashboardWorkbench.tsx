@@ -11,6 +11,7 @@ import { useDashboardManager, inferDashboardColumns } from "../hooks/useDashboar
 import { BiChartVisualizer } from "./BiChartVisualizer";
 import { useTheme } from "../theme/ThemeProvider";
 import type {
+  AggregationMode,
   DashboardState,
   DashboardTileType,
   ChartType,
@@ -35,6 +36,7 @@ export interface DashboardWorkbenchProps {
   results?: QueryResultData | null;
   querySpec?: QuerySpec | null;
   sql?: string;
+  storageKey?: string;
   onStateChange?: (state: DashboardState) => void;
   readOnly?: boolean;
   unstyled?: boolean;
@@ -47,6 +49,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   results,
   querySpec,
   sql,
+  storageKey,
   onStateChange,
   readOnly = false,
   unstyled = false,
@@ -60,6 +63,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
     globalFilters,
     crossFilter,
     addTile,
+    updateTile,
     removeTile,
     duplicateTile,
     resizeTile,
@@ -71,7 +75,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
     getFilteredRowsForTile,
     computeKpi,
     computePivot,
-  } = useDashboardManager({ initialState, results });
+  } = useDashboardManager({ initialState, results, storageKey });
 
   useEffect(() => {
     onStateChange?.(dashboard);
@@ -81,6 +85,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
   const [newTileTitle, setNewTileTitle] = useState("");
   const [newTileType, setNewTileType] = useState<DashboardTileType>("chart");
   const [newTileChartType, setNewTileChartType] = useState<ChartType>("bar");
+  const [configuringTileId, setConfiguringTileId] = useState<string | null>(null);
 
   // Global filter inputs
   const [filterField, setFilterField] = useState("");
@@ -473,6 +478,37 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
 
                   {!readOnly && (
                     <div style={{ display: "flex", gap: "0.3rem" }}>
+                      {/* Configure Tile Axis & Chart Type */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConfiguringTileId((prev) =>
+                            prev === tile.id ? null : tile.id,
+                          )
+                        }
+                        style={{
+                          background:
+                            configuringTileId === tile.id
+                              ? "var(--qb-color-primary, #89b4fa)"
+                              : "var(--qb-color-border, #313244)",
+                          border: "none",
+                          color:
+                            configuringTileId === tile.id
+                              ? "#11111b"
+                              : "var(--qb-color-text, #cdd6f4)",
+                          fontSize: "0.75rem",
+                          borderRadius: "3px",
+                          padding: "0.2rem 0.45rem",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                        title="Configure Chart Type, Axes & Aggregation"
+                        aria-label={`Configure ${tile.title}`}
+                        data-testid={`configure-tile-${tile.id}`}
+                        data-qb="btn-configure-tile"
+                      >
+                        ⚙
+                      </button>
                       {/* Resize Width Toggle */}
                       <button
                         onClick={() => resizeTile(tile.id, spanW === 4 ? 1 : spanW + 1)}
@@ -527,6 +563,166 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Per-Tile Chart / Axis / Aggregation Configuration Bar */}
+                {!readOnly && configuringTileId === tile.id && (() => {
+                  const availCols = rows[0]
+                    ? Object.keys(rows[0])
+                    : tile.columns || results?.columns || [];
+                  const inferredCfg = inferDashboardColumns(rows, availCols);
+                  const currentViz =
+                    tile.type === "chart"
+                      ? tile.chartType || "bar"
+                      : tile.type;
+                  const currentCat = tile.categoryCol || inferredCfg.categoryCol;
+                  const currentMet = tile.metricCol || inferredCfg.metricCol;
+                  const currentAgg = tile.defaultAggregation || inferredCfg.defaultAggregation;
+
+                  return (
+                    <div
+                      data-testid={`tile-config-panel-${tile.id}`}
+                      data-qb="tile-config-panel"
+                      style={{
+                        padding: "0.55rem 0.9rem",
+                        borderBottom: "1px solid var(--qb-color-border, #313244)",
+                        backgroundColor: "rgba(30, 41, 59, 0.55)",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.6rem",
+                        alignItems: "center",
+                        fontSize: "0.78rem",
+                      }}
+                    >
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
+                        <span>Type:</span>
+                        <select
+                          aria-label="Visualization Type"
+                          data-testid={`tile-viz-select-${tile.id}`}
+                          value={currentViz}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "kpi" || val === "pivot" || val === "table") {
+                              updateTile(tile.id, { type: val });
+                            } else {
+                              updateTile(tile.id, {
+                                type: "chart",
+                                chartType: val as ChartType,
+                              });
+                            }
+                          }}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--qb-color-border, #45475a)",
+                            backgroundColor: "var(--qb-color-background, #181825)",
+                            color: "var(--qb-color-text, #cdd6f4)",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          <option value="bar">Bar Chart</option>
+                          <option value="line">Line Chart</option>
+                          <option value="area">Area Chart</option>
+                          <option value="donut">Donut Chart</option>
+                          <option value="pie">Pie Chart</option>
+                          <option value="scatter">Scatter Plot</option>
+                          <option value="kpi">KPI Card</option>
+                          <option value="pivot">Pivot Matrix</option>
+                          <option value="table">Data Table</option>
+                        </select>
+                      </label>
+
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
+                        <span>X-Axis / Group:</span>
+                        <select
+                          aria-label="Category / X-Axis"
+                          data-testid={`tile-category-select-${tile.id}`}
+                          value={currentCat}
+                          onChange={(e) =>
+                            updateTile(tile.id, { categoryCol: e.target.value })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--qb-color-border, #45475a)",
+                            backgroundColor: "var(--qb-color-background, #181825)",
+                            color: "var(--qb-color-text, #cdd6f4)",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          {availCols.map((col) => (
+                            <option key={col} value={col}>
+                              {col}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
+                        <span>Y-Axis / Metric:</span>
+                        <select
+                          aria-label="Metric / Y-Axis"
+                          data-testid={`tile-metric-select-${tile.id}`}
+                          value={currentMet}
+                          onChange={(e) =>
+                            updateTile(tile.id, {
+                              metricCol: e.target.value,
+                              ...(tile.kpiConfig
+                                ? {
+                                    kpiConfig: {
+                                      ...tile.kpiConfig,
+                                      valueField: e.target.value,
+                                    },
+                                  }
+                                : {}),
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--qb-color-border, #45475a)",
+                            backgroundColor: "var(--qb-color-background, #181825)",
+                            color: "var(--qb-color-text, #cdd6f4)",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          {availCols.map((col) => (
+                            <option key={col} value={col}>
+                              {col}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", color: "var(--qb-color-text-muted, #a6adc8)" }}>
+                        <span>Agg:</span>
+                        <select
+                          aria-label="Aggregation"
+                          data-testid={`tile-agg-select-${tile.id}`}
+                          value={currentAgg}
+                          onChange={(e) =>
+                            updateTile(tile.id, {
+                              defaultAggregation: e.target.value as AggregationMode,
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--qb-color-border, #45475a)",
+                            backgroundColor: "var(--qb-color-background, #181825)",
+                            color: "var(--qb-color-text, #cdd6f4)",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          <option value="SUM">SUM</option>
+                          <option value="AVG">AVG</option>
+                          <option value="COUNT">COUNT</option>
+                          <option value="MIN">MIN</option>
+                          <option value="MAX">MAX</option>
+                        </select>
+                      </label>
+                    </div>
+                  );
+                })()}
 
                 {/* Tile Body */}
                 <div style={{ padding: "1rem", flex: 1, minHeight: "180px", display: "flex", flexDirection: "column" }}>
@@ -672,6 +868,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                               count: rows.length,
                             }}
                             chartType={tile.chartType || "bar"}
+                            onChartTypeChange={(ct) => updateTile(tile.id, { chartType: ct })}
                             defaultCategoryCol={tile.categoryCol || tileInferred.categoryCol}
                             defaultMetricCol={tile.metricCol || tileInferred.metricCol}
                             defaultAggregation={tile.defaultAggregation || tileInferred.defaultAggregation}

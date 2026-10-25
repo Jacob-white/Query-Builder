@@ -130,6 +130,9 @@ export function expandTimeGrainSql(
   } else if (d === "bigquery") {
     return `DATE_TRUNC(${expr}, ${g.toUpperCase()})`;
   } else if (d === "sqlite") {
+    if (g === "quarter") {
+      return `(STRFTIME('%Y-Q', ${expr}) || ((CAST(STRFTIME('%m', ${expr}) AS INTEGER) + 2) / 3))`;
+    }
     const sqliteMap: Record<string, string> = {
       second: "%Y-%m-%d %H:%M:%S",
       minute: "%Y-%m-%d %H:%M:00",
@@ -137,7 +140,6 @@ export function expandTimeGrainSql(
       day: "%Y-%m-%d",
       week: "%Y-%W",
       month: "%Y-%m-01",
-      quarter: "%Y-m",
       year: "%Y-01-01",
     };
     const fmt = sqliteMap[g] || "%Y-%m-%d";

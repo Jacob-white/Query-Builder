@@ -3,6 +3,7 @@ import {
   QueryBuilderProvider,
   VisualQueryBuilder,
   DatabaseConnectionModal,
+  QueryTemplateManager,
   DashboardWorkbench,
   ExportWorkbench,
   useQueryBuilder,
@@ -12,6 +13,8 @@ import {
   fromSqlAlchemy,
   toSchemaSnapshot,
   findBestJoinCondition,
+  buildShareableQueryUrl,
+  decodeQuerySpecFromUrlParam,
   type VisualQueryBuilderRef,
   type DatabaseConnectionInfo,
   type SchemaSnapshot,
@@ -599,7 +602,13 @@ export function App() {
   const builderRef = useRef<VisualQueryBuilderRef | null>(null);
   const topAiInputRef = useRef<HTMLInputElement | null>(null);
   const aiReplyInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingSpecRef = useRef<QuerySpec | null>(null);
+  const pendingSpecRef = useRef<QuerySpec | null>(
+    typeof window !== "undefined"
+      ? (decodeQuerySpecFromUrlParam(
+          new URLSearchParams(window.location.search).get("q") || "",
+        ) as QuerySpec | null)
+      : null,
+  );
   const schemaFetchSeqRef = useRef<number>(0);
 
   const [activeTab, setActiveTab] = useState<"visual" | "headless" | "adapters" | "dashboard">("visual");
@@ -610,6 +619,8 @@ export function App() {
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(true);
   const [selectedPreset, setSelectedPreset] = useState<SqlPreset | null>(null);
   const [isPresetsMenuOpen, setIsPresetsMenuOpen] = useState<boolean>(false);
+  const [copiedShareLink, setCopiedShareLink] = useState<boolean>(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
 
   // Right-Docked Multi-Shot AI Assistant Drawer state
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState<boolean>(false);
@@ -943,6 +954,49 @@ export function App() {
     }
   };
 
+  const handleFetchDistinctValues = async (table: string, column: string): Promise<string[]> => {
+    try {
+      const res = await fetch(
+        `/api/columns/distinct?db=${encodeURIComponent(activeDbId)}&table=${encodeURIComponent(table)}&column=${encodeURIComponent(column)}&limit=40`,
+        { headers: { "X-QB-Database": activeDbId } },
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data.values) ? data.values.map((v: unknown) => String(v)) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    const specToShare: QuerySpec =
+      builderRef.current?.getSpec() ||
+      latestCanvasSpecRef.current ||
+      lastQuerySpec || {
+        table: resolvedInitialTable,
+        columns: [],
+        joins: [],
+        filters: [],
+        filter_join: "AND",
+        order_by: [],
+        distinct: false,
+        limit: 25,
+      };
+    const url = buildShareableQueryUrl(
+      specToShare as unknown as Record<string, unknown>,
+      undefined,
+      activeDbId,
+    );
+    if (typeof window !== "undefined" && window.history?.replaceState) {
+      window.history.replaceState(null, "", url);
+    }
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(url);
+    }
+    setCopiedShareLink(true);
+    setTimeout(() => setCopiedShareLink(false), 2000);
+  };
+
   const runActiveDashboardQuery = () => {
     if (latestCanvasSpecRef.current === null && latestCanvasSqlRef.current.trim()) {
       void handleExecuteQuery(latestCanvasSqlRef.current, null).catch(() => {});
@@ -998,12 +1052,19 @@ export function App() {
       if (builderRef.current && pendingSpecRef.current) {
         const specToApply = pendingSpecRef.current;
         pendingSpecRef.current = null;
-        builderRef.current.setSpec(specToApply);
-        void builderRef.current.execute(specToApply);
+        const isKnownTable =
+          Boolean(specToApply.table) &&
+          (Boolean(schema.tables?.[specToApply.table]) ||
+            (Array.isArray(specToApply.ctes) &&
+              specToApply.ctes.some((c) => c.name === specToApply.table)));
+        if (isKnownTable) {
+          builderRef.current.setSpec(specToApply);
+          void builderRef.current.execute(specToApply);
+        }
       }
     }, 20);
     return () => clearTimeout(timer);
-  }, [activeTab, loadedSchemaDbId, activeDbId]);
+  }, [activeTab, loadedSchemaDbId, activeDbId, schema]);
 
   // Ensure BI tab always has fresh results from the active query spec or raw SQL
   useEffect(() => {
@@ -1022,14 +1083,22 @@ export function App() {
     const timer = setTimeout(() => {
       if (pendingSpecRef.current) {
         const specToApply = pendingSpecRef.current;
-        if (builderRef.current) {
-          pendingSpecRef.current = null;
-          builderRef.current.setSpec(specToApply);
-          void builderRef.current.execute(specToApply);
-        } else {
-          void handleExecuteQuery("", specToApply).catch(() => {});
+        const isKnownTable =
+          Boolean(specToApply.table) &&
+          (Boolean(schema.tables?.[specToApply.table]) ||
+            (Array.isArray(specToApply.ctes) &&
+              specToApply.ctes.some((c) => c.name === specToApply.table)));
+        if (isKnownTable) {
+          if (builderRef.current) {
+            pendingSpecRef.current = null;
+            builderRef.current.setSpec(specToApply);
+            void builderRef.current.execute(specToApply);
+          } else {
+            void handleExecuteQuery("", specToApply).catch(() => {});
+          }
+          return;
         }
-        return;
+        pendingSpecRef.current = null;
       }
       const candidateDefault =
         activeDbInfo?.default_table || KNOWN_DB_DEFAULTS[activeDbId]?.default_table;
@@ -2024,6 +2093,50 @@ export function App() {
             </button>
           </div>
 
+          {/* Execution History & Saved Queries Button */}
+          <button
+            type="button"
+            data-testid="studio-history-btn"
+            onClick={() => setIsHistoryModalOpen(true)}
+            title="View execution history timeline and saved queries"
+            style={{
+              padding: "6px 10px",
+              borderRadius: "6px",
+              border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "0.82rem",
+              backgroundColor: isDark ? "#10141f" : "#f8fafc",
+              color: isDark ? "#e2e8f0" : "#0f172a",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            🕒 History
+          </button>
+
+          {/* Share Query Permalink Button */}
+          <button
+            type="button"
+            data-testid="studio-share-link-btn"
+            onClick={handleCopyShareLink}
+            title="Copy shareable URL permalink for the current query and database"
+            style={{
+              padding: "6px 10px",
+              borderRadius: "6px",
+              border: `1px solid ${copiedShareLink ? "rgba(16, 185, 129, 0.45)" : isDark ? "rgba(255, 255, 255, 0.08)" : "#cbd5e1"}`,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "0.82rem",
+              backgroundColor: copiedShareLink ? "rgba(16, 185, 129, 0.14)" : isDark ? "#10141f" : "#f8fafc",
+              color: copiedShareLink ? (isDark ? "#6ee7b7" : "#047857") : isDark ? "#e2e8f0" : "#0f172a",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {copiedShareLink ? "✓ Link Copied" : "🔗 Share"}
+          </button>
+
           {/* Theme Toggle */}
           <button
             type="button"
@@ -2911,6 +3024,7 @@ export function App() {
                   canvasDirtyRef.current = true;
                 }}
                 dialect={activeDialect}
+                activeDatabaseId={activeDbId}
                 presets={[]}
                 semanticModels={activeDbId === "starter_demo" ? STARTER_SEMANTIC_MODELS : []}
                 defaultAdvancedMode={false}
@@ -2924,6 +3038,8 @@ export function App() {
                 nlqApiUrl={`/api/nlq?db=${encodeURIComponent(activeDbId)}`}
                 nlqDefaultProvider={geminiConfigured ? "gemini" : "mock"}
                 onExecuteQuery={handleExecuteQuery}
+                onFetchDistinctValues={handleFetchDistinctValues}
+                onPinToDashboard={() => setActiveTab("dashboard")}
               />
             </QueryBuilderProvider>
           </div>
@@ -3311,6 +3427,28 @@ export function App() {
         )}
       </main>
 
+      {/* Execution History & Saved Queries Modal */}
+      <QueryBuilderProvider mode="styled" themeMode={resolvedTheme}>
+        <QueryTemplateManager
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          defaultMode="history"
+          currentSql={lastQuerySql || latestCanvasSqlRef.current}
+          currentSpec={
+            (builderRef.current?.getSpec() ||
+              latestCanvasSpecRef.current ||
+              lastQuerySpec ||
+              undefined) as SerializedQuerySpec | undefined
+          }
+          onLoadTemplate={(tpl) => {
+            if (tpl.spec && typeof tpl.spec === "object" && "table" in tpl.spec && tpl.spec.table) {
+              applyAndExecuteSpec(tpl.spec as unknown as QuerySpec);
+            }
+            setIsHistoryModalOpen(false);
+          }}
+        />
+      </QueryBuilderProvider>
+
       {/* Connect or Switch Database Modal */}
       <DatabaseConnectionModal
         isOpen={isConnectModalOpen}
@@ -3559,6 +3697,7 @@ function DashboardAndExportDemo({
         results={queryResults}
         querySpec={isRawSqlMode ? null : activeSpec}
         sql={querySql}
+        storageKey="default"
       />
 
       <div>

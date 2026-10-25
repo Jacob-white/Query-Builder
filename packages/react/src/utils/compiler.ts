@@ -433,6 +433,7 @@ export function compileVisualState(
     const it = selectedColumns[k];
     if (!it) return false;
     if (it.aggregate && ALLOWED_AGGREGATES.has(it.aggregate as string)) return true;
+    if (it.timeGrain && ALLOWED_TIME_GRAINS.has(String(it.timeGrain).toLowerCase())) return true;
     if (isItemMetric(it)) return true;
     return false;
   });

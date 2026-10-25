@@ -105,6 +105,128 @@ export function resetTemplateStorage(): void {
   }
 }
 
+export interface QueryHistoryEntry {
+  id: string;
+  sql: string;
+  spec?: QueryTemplate["spec"];
+  executedAt: string;
+  rowCount?: number;
+  latencyMs?: number;
+  dialect?: string;
+  databaseId?: string;
+}
+
+const HISTORY_STORAGE_KEY = "query_builder_execution_history";
+const MAX_HISTORY_ENTRIES = 40;
+let memoryHistoryStorage: QueryHistoryEntry[] = [];
+
+export function loadQueryHistory(): QueryHistoryEntry[] {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const stored = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+      if (!stored) {
+        memoryHistoryStorage = [];
+        return [];
+      }
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // Fallback to in-memory storage when localStorage is unavailable or throws
+  }
+  return memoryHistoryStorage;
+}
+
+export function recordQueryHistory(
+  entry: Omit<QueryHistoryEntry, "id" | "executedAt"> & {
+    id?: string;
+    executedAt?: string;
+  },
+): QueryHistoryEntry[] {
+  const current = loadQueryHistory();
+  const nextEntry: QueryHistoryEntry = {
+    id: entry.id || `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    sql: entry.sql,
+    spec: entry.spec,
+    executedAt: entry.executedAt || new Date().toISOString(),
+    rowCount: entry.rowCount,
+    latencyMs: entry.latencyMs,
+    dialect: entry.dialect,
+    databaseId: entry.databaseId,
+  };
+  const deduped = current.filter(
+    (h) => h.sql !== nextEntry.sql || h.databaseId !== nextEntry.databaseId,
+  );
+  const updated = [nextEntry, ...deduped].slice(0, MAX_HISTORY_ENTRIES);
+  memoryHistoryStorage = updated;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    }
+  } catch {
+    // Ignore storage write error
+  }
+  return updated;
+}
+
+export function clearQueryHistory(): void {
+  memoryHistoryStorage = [];
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(HISTORY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage removal error
+  }
+}
+
+export function encodeQuerySpecToUrlParam(
+  spec: NonNullable<QueryTemplate["spec"]> | Record<string, unknown>,
+): string {
+  const json = JSON.stringify(spec);
+  return encodeURIComponent(btoa(encodeURIComponent(json)));
+}
+
+export function decodeQuerySpecFromUrlParam(
+  encoded: string,
+): NonNullable<QueryTemplate["spec"]> | null {
+  if (!encoded || !encoded.trim()) return null;
+  try {
+    const unescaped = decodeURIComponent(encoded.trim());
+    const json = unescaped.startsWith("{") ? unescaped : decodeURIComponent(atob(unescaped));
+    const parsed = JSON.parse(json);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as NonNullable<QueryTemplate["spec"]>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildShareableQueryUrl(
+  spec: NonNullable<QueryTemplate["spec"]> | Record<string, unknown>,
+  baseHref?: string,
+  extraParams?: Record<string, string> | string,
+): string {
+  const encoded = encodeQuerySpecToUrlParam(spec);
+  const href = baseHref || window.location.href;
+  try {
+    const url = new URL(href);
+    url.searchParams.set("q", encoded);
+    if (typeof extraParams === "string" && extraParams) {
+      url.searchParams.set("db", extraParams);
+    } else if (extraParams && typeof extraParams === "object") {
+      for (const [k, v] of Object.entries(extraParams)) {
+        if (v) url.searchParams.set(k, v);
+      }
+    }
+    return url.toString();
+  } catch {
+    return `${href.split("?")[0]}?q=${encoded}`;
+  }
+}
+
 export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
   isOpen,
   onClose,
@@ -118,8 +240,10 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
   unstyled = false,
 }) => {
   const { cssVariables } = useTheme();
-  const [mode, setMode] = useState<"library" | "save">(defaultMode);
+  const [mode, setMode] = useState<"library" | "save" | "history">(defaultMode);
   const [templates, setTemplates] = useState<QueryTemplate[]>(() => loadTemplates(initialTemplates));
+  const [historyEntries, setHistoryEntries] = useState<QueryHistoryEntry[]>(() => loadQueryHistory());
+  const [copiedPermalink, setCopiedPermalink] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [expandedSqlId, setExpandedSqlId] = useState<string | null>(null);
@@ -137,6 +261,7 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
   useEffect(() => {
     if (isOpen) {
       setTemplates(loadTemplates(initialTemplates));
+      setHistoryEntries(loadQueryHistory());
       setValidationError(null);
     }
   }, [isOpen, initialTemplates]);
@@ -324,7 +449,57 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
               >
                 ➕ Save Current Query
               </button>
+              <button
+                type="button"
+                data-qb="tab-history"
+                onClick={() => {
+                  setHistoryEntries(loadQueryHistory());
+                  setMode("history");
+                }}
+                style={{
+                  background: mode === "history" ? "var(--qb-color-primary, #2563eb)" : "transparent",
+                  color: mode === "history" ? "#ffffff" : "var(--qb-color-text-secondary, #64748b)",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "4px 10px",
+                  fontSize: "0.76rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                🕒 History ({historyEntries.length})
+              </button>
             </div>
+            {currentSpec && (
+              <button
+                type="button"
+                data-qb="btn-share-permalink"
+                onClick={() => {
+                  const shareUrl = buildShareableQueryUrl(currentSpec);
+                  void navigator.clipboard.writeText(shareUrl);
+                  try {
+                    window.history.replaceState(null, "", shareUrl);
+                  } catch {
+                    /* ignore cross-origin history error */
+                  }
+                  setCopiedPermalink(true);
+                  setTimeout(() => setCopiedPermalink(false), 2000);
+                }}
+                style={{
+                  background: copiedPermalink ? "rgba(16, 185, 129, 0.2)" : "rgba(56, 189, 248, 0.14)",
+                  color: copiedPermalink ? "#6ee7b7" : "#38bdf8",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  borderRadius: "6px",
+                  padding: "4px 10px",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+                title="Copy shareable URL permalink for the current query"
+              >
+                {copiedPermalink ? "✓ Link Copied" : "🔗 Copy Share Link"}
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -746,8 +921,172 @@ export const QueryTemplateManager: React.FC<QueryTemplateManagerProps> = ({
               </div>
             </form>
           )}
+
+          {/* Execution History Mode */}
+          {mode === "history" && (
+            <div
+              data-qb="history-panel"
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "0.82rem",
+                    color: "var(--qb-color-text-secondary, #94a3b8)",
+                  }}
+                >
+                  Recent executed queries ({historyEntries.length})
+                </span>
+                {historyEntries.length > 0 && (
+                  <button
+                    type="button"
+                    data-qb="btn-clear-history"
+                    onClick={() => {
+                      clearQueryHistory();
+                      setHistoryEntries([]);
+                    }}
+                    style={{
+                      background: "transparent",
+                      color: "var(--qb-color-error, #f87171)",
+                      border: "1px solid rgba(248, 113, 113, 0.35)",
+                      borderRadius: "6px",
+                      padding: "4px 10px",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear History
+                  </button>
+                )}
+              </div>
+
+              {historyEntries.length === 0 ? (
+                <div
+                  data-qb="history-empty"
+                  style={{
+                    padding: "24px",
+                    textAlign: "center",
+                    color: "var(--qb-color-text-secondary, #64748b)",
+                    fontSize: "0.85rem",
+                    border: "1px dashed rgba(255, 255, 255, 0.1)",
+                    borderRadius: "8px",
+                  }}
+                >
+                  No query executions recorded yet. Run a query to populate your timeline!
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {historyEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      data-qb="history-item"
+                      style={{
+                        background: "var(--qb-color-background, rgba(15, 23, 42, 0.6))",
+                        border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.08))",
+                        borderRadius: "8px",
+                        padding: "10px 14px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", fontSize: "0.75rem", color: "#94a3b8" }}>
+                          <span>🕒 {new Date(entry.executedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                          {entry.databaseId && (
+                            <span
+                              data-qb="history-db-badge"
+                              style={{
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                background: "rgba(168, 85, 247, 0.16)",
+                                color: "#e9d5ff",
+                                fontWeight: 600,
+                              }}
+                            >
+                              🗄 {entry.databaseId}
+                            </span>
+                          )}
+                          {entry.dialect && (
+                            <span style={{ padding: "1px 6px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.14)", color: "#38bdf8", fontWeight: 600 }}>
+                              {entry.dialect.toUpperCase()}
+                            </span>
+                          )}
+                          {entry.rowCount !== undefined && (
+                            <span>{entry.rowCount} rows</span>
+                          )}
+                          {entry.latencyMs !== undefined && (
+                            <span>{entry.latencyMs.toFixed(1)} ms</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          data-qb="btn-restore-history"
+                          onClick={() => {
+                            onLoadTemplate({
+                              id: entry.id,
+                              title: `History (${entry.executedAt})`,
+                              sql: entry.sql,
+                              spec: entry.spec,
+                              createdAt: entry.executedAt,
+                            });
+                            onClose();
+                          }}
+                          style={{
+                            background: "var(--qb-color-primary, #2563eb)",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: "6px",
+                            padding: "4px 10px",
+                            fontSize: "0.76rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ↺ Restore Query
+                        </button>
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: "6px 10px",
+                          background: "#090d16",
+                          borderRadius: "6px",
+                          fontSize: "0.76rem",
+                          color: "#e2e8f0",
+                          fontFamily: "monospace",
+                          overflowX: "auto",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {entry.sql}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
+

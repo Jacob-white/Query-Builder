@@ -37,6 +37,19 @@ export function ResultsPanel(props: {
   unstyled: boolean;
   cellRenderers?: Record<string, CellRenderer>;
   onReorderColumns?: (newColumns: string[]) => void;
+  schema?: SchemaSnapshot | null;
+  onFilterByCell?: (
+    column: string,
+    value: unknown,
+    operator: "=" | "!=" | "IS NULL" | "IS NOT NULL",
+  ) => void;
+  onDrillDownForeignKey?: (
+    column: string,
+    value: unknown,
+    targetTable?: string,
+    targetColumn?: string,
+  ) => void;
+  onPinToDashboard?: () => void;
   classNames?: QueryBuilderClassNames;
 }) {
   return (
@@ -47,6 +60,10 @@ export function ResultsPanel(props: {
         unstyled={props.unstyled}
         cellRenderers={props.cellRenderers}
         onReorderColumns={props.onReorderColumns}
+        schema={props.schema}
+        onFilterByCell={props.onFilterByCell}
+        onDrillDownForeignKey={props.onDrillDownForeignKey}
+        onPinToDashboard={props.onPinToDashboard}
         classNames={props.classNames}
       />
     </Panel>

@@ -969,7 +969,7 @@ export interface QueryTemplateManagerProps {
   onSaveTemplate?: (template: QueryTemplate) => void;
   onDeleteTemplate?: (templateId: string) => void;
   initialTemplates?: QueryTemplate[];
-  defaultMode?: "library" | "save";
+  defaultMode?: "library" | "save" | "history";
   unstyled?: boolean;
 }
 

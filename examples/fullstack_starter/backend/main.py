@@ -2249,6 +2249,64 @@ def refresh_database_schema(db_id: str) -> dict[str, Any]:
         conn.close()
 
 
+@app.get("/api/columns/distinct", tags=["Database Hub"])
+def get_distinct_column_values(
+    db: str = Query(default="starter_demo"),
+    table: str = Query(...),
+    column: str = Query(...),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Returns up to `limit` distinct non-null values for a specific table and column."""
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table) or not re.match(
+        r"^[A-Za-z_][A-Za-z0-9_]*$", column
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid table or column identifier.",
+        )
+    registry = get_database_registry()
+    if db not in registry:
+        raise HTTPException(status_code=404, detail=f"Unknown database '{db}'")
+    conn = get_connector_for_db(db)
+    try:
+        res = conn.execute(
+            {
+                "table": table,
+                "columns": [column],
+                "distinct": True,
+                "filters": [{"column": column, "operator": "IS NOT NULL"}],
+                "limit": limit,
+            }
+        )
+        rows = res.get("rows", []) if isinstance(res, dict) else []
+        values: list[str] = []
+        for row in rows:
+            if isinstance(row, dict):
+                val = row.get(column)
+                if val is None and row:
+                    val = next(iter(row.values()))
+                if val is not None:
+                    s = str(val).strip()
+                    if s and s not in values:
+                        values.append(s)
+        return {
+            "db": db,
+            "table": table,
+            "column": column,
+            "values": values,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to fetch distinct values: {exc}",
+        ) from exc
+    finally:
+        with contextlib.suppress(Exception):
+            conn.close()
+
+
 # Turnkey Query-Builder APIRouter mounted at /api
 from query_builder.nlq.service import NlqService
 

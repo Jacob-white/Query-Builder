@@ -18,6 +18,8 @@ export interface TableFiltersEditorProps {
   fieldRenderers?: Record<string, CustomFieldRenderer>;
   className?: string;
   classNames?: QueryBuilderClassNames;
+  sampleRows?: Record<string, unknown>[];
+  onFetchDistinctValues?: (table: string, column: string) => Promise<string[]>;
 }
 
 const SR_ONLY_STYLE: React.CSSProperties = {
@@ -61,15 +63,49 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
   fieldRenderers,
   className,
   classNames,
+  sampleRows,
+  onFetchDistinctValues,
 }) => {
   const [editingColFilterId, setEditingColFilterId] = React.useState<string | null>(null);
   const [colSearch, setColSearch] = React.useState("");
+  const [fetchedDistinctValues, setFetchedDistinctValues] = React.useState<Record<string, string[]>>({});
+  const fetchedKeysRef = React.useRef<Set<string>>(new Set());
   const ctx = useQueryBuilderContext();
   const effectiveCustomOperators = customOperators ?? ctx?.customOperators;
   const effectiveFieldRenderers = fieldRenderers ?? ctx?.fieldRenderers;
   void effectiveFieldRenderers;
 
   const isSingleTable = activeTables.length <= 1;
+
+  React.useEffect(() => {
+    if (!onFetchDistinctValues) return;
+    for (const f of filters) {
+      const resolvedTable =
+        f.tablePrefix ||
+        activeTables.find((t) => t.columns.some((c) => c.name === f.column))?.name ||
+        activeTables[0]?.name ||
+        "";
+      if (!resolvedTable || !f.column) continue;
+      const cacheKey = `${resolvedTable}.${f.column}`;
+      if (fetchedKeysRef.current.has(cacheKey)) continue;
+      fetchedKeysRef.current.add(cacheKey);
+      Promise.resolve(onFetchDistinctValues(resolvedTable, f.column))
+        .then((vals) => {
+          if (Array.isArray(vals)) {
+            setFetchedDistinctValues((prev) => ({
+              ...prev,
+              [cacheKey]: vals
+                .filter((v) => v !== null && v !== undefined)
+                .map((v) => String(v).trim())
+                .filter(Boolean),
+            }));
+          }
+        })
+        .catch(() => {
+          /* ignore background fetch errors */
+        });
+    }
+  }, [filters, onFetchDistinctValues, activeTables]);
 
   const allColumns = activeTables.flatMap((tbl) =>
     tbl.columns.map((c) => ({
@@ -332,7 +368,21 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
             const targetColMeta = allColumns.find(
               (c) => c.table === resolvedTable && c.column === f.column,
             )?.meta;
-            const enumOptions = targetColMeta?.enums;
+            const rawCandidates: unknown[] = [
+              ...(targetColMeta?.enums || []),
+              ...(sampleRows || []).map((row) => row[f.column] ?? row[selectValue]),
+              ...(fetchedDistinctValues[selectValue] || []),
+            ];
+            const combinedSuggestions = Array.from(
+              new Set(
+                rawCandidates
+                  .filter((val) => val !== null && val !== undefined)
+                  .map((val) => String(val).trim())
+                  .filter(Boolean),
+              ),
+            ).slice(0, 25);
+            const enumOptions =
+              combinedSuggestions.length > 0 ? combinedSuggestions : undefined;
             const effectiveCombiner = f.combiner === "OR" ? "OR" : "AND";
 
             const rowOperators = [...INLINE_FILTER_OPERATORS];

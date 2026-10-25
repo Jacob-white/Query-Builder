@@ -97,6 +97,7 @@ ALLOWED_COLUMN_KEYS = {
     "table_prefix",
     "distinct",
     "time_grain",
+    "timeGrain",
     "grain",
     "metric",
     "format",
@@ -409,7 +410,7 @@ def _validate_column_dict(col: dict[str, Any]) -> None:
     if tbl is not None:
         _check_ident(tbl, "column table")
 
-    time_grain = col.get("time_grain") or col.get("grain")
+    time_grain = col.get("time_grain") or col.get("timeGrain") or col.get("grain")
     if time_grain is not None:
         from query_builder.semantic import SUPPORTED_TIME_GRAINS
 
@@ -2037,19 +2038,28 @@ class QueryCompiler:
             self._compile_star_column(agg, alias)
             return
 
-        _, _, quoted_ref = self._resolve_column_ref(
-            raw_col_ref, col_item.get("table", self._clean_base)
+        _, col_name, quoted_ref = self._resolve_column_ref(
+            raw_col_ref,
+            col_item.get("table")
+            or col_item.get("tablePrefix")
+            or col_item.get("table_prefix")
+            or self._clean_base,
         )
 
-        time_grain = col_item.get("time_grain") or col_item.get("grain")
+        time_grain = (
+            col_item.get("time_grain")
+            or col_item.get("timeGrain")
+            or col_item.get("grain")
+        )
         if time_grain:
             from query_builder.semantic import expand_time_grain_sql
 
+            self.has_aggregation = True
             time_expr = expand_time_grain_sql(
                 quoted_ref, grain=str(time_grain), dialect=self.dialect.name
             )
             self._add_select(
-                time_expr, alias or f"{raw_col_ref}_{time_grain}", group_by=time_expr
+                time_expr, alias or f"{col_name}_{time_grain}", group_by=time_expr
             )
             return
 

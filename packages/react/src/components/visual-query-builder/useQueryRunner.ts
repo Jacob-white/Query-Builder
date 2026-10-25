@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ExecuteQueryHandler, QueryResultData, QuerySpec, SchemaSnapshot, SqlDialect } from "../../types";
+import type { ExecuteQueryHandler, QueryResultData, QuerySpec, QueryTemplate, SchemaSnapshot, SqlDialect } from "../../types";
 import type { QueryBuilderClient } from "../../client";
 import { useLiveExecution, type LiveExecutionResult } from "../../hooks/useLiveExecution";
 import { compileSpecToSql } from "../../utils/compiler";
+import { recordQueryHistory } from "../QueryTemplateManager";
 import type { ActiveTab } from "./types";
 import type { DockTab } from "./WorkspaceDock";
 
@@ -15,6 +16,7 @@ export interface UseQueryRunnerOptions {
   activeTab?: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   dialect?: string;
+  databaseId?: string;
   schema?: SchemaSnapshot | null;
   liveExecutionApiUrl?: string;
   liveExecutionConnectionId?: string;
@@ -32,6 +34,7 @@ export function useQueryRunner({
   activeTab = "visual",
   setActiveTab,
   dialect,
+  databaseId,
   schema,
   liveExecutionApiUrl,
   liveExecutionConnectionId,
@@ -99,6 +102,19 @@ export function useQueryRunner({
       const result = await effectiveOnExecuteQuery(sqlToRun, parsedSpec);
       if (result) {
         setQueryResults(result);
+        const latencyMs =
+          result.durationMs ??
+          (typeof (result as { latency_ms?: unknown }).latency_ms === "number"
+            ? (result as { latency_ms?: number }).latency_ms
+            : undefined);
+        recordQueryHistory({
+          sql: sqlToRun,
+          spec: parsedSpec as QueryTemplate["spec"],
+          rowCount: result.rows.length,
+          latencyMs,
+          dialect,
+          databaseId: databaseId || liveExecutionConnectionId,
+        });
         if (activeTab === "visual") {
           setIsDockOpen(true);
           setDockTab("results");
@@ -113,7 +129,7 @@ export function useQueryRunner({
     } finally {
       setIsRunning(false);
     }
-  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, activeTab, setActiveTab, dialect, schema]);
+  }, [effectiveOnExecuteQuery, getActiveSpec, currentSql, activeTab, setActiveTab, dialect, databaseId, liveExecutionConnectionId, schema]);
 
   return {
     queryResults,

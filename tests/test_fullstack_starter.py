@@ -1006,3 +1006,51 @@ def test_federated_hub_infers_cross_db_foreign_keys_and_failed_upload_cleans_fil
         ) in cross_fk_pairs
     finally:
         clear_custom_databases()
+
+
+def test_columns_distinct_endpoint_and_timegrain_execution() -> None:
+    """Verifies GET /api/columns/distinct and camelCase timeGrain compilation in POST /api/execute."""
+    client = TestClient(app)
+
+    # 1. Distinct values for orders.status
+    res = client.get("/api/columns/distinct?db=starter_demo&table=orders&column=status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["table"] == "orders"
+    assert body["column"] == "status"
+    assert "COMPLETED" in body["values"]
+
+    # 2. Reject invalid identifier on /api/columns/distinct
+    bad_res = client.get(
+        "/api/columns/distinct?db=starter_demo&table=orders;DROP&column=status"
+    )
+    assert bad_res.status_code == 400
+
+    # 3. Execute spec with camelCase timeGrain on date column + aggregate
+    exec_res = client.post(
+        "/api/execute?db=starter_demo",
+        json={
+            "db": "starter_demo",
+            "spec": {
+                "table": "orders",
+                "columns": [
+                    {
+                        "column": "orders.created_at",
+                        "timeGrain": "month",
+                        "alias": "order_month",
+                    },
+                    {
+                        "column": "orders.total_amount",
+                        "agg": "SUM",
+                        "alias": "monthly_revenue",
+                    },
+                ],
+                "limit": 10,
+            },
+        },
+    )
+    assert exec_res.status_code == 200
+    exec_data = exec_res.json()
+    assert "STRFTIME('%Y-%m-01'" in exec_data["sql"]
+    assert "GROUP BY" in exec_data["sql"]
+    assert len(exec_data["rows"]) >= 1

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { QueryResultData, QueryBuilderClassNames } from "../../types";
+import type { QueryResultData, QueryBuilderClassNames, SchemaSnapshot } from "../../types";
 import type { QueryBuilderTheme } from "../../theme/tokens";
 import type { CellRenderer } from "../../theme/QueryBuilderProvider";
 import { ResultsPanel, ChartPanel } from "./TabPanels";
@@ -16,6 +16,19 @@ export interface WorkspaceDockProps {
   onSelectDockTab: (tab: DockTab) => void;
   onExpandFullTab: (tab: DockTab) => void;
   onReorderColumns?: (newColumns: string[]) => void;
+  schema?: SchemaSnapshot | null;
+  onFilterByCell?: (
+    column: string,
+    value: unknown,
+    operator: "=" | "!=" | "IS NULL" | "IS NOT NULL",
+  ) => void;
+  onDrillDownForeignKey?: (
+    column: string,
+    value: unknown,
+    targetTable?: string,
+    targetColumn?: string,
+  ) => void;
+  onPinToDashboard?: () => void;
   cellRenderers?: Record<string, CellRenderer>;
   classNames?: QueryBuilderClassNames;
   unstyled?: boolean;
@@ -36,6 +49,10 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
   onSelectDockTab,
   onExpandFullTab,
   onReorderColumns,
+  schema,
+  onFilterByCell,
+  onDrillDownForeignKey,
+  onPinToDashboard,
   cellRenderers,
   classNames,
   unstyled = false,
@@ -98,6 +115,10 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
                 isLoading={isLoading}
                 unstyled={unstyled}
                 onReorderColumns={onReorderColumns}
+                schema={schema}
+                onFilterByCell={onFilterByCell}
+                onDrillDownForeignKey={onDrillDownForeignKey}
+                onPinToDashboard={onPinToDashboard}
                 cellRenderers={cellRenderers}
                 classNames={classNames}
               />
@@ -294,6 +315,10 @@ export const WorkspaceDock: React.FC<WorkspaceDockProps> = ({
               isLoading={isLoading}
               unstyled={unstyled}
               onReorderColumns={onReorderColumns}
+              schema={schema}
+              onFilterByCell={onFilterByCell}
+              onDrillDownForeignKey={onDrillDownForeignKey}
+              onPinToDashboard={onPinToDashboard}
               cellRenderers={cellRenderers}
               classNames={classNames}
             />

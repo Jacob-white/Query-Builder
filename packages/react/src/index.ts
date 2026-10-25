@@ -58,7 +58,9 @@ export {
 } from "./components/SchemaExplorerModal";
 export {
   QueryResultsTable,
+  resolveForeignKeyTarget,
   type QueryResultsTableProps,
+  type ColumnMicroStats,
 } from "./components/QueryResultsTable";
 export {
   CalculatedFieldEditor,
@@ -107,6 +109,13 @@ export {
   loadTemplates,
   saveTemplates,
   resetTemplateStorage,
+  loadQueryHistory,
+  recordQueryHistory,
+  clearQueryHistory,
+  encodeQuerySpecToUrlParam,
+  decodeQuerySpecFromUrlParam,
+  buildShareableQueryUrl,
+  type QueryHistoryEntry,
 } from "./components/QueryTemplateManager";
 
 export type {
