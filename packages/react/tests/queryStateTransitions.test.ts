@@ -328,3 +328,52 @@ describe("toBuilderJoinType", () => {
     expect(toBuilderJoinType("OUTER JOIN")).toBe("OUTER JOIN");
   });
 });
+
+describe("NULLS FIRST / LAST ordering in stateToSpec, specToState, and specToBuilderPatch", () => {
+  it("preserves and normalizes nulls ordering across all converters", () => {
+    const spec = stateToSpec({
+      primaryTable: "orders",
+      selectedColumns: {},
+      orderedProjectionKeys: [],
+      joins: [],
+      filters: [],
+      sorts: [
+        { id: "s1", tablePrefix: "orders", column: "shipped_at", direction: "DESC", nulls: "LAST" },
+        { id: "s2", column: "priority", direction: "ASC", nulls: "FIRST" },
+      ],
+      isDistinct: false,
+      limit: 50,
+    });
+    expect(spec.order_by).toEqual([
+      { column: "orders.shipped_at", direction: "DESC", nulls: "LAST" },
+      { column: "priority", direction: "ASC", nulls: "FIRST" },
+    ]);
+
+    const state = specToState({
+      table: "orders",
+      order_by: [
+        { column: "orders.shipped_at", direction: "DESC", nulls: "NULLS LAST" },
+        { column: "priority", direction: "ASC", nulls: "NULLS FIRST" },
+        { column: "id", direction: "ASC", nulls: "INVALID" },
+      ],
+    });
+    expect(state.sorts).toEqual([
+      { id: "sort_1", tablePrefix: "orders", column: "shipped_at", direction: "DESC", nulls: "LAST" },
+      { id: "sort_2", tablePrefix: undefined, column: "priority", direction: "ASC", nulls: "FIRST" },
+      { id: "sort_3", tablePrefix: undefined, column: "id", direction: "ASC" },
+    ]);
+
+    const patch = specToBuilderPatch({
+      table: "orders",
+      order_by: [
+        { column: "orders.shipped_at", direction: "DESC", nulls: "NULLS LAST" },
+        { column: "priority", direction: "ASC", nulls: "NULLS FIRST" },
+      ],
+    });
+    expect(patch.sorts).toEqual([
+      { id: "sort_1", tablePrefix: "orders", column: "shipped_at", direction: "DESC", nulls: "LAST" },
+      { id: "sort_2", tablePrefix: "orders", column: "priority", direction: "ASC", nulls: "FIRST" },
+    ]);
+  });
+});
+

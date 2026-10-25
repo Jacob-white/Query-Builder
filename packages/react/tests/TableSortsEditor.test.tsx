@@ -237,4 +237,59 @@ describe("TableSortsEditor", () => {
     fireEvent.click(limitPill50!);
     expect(handleLimitChange).toHaveBeenCalledWith(50);
   });
+
+  it("toggles Nulls First and Nulls Last ordering pills", () => {
+    const handleChange = vi.fn();
+    const sorts: VisualSort[] = [
+      { id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC" },
+    ];
+
+    const { container, rerender } = render(
+      <TableSortsEditor
+        sorts={sorts}
+        activeTables={activeTables}
+        onChange={handleChange}
+      />
+    );
+
+    const nullsFirstBtn = container.querySelector('[data-qb="sort-nulls-first"]')!;
+    const nullsLastBtn = container.querySelector('[data-qb="sort-nulls-last"]')!;
+    expect(nullsFirstBtn).toBeTruthy();
+    expect(nullsLastBtn).toBeTruthy();
+
+    fireEvent.click(nullsFirstBtn);
+    expect(handleChange).toHaveBeenLastCalledWith([
+      { id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: "FIRST" },
+    ]);
+
+    rerender(
+      <TableSortsEditor
+        sorts={[{ id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: "FIRST" }]}
+        activeTables={activeTables}
+        onChange={handleChange}
+      />
+    );
+    fireEvent.click(container.querySelector('[data-qb="sort-nulls-first"]')!);
+    expect(handleChange).toHaveBeenLastCalledWith([
+      { id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: undefined },
+    ]);
+
+    fireEvent.click(container.querySelector('[data-qb="sort-nulls-last"]')!);
+    expect(handleChange).toHaveBeenLastCalledWith([
+      { id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: "LAST" },
+    ]);
+
+    rerender(
+      <TableSortsEditor
+        sorts={[{ id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: "LAST" }]}
+        activeTables={activeTables}
+        onChange={handleChange}
+      />
+    );
+    fireEvent.click(container.querySelector('[data-qb="sort-nulls-last"]')!);
+    expect(handleChange).toHaveBeenLastCalledWith([
+      { id: "s1", tablePrefix: "users", column: "created_at", direction: "DESC", nulls: undefined },
+    ]);
+  });
 });
+

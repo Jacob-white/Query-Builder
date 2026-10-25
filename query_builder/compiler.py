@@ -2762,7 +2762,8 @@ class QueryCompiler:
             or spec.get("rollup")
             or spec.get("cube")
         )
-        if not (self.has_aggregation or explicit_grouping):
+        has_having = bool(spec.get("having"))
+        if not (self.has_aggregation or has_having or explicit_grouping):
             return ""
         if not (self.group_by_items or explicit_grouping):
             return ""
@@ -2890,14 +2891,15 @@ class QueryCompiler:
         self, joins_str: str, where_str: str, group_by_str: str, having_str: str
     ) -> tuple[str, list[Any]]:
         base_parts = [p for p in (joins_str, where_str) if p]
-        if group_by_str:
+        if group_by_str or having_str:
             # derived-table columns need a name (SQL Server error 8155)
             subquery_parts = [
                 "SELECT 1 AS qb_one",
                 self._from_str,
                 *base_parts,
-                group_by_str,
             ]
+            if group_by_str:
+                subquery_parts.append(group_by_str)
             if having_str:
                 subquery_parts.append(having_str)
             count_sql = (

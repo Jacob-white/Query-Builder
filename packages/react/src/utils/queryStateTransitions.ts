@@ -319,10 +319,20 @@ export function stateToSpec<Schema = DatabaseSchemaDefinition>(state: SpecSource
     ...(f.parenClose ? { parenClose: f.parenClose } : {}),
   }));
 
-  const order_by = (state.sorts || []).map((s) => ({
-    column: s.tablePrefix ? `${s.tablePrefix}.${s.column}` : s.column,
-    direction: s.direction,
-  }));
+  const order_by = (state.sorts || []).map((s) => {
+    const rawNulls = typeof s.nulls === "string" ? s.nulls.trim().toUpperCase() : "";
+    const nullsVal: "FIRST" | "LAST" | undefined =
+      rawNulls === "FIRST" || rawNulls === "NULLS FIRST"
+        ? "FIRST"
+        : rawNulls === "LAST" || rawNulls === "NULLS LAST"
+          ? "LAST"
+          : undefined;
+    return {
+      column: s.tablePrefix ? `${s.tablePrefix}.${s.column}` : s.column,
+      direction: s.direction,
+      ...(nullsVal ? { nulls: nullsVal } : {}),
+    };
+  });
 
   const spec: QuerySpec<Schema> = {
     table: state.primaryTable,
@@ -527,17 +537,25 @@ export function specToState<Schema = DatabaseSchemaDefinition>(
   if (Array.isArray(s.order_by)) {
     partial.sorts = s.order_by.map((sortItem, idx): VisualSort<Schema> => {
       let col = sortItem.column || "";
-      let prefix = sortItem.tablePrefix;
+      let prefix = sortItem.tablePrefix || sortItem.table_prefix;
       if (!prefix && col.includes(".")) {
         const parts = col.split(".");
         prefix = parts[0];
         col = parts.slice(1).join(".");
       }
+      const rawNulls = typeof sortItem.nulls === "string" ? sortItem.nulls.trim().toUpperCase() : "";
+      const nullsVal: "FIRST" | "LAST" | undefined =
+        rawNulls === "FIRST" || rawNulls === "NULLS FIRST"
+          ? "FIRST"
+          : rawNulls === "LAST" || rawNulls === "NULLS LAST"
+            ? "LAST"
+            : undefined;
       return {
         id: sortItem.id || `sort_${idx + 1}`,
         tablePrefix: prefix as SchemaTableNames<Schema> | undefined,
         column: col,
-        direction: sortItem.direction || "ASC",
+        direction: (sortItem.direction || "ASC") as "ASC" | "DESC",
+        ...(nullsVal ? { nulls: nullsVal } : {}),
       };
     });
   } else if (Array.isArray(s.sorts)) {
@@ -741,17 +759,25 @@ export function specToBuilderPatch<Schema = DatabaseSchemaDefinition>(
   } else if (Array.isArray(s.order_by)) {
     patch.sorts = s.order_by.map((ord, idx): VisualSort<Schema> => {
       let col = ord.column || "";
-      let prefix = ord.tablePrefix;
+      let prefix = ord.tablePrefix || ord.table_prefix;
       if (!prefix && col.includes(".")) {
         const lastDot = col.lastIndexOf(".");
         prefix = col.substring(0, lastDot);
         col = col.substring(lastDot + 1);
       }
+      const rawNulls = typeof ord.nulls === "string" ? ord.nulls.trim().toUpperCase() : "";
+      const nullsVal: "FIRST" | "LAST" | undefined =
+        rawNulls === "FIRST" || rawNulls === "NULLS FIRST"
+          ? "FIRST"
+          : rawNulls === "LAST" || rawNulls === "NULLS LAST"
+            ? "LAST"
+            : undefined;
       return {
         id: `sort_${idx + 1}`,
         tablePrefix: (prefix || pTable) as SchemaTableNames<Schema>,
         column: col,
-        direction: ord.direction || "ASC",
+        direction: (ord.direction || "ASC") as "ASC" | "DESC",
+        ...(nullsVal ? { nulls: nullsVal } : {}),
       };
     });
   }

@@ -579,6 +579,82 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                   </div>
                 )}
 
+                {/* Direct Segmented [Nulls First | Nulls Last] Pills */}
+                {!unstyled && (
+                  <div
+                    role="group"
+                    aria-label="Nulls ordering pills"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "2px",
+                      background: "var(--qb-color-background, #090d16)",
+                      padding: "2px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-qb="sort-nulls-first"
+                      aria-pressed={s.nulls === "FIRST"}
+                      title="Order NULL values first (NULLS FIRST)"
+                      onClick={() =>
+                        handleUpdate(s.id, {
+                          nulls: s.nulls === "FIRST" ? undefined : "FIRST",
+                        })
+                      }
+                      style={{
+                        padding: "3px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: s.nulls === "FIRST" ? 700 : 500,
+                        borderRadius: "4px",
+                        border: "none",
+                        background:
+                          s.nulls === "FIRST"
+                            ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.18))"
+                            : "transparent",
+                        color:
+                          s.nulls === "FIRST"
+                            ? "var(--qb-color-active-text, #e0f2fe)"
+                            : "var(--qb-color-text-muted, #64748b)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Nulls First
+                    </button>
+                    <button
+                      type="button"
+                      data-qb="sort-nulls-last"
+                      aria-pressed={s.nulls === "LAST"}
+                      title="Order NULL values last (NULLS LAST)"
+                      onClick={() =>
+                        handleUpdate(s.id, {
+                          nulls: s.nulls === "LAST" ? undefined : "LAST",
+                        })
+                      }
+                      style={{
+                        padding: "3px 7px",
+                        fontSize: "0.72rem",
+                        fontWeight: s.nulls === "LAST" ? 700 : 500,
+                        borderRadius: "4px",
+                        border: "none",
+                        background:
+                          s.nulls === "LAST"
+                            ? "var(--qb-color-active-bg, rgba(56, 189, 248, 0.18))"
+                            : "transparent",
+                        color:
+                          s.nulls === "LAST"
+                            ? "var(--qb-color-active-text, #e0f2fe)"
+                            : "var(--qb-color-text-muted, #64748b)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Nulls Last
+                    </button>
+                  </div>
+                )}
+
                 {!unstyled && sorts.length > 1 && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
                     <button

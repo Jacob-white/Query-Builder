@@ -47,7 +47,9 @@ const INLINE_FILTER_OPERATORS: {
   { value: ">=", label: ">=", friendlyLabel: "at least (≥)", tooltip: "Greater than or equal to (>=)" },
   { value: "<=", label: "<=", friendlyLabel: "at most (≤)", tooltip: "Less than or equal to (<=)" },
   { value: "LIKE", label: "LIKE", friendlyLabel: "matches text", tooltip: "Case-sensitive pattern match (SQL LIKE)" },
+  { value: "NOT LIKE", label: "NOT LIKE", friendlyLabel: "excludes pattern", tooltip: "Case-sensitive negated pattern match (SQL NOT LIKE)" },
   { value: "ILIKE", label: "ILIKE", friendlyLabel: "contains text", tooltip: "Case-insensitive text match (SQL ILIKE)" },
+  { value: "NOT ILIKE", label: "NOT ILIKE", friendlyLabel: "excludes text", tooltip: "Case-insensitive negated text match (SQL NOT ILIKE)" },
   { value: "IN", label: "IN", friendlyLabel: "is one of (IN)", tooltip: "Matches any item in a comma-separated list (SQL IN)" },
   { value: "BETWEEN", label: "BETWEEN", friendlyLabel: "between", tooltip: "Between two values (SQL BETWEEN)" },
   { value: "IS NULL", label: "IS NULL", friendlyLabel: "is empty", tooltip: "Value is missing / NULL (SQL IS NULL)" },
@@ -649,7 +651,9 @@ export const TableFiltersEditor: React.FC<TableFiltersEditorProps> = ({
                   <option value="STARTS_WITH">STARTS WITH</option>
                   <option value="ENDS_WITH">ENDS WITH</option>
                   <option value="LIKE">LIKE</option>
+                  <option value="NOT LIKE">NOT LIKE</option>
                   <option value="ILIKE">ILIKE</option>
+                  <option value="NOT ILIKE">NOT ILIKE</option>
                   <option value="IN">IN</option>
                   <option value="NOT IN">NOT IN</option>
                   <option value="BETWEEN">BETWEEN</option>

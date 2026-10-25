@@ -251,6 +251,9 @@ def find_top_level_clauses(sql: str) -> list[ClauseToken]:
     keywords = [
         "SELECT",
         "FROM",
+        "LEFT OUTER JOIN",
+        "RIGHT OUTER JOIN",
+        "FULL OUTER JOIN",
         "LEFT JOIN",
         "INNER JOIN",
         "RIGHT JOIN",
@@ -688,7 +691,15 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         content = clean_sql[start:end].strip()
 
         if curr.keyword.endswith("JOIN"):
-            j_type = "LEFT JOIN" if curr.keyword == "JOIN" else curr.keyword
+            j_type = (
+                "LEFT JOIN"
+                if curr.keyword in ("JOIN", "LEFT OUTER JOIN")
+                else "RIGHT JOIN"
+                if curr.keyword == "RIGHT OUTER JOIN"
+                else "FULL JOIN"
+                if curr.keyword == "FULL OUTER JOIN"
+                else curr.keyword
+            )
             join_clauses.append({"type": j_type, "content": content})
         else:
             clause_map[curr.keyword] = content
@@ -1099,18 +1110,25 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
     having: list[HavingSpec] = []
     having_content = clause_map.get("HAVING")
     if having_content:
-        cond_items = split_top_level(having_content, r"^AND\b")
+        cond_items = split_top_level(having_content, r"^\s+AND\b")
         for ci in cond_items:
             h_str = ci["value"].strip()
             h_match = re.match(
-                r"^(COUNT|SUM|AVG|MIN|MAX)\s*\(([^)]+)\)\s*([=!><]+)\s*(.+)$",
+                r"^(COUNT|SUM|AVG|MIN|MAX)\s*\(([^)]+)\)\s*(>=|<=|!=|<>|=|>|<)([\s\S]+)$",
                 h_str,
                 re.IGNORECASE,
             )
-            if h_match:
+            if h_match and h_match.group(4).strip():
                 h_agg = h_match.group(1).lower()
-                h_col = clean_identifier(h_match.group(2).strip())
-                h_op = h_match.group(3).strip()
+                inner_raw = h_match.group(2).strip()
+                if h_agg == "count" and re.match(
+                    r"^DISTINCT\b", inner_raw, re.IGNORECASE
+                ):
+                    h_agg = "count_distinct"
+                h_col = _resolve_col_alias(clean_identifier(_agg_argument(inner_raw)))
+                h_op = h_match.group(3)
+                if h_op == "<>":
+                    h_op = "!="
                 h_val_raw = h_match.group(4).strip()
                 h_val = parse_literal_value(h_val_raw)
                 having.append(HavingSpec(column=h_col, agg=h_agg, op=h_op, value=h_val))

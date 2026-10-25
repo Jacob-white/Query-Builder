@@ -1474,5 +1474,68 @@ describe("compileVisualState", () => {
     expect(res1.sql).toContain("ELSE 'none' END");
     expect(res1.sql).toContain("<#>");
   });
+
+  it("compiles NOT LIKE, NOT ILIKE, and ORDER BY / Window NULLS FIRST and NULLS LAST", () => {
+    const resPg = compileVisualState(
+      "users",
+      {
+        "users.id": { table: "users", name: "id", aggregate: "COUNT", alias: "user_cnt" },
+        "users.department": { table: "users", name: "department" },
+      },
+      ["users.department", "users.id"],
+      [],
+      [
+        { id: "f1", column: "name", operator: "NOT LIKE", value: "%bot%" },
+        { id: "f2", column: "email", operator: "NOT ILIKE", value: "%@spam.org" },
+      ],
+      [
+        { id: "s1", column: "user_cnt", direction: "DESC", nulls: "LAST" },
+        { id: "s2", tablePrefix: "users", column: "department", direction: "ASC", nulls: "FIRST" },
+      ],
+      false,
+      25,
+      null,
+      "postgres",
+      "AND",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          function: "ROW_NUMBER",
+          partition_by: ["department"],
+          order_by: [
+            { column: "salary", direction: "DESC", nulls: "LAST" },
+            { column: "id", direction: "ASC", nulls: "FIRST" },
+          ],
+          alias: "rn",
+        },
+      ],
+    );
+    expect(resPg.sql).toContain('"users"."name" NOT LIKE \'%bot%\'');
+    expect(resPg.sql).toContain('NOT ("users"."email" ILIKE \'%@spam.org\')');
+    expect(resPg.sql).toContain('ORDER BY "user_cnt" DESC NULLS LAST, "users"."department" ASC NULLS FIRST');
+    expect(resPg.sql).toContain("OVER (PARTITION BY department ORDER BY salary DESC NULLS LAST, id ASC NULLS FIRST)");
+    expect(resPg.spec.order_by).toEqual([
+      { column: "user_cnt", direction: "DESC", nulls: "LAST" },
+      { column: "users.department", direction: "ASC", tablePrefix: "users", nulls: "FIRST" },
+    ]);
+
+    const resNeo4j = compileVisualState(
+      "users",
+      { "users.id": { table: "users", name: "id" } },
+      ["users.id"],
+      [],
+      [{ id: "f1", column: "name", operator: "NOT LIKE", value: "bot" }],
+      [],
+      false,
+      10,
+      null,
+      "neo4j",
+    );
+    expect(resNeo4j.sql).toContain("NOT (`users`.`name` CONTAINS 'bot')");
+  });
 });
+
 
