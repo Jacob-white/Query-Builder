@@ -146,6 +146,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
         </div>
 
         <button
+          type="button"
+          aria-label="Toggle insights panel"
           onClick={() => setIsExpanded(!isExpanded)}
           style={s({
             background: "transparent",
@@ -234,6 +236,8 @@ export const QueryPerformanceAdvisor: React.FC<QueryPerformanceAdvisorProps> = (
                     🚀 Index Recommendation: {r.indexName}
                   </div>
                   <button
+                    type="button"
+                    aria-label="Copy DDL to clipboard"
                     onClick={() => handleCopyDdl(r.id, r.ddl)}
                     style={s({
                       padding: "0.25rem 0.6rem",
