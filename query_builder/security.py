@@ -1069,41 +1069,32 @@ def scrub_secrets(value: Any, patterns: list[str] | None = None) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
-    """
-    Calculates deterministic AST complexity score across projections, joins,
-    filters, subqueries, group by, order by, and window functions.
-    """
-    if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return 0
 
-    table = spec_dict.get("table")
+def _normalize_spec_to_dict(spec: dict[str, Any] | QuerySpec) -> dict[str, Any] | None:
+    if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
+        return asdict(spec)  # type: ignore[arg-type]
+    elif isinstance(spec, dict):
+        return spec
+    return None
+
+def _score_table(table: Any) -> int:
     if isinstance(table, (dict, QuerySpec)) or hasattr(table, "__dataclass_fields__"):
         subq_tbl: Any = (
             table.get("subquery", table)
             if isinstance(table, dict) and "subquery" in table
             else table
         )
-        sub_score = (
-            calculate_ast_complexity(subq_tbl)
-            if isinstance(subq_tbl, (dict, QuerySpec))
-            or hasattr(subq_tbl, "__dataclass_fields__")
-            else 0
-        )
+        sub_score = calculate_ast_complexity(subq_tbl)
         if sub_score == 0:
             return 0
-        score = 5 + sub_score
+        return 5 + sub_score
     elif isinstance(table, str) and table.strip():
-        score = 1  # Base query table
-    else:
-        return 0
+        return 1
+    return 0
 
-    # Projections / columns
-    for col in spec_dict.get("columns", []):
+def _score_columns(columns: list[Any]) -> int:
+    score = 0
+    for col in columns:
         score += 1
         if isinstance(col, dict):
             if col.get("agg") or col.get("aggregation") or col.get("func"):
@@ -1112,13 +1103,18 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
                 score += 1
         elif isinstance(col, str):
             col_upper = col.upper()
-            if any(
-                agg in col_upper for agg in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(")
-            ):
+            if any(agg in col_upper for agg in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(")):
                 score += 2
+        # Case When columns handling combined into _score_columns (or separate if needed)
+        if isinstance(col, dict) and "case_when" in col:
+            cw = col["case_when"]
+            branches = cw.get("branches", []) if isinstance(cw, dict) else getattr(cw, "branches", [])
+            score += 2 * max(1, len(branches))
+    return score
 
-    # Joins
-    for join in spec_dict.get("joins", []):
+def _score_joins(joins: list[Any]) -> int:
+    score = 0
+    for join in joins:
         if isinstance(join, dict):
             j_type = str(join.get("type", "LEFT")).upper()
         else:
@@ -1128,44 +1124,24 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             score += 10
         else:
             score += 5
+    return score
 
-    # Filters
-    for flt in spec_dict.get("filters", []):
+def _score_filters(filters: list[Any]) -> int:
+    score = 0
+    for flt in filters:
         score += 2
         op = flt.get("op", "") if isinstance(flt, dict) else getattr(flt, "op", "")
         if str(op).lower() in ("like", "ilike", "regex", "matches"):
             score += 3
         val = flt.get("value") if isinstance(flt, dict) else getattr(flt, "value", None)
-        subq = (
-            flt.get("subquery")
-            if isinstance(flt, dict)
-            else getattr(flt, "subquery", None)
-        )
-        target_subq = (
-            subq
-            if isinstance(subq, (dict, QuerySpec))
-            else (val if isinstance(val, (dict, QuerySpec)) else None)
-        )
+        subq = flt.get("subquery") if isinstance(flt, dict) else getattr(flt, "subquery", None)
+        target_subq = subq if isinstance(subq, (dict, QuerySpec)) else (val if isinstance(val, (dict, QuerySpec)) else None)
         if target_subq is not None:
             score += 10 + calculate_ast_complexity(target_subq)
+    return score
 
-    # Group By
-    group_by = spec_dict.get("group_by", [])
-    if group_by:
-        score += 3 + len(group_by)
-
-    # Having
-    having = spec_dict.get("having", [])
-    if having:
-        score += 3 + (2 * len(having))
-
-    # Order By
-    order_by = spec_dict.get("order_by", [])
-    if order_by:
-        score += 2 + len(order_by)
-
-    # Subqueries / CTEs
-    ctes = spec_dict.get("ctes") or spec_dict.get("subqueries") or []
+def _score_ctes(ctes: list[Any]) -> int:
+    score = 0
     for cte in ctes:
         score += 10
         if isinstance(cte, dict):
@@ -1178,22 +1154,10 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             cte_query = getattr(cte, "query", None)
             if isinstance(cte_query, (dict, QuerySpec)):
                 score += calculate_ast_complexity(cte_query)
+    return score
 
-    # Window functions
-    win_funcs = spec_dict.get("window_functions") or spec_dict.get("window")
-    if win_funcs:
-        score += 5 * len(win_funcs) if isinstance(win_funcs, list) else 5
-
-    # Vector search
-    if spec_dict.get("vector_search"):
-        score += 5
-
-    # Hybrid search
-    if spec_dict.get("hybrid_search"):
-        score += 8
-
-    # Set Operations
-    set_ops = spec_dict.get("set_operations") or []
+def _score_set_operations(set_ops: list[Any]) -> int:
+    score = 0
     for so in set_ops:
         score += 10
         if isinstance(so, dict):
@@ -1204,24 +1168,58 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             q = so.query
             if isinstance(q, (dict, QuerySpec)):
                 score += calculate_ast_complexity(q)
+    return score
 
-    # Case When columns
-    cols = spec_dict.get("columns") or []
-    for c in cols:
-        if isinstance(c, dict) and "case_when" in c:
-            cw = c["case_when"]
-            branches = (
-                cw.get("branches", [])
-                if isinstance(cw, dict)
-                else getattr(cw, "branches", [])
-            )
-            score += 2 * max(1, len(branches))
 
-    # Grouping Type
+def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
+    """
+    Calculates deterministic AST complexity score across projections, joins,
+    filters, subqueries, group by, order by, and window functions.
+    """
+    spec_dict = _normalize_spec_to_dict(spec)
+    if not spec_dict:
+        return 0
+
+    table_score = _score_table(spec_dict.get("table"))
+    if table_score == 0:
+        return 0
+
+    score = table_score
+    score += _score_columns(spec_dict.get("columns", []))
+    score += _score_joins(spec_dict.get("joins", []))
+    score += _score_filters(spec_dict.get("filters", []))
+
+    group_by = spec_dict.get("group_by", [])
+    if group_by:
+        score += 3 + len(group_by)
+
+    having = spec_dict.get("having", [])
+    if having:
+        score += 3 + (2 * len(having))
+
+    order_by = spec_dict.get("order_by", [])
+    if order_by:
+        score += 2 + len(order_by)
+
+    score += _score_ctes(spec_dict.get("ctes") or spec_dict.get("subqueries") or [])
+
+    win_funcs = spec_dict.get("window_functions") or spec_dict.get("window")
+    if win_funcs:
+        score += 5 * len(win_funcs) if isinstance(win_funcs, list) else 5
+
+    if spec_dict.get("vector_search"):
+        score += 5
+
+    if spec_dict.get("hybrid_search"):
+        score += 8
+
+    score += _score_set_operations(spec_dict.get("set_operations") or [])
+
     if spec_dict.get("grouping_type"):
         score += 4
 
     return score
+
 
 
 def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
@@ -1229,11 +1227,8 @@ def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
     Validates query specification to detect unbounded Cartesian products,
     missing join conditions, or prohibited CROSS JOIN expressions.
     """
-    if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
+    spec_dict = _normalize_spec_to_dict(spec)
+    if not spec_dict:
         return
 
     joins = spec_dict.get("joins", [])
