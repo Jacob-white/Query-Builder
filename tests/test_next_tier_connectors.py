@@ -205,6 +205,7 @@ def test_spark_sql_connector_sync_and_introspection():
     # Introspect schema
     mock_cur.execute.side_effect = [
         [("analytics", "users", False)],  # SHOW TABLES IN
+        RuntimeError("information schema columns not available"),  # info schema fail
         [
             ("id", "bigint", None),
             ("name", "string", None),
