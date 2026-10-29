@@ -1496,7 +1496,7 @@ class _NinjaHandlers:
     def __init__(
         self,
         connector: Any,
-        policy: SecurityPolicy | dict[str, Any] | None,
+        policy: SecurityPolicy | None,
         tenant_resolver: Callable[[Any], TenantContext | dict[str, Any] | str | None]
         | None,
         effective_capabilities: EngineCapabilities,
