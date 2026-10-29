@@ -1214,7 +1214,9 @@ def introspect_sparksql(
                     }
 
             for table_data in tables.values():
-                table_data["has_user_id"] = any(c["name"] == "user_id" for c in table_data["columns"])
+                table_data["has_user_id"] = any(
+                    c["name"] == "user_id" for c in table_data["columns"]
+                )
 
             batch_success = True
         except Exception:  # noqa: BLE001, S110
