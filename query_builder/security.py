@@ -1069,13 +1069,13 @@ def scrub_secrets(value: Any, patterns: list[str] | None = None) -> Any:
 # ---------------------------------------------------------------------------
 
 
-
 def _normalize_spec_to_dict(spec: dict[str, Any] | QuerySpec) -> dict[str, Any] | None:
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
         return asdict(spec)  # type: ignore[arg-type]
     elif isinstance(spec, dict):
         return spec
     return None
+
 
 def _score_table(table: Any) -> int:
     if isinstance(table, (dict, QuerySpec)) or hasattr(table, "__dataclass_fields__"):
@@ -1092,6 +1092,7 @@ def _score_table(table: Any) -> int:
         return 1
     return 0
 
+
 def _score_columns(columns: list[Any]) -> int:
     score = 0
     for col in columns:
@@ -1103,14 +1104,21 @@ def _score_columns(columns: list[Any]) -> int:
                 score += 1
         elif isinstance(col, str):
             col_upper = col.upper()
-            if any(agg in col_upper for agg in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(")):
+            if any(
+                agg in col_upper for agg in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(")
+            ):
                 score += 2
         # Case When columns handling combined into _score_columns (or separate if needed)
         if isinstance(col, dict) and "case_when" in col:
             cw = col["case_when"]
-            branches = cw.get("branches", []) if isinstance(cw, dict) else getattr(cw, "branches", [])
+            branches = (
+                cw.get("branches", [])
+                if isinstance(cw, dict)
+                else getattr(cw, "branches", [])
+            )
             score += 2 * max(1, len(branches))
     return score
+
 
 def _score_joins(joins: list[Any]) -> int:
     score = 0
@@ -1126,6 +1134,7 @@ def _score_joins(joins: list[Any]) -> int:
             score += 5
     return score
 
+
 def _score_filters(filters: list[Any]) -> int:
     score = 0
     for flt in filters:
@@ -1134,11 +1143,20 @@ def _score_filters(filters: list[Any]) -> int:
         if str(op).lower() in ("like", "ilike", "regex", "matches"):
             score += 3
         val = flt.get("value") if isinstance(flt, dict) else getattr(flt, "value", None)
-        subq = flt.get("subquery") if isinstance(flt, dict) else getattr(flt, "subquery", None)
-        target_subq = subq if isinstance(subq, (dict, QuerySpec)) else (val if isinstance(val, (dict, QuerySpec)) else None)
+        subq = (
+            flt.get("subquery")
+            if isinstance(flt, dict)
+            else getattr(flt, "subquery", None)
+        )
+        target_subq = (
+            subq
+            if isinstance(subq, (dict, QuerySpec))
+            else (val if isinstance(val, (dict, QuerySpec)) else None)
+        )
         if target_subq is not None:
             score += 10 + calculate_ast_complexity(target_subq)
     return score
+
 
 def _score_ctes(ctes: list[Any]) -> int:
     score = 0
@@ -1155,6 +1173,7 @@ def _score_ctes(ctes: list[Any]) -> int:
             if isinstance(cte_query, (dict, QuerySpec)):
                 score += calculate_ast_complexity(cte_query)
     return score
+
 
 def _score_set_operations(set_ops: list[Any]) -> int:
     score = 0
@@ -1219,7 +1238,6 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
         score += 4
 
     return score
-
 
 
 def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
