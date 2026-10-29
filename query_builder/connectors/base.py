@@ -582,7 +582,8 @@ class BaseConnector(ABC):
         main_sql, main_params = self.prepare_raw_sql(main_sql, main_params)
         try:
             with self.get_cursor() as cur:
-                self.apply_statement_timeout(cur, timeout)
+                if timeout is not None:
+                    self.apply_statement_timeout(cur, timeout)
                 col_names, dict_rows, latency_ms = execute_cursor_query(
                     cur, main_sql, main_params
                 )
@@ -716,7 +717,8 @@ class BaseConnector(ABC):
 
         try:
             with self.get_cursor() as cur:
-                self.apply_statement_timeout(cur, timeout)
+                if timeout is not None:
+                    self.apply_statement_timeout(cur, timeout)
 
                 if count_params:
                     cur.execute(count_sql, count_params)
