@@ -16,6 +16,11 @@ from query_builder.connectors.base import DriverNotInstalledError, Introspection
 from query_builder.schema import normalize_schema_snapshot
 
 
+def _is_valid_identifier(name: str) -> bool:
+    """Validates that a string only contains safe identifier characters."""
+    return bool(re.match(r"^[a-zA-Z0-9_-]+$", name))
+
+
 def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, Any]:
     """
     Introspects SQLite schema using sqlite_master, PRAGMA table_info,
@@ -1122,6 +1127,9 @@ def introspect_sparksql(
     cursor_or_session: Any, schema_name: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Spark SQL schema using SHOW TABLES or INFORMATION_SCHEMA."""
+    if not _is_valid_identifier(schema_name):
+        raise IntrospectionError(f"Invalid schema identifier: {schema_name}")
+
     cur = None
     own_cur = False
     try:
@@ -1355,6 +1363,9 @@ def introspect_tdengine(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects TDengine schema using SHOW TABLES and DESCRIBE."""
+    if not _is_valid_identifier(database):
+        raise IntrospectionError(f"Invalid database identifier: {database}")
+
     try:
         try:
             cursor.execute(f"SHOW `{database}`.TABLES;")
@@ -2206,6 +2217,9 @@ def introspect_impala(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Impala schema using SHOW TABLES and DESCRIBE."""
+    if not _is_valid_identifier(database):
+        raise IntrospectionError(f"Invalid database identifier: {database}")
+
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
@@ -2262,6 +2276,9 @@ def introspect_hive(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Hive lakehouse schema via HiveServer2 metadata."""
+    if not _is_valid_identifier(database):
+        raise IntrospectionError(f"Invalid database identifier: {database}")
+
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
@@ -2318,6 +2335,9 @@ def introspect_kyuubi(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Kyuubi multi-tenant query gateway schema."""
+    if not _is_valid_identifier(database):
+        raise IntrospectionError(f"Invalid database identifier: {database}")
+
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
@@ -4452,6 +4472,9 @@ def introspect_timestream(
     cursor: Any, database_name: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects AWS Timestream time-series tables and measures."""
+    if not _is_valid_identifier(database_name):
+        raise IntrospectionError(f"Invalid database identifier: {database_name}")
+
     cur = None
     own_cur = False
     try:
@@ -4837,6 +4860,10 @@ def introspect_pulsar(
     filter_sensitive: bool = True,
 ) -> dict[str, Any]:
     """Introspects Apache Pulsar SQL topic schema."""
+    # Allow alphanumeric, dashes, underscores, and forward slashes for Pulsar namespaces
+    if not bool(re.match(r"^[a-zA-Z0-9_/-]+$", tenant_namespace)):
+        raise IntrospectionError(f"Invalid tenant namespace: {tenant_namespace}")
+
     cur = None
     own_cur = False
     try:
