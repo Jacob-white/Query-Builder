@@ -807,6 +807,7 @@ def test_expanded_lakehouse_and_graph_dialects():
     c_neo_single, _ = neo4j.inspect_columns_query("Person")
     assert "MATCH (n:`Person`)" in c_neo_single
 
+
 def test_format_having_placeholder():
     pg = get_dialect("postgres")
     assert pg.format_having_placeholder(123) == "%s"
