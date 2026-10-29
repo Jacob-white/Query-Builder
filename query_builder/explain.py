@@ -213,9 +213,7 @@ def _parse_mysql_plan_list(raw_plan: list[Any]) -> QueryPlanNode:
         if "query_block" in row:
             return parse_mysql_plan(row)
         table_name = row.get("table") or row.get("table_name")
-        access_type = str(
-            row.get("type") or row.get("access_type") or "ALL"
-        ).upper()
+        access_type = str(row.get("type") or row.get("access_type") or "ALL").upper()
         key = row.get("key")
         rows_est = int(row.get("rows") or 0)
         extra = row.get("Extra") or row.get("filtered")
