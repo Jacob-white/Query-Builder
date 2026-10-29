@@ -1217,7 +1217,7 @@ def introspect_sparksql(
                 table_data["has_user_id"] = any(c["name"] == "user_id" for c in table_data["columns"])
 
             batch_success = True
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
 
         if not batch_success:
