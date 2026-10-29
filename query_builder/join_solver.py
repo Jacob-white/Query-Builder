@@ -290,26 +290,7 @@ def find_best_join_condition(
     }
 
 
-def find_join_path(
-    active_tables: list[str],
-    target_table: str,
-    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
-    default_join_type: str = "LEFT JOIN",
-    canonical_columns: Sequence[str] | None = None,
-) -> list[dict[str, Any]]:
-    """
-    Finds the shortest join path from any table in active_tables to target_table
-    using Breadth-First Search (BFS) across foreign keys and canonical entity bridges.
-
-    Protected against infinite loops, deep recursion, and large schema DoS.
-    """
-    clean_target = _clean_table_name(target_table)
-    if not clean_target:
-        return []
-
-    if not isinstance(active_tables, (list, tuple, set)):
-        return []
-
+def _get_safe_join_type(default_join_type: str) -> str:
     valid_join_types = {
         "LEFT JOIN",
         "INNER JOIN",
@@ -324,19 +305,15 @@ def find_join_path(
         not isinstance(default_join_type, str)
         or default_join_type.upper() not in valid_join_types
     ):
-        safe_join_type = "LEFT JOIN"
+        return "LEFT JOIN"
     else:
         upper_jt = default_join_type.upper()
-        safe_join_type = upper_jt if upper_jt.endswith("JOIN") else f"{upper_jt} JOIN"
+        return upper_jt if upper_jt.endswith("JOIN") else f"{upper_jt} JOIN"
 
-    clean_active = [_clean_table_name(t) for t in active_tables if _clean_table_name(t)]
 
-    if clean_target in clean_active or not clean_active:
-        return []
-
-    if len(clean_active) > MAX_ACTIVE_TABLES:
-        clean_active = clean_active[:MAX_ACTIVE_TABLES]
-
+def _extract_schema_metadata(
+    schema_data: dict[str, Any] | SchemaSnapshot | None,
+) -> tuple[dict[str, Any], list[Any], list[Any]]:
     if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
         tables_meta = getattr(schema_data, "tables", {})
         foreign_keys = getattr(schema_data, "foreign_keys", [])
@@ -359,6 +336,13 @@ def find_join_path(
     if len(foreign_keys) > MAX_FOREIGN_KEYS:
         foreign_keys = foreign_keys[:MAX_FOREIGN_KEYS]
 
+    return tables_meta, foreign_keys, relationships
+
+
+def _get_effective_canon(
+    canonical_columns: Sequence[str] | None,
+    schema_data: dict[str, Any] | SchemaSnapshot | None,
+) -> Sequence[str]:
     effective_canon: Sequence[str] = CANONICAL_ENTITY_COLUMNS
     if canonical_columns:
         effective_canon = canonical_columns
@@ -368,8 +352,15 @@ def find_join_path(
         canon_attr := getattr(schema_data, "canonical_columns", None)
     ):
         effective_canon = canon_attr
+    return effective_canon
 
-    # Build adjacency graph (preserving insertion order via dict keys)
+
+def _build_adjacency_graph(
+    foreign_keys: list[Any],
+    relationships: list[Any],
+    tables_meta: dict[str, Any],
+    effective_canon: Sequence[str],
+) -> dict[str, list[str]]:
     adj: dict[str, list[str]] = {}
 
     def add_edge(u: str, v: str) -> None:
@@ -440,7 +431,17 @@ def find_join_path(
                     if cand != clean_tbl and cand in tables_meta:
                         add_edge(cand, clean_tbl)
 
-    # BFS from active tables prioritizing confirmed FK/relationship edges over equal-length inferred bridges
+    return adj
+
+
+def _run_bfs_join_search(
+    clean_active: list[str],
+    clean_target: str,
+    adj: dict[str, list[str]],
+    schema_data: dict[str, Any] | SchemaSnapshot | None,
+    effective_canon: Sequence[str],
+    safe_join_type: str,
+) -> list[dict[str, Any]] | None:
     queue: list[tuple[str, list[dict[str, Any]], int]] = []
     best_score: dict[str, int] = {}
 
@@ -483,6 +484,60 @@ def find_join_path(
                     "right_col": cond["right_col"],
                 }
                 queue.append((neighbor, path + [next_join], next_score))
+
+    return None
+
+
+def find_join_path(
+    active_tables: list[str],
+    target_table: str,
+    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
+    default_join_type: str = "LEFT JOIN",
+    canonical_columns: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Finds the shortest join path from any table in active_tables to target_table
+    using Breadth-First Search (BFS) across foreign keys and canonical entity bridges.
+
+    Protected against infinite loops, deep recursion, and large schema DoS.
+    """
+    clean_target = _clean_table_name(target_table)
+    if not clean_target:
+        return []
+
+    if not isinstance(active_tables, (list, tuple, set)):
+        return []
+
+    safe_join_type = _get_safe_join_type(default_join_type)
+
+    clean_active = [_clean_table_name(t) for t in active_tables if _clean_table_name(t)]
+
+    if clean_target in clean_active or not clean_active:
+        return []
+
+    if len(clean_active) > MAX_ACTIVE_TABLES:
+        clean_active = clean_active[:MAX_ACTIVE_TABLES]
+
+    tables_meta, foreign_keys, relationships = _extract_schema_metadata(schema_data)
+    effective_canon = _get_effective_canon(canonical_columns, schema_data)
+
+    # Build adjacency graph (preserving insertion order via dict keys)
+    adj = _build_adjacency_graph(
+        foreign_keys, relationships, tables_meta, effective_canon
+    )
+
+    # BFS from active tables prioritizing confirmed FK/relationship edges over equal-length inferred bridges
+    path = _run_bfs_join_search(
+        clean_active,
+        clean_target,
+        adj,
+        schema_data,
+        effective_canon,
+        safe_join_type,
+    )
+
+    if path is not None:
+        return path
 
     # Fallback direct join from first active table
     fallback_start = clean_active[0]
