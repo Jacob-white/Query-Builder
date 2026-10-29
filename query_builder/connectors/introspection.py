@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+from collections import defaultdict
 from collections.abc import Generator
 from typing import Any
 
@@ -37,78 +38,169 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        for tbl in table_names:
-            # Table columns (skip virtual tables whose custom tokenizer/module is not loaded)
-            safe_tbl = tbl.replace('"', '""')
-            try:
-                cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
-                cols_meta = cursor.fetchall()
-            except Exception as tbl_exc:  # noqa: BLE001
-                err_msg = str(tbl_exc).lower()
-                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
-                    continue
-                raise
-            cols: list[dict[str, Any]] = []
-            has_user = False
+        # Attempt to batch query using table-valued PRAGMA functions
+        batched_success = False
+        try:
+            cursor.execute(
+                """
+                SELECT m.name, p.cid, p.name, p.type, p."notnull", p.dflt_value, p.pk
+                FROM sqlite_master m
+                JOIN pragma_table_info(m.name) p
+                WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%';
+                """
+            )
+            all_cols_meta = cursor.fetchall()
 
-            for c in cols_meta:
-                # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
-                col_name = str(c[1])
-                data_type = str(c[2]) if c[2] else "text"
-                is_nullable = not bool(c[3])
-                is_pk = bool(c[5])
-                if col_name == "user_id":
-                    has_user = True
+            cursor.execute(
+                """
+                SELECT m.name, f.id, f.seq, f."table", f."from", f."to", f.on_update, f.on_delete, f.match
+                FROM sqlite_master m
+                JOIN pragma_foreign_key_list(m.name) f
+                WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%';
+                """
+            )
+            all_fk_rows = cursor.fetchall()
+            batched_success = True
+        except Exception:  # noqa: BLE001
+            # Fallback to N+1 if table-valued functions are unsupported or a virtual table crashes the query
+            batched_success = False
 
-                cols.append(
-                    {
-                        "name": col_name,
-                        "data_type": data_type,
-                        "is_nullable": is_nullable,
-                        "is_primary": is_pk,
-                        "comment": None,
-                    }
-                )
+        if batched_success:
+            # Group by table name
+            cols_by_table: dict[str, list[Any]] = defaultdict(list)
+            for c_b in all_cols_meta:
+                cols_by_table[str(c_b[0])].append(c_b[1:])
 
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+            fks_by_table: dict[str, list[Any]] = defaultdict(list)
+            for fk_b in all_fk_rows:
+                fks_by_table[str(fk_b[0])].append(fk_b[1:])
 
-            # Foreign keys
-            try:
-                cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
-                fk_rows = cursor.fetchall()
-            except Exception as fk_exc:  # noqa: BLE001
-                err_msg = str(fk_exc).lower()
-                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
-                    continue
-                raise
-            for fk in fk_rows:
-                # id, seq, table, from, to, on_update, on_delete, match
-                target_table = str(fk[2])
-                from_col = str(fk[3])
-                to_col = str(fk[4]) if fk[4] else "id"
+            for tbl in table_names:
+                cols_meta_b = cols_by_table.get(tbl, [])
+                cols_b: list[dict[str, Any]] = []
+                has_user = False
 
-                foreign_keys.append(
-                    {
-                        "table": tbl,
-                        "column": from_col,
-                        "foreign_table": target_table,
-                        "foreign_column": to_col,
-                    }
-                )
-                relationships.append(
-                    {
-                        "source_table": tbl,
-                        "source_column": from_col,
-                        "target_table": target_table,
-                        "target_column": to_col,
-                    }
-                )
+                for c in cols_meta_b:
+                    col_name = str(c[1])
+                    data_type = str(c[2]) if c[2] else "text"
+                    is_nullable = not bool(c[3])
+                    is_pk = bool(c[5])
+                    if col_name == "user_id":
+                        has_user = True
+
+                    cols_b.append(
+                        {
+                            "name": col_name,
+                            "data_type": data_type,
+                            "is_nullable": is_nullable,
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols_b,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+
+                fk_rows = fks_by_table.get(tbl, [])
+                for fk in fk_rows:
+                    target_table = str(fk[2])
+                    from_col = str(fk[3])
+                    to_col = str(fk[4]) if fk[4] else "id"
+
+                    foreign_keys.append(
+                        {
+                            "table": tbl,
+                            "column": from_col,
+                            "foreign_table": target_table,
+                            "foreign_column": to_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": tbl,
+                            "source_column": from_col,
+                            "target_table": target_table,
+                            "target_column": to_col,
+                        }
+                    )
+        else:
+            for tbl in table_names:
+                # Table columns (skip virtual tables whose custom tokenizer/module is not loaded)
+                safe_tbl = tbl.replace('"', '""')
+                try:
+                    cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
+                    cols_meta = cursor.fetchall()
+                except Exception as tbl_exc:  # noqa: BLE001
+                    err_msg = str(tbl_exc).lower()
+                    if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                        continue
+                    raise
+                cols: list[dict[str, Any]] = []
+                has_user = False
+
+                for c in cols_meta:
+                    # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+                    col_name = str(c[1])
+                    data_type = str(c[2]) if c[2] else "text"
+                    is_nullable = not bool(c[3])
+                    is_pk = bool(c[5])
+                    if col_name == "user_id":
+                        has_user = True
+
+                    cols.append(
+                        {
+                            "name": col_name,
+                            "data_type": data_type,
+                            "is_nullable": is_nullable,
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+
+                # Foreign keys
+                try:
+                    cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
+                    fk_rows = cursor.fetchall()
+                except Exception as fk_exc:  # noqa: BLE001
+                    err_msg = str(fk_exc).lower()
+                    if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                        continue
+                    raise
+                for fk in fk_rows:
+                    # id, seq, table, from, to, on_update, on_delete, match
+                    target_table = str(fk[2])
+                    from_col = str(fk[3])
+                    to_col = str(fk[4]) if fk[4] else "id"
+
+                    foreign_keys.append(
+                        {
+                            "table": tbl,
+                            "column": from_col,
+                            "foreign_table": target_table,
+                            "foreign_column": to_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": tbl,
+                            "source_column": from_col,
+                            "target_table": target_table,
+                            "target_column": to_col,
+                        }
+                    )
 
         raw_snapshot = {
             "tables": tables,
