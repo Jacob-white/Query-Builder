@@ -11,7 +11,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from query_builder.adapters.drizzle import from_drizzle
+from query_builder.adapters.drizzle import _OpenScans, from_drizzle
 from query_builder.models import SchemaDict, TableSchema
 from query_builder.schema_converters import to_drizzle_schema
 
@@ -166,3 +166,45 @@ def test_drizzle_table_schema_and_export_interop():
     # Interoperability with to_drizzle_schema exporter
     exported = to_drizzle_schema(tables, dialect="postgres")
     assert 'pgTable("users"' in exported or "pgTable('users'" in exported
+
+
+def test_openscans_absorb_smaller_into_larger():
+    big = _OpenScans()
+    big.heap = [(1, 10), (3, 20), (5, 30)]
+    big.offset = 5
+
+    small = _OpenScans()
+    small.heap = [(2, 40)]
+    small.offset = 10
+
+    result = big.absorb(small)
+    assert result is big
+    assert sorted(result.heap) == sorted([(1, 10), (3, 20), (5, 30), (2 + 10 - 5, 40)])
+
+
+def test_openscans_absorb_larger_into_smaller():
+    small = _OpenScans()
+    small.heap = [(1, 10)]
+    small.offset = 5
+
+    big = _OpenScans()
+    big.heap = [(2, 20), (3, 30), (5, 40)]
+    big.offset = 10
+
+    result = small.absorb(big)
+    assert result is big
+    assert sorted(result.heap) == sorted([(2, 20), (3, 30), (5, 40), (1 + 5 - 10, 10)])
+
+
+def test_openscans_absorb_equal_size():
+    g1 = _OpenScans()
+    g1.heap = [(1, 10)]
+    g1.offset = 5
+
+    g2 = _OpenScans()
+    g2.heap = [(2, 20)]
+    g2.offset = 10
+
+    result = g1.absorb(g2)
+    assert result is g1
+    assert sorted(result.heap) == sorted([(1, 10), (2 + 10 - 5, 20)])
