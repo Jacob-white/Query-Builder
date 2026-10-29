@@ -1464,6 +1464,9 @@ def test_influx_cursor_adapter():
     # 1. PyArrow table mock with column_names and to_pylist()
     mock_arrow_table = MagicMock()
     mock_arrow_table.column_names = ["time", "val"]
+    del (
+        mock_arrow_table.to_pydict
+    )  # Ensure fallback to to_pylist since we are only mocking to_pylist
     mock_arrow_table.to_pylist.return_value = [{"time": "2026-01-01", "val": 42.5}]
     mock_client = MagicMock()
     mock_client.query.return_value = mock_arrow_table
