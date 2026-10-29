@@ -298,20 +298,23 @@ def find_top_level_clauses(sql: str) -> list[ClauseToken]:
             continue
 
         if paren_depth == 0:
-            matched = False
-            for kw in keywords:
-                if upper.startswith(kw, i):
-                    prev_char = sql[i - 1] if i > 0 else " "
-                    next_char = sql[i + len(kw)] if i + len(kw) < sql_len else " "
-                    if re.match(r"[\s(),]", prev_char) and re.match(
-                        r"[\s(),]", next_char
-                    ):
-                        tokens.append(ClauseToken(keyword=kw, index=i, length=len(kw)))
-                        i += len(kw)
-                        matched = True
-                        break
-            if matched:
-                continue
+            char_upper = upper[i]
+            # Fast-path keyword matching: check first char before scanning prefixes
+            if char_upper in "SFRLIJCWHOG":
+                matched = False
+                for kw in keywords:
+                    if kw[0] == char_upper and upper.startswith(kw, i):
+                        prev_char = sql[i - 1] if i > 0 else " "
+                        next_char = sql[i + len(kw)] if i + len(kw) < sql_len else " "
+                        if prev_char in " \t\n\r()," and next_char in " \t\n\r(),":
+                            tokens.append(
+                                ClauseToken(keyword=kw, index=i, length=len(kw))
+                            )
+                            i += len(kw)
+                            matched = True
+                            break
+                if matched:
+                    continue
 
         i += 1
 
@@ -423,7 +426,11 @@ def split_where_conditions(text: str) -> list[dict[str, str]]:
 
         if paren_depth == 0:
             # (``\b`` is implied at the start of the former ``text[i:]`` slice.)
-            if not in_between and _BETWEEN_RE.match(text, i):
+            if (
+                not in_between
+                and (char == "B" or char == "b")
+                and _BETWEEN_RE.match(text, i)
+            ):
                 in_between = True
                 i += 7
                 continue
@@ -434,24 +441,26 @@ def split_where_conditions(text: str) -> list[dict[str, str]]:
             if i > 0 and char.isspace() and text[i - 1].isspace():
                 i += 1
                 continue
-            match = _AND_OR_RE.match(text, i)
-            if match:
-                delim = match.group(1).upper()
-                if in_between and delim == "AND":
-                    in_between = False
-                    i = match.end()
-                    continue
 
-                parts.append(
-                    {
-                        "value": text[last_index:i].strip(),
-                        "delimiter": delim,
-                    }
-                )
-                i = match.end()
-                last_index = i
-                in_between = False
-                continue
+            if char.isspace():
+                match = _AND_OR_RE.match(text, i)
+                if match:
+                    delim = match.group(1).upper()
+                    if in_between and delim == "AND":
+                        in_between = False
+                        i = match.end()
+                        continue
+
+                    parts.append(
+                        {
+                            "value": text[last_index:i].strip(),
+                            "delimiter": delim,
+                        }
+                    )
+                    i = match.end()
+                    last_index = i
+                    in_between = False
+                    continue
 
         i += 1
 
