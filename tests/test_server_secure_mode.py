@@ -631,6 +631,7 @@ def test_explain_with_tenant_header_succeeds(secure: Client) -> None:
     status, out, _ = secure.post("/api/v1/explain", {"spec": SPEC}, headers=ACME)
     assert status == 200
 
+
 # ------------------------------------------------------------- tenant required logic
 def test_tenant_required_logic() -> None:
     from query_builder.config import (
@@ -644,13 +645,17 @@ def test_tenant_required_logic() -> None:
     assert sec1.tenant_required() is True
 
     # Test 2: require_tenant is False
-    sec2 = ServerSecurity(tenant_resolver=header_tenant_resolver(), require_tenant=False)
+    sec2 = ServerSecurity(
+        tenant_resolver=header_tenant_resolver(), require_tenant=False
+    )
     assert sec2.tenant_required() is False
 
     # Test 3: require_tenant is None, global config enforce_tenant_isolation is True
     try:
         configure_security(SecurityProfile.from_name("production"))
-        sec3 = ServerSecurity(tenant_resolver=header_tenant_resolver(), require_tenant=None)
+        sec3 = ServerSecurity(
+            tenant_resolver=header_tenant_resolver(), require_tenant=None
+        )
         assert sec3.tenant_required() is True
     finally:
         reset_security_config()
@@ -658,7 +663,9 @@ def test_tenant_required_logic() -> None:
     # Test 4: require_tenant is None, global config enforce_tenant_isolation is False
     try:
         configure_security(SecurityProfile.from_name("development"))
-        sec4 = ServerSecurity(tenant_resolver=header_tenant_resolver(), require_tenant=None)
+        sec4 = ServerSecurity(
+            tenant_resolver=header_tenant_resolver(), require_tenant=None
+        )
         assert sec4.tenant_required() is False
     finally:
         reset_security_config()
