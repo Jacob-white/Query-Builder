@@ -90,7 +90,10 @@ def test_disabled_feature_message():
 
     exc3 = DisabledFeatureError("unknown_evil_feature")
     msg3 = disabled_feature_message(exc3, None)
-    assert msg3 == "A feature used by this query is disabled in the active engine capabilities."
+    assert (
+        msg3
+        == "A feature used by this query is disabled in the active engine capabilities."
+    )
 
 
 def test_capabilities_default_and_serialization():
