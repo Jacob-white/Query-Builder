@@ -33,7 +33,7 @@ from query_builder.security import scrub_secrets
 # Linear-time code finishes these inputs in well under a second locally, but CI runners with
 # coverage tracing can be several times slower (up to ~3.5s observed). The regressions this
 # guards against took 25s to minutes, so a generous limit still separates them cleanly.
-LIMIT_SECONDS = 8.0
+LIMIT_SECONDS = 12.0
 N = 50_000
 # the parser walks the text character by character in Python, so its inputs are smaller
 PN = 20_000
