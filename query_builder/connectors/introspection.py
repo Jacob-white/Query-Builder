@@ -849,7 +849,7 @@ def introspect_cratedb(
             )
             for pk_row in cursor.fetchall():
                 pk_cols.setdefault(str(pk_row[0]), set()).add(str(pk_row[1]))
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001 - catalog views not available
+        except Exception:  # noqa: BLE001 - catalog views not available
             pk_known = False
 
         table_cols_map: dict[str, list[dict[str, Any]]] = {}
@@ -991,7 +991,7 @@ def introspect_saphana(
                 [schema_name.upper()],
             )
             col_rows = cursor.fetchall()
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cursor.execute(
                 """
                 SELECT table_name
@@ -1146,7 +1146,7 @@ def introspect_sparksql(
                 if r:
                     t_name = str(r[1]) if len(r) > 1 else str(r[0])
                     table_names.append(t_name)
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cur.execute(
                 """
                 SELECT table_name
@@ -1369,7 +1369,7 @@ def introspect_tdengine(
     try:
         try:
             cursor.execute(f"SHOW `{database}`.TABLES;")
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cursor.execute("SHOW TABLES;")
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
@@ -1401,7 +1401,7 @@ def introspect_tdengine(
                                     }
                                 )
                         if cursor.nextset() is None:
-                                break
+                            break
                     success = True
                     for k, v in batch_cols_map.items():
                         tables[k] = {
@@ -1417,8 +1417,6 @@ def introspect_tdengine(
             if not success:
                 for tbl in batch:
                     cols: list[dict[str, Any]] = []
-                    import contextlib
-
                     with contextlib.suppress(Exception):
                         cursor.execute(f"DESCRIBE `{tbl}`;")
                         col_rows = cursor.fetchall()
@@ -1615,7 +1613,7 @@ def _arango_sample_fields(db_or_cursor: Any, collection: str) -> dict[str, str]:
                     for k, v in doc.items():
                         if sample.get(k) is None:
                             sample[k] = v
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001 - sampling is best effort; never fail introspection
+    except Exception:  # noqa: BLE001 - sampling is best effort; never fail introspection
         return {}
     return {
         str(k): _arango_json_type(v)
@@ -1748,7 +1746,7 @@ def introspect_exasol(
                 [schema_name.upper()],
             )
             col_rows = cursor.fetchall()
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cursor.execute(
                 """
                 SELECT table_name
@@ -1898,7 +1896,7 @@ def introspect_db2(
                 [schema_name.upper()],
             )
             col_rows = cursor.fetchall()
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cursor.execute(
                 """
                 SELECT table_name
@@ -2168,7 +2166,7 @@ def introspect_doris(
             )
             table_rows = cursor.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cursor.execute("SHOW TABLES;")
             table_rows = cursor.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
@@ -2205,7 +2203,7 @@ def introspect_doris(
                         "comment": None,
                     }
                 )
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             batch_size = 100
             for i in range(0, len(table_names), batch_size):
                 batch = table_names[i : i + batch_size]
@@ -2342,7 +2340,7 @@ def introspect_impala(
                                 }
                             )
                         if cursor.nextset() is None:
-                                break
+                            break
                     success = True
                     for k, v in batch_cols_map.items():
                         tables[k] = {
@@ -2446,7 +2444,7 @@ def introspect_hive(
                                 }
                             )
                         if cursor.nextset() is None:
-                                break
+                            break
                     success = True
                     for k, v in batch_cols_map.items():
                         tables[k] = {
@@ -2550,7 +2548,7 @@ def introspect_kyuubi(
                                 }
                             )
                         if cursor.nextset() is None:
-                                break
+                            break
                     success = True
                     for k, v in batch_cols_map.items():
                         tables[k] = {
@@ -2633,7 +2631,7 @@ def _drill_file_tables(cur: Any, schema_name: str) -> list[str]:
             is_dir = dir_ix is not None and str(row[dir_ix]).lower() in ("true", "1")
             if is_dir or name.rsplit(".", 1)[-1] in ("parquet", "json", "csv", "csvh"):
                 names.append(name)
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
     return sorted(names)
 
@@ -2649,7 +2647,7 @@ def _drill_probe_columns(
             (str(d[0]), str(d[1]) if len(d) > 1 and d[1] else "VARCHAR")
             for d in (cur.description or [])
         ]
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -2688,7 +2686,7 @@ def introspect_drill(
             )
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cur.execute("SHOW TABLES;")
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
@@ -2732,7 +2730,7 @@ def introspect_drill(
                         "comment": None,
                     }
                 )
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             for tbl in table_names:
                 if file_tables:
                     for c_name, d_type in _drill_probe_columns(cur, schema_name, tbl):
@@ -3118,14 +3116,14 @@ def introspect_neo4j(
                     record["label"] if "label" in record else record[0]
                     for record in res
                 ]
-            except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 try:
                     res = session.run("CALL db.labels();")
                     table_names = [
                         record["label"] if "label" in record else record[0]
                         for record in res
                     ]
-                except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+                except Exception:  # noqa: BLE001
                     table_names = []
 
             if not table_names:
@@ -3404,7 +3402,7 @@ def introspect_clickhouse_native(
                     {"db": database},
                 )
                 table_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
-            except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 cur.execute(
                     f"SELECT name FROM system.tables WHERE database = '{database}' ORDER BY name;"
                 )
@@ -3420,7 +3418,7 @@ def introspect_clickhouse_native(
                     {"db": database},
                 )
                 col_rows = cur.fetchall() if hasattr(cur, "fetchall") else []
-            except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 cur.execute(
                     f"SELECT table, name, type, is_in_primary_key FROM system.columns WHERE database = '{database}' ORDER BY table, position;"
                 )
@@ -3645,7 +3643,7 @@ def introspect_monetdb(
                 [schema_name],
             )
             col_rows = cur.fetchall() or []
-        except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             cur.execute(
                 """
                 SELECT table_name
@@ -4814,7 +4812,7 @@ def memgraph_schema_steps(
             "CALL schema.node_type_properties() YIELD nodeLabels, propertyName, "
             "propertyTypes RETURN nodeLabels, propertyName, propertyTypes"
         )
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001 - procedure missing: fall back to sampling below
+    except Exception:  # noqa: BLE001 - procedure missing: fall back to sampling below
         rows = None
     if rows is not None:
         for r in rows:
@@ -5460,7 +5458,7 @@ def _chroma_sample_columns(client: Any, name: str) -> list[dict[str, Any]] | Non
     try:
         res = client.get_collection(name).get(limit=200, include=["metadatas"])
         metas = res.get("metadatas") if isinstance(res, dict) else None
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001 - fall back to the generic id/document shape
+    except Exception:  # noqa: BLE001 - fall back to the generic id/document shape
         return None
     if metas is None:
         return None
@@ -5691,7 +5689,7 @@ def _redis_index_columns(client: Any, index: str) -> list[dict[str, Any]]:
         return []
     try:
         info = client.execute_command("FT.INFO", index)
-    except Exception:  # noqa: BLE001, S110  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
     return parse_ft_info(info)
 
