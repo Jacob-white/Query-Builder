@@ -415,6 +415,80 @@ def to_prisma_schema(
     return f"{header}\n\n{models_content}"
 
 
+def _get_drizzle_column_expr(
+    dialect: str,
+    c_name: str,
+    c_type: str,
+    is_pk: bool,
+    is_int: bool,
+    is_bigint: bool,
+) -> str:
+    """Helper to generate dialect-specific Drizzle column expression."""
+    if dialect == "postgres":
+        if is_pk and is_int:
+            return f'serial("{c_name}").primaryKey()'
+        elif is_pk:
+            return f'text("{c_name}").primaryKey()'
+        elif is_bigint:
+            return f'bigint("{c_name}", {{ mode: "number" }})'
+        elif is_int:
+            return f'integer("{c_name}")'
+        elif any(t in c_type for t in ("bool", "boolean")):
+            return f'boolean("{c_name}")'
+        elif any(t in c_type for t in ("float", "double", "real")):
+            return f'doublePrecision("{c_name}")'
+        elif any(t in c_type for t in ("decimal", "numeric", "money")):
+            return f'numeric("{c_name}")'
+        elif any(t in c_type for t in ("datetime", "timestamp", "date", "time")):
+            return f'timestamp("{c_name}")'
+        elif any(t in c_type for t in ("json", "jsonb")):
+            return f'jsonb("{c_name}")'
+        elif "varchar" in c_type:
+            return f'varchar("{c_name}", {{ length: 255 }})'
+        else:
+            return f'text("{c_name}")'
+
+    elif dialect == "mysql":
+        if is_pk and is_int:
+            return f'serial("{c_name}").primaryKey()'
+        elif is_pk:
+            return f'varchar("{c_name}", {{ length: 255 }}).primaryKey()'
+        elif is_bigint:
+            return f'bigint("{c_name}", {{ mode: "number" }})'
+        elif is_int:
+            return f'int("{c_name}")'
+        elif any(t in c_type for t in ("bool", "boolean")):
+            return f'boolean("{c_name}")'
+        elif any(t in c_type for t in ("float", "double", "real")):
+            return f'double("{c_name}")'
+        elif any(t in c_type for t in ("decimal", "numeric", "money")):
+            return f'decimal("{c_name}", {{ precision: 10, scale: 2 }})'
+        elif any(t in c_type for t in ("datetime", "timestamp", "date", "time")):
+            return f'timestamp("{c_name}")'
+        elif any(t in c_type for t in ("json", "jsonb")):
+            return f'json("{c_name}")'
+        else:
+            return f'varchar("{c_name}", {{ length: 255 }})'
+
+    else:  # sqlite
+        if is_pk and is_int:
+            return f'integer("{c_name}").primaryKey({{ autoIncrement: true }})'
+        elif is_pk:
+            return f'text("{c_name}").primaryKey()'
+        elif is_int or is_bigint:
+            return f'integer("{c_name}")'
+        elif any(t in c_type for t in ("bool", "boolean")):
+            return f'integer("{c_name}", {{ mode: "boolean" }})'
+        elif any(
+            t in c_type for t in ("float", "double", "real", "decimal", "numeric")
+        ):
+            return f'real("{c_name}")'
+        elif any(t in c_type for t in ("blob", "bytea", "binary")):
+            return f'blob("{c_name}")'
+        else:
+            return f'text("{c_name}")'
+
+
 def to_drizzle_schema(
     snapshot: SchemaSnapshot | dict[str, Any],
     dialect: str = "postgres",
@@ -483,75 +557,9 @@ def to_drizzle_schema(
             is_int = any(t in c_type for t in ("int", "serial", "smallint", "tinyint"))
             is_bigint = any(t in c_type for t in ("bigint", "bigserial"))
 
-            # Column definition per dialect
-            if clean_dialect == "postgres":
-                if is_pk and is_int:
-                    expr = f'serial("{c_name}").primaryKey()'
-                elif is_pk:
-                    expr = f'text("{c_name}").primaryKey()'
-                elif is_bigint:
-                    expr = f'bigint("{c_name}", {{ mode: "number" }})'
-                elif is_int:
-                    expr = f'integer("{c_name}")'
-                elif any(t in c_type for t in ("bool", "boolean")):
-                    expr = f'boolean("{c_name}")'
-                elif any(t in c_type for t in ("float", "double", "real")):
-                    expr = f'doublePrecision("{c_name}")'
-                elif any(t in c_type for t in ("decimal", "numeric", "money")):
-                    expr = f'numeric("{c_name}")'
-                elif any(
-                    t in c_type for t in ("datetime", "timestamp", "date", "time")
-                ):
-                    expr = f'timestamp("{c_name}")'
-                elif any(t in c_type for t in ("json", "jsonb")):
-                    expr = f'jsonb("{c_name}")'
-                elif "varchar" in c_type:
-                    expr = f'varchar("{c_name}", {{ length: 255 }})'
-                else:
-                    expr = f'text("{c_name}")'
-
-            elif clean_dialect == "mysql":
-                if is_pk and is_int:
-                    expr = f'serial("{c_name}").primaryKey()'
-                elif is_pk:
-                    expr = f'varchar("{c_name}", {{ length: 255 }}).primaryKey()'
-                elif is_bigint:
-                    expr = f'bigint("{c_name}", {{ mode: "number" }})'
-                elif is_int:
-                    expr = f'int("{c_name}")'
-                elif any(t in c_type for t in ("bool", "boolean")):
-                    expr = f'boolean("{c_name}")'
-                elif any(t in c_type for t in ("float", "double", "real")):
-                    expr = f'double("{c_name}")'
-                elif any(t in c_type for t in ("decimal", "numeric", "money")):
-                    expr = f'decimal("{c_name}", {{ precision: 10, scale: 2 }})'
-                elif any(
-                    t in c_type for t in ("datetime", "timestamp", "date", "time")
-                ):
-                    expr = f'timestamp("{c_name}")'
-                elif any(t in c_type for t in ("json", "jsonb")):
-                    expr = f'json("{c_name}")'
-                else:
-                    expr = f'varchar("{c_name}", {{ length: 255 }})'
-
-            else:  # sqlite
-                if is_pk and is_int:
-                    expr = f'integer("{c_name}").primaryKey({{ autoIncrement: true }})'
-                elif is_pk:
-                    expr = f'text("{c_name}").primaryKey()'
-                elif is_int or is_bigint:
-                    expr = f'integer("{c_name}")'
-                elif any(t in c_type for t in ("bool", "boolean")):
-                    expr = f'integer("{c_name}", {{ mode: "boolean" }})'
-                elif any(
-                    t in c_type
-                    for t in ("float", "double", "real", "decimal", "numeric")
-                ):
-                    expr = f'real("{c_name}")'
-                elif any(t in c_type for t in ("blob", "bytea", "binary")):
-                    expr = f'blob("{c_name}")'
-                else:
-                    expr = f'text("{c_name}")'
+            expr = _get_drizzle_column_expr(
+                clean_dialect, c_name, c_type, is_pk, is_int, is_bigint
+            )
 
             # Foreign key chaining
             fk_key = (table_name, c_name)
