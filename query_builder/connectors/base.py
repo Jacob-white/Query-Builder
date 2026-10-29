@@ -532,6 +532,314 @@ class BaseConnector(ABC):
                 raise
             raise mapped from exc
 
+
+    def _process_raw_query_sync(
+        self,
+        sql: str | None,
+        params: list[Any] | None,
+        sec: SecurityConfig,
+        validate_ast: bool,
+        pipeline: MiddlewarePipeline,
+        ctx: dict[str, Any],
+        timeout: int | None,
+    ) -> tuple[bool, Any]:
+        if sql is None:
+            raise CompilationError(
+                "Specification must be a dictionary or dataclass instance."
+            )
+        main_sql = sql
+        main_params = params or []
+        count_sql = ""
+        count_params: list[Any] = []
+        compiled_spec: dict[str, Any] = {
+            "table": "raw_query",
+            "limit": 50,
+            "offset": 0,
+        }
+
+        if sec.execution.enforce_read_only_session and _is_mutating_sql(main_sql):
+            raise SecurityError(
+                f"Read-only session violation: mutating statement detected in '{main_sql[:60]}'."
+            )
+
+        if validate_ast and sec.validation.validate_ast:
+            v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
+            if not v_res["valid"]:
+                raise SecurityError(
+                    f"Generated query failed AST safety validation: {v_res['message']}"
+                )
+
+        execution_plan = {
+            "main_sql": main_sql,
+            "main_params": main_params,
+            "count_sql": count_sql,
+            "count_params": count_params,
+            "spec": compiled_spec,
+        }
+        short_circuited, result_or_plan = pipeline.run_pre_execute(execution_plan, ctx)
+        if short_circuited:
+            return True, pipeline.run_post_execute(result_or_plan, ctx)
+
+        main_sql, main_params = self.prepare_raw_sql(main_sql, main_params)
+        try:
+            with self.get_cursor() as cur:
+                self.apply_statement_timeout(cur, timeout)
+                col_names, dict_rows, latency_ms = execute_cursor_query(
+                    cur, main_sql, main_params
+                )
+        except Exception as db_exc:
+            from query_builder.connectors.base import raise_mapped
+            raise_mapped(db_exc)
+
+        return False, {
+            "main_sql": main_sql,
+            "main_params": main_params,
+            "compiled_spec": compiled_spec,
+            "col_names": col_names,
+            "dict_rows": dict_rows,
+            "latency_ms": latency_ms,
+            "total_count": len(dict_rows),
+            "spec_table": "unknown",
+        }
+
+
+    def _process_spec_query_sync(
+        self,
+        spec: Any,
+        schema: dict[str, Any] | None,
+        user_id: Any,
+        sec: SecurityConfig,
+        validate_ast: bool,
+        pipeline: MiddlewarePipeline,
+        ctx: dict[str, Any],
+        timeout: int | None,
+        kwargs: dict[str, Any],
+    ) -> tuple[bool, Any]:
+        if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
+            raise CompilationError(
+                "Specification must be a dictionary or dataclass instance."
+            )
+
+        spec_dict = (
+            dict(spec)
+            if isinstance(spec, dict)
+            else {k: v for k, v in spec.__dict__.items() if not k.startswith("_")}
+        )
+        spec_table = spec_dict.get("table", "unknown")
+
+        complexity = calculate_ast_complexity(spec_dict)
+        ctx["ast_complexity"] = complexity
+        if (
+            sec.execution.max_complexity_score > 0
+            and complexity > sec.execution.max_complexity_score
+        ):
+            raise SecurityError(
+                f"AST complexity score ({complexity}) exceeds maximum allowed limit ({sec.execution.max_complexity_score})."
+            )
+        if sec.execution.prevent_cartesian_products:
+            check_cartesian_products(spec_dict)
+        joins = spec_dict.get("joins", [])
+        if sec.execution.max_join_depth > 0 and len(joins) > sec.execution.max_join_depth:
+            raise SecurityError(
+                f"Query join depth ({len(joins)}) exceeds maximum allowed limit ({sec.execution.max_join_depth})."
+            )
+        spec_limit = spec_dict.get("limit")
+        if spec_limit is None or int(spec_limit) > sec.execution.max_rows_limit:
+            spec_dict["limit"] = sec.execution.max_rows_limit
+
+        compiled_spec = pipeline.run_pre_compile(spec_dict, ctx)
+        spec_table = compiled_spec.get("table", spec_table)
+
+        resolved_tenant_id = kwargs.get(
+            "tenant_id",
+            compiled_spec.get("tenant_id")
+            if isinstance(compiled_spec, dict)
+            else getattr(compiled_spec, "tenant_id", None),
+        )
+        compiler = QueryCompiler(
+            spec=compiled_spec,
+            schema=schema,
+            user_id=user_id,
+            force_user_filter=bool(user_id),
+            dialect=self.dialect,
+            tenant_id=resolved_tenant_id,
+        )
+        main_sql, main_params, count_sql, count_params = compiler.compile()
+
+        compilation: dict[str, Any] = {
+            "main_sql": main_sql,
+            "main_params": main_params,
+            "count_sql": count_sql,
+            "count_params": count_params,
+        }
+        compilation = pipeline.run_post_compile(compilation, ctx)
+        main_sql = compilation["main_sql"]
+        main_params = compilation["main_params"]
+        count_sql = compilation["count_sql"]
+        count_params = compilation["count_params"]
+
+        if validate_ast:
+            v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
+            if not v_main["valid"]:
+                raise SecurityError(
+                    f"Generated query failed AST safety validation: {v_main['message']}"
+                )
+            v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
+            if not v_count["valid"]:
+                raise SecurityError(
+                    f"Generated count query failed AST safety validation: {v_count['message']}"
+                )
+
+        if sec.execution.enforce_read_only_session:
+            if main_sql and _is_mutating_sql(main_sql):
+                raise SecurityError(
+                    f"Read-only session violation: mutating statement detected in '{main_sql[:60]}'."
+                )
+            if count_sql and _is_mutating_sql(count_sql):
+                raise SecurityError(
+                    f"Read-only session violation: mutating statement detected in '{count_sql[:60]}'."
+                )
+
+        execution_plan = {
+            "main_sql": main_sql,
+            "main_params": main_params,
+            "count_sql": count_sql,
+            "count_params": count_params,
+            "spec": compiled_spec,
+        }
+
+        short_circuited, result_or_plan = pipeline.run_pre_execute(execution_plan, ctx)
+        if short_circuited:
+            return True, pipeline.run_post_execute(result_or_plan, ctx)
+
+        try:
+            with self.get_cursor() as cur:
+                self.apply_statement_timeout(cur, timeout)
+
+                if count_params:
+                    cur.execute(count_sql, count_params)
+                else:
+                    cur.execute(count_sql)
+                count_row = cur.fetchone()
+                total_count = count_row[0] if (count_row and len(count_row) > 0) else 0
+
+                col_names, dict_rows, latency_ms = execute_cursor_query(
+                    cur, main_sql, main_params
+                )
+        except Exception as db_exc:
+            from query_builder.connectors.base import raise_mapped
+            raise_mapped(db_exc)
+
+        return False, {
+            "main_sql": main_sql,
+            "main_params": main_params,
+            "compiled_spec": compiled_spec,
+            "col_names": col_names,
+            "dict_rows": dict_rows,
+            "latency_ms": latency_ms,
+            "total_count": total_count,
+            "spec_table": spec_table,
+        }
+
+
+    def _finalize_execution_result_sync(
+        self,
+        process_res: dict[str, Any],
+        sec: SecurityConfig,
+        pipeline: MiddlewarePipeline,
+        ctx: dict[str, Any],
+        user_id: Any,
+        use_cache: bool,
+        cache_key: str | None,
+        cache_ttl: int,
+    ) -> dict[str, Any]:
+        main_sql = process_res["main_sql"]
+        main_params = process_res["main_params"]
+        compiled_spec = process_res["compiled_spec"]
+        col_names = process_res["col_names"]
+        dict_rows = process_res["dict_rows"]
+        latency_ms = process_res["latency_ms"]
+        total_count = process_res["total_count"]
+        spec_table = process_res["spec_table"]
+
+        limit = int(compiled_spec.get("limit", 50))
+        offset = int(compiled_spec.get("offset", 0))
+
+        truncated = False
+        if len(dict_rows) > sec.execution.max_rows_limit:
+            dict_rows = dict_rows[: sec.execution.max_rows_limit]
+            truncated = True
+
+        if sec.privacy.sensitive_column_patterns and dict_rows:
+            t_ctx = ctx.get("tenant_context")
+            is_admin = bool(
+                t_ctx and any(str(r).lower() == "admin" for r in getattr(t_ctx, "roles", []))
+            )
+            if not is_admin:
+                compiled_pats = [re.compile(p) for p in sec.privacy.sensitive_column_patterns]
+                strat = sec.privacy.masking_strategy
+                masked_rows = []
+                for row in dict_rows:
+                    if isinstance(row, dict):
+                        row_copy = dict(row)
+                        for col_k, col_v in row_copy.items():
+                            if any(p.search(str(col_k)) for p in compiled_pats):
+                                row_copy[col_k] = apply_column_masking(col_v, strategy=strat)
+                        masked_rows.append(row_copy)
+                    else:
+                        masked_rows.append(row)
+                dict_rows = masked_rows
+
+        raw_result = {
+            "sql": main_sql,
+            "params": [str(p) for p in main_params],
+            "columns": col_names,
+            "rows": dict_rows,
+            "count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "page": (offset // limit) + 1 if limit else 1,
+            "latency_ms": round(latency_ms, 2),
+            "dialect": self.dialect_name,
+        }
+        if truncated:
+            raw_result["truncated"] = True
+
+        if sec.logging.emit_audit_events:
+            t_id = getattr(ctx.get("tenant_context"), "tenant_id", None)
+            self.telemetry_collector.record_audit_event(
+                event_type="query_execution",
+                action="execute",
+                resource=str(spec_table),
+                status="success",
+                tenant_id=t_id,
+                user_id=str(user_id) if user_id is not None else None,
+                details={
+                    "dialect": self.dialect_name,
+                    "row_count": len(dict_rows),
+                    "total_count": total_count,
+                    "latency_ms": round(latency_ms, 2),
+                },
+            )
+            self.telemetry_collector.record_execution(
+                sql=main_sql,
+                latency_ms=latency_ms,
+                row_count=len(dict_rows),
+                status="success",
+                dialect=self.dialect_name,
+                tenant_id=t_id,
+                user_id=str(user_id) if user_id is not None else None,
+                parameters=main_params,
+                redact_parameters=sec.logging.redact_parameters,
+            )
+
+        raw_result["cached"] = False
+        if use_cache and cache_key is not None:
+            from query_builder.cache import get_global_cache
+            get_global_cache().set(cache_key, raw_result, ttl=cache_ttl)
+
+        return pipeline.run_post_execute(raw_result, ctx)
+
     def execute(
         self,
         spec: dict[str, Any] | QuerySpec | None = None,
@@ -596,276 +904,27 @@ class BaseConnector(ABC):
         spec_table = "unknown"
         try:
             if spec is None:
-                if sql is None:
-                    raise CompilationError(
-                        "Specification must be a dictionary or dataclass instance."
-                    )
-                main_sql = sql
-                main_params = params or []
-                count_sql = ""
-                count_params: list[Any] = []
-                compiled_spec: dict[str, Any] = {
-                    "table": "raw_query",
-                    "limit": 50,
-                    "offset": 0,
-                }
-
-                if sec.execution.enforce_read_only_session and _is_mutating_sql(
-                    main_sql
-                ):
-                    raise SecurityError(
-                        f"Read-only session violation: mutating statement detected in '{main_sql[:60]}'."
-                    )
-
-                if validate_ast and sec.validation.validate_ast:
-                    v_res = validate_sql_ast(main_sql, dialect=self.dialect_name)
-                    if not v_res["valid"]:
-                        raise SecurityError(
-                            f"Generated query failed AST safety validation: {v_res['message']}"
-                        )
-
-                execution_plan = {
-                    "main_sql": main_sql,
-                    "main_params": main_params,
-                    "count_sql": count_sql,
-                    "count_params": count_params,
-                    "spec": compiled_spec,
-                }
-                short_circuited, result_or_plan = pipeline.run_pre_execute(
-                    execution_plan, ctx
+                short_circuited, process_res = self._process_raw_query_sync(
+                    sql, params, sec, validate_ast, pipeline, ctx, timeout
                 )
-                if short_circuited:
-                    return pipeline.run_post_execute(result_or_plan, ctx)
-
-                main_sql, main_params = self.prepare_raw_sql(main_sql, main_params)
-                try:
-                    with self.get_cursor() as cur:
-                        self.apply_statement_timeout(cur, timeout)
-                        col_names, dict_rows, latency_ms = execute_cursor_query(
-                            cur, main_sql, main_params
-                        )
-                except Exception as db_exc:
-                    raise_mapped(db_exc)
-                total_count = len(dict_rows)
             else:
-                if not isinstance(spec, dict) and not hasattr(spec, "__dict__"):
-                    raise CompilationError(
-                        "Specification must be a dictionary or dataclass instance."
-                    )
-
-                spec_dict = (
-                    dict(spec)
-                    if isinstance(spec, dict)
-                    else {
-                        k: v for k, v in spec.__dict__.items() if not k.startswith("_")
-                    }
-                )
-                spec_table = spec_dict.get("table", "unknown")
-
-                complexity = calculate_ast_complexity(spec_dict)
-                ctx["ast_complexity"] = complexity
-                if (
-                    sec.execution.max_complexity_score > 0
-                    and complexity > sec.execution.max_complexity_score
-                ):
-                    raise SecurityError(
-                        f"AST complexity score ({complexity}) exceeds maximum allowed limit ({sec.execution.max_complexity_score})."
-                    )
-                if sec.execution.prevent_cartesian_products:
-                    check_cartesian_products(spec_dict)
-                joins = spec_dict.get("joins", [])
-                if (
-                    sec.execution.max_join_depth > 0
-                    and len(joins) > sec.execution.max_join_depth
-                ):
-                    raise SecurityError(
-                        f"Query join depth ({len(joins)}) exceeds maximum allowed limit ({sec.execution.max_join_depth})."
-                    )
-                spec_limit = spec_dict.get("limit")
-                if spec_limit is None or int(spec_limit) > sec.execution.max_rows_limit:
-                    spec_dict["limit"] = sec.execution.max_rows_limit
-
-                compiled_spec = pipeline.run_pre_compile(spec_dict, ctx)
-                spec_table = compiled_spec.get("table", spec_table)
-
-                resolved_tenant_id = kwargs.get(
-                    "tenant_id",
-                    compiled_spec.get("tenant_id")
-                    if isinstance(compiled_spec, dict)
-                    else getattr(compiled_spec, "tenant_id", None),
-                )
-                compiler = QueryCompiler(
-                    spec=compiled_spec,
-                    schema=schema,
-                    user_id=user_id,
-                    force_user_filter=bool(user_id),
-                    dialect=self.dialect,
-                    tenant_id=resolved_tenant_id,
-                )
-                main_sql, main_params, count_sql, count_params = compiler.compile()
-
-                compilation: dict[str, Any] = {
-                    "main_sql": main_sql,
-                    "main_params": main_params,
-                    "count_sql": count_sql,
-                    "count_params": count_params,
-                }
-                compilation = pipeline.run_post_compile(compilation, ctx)
-                main_sql = compilation["main_sql"]
-                main_params = compilation["main_params"]
-                count_sql = compilation["count_sql"]
-                count_params = compilation["count_params"]
-
-                if validate_ast:
-                    v_main = validate_sql_ast(main_sql, dialect=self.dialect_name)
-                    if not v_main["valid"]:
-                        raise SecurityError(
-                            f"Generated query failed AST safety validation: {v_main['message']}"
-                        )
-                    v_count = validate_sql_ast(count_sql, dialect=self.dialect_name)
-                    if not v_count["valid"]:
-                        raise SecurityError(
-                            f"Generated count query failed AST safety validation: {v_count['message']}"
-                        )
-
-                if sec.execution.enforce_read_only_session:
-                    if main_sql and _is_mutating_sql(main_sql):
-                        raise SecurityError(
-                            f"Read-only session violation: mutating statement detected in '{main_sql[:60]}'."
-                        )
-                    if count_sql and _is_mutating_sql(count_sql):
-                        raise SecurityError(
-                            f"Read-only session violation: mutating statement detected in '{count_sql[:60]}'."
-                        )
-
-                execution_plan = {
-                    "main_sql": main_sql,
-                    "main_params": main_params,
-                    "count_sql": count_sql,
-                    "count_params": count_params,
-                    "spec": compiled_spec,
-                }
-
-                short_circuited, result_or_plan = pipeline.run_pre_execute(
-                    execution_plan, ctx
-                )
-                if short_circuited:
-                    return pipeline.run_post_execute(result_or_plan, ctx)
-
-                try:
-                    with self.get_cursor() as cur:
-                        self.apply_statement_timeout(cur, timeout)
-
-                        if count_params:
-                            cur.execute(count_sql, count_params)
-                        else:
-                            cur.execute(count_sql)
-                        count_row = cur.fetchone()
-                        total_count = (
-                            count_row[0] if (count_row and len(count_row) > 0) else 0
-                        )
-
-                        col_names, dict_rows, latency_ms = execute_cursor_query(
-                            cur, main_sql, main_params
-                        )
-                except Exception as db_exc:
-                    raise_mapped(db_exc)
-
-            limit = int(compiled_spec.get("limit", 50))
-            offset = int(compiled_spec.get("offset", 0))
-
-            truncated = False
-            if len(dict_rows) > sec.execution.max_rows_limit:
-                dict_rows = dict_rows[: sec.execution.max_rows_limit]
-                truncated = True
-
-            if sec.privacy.sensitive_column_patterns and dict_rows:
-                t_ctx = ctx.get("tenant_context")
-                is_admin = bool(
-                    t_ctx
-                    and any(
-                        str(r).lower() == "admin" for r in getattr(t_ctx, "roles", [])
-                    )
-                )
-                if not is_admin:
-                    compiled_pats = [
-                        re.compile(p) for p in sec.privacy.sensitive_column_patterns
-                    ]
-                    strat = sec.privacy.masking_strategy
-                    masked_rows = []
-                    for row in dict_rows:
-                        if isinstance(row, dict):
-                            row_copy = dict(row)
-                            for col_k, col_v in row_copy.items():
-                                if any(p.search(str(col_k)) for p in compiled_pats):
-                                    row_copy[col_k] = apply_column_masking(
-                                        col_v, strategy=strat
-                                    )
-                            masked_rows.append(row_copy)
-                        else:
-                            masked_rows.append(row)
-                    dict_rows = masked_rows
-
-            raw_result = {
-                "sql": main_sql,
-                "params": [str(p) for p in main_params],
-                "columns": col_names,
-                "rows": dict_rows,
-                "count": total_count,
-                "limit": limit,
-                "offset": offset,
-                "page": (offset // limit) + 1 if limit else 1,
-                "latency_ms": round(latency_ms, 2),
-                "dialect": self.dialect_name,
-            }
-            if truncated:
-                raw_result["truncated"] = True
-
-            if sec.logging.emit_audit_events:
-                t_id = getattr(ctx.get("tenant_context"), "tenant_id", None)
-                self.telemetry_collector.record_audit_event(
-                    event_type="query_execution",
-                    action="execute",
-                    resource=str(spec_table),
-                    status="success",
-                    tenant_id=t_id,
-                    user_id=str(user_id) if user_id is not None else None,
-                    details={
-                        "dialect": self.dialect_name,
-                        "row_count": len(dict_rows),
-                        "total_count": total_count,
-                        "latency_ms": round(latency_ms, 2),
-                    },
-                )
-                self.telemetry_collector.record_execution(
-                    sql=main_sql,
-                    latency_ms=latency_ms,
-                    row_count=len(dict_rows),
-                    status="success",
-                    dialect=self.dialect_name,
-                    tenant_id=t_id,
-                    user_id=str(user_id) if user_id is not None else None,
-                    parameters=main_params,
-                    redact_parameters=sec.logging.redact_parameters,
+                short_circuited, process_res = self._process_spec_query_sync(
+                    spec, schema, user_id, sec, validate_ast, pipeline, ctx, timeout, kwargs
                 )
 
-            raw_result["cached"] = False
-            if use_cache and cache_key is not None:
-                from query_builder.cache import get_global_cache
+            if short_circuited:
+                return process_res
 
-                get_global_cache().set(cache_key, raw_result, ttl=cache_ttl)
-
-            return pipeline.run_post_execute(raw_result, ctx)
+            spec_table = process_res.get("spec_table", "unknown")
+            return self._finalize_execution_result_sync(
+                process_res, sec, pipeline, ctx, user_id, use_cache, cache_key, cache_ttl
+            )
 
         except Exception as exc:
             scrubbed_exc = self._scrub_exception(exc, security_config=sec)
             pipeline.run_error(scrubbed_exc, ctx)
             if sec and sec.logging.emit_audit_events:
-                t_id = (
-                    getattr(ctx.get("tenant_context"), "tenant_id", None)
-                    if "ctx" in locals()
-                    else None
-                )
+                t_id = getattr(ctx.get("tenant_context"), "tenant_id", None) if "ctx" in locals() else None
                 self.telemetry_collector.record_audit_event(
                     event_type="query_execution",
                     action="execute",
@@ -879,6 +938,7 @@ class BaseConnector(ABC):
             if scrubbed_exc is exc:
                 raise
             raise scrubbed_exc from None
+
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         """
