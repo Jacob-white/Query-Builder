@@ -686,7 +686,7 @@ class AsyncBaseConnector(ABC):
         ctx: dict[str, Any],
         spec_table: str,
         user_id: Any,
-    ) -> NoReturn:
+    ) -> Exception:
         scrubbed_exc = self._scrub_exception(exc, security_config=sec)
         pipeline.run_error(scrubbed_exc, ctx)
         if sec and sec.logging.emit_audit_events:
@@ -705,9 +705,7 @@ class AsyncBaseConnector(ABC):
                 error_message=str(scrubbed_exc),
                 details={"dialect": self.dialect_name},
             )
-        if scrubbed_exc is exc:
-            raise
-        raise scrubbed_exc from None
+        return scrubbed_exc
 
     def _finalize_execution_result_async(
         self,
@@ -856,7 +854,12 @@ class AsyncBaseConnector(ABC):
                 process_res, sec, pipeline, ctx, user_id
             )
         except Exception as exc:
-            self._handle_execution_error(exc, sec, pipeline, ctx, spec_table, user_id)
+            scrubbed_exc = self._handle_execution_error(
+                exc, sec, pipeline, ctx, spec_table, user_id
+            )
+            if scrubbed_exc is exc:
+                raise
+            raise scrubbed_exc from None
 
 
 for _name in _EGRESS_GUARDED_METHODS:
