@@ -537,253 +537,251 @@ class McpServer:
                 args = dict(args)
                 args["spec"] = spec
 
-        if name == "query_builder_compile":
-            spec = args.get("spec") or {}
-            dialect = args.get("dialect", "postgres")
-            compiler = QueryCompiler(spec, dialect=dialect)
-            sql, params, count_sql, count_params = compiler.compile()
-            return {
-                "sql": sql,
-                "params": scrub_secrets(params),
-                "count_sql": count_sql,
-                "count_params": scrub_secrets(count_params),
-                "dialect": dialect,
-            }
+        handler = getattr(self, f"_handle_{name}", None)
+        if handler:
+            return handler(args)
 
-        if name == "query_builder_validate":
-            sql = args.get("sql", "")
-            spec = args.get("spec")
-            if not sql and spec:
-                if isinstance(spec, str):
-                    spec = json.loads(spec)
-                dialect = args.get("dialect", "postgres")
-                compiler = QueryCompiler(spec, dialect=dialect)
-                sql, _, _, _ = compiler.compile()
+        raise QueryBuilderError(f"Unknown tool name: '{name}'")
 
-            res = validate_sql_ast(sql)
-            if isinstance(res, dict):
-                return res
-            return {
-                "valid": getattr(res, "valid", True),
-                "is_read_only": getattr(res, "is_read_only", True),
-                "statement_type": getattr(res, "statement_type", "SELECT"),
-                "injection_risk": getattr(res, "injection_risk", "NONE"),
-                "violations": getattr(res, "violations", []),
-                "message": getattr(res, "message", ""),
-            }
+    def _handle_query_builder_compile(self, args: dict[str, Any]) -> Any:
+        spec = args.get("spec") or {}
+        dialect = args.get("dialect", "postgres")
+        compiler = QueryCompiler(spec, dialect=dialect)
+        sql, params, count_sql, count_params = compiler.compile()
+        return {
+            "sql": sql,
+            "params": scrub_secrets(params),
+            "count_sql": count_sql,
+            "count_params": scrub_secrets(count_params),
+            "dialect": dialect,
+        }
 
-        if name == "query_builder_explain_and_advise":
-            spec = args.get("spec") or {}
+    def _handle_query_builder_validate(self, args: dict[str, Any]) -> Any:
+        sql = args.get("sql", "")
+        spec = args.get("spec")
+        if not sql and spec:
+            if isinstance(spec, str):
+                spec = json.loads(spec)
             dialect = args.get("dialect", "postgres")
             compiler = QueryCompiler(spec, dialect=dialect)
             sql, _, _, _ = compiler.compile()
-            plan = estimate_plan_from_spec(spec)
-            perf = analyze_query_performance(spec, sql=sql, dialect=dialect)
-            recs = recommend_indexes(spec)
-            return {
-                "sql": sql,
-                "plan": plan.to_dict() if hasattr(plan, "to_dict") else plan,
-                "performance": perf,
-                "recommended_indexes": recs,
-            }
 
-        if name == "query_builder_get_complexity":
-            spec = args.get("spec", {})
-            if isinstance(spec, str):
-                spec = json.loads(spec)
-            score = calculate_ast_complexity(spec)
-            return {
-                "complexity_score": score,
-                "is_safe": score < 100,
-            }
+        res = validate_sql_ast(sql)
+        if isinstance(res, dict):
+            return res
+        return {
+            "valid": getattr(res, "valid", True),
+            "is_read_only": getattr(res, "is_read_only", True),
+            "statement_type": getattr(res, "statement_type", "SELECT"),
+            "injection_risk": getattr(res, "injection_risk", "NONE"),
+            "violations": getattr(res, "violations", []),
+            "message": getattr(res, "message", ""),
+        }
 
-        if name == "query_builder_introspect":
-            connector_name = args.get("connector", "sqlite")
-            config = args.get("config") or {}
-            if isinstance(config, str):
-                config = json.loads(config)
-            filter_sensitive = bool(args.get("filter_sensitive", True))
+    def _handle_query_builder_explain_and_advise(self, args: dict[str, Any]) -> Any:
+        spec = args.get("spec") or {}
+        dialect = args.get("dialect", "postgres")
+        compiler = QueryCompiler(spec, dialect=dialect)
+        sql, _, _, _ = compiler.compile()
+        plan = estimate_plan_from_spec(spec)
+        perf = analyze_query_performance(spec, sql=sql, dialect=dialect)
+        recs = recommend_indexes(spec)
+        return {
+            "sql": sql,
+            "plan": plan.to_dict() if hasattr(plan, "to_dict") else plan,
+            "performance": perf,
+            "recommended_indexes": recs,
+        }
 
-            from query_builder.connectors import AsyncBaseConnector
+    def _handle_query_builder_get_complexity(self, args: dict[str, Any]) -> Any:
+        spec = args.get("spec", {})
+        if isinstance(spec, str):
+            spec = json.loads(spec)
+        score = calculate_ast_complexity(spec)
+        return {
+            "complexity_score": score,
+            "is_safe": score < 100,
+        }
 
-            connector = self._resolve_connector(connector_name, config)
-            if isinstance(connector, AsyncBaseConnector):
-                snapshot = _run_coroutine_safely(
-                    connector.introspect_schema(filter_sensitive=filter_sensitive)
-                )
-            else:
-                snapshot = connector.introspect_schema(
-                    filter_sensitive=filter_sensitive
-                )
+    def _handle_query_builder_introspect(self, args: dict[str, Any]) -> Any:
+        connector_name = args.get("connector", "sqlite")
+        config = args.get("config") or {}
+        if isinstance(config, str):
+            config = json.loads(config)
+        filter_sensitive = bool(args.get("filter_sensitive", True))
 
-            if hasattr(snapshot, "to_dict"):
-                snap_dict = snapshot.to_dict()
-            elif is_dataclass(snapshot) and not isinstance(snapshot, type):
-                snap_dict = asdict(snapshot)
-            elif isinstance(snapshot, dict):
-                snap_dict = snapshot
-            else:
-                snap_dict = {"tables": {}}
+        from query_builder.connectors import AsyncBaseConnector
 
-            if (
-                self.security_policy
-                and "tables" in snap_dict
-                and isinstance(snap_dict["tables"], dict)
-            ):
-                allowed = (
-                    set(self.security_policy.allowed_tables)
-                    if self.security_policy.allowed_tables is not None
-                    else None
-                )
-                restricted = set(self.security_policy.restricted_tables or [])
-                snap_dict["tables"] = {
-                    t: m
-                    for t, m in snap_dict["tables"].items()
-                    if (allowed is None or t in allowed) and t not in restricted
-                }
-            return snap_dict
-
-        if name == "query_builder_execute":
-            spec = args.get("spec")
-            raw_sql = args.get("sql")
-            params = args.get("params") or []
-            connector_name = args.get("connector", "sqlite")
-            config = args.get("config") or {}
-            max_rows = args.get("max_rows", 50)
-
-            if isinstance(config, str):
-                config = json.loads(config)
-
-            if not spec and not raw_sql:
-                raise QueryBuilderError("Either 'spec' or 'sql' must be provided.")
-
-            # Validate AST safety on raw SQL
-            if raw_sql:
-                if self.tenant_context is not None or self.security_policy is not None:
-                    raise SecurityError(
-                        "Raw SQL execution is forbidden when a security policy or tenant context is active. Use 'spec' instead."
-                    )
-                val_res = validate_sql_ast(raw_sql)
-                if not val_res.get("valid") or not val_res.get("is_read_only"):
-                    violations = val_res.get(
-                        "violations", ["Query rejected: Non-read-only statement."]
-                    )
-                    raise QueryBuilderError(
-                        f"Security violation: {'; '.join(violations)}"
-                    )
-
-            # Validate AST complexity on spec
-            if spec:
-                score = calculate_ast_complexity(spec)
-                if score > 100:
-                    raise QueryBuilderError(
-                        f"QuerySpec AST complexity score ({score}) exceeds maximum safe threshold (100)."
-                    )
-                if not spec.get("limit") or spec["limit"] > max_rows:
-                    spec = dict(spec)
-                    spec["limit"] = max_rows
-
-            from query_builder.connectors import AsyncBaseConnector
-
-            connector = self._resolve_connector(connector_name, config)
-            if isinstance(connector, AsyncBaseConnector):
-                res = _run_coroutine_safely(
-                    connector.execute(spec=spec, sql=raw_sql, params=params)
-                )
-            else:
-                res = connector.execute(spec=spec, sql=raw_sql, params=params)
-
-            if hasattr(res, "to_dict"):
-                res_dict = res.to_dict()
-            elif isinstance(res, dict):
-                res_dict = dict(res)
-            else:
-                res_dict = {
-                    "columns": getattr(res, "columns", []),
-                    "rows": getattr(res, "rows", []),
-                    "count": getattr(res, "count", len(getattr(res, "rows", []))),
-                }
-
-            # Enforce max_rows limit ceiling on returned rows
-            if "rows" in res_dict and len(res_dict["rows"]) > max_rows:
-                res_dict["rows"] = res_dict["rows"][:max_rows]
-                res_dict["truncated"] = True
-
-            return res_dict
-
-        if name == "query_builder_join_path":
-            active_tables = args.get("active_tables", [])
-            target_table = args.get("target_table", "")
-            schema_data = args.get("schema")
-            join_type = args.get("join_type", "LEFT JOIN")
-
-            if isinstance(schema_data, str):
-                schema_data = json.loads(schema_data)
-            if isinstance(active_tables, str):
-                active_tables = [
-                    t.strip() for t in active_tables.split(",") if t.strip()
-                ]
-
-            if not active_tables or not target_table:
-                raise QueryBuilderError(
-                    "Both 'active_tables' and 'target_table' are required."
-                )
-
-            path = find_join_path(
-                active_tables,
-                target_table,
-                schema_data=schema_data,
-                default_join_type=join_type,
+        connector = self._resolve_connector(connector_name, config)
+        if isinstance(connector, AsyncBaseConnector):
+            snapshot = _run_coroutine_safely(
+                connector.introspect_schema(filter_sensitive=filter_sensitive)
             )
-            return {
-                "path": path,
-                "active_tables": active_tables,
-                "target_table": target_table,
+        else:
+            snapshot = connector.introspect_schema(filter_sensitive=filter_sensitive)
+
+        if hasattr(snapshot, "to_dict"):
+            snap_dict = snapshot.to_dict()
+        elif is_dataclass(snapshot) and not isinstance(snapshot, type):
+            snap_dict = asdict(snapshot)
+        elif isinstance(snapshot, dict):
+            snap_dict = snapshot
+        else:
+            snap_dict = {"tables": {}}
+
+        if (
+            self.security_policy
+            and "tables" in snap_dict
+            and isinstance(snap_dict["tables"], dict)
+        ):
+            allowed = (
+                set(self.security_policy.allowed_tables)
+                if self.security_policy.allowed_tables is not None
+                else None
+            )
+            restricted = set(self.security_policy.restricted_tables or [])
+            snap_dict["tables"] = {
+                t: m
+                for t, m in snap_dict["tables"].items()
+                if (allowed is None or t in allowed) and t not in restricted
+            }
+        return snap_dict
+
+    def _handle_query_builder_execute(self, args: dict[str, Any]) -> Any:
+        spec = args.get("spec")
+        raw_sql = args.get("sql")
+        params = args.get("params") or []
+        connector_name = args.get("connector", "sqlite")
+        config = args.get("config") or {}
+        max_rows = args.get("max_rows", 50)
+
+        if isinstance(config, str):
+            config = json.loads(config)
+
+        if not spec and not raw_sql:
+            raise QueryBuilderError("Either 'spec' or 'sql' must be provided.")
+
+        # Validate AST safety on raw SQL
+        if raw_sql:
+            if self.tenant_context is not None or self.security_policy is not None:
+                raise SecurityError(
+                    "Raw SQL execution is forbidden when a security policy or tenant context is active. Use 'spec' instead."
+                )
+            val_res = validate_sql_ast(raw_sql)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query rejected: Non-read-only statement."]
+                )
+                raise QueryBuilderError(f"Security violation: {'; '.join(violations)}")
+
+        # Validate AST complexity on spec
+        if spec:
+            score = calculate_ast_complexity(spec)
+            if score > 100:
+                raise QueryBuilderError(
+                    f"QuerySpec AST complexity score ({score}) exceeds maximum safe threshold (100)."
+                )
+            if not spec.get("limit") or spec["limit"] > max_rows:
+                spec = dict(spec)
+                spec["limit"] = max_rows
+
+        from query_builder.connectors import AsyncBaseConnector
+
+        connector = self._resolve_connector(connector_name, config)
+        if isinstance(connector, AsyncBaseConnector):
+            res = _run_coroutine_safely(
+                connector.execute(spec=spec, sql=raw_sql, params=params)
+            )
+        else:
+            res = connector.execute(spec=spec, sql=raw_sql, params=params)
+
+        if hasattr(res, "to_dict"):
+            res_dict = res.to_dict()
+        elif isinstance(res, dict):
+            res_dict = dict(res)
+        else:
+            res_dict = {
+                "columns": getattr(res, "columns", []),
+                "rows": getattr(res, "rows", []),
+                "count": getattr(res, "count", len(getattr(res, "rows", []))),
             }
 
-        if name == "query_builder_parse_sql":
-            from query_builder.parser import parse_sql_to_dict
+        # Enforce max_rows limit ceiling on returned rows
+        if "rows" in res_dict and len(res_dict["rows"]) > max_rows:
+            res_dict["rows"] = res_dict["rows"][:max_rows]
+            res_dict["truncated"] = True
 
-            sql_str = str(args.get("sql") or "")
-            dialect = str(args.get("dialect") or "postgres")
-            parsed_spec = parse_sql_to_dict(sql_str, dialect=dialect)
-            if parsed_spec is None:
-                raise QueryBuilderError(
-                    "Unable to parse SQL statement into a valid SELECT QuerySpec."
-                )
-            return {"spec": parsed_spec, "dialect": dialect}
+        return res_dict
 
-        if name == "query_builder_check_columns":
-            from query_builder.spec_check import SpecColumnError, check_columns
+    def _handle_query_builder_join_path(self, args: dict[str, Any]) -> Any:
+        active_tables = args.get("active_tables", [])
+        target_table = args.get("target_table", "")
+        schema_data = args.get("schema")
+        join_type = args.get("join_type", "LEFT JOIN")
 
-            spec = args.get("spec", {})
-            schema_data = args.get("schema", {})
-            if isinstance(spec, str):
-                spec = json.loads(spec)
-            if isinstance(schema_data, str):
-                schema_data = json.loads(schema_data)
-            try:
-                check_columns(spec, schema_data)
-                return {"valid": True, "error": None}
-            except SpecColumnError as exc:
-                return {
-                    "valid": False,
-                    "error": str(exc),
-                    "column": exc.column,
-                    "table": exc.table,
-                    "suggestions": list(exc.suggestions),
-                }
+        if isinstance(schema_data, str):
+            schema_data = json.loads(schema_data)
+        if isinstance(active_tables, str):
+            active_tables = [t.strip() for t in active_tables.split(",") if t.strip()]
 
-        if name == "query_builder_audit_schema":
-            from query_builder.schema_audit import audit_schema
+        if not active_tables or not target_table:
+            raise QueryBuilderError(
+                "Both 'active_tables' and 'target_table' are required."
+            )
 
-            schema_data = args.get("schema", {})
-            if isinstance(schema_data, str):
-                schema_data = json.loads(schema_data)
-            report = audit_schema(schema_data)
-            return report.to_dict()
+        path = find_join_path(
+            active_tables,
+            target_table,
+            schema_data=schema_data,
+            default_join_type=join_type,
+        )
+        return {
+            "path": path,
+            "active_tables": active_tables,
+            "target_table": target_table,
+        }
 
-        raise QueryBuilderError(f"Unknown tool name: '{name}'")
+    def _handle_query_builder_parse_sql(self, args: dict[str, Any]) -> Any:
+        from query_builder.parser import parse_sql_to_dict
+
+        sql_str = str(args.get("sql") or "")
+        dialect = str(args.get("dialect") or "postgres")
+        parsed_spec = parse_sql_to_dict(sql_str, dialect=dialect)
+        if parsed_spec is None:
+            raise QueryBuilderError(
+                "Unable to parse SQL statement into a valid SELECT QuerySpec."
+            )
+        return {"spec": parsed_spec, "dialect": dialect}
+
+    def _handle_query_builder_check_columns(self, args: dict[str, Any]) -> Any:
+        from query_builder.spec_check import SpecColumnError, check_columns
+
+        spec = args.get("spec", {})
+        schema_data = args.get("schema", {})
+        if isinstance(spec, str):
+            spec = json.loads(spec)
+        if isinstance(schema_data, str):
+            schema_data = json.loads(schema_data)
+        try:
+            check_columns(spec, schema_data)
+            return {"valid": True, "error": None}
+        except SpecColumnError as exc:
+            return {
+                "valid": False,
+                "error": str(exc),
+                "column": exc.column,
+                "table": exc.table,
+                "suggestions": list(exc.suggestions),
+            }
+
+    def _handle_query_builder_audit_schema(self, args: dict[str, Any]) -> Any:
+        from query_builder.schema_audit import audit_schema
+
+        schema_data = args.get("schema", {})
+        if isinstance(schema_data, str):
+            schema_data = json.loads(schema_data)
+        report = audit_schema(schema_data)
+        return report.to_dict()
 
     def run_stdio(self) -> None:
         """Reads newline-delimited JSON-RPC from stdin and writes responses to stdout."""
