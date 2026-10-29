@@ -1160,33 +1160,94 @@ def introspect_sparksql(
             table_names = [r[0] for r in table_rows if r and r[0]]
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = []
-            with contextlib.suppress(Exception):
-                cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
-                col_rows = cur.fetchall()
-                for cr in col_rows:
-                    if cr and cr[0] and not str(cr[0]).startswith("#"):
-                        c_name = str(cr[0]).strip()
-                        d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
-                        cols.append(
-                            {
-                                "name": c_name,
-                                "data_type": d_type,
-                                "is_nullable": True,
-                                "is_primary": c_name.lower() == "id",
-                                "comment": None,
-                            }
-                        )
 
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+        # Attempt to batch query columns to avoid N+1 query issue
+        batch_success = False
+        try:
+            cur.execute(
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                """,
+                [schema_name],
+            )
+            all_col_rows = cur.fetchall()
+
+            for r in all_col_rows:
+                if not r or len(r) < 3:
+                    continue
+                t_name, c_name, d_type = str(r[0]), str(r[1]), str(r[2])
+
+                # Check for comment markers or internal names like the fallback does
+                if c_name.startswith("#"):
+                    continue
+
+                if t_name not in tables:
+                    tables[t_name] = {
+                        "name": t_name,
+                        "columns": [],
+                        "has_user_id": False,
+                        "user_col": "user_id",
+                        "comment": None,
+                    }
+
+                tables[t_name]["columns"].append(
+                    {
+                        "name": c_name,
+                        "data_type": d_type,
+                        "is_nullable": True,
+                        "is_primary": c_name.lower() == "id",
+                        "comment": None,
+                    }
+                )
+
+            # Ensure all discovered tables exist in the dictionary, even if they have no columns
+            for tbl in table_names:
+                if tbl not in tables:
+                    tables[tbl] = {
+                        "name": tbl,
+                        "columns": [],
+                        "has_user_id": False,
+                        "user_col": "user_id",
+                        "comment": None,
+                    }
+
+            for table_data in tables.values():
+                table_data["has_user_id"] = any(c["name"] == "user_id" for c in table_data["columns"])
+
+            batch_success = True
+        except Exception:  # noqa: BLE001
+            pass
+
+        if not batch_success:
+            for tbl in table_names:
+                cols: list[dict[str, Any]] = []
+                with contextlib.suppress(Exception):
+                    cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+                    col_rows = cur.fetchall()
+                    for cr in col_rows:
+                        if cr and cr[0] and not str(cr[0]).startswith("#"):
+                            c_name = str(cr[0]).strip()
+                            d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
+                            cols.append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name.lower() == "id",
+                                    "comment": None,
+                                }
+                            )
+
+                has_user = any(c["name"] == "user_id" for c in cols)
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
 
         raw_snapshot = {
             "tables": tables,
