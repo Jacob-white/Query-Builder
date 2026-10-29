@@ -71,14 +71,19 @@ ORDER = list(EFFECT)  # documentation order
 
 def variables_read_by_the_code() -> dict[str, str]:
     """``{QB_VARIABLE: "section.attribute"}`` for every variable the loader reads."""
-    src = inspect.getsource(config.load_security_config_from_env)
+    sources = [
+        inspect.getsource(getattr(config, func_name))
+        for func_name in dir(config)
+        if func_name.startswith("_apply_") and func_name.endswith("_env_overrides")
+    ]
     found: dict[str, str] = {}
-    blocks = re.split(r'\n    if "(QB_[A-Z_]+)" in source:', src)
-    it = iter(blocks[1:])
-    for var, body in zip(it, it, strict=False):
-        match = re.search(r"config\.([a-z_]+\.[a-z_]+)\s*=", body)
-        if match:
-            found[var] = match.group(1)
+    for src in sources:
+        blocks = re.split(r'\n    if "(QB_[A-Z_]+)" in source:', src)
+        it = iter(blocks[1:])
+        for var, body in zip(it, it, strict=False):
+            match = re.search(r"config\.([a-z_]+\.[a-z_]+)\s*=", body)
+            if match:
+                found[var] = match.group(1)
     return found
 
 
