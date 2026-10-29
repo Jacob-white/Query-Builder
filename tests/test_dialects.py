@@ -806,3 +806,13 @@ def test_expanded_lakehouse_and_graph_dialects():
     assert "SHOW RELATIONSHIP TYPES;" in fk_neo
     c_neo_single, _ = neo4j.inspect_columns_query("Person")
     assert "MATCH (n:`Person`)" in c_neo_single
+
+
+def test_format_having_placeholder():
+    pg = get_dialect("postgres")
+    assert pg.format_having_placeholder(123) == "%s"
+    assert pg.format_having_placeholder("abc") == "%s"
+
+    sqlite = get_dialect("sqlite")
+    assert sqlite.format_having_placeholder(123) == "?"
+    assert sqlite.format_having_placeholder("abc") == "?"
