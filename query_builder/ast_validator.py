@@ -1321,7 +1321,9 @@ def validate_sql_ast(
     )
 
     # Deep token inspection for mutation keywords (sqlparse's own lexing of the raw text)
-    mutation_violations = _inspect_sqlparse_tokens(tokens_list, effective_keywords, set_scope_ok)
+    mutation_violations = _inspect_sqlparse_tokens(
+        tokens_list, effective_keywords, set_scope_ok
+    )
     violations.extend(mutation_violations)
 
     for stripped, masked in variants:
