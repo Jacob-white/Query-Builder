@@ -653,11 +653,18 @@ def test_introspect_kdb_edge_cases():
     mock_client.return_value = ("trades", "quotes")
 
     # Meta response as dictionary / items
-    mock_client.side_effect = [
-        ("trades", "quotes"),
-        {"time": "p", "sym": "s", "price": "f", "secret_token": "s"},
-        {"sym": "s", "bid": "f", "ask": "f"},
-    ]
+    def client_side_effect(q):
+        if q == "tables[]":
+            return ("trades", "quotes")
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        if q == "meta `trades":
+            return {"time": "p", "sym": "s", "price": "f", "secret_token": "s"}
+        if q == "meta `quotes":
+            return {"sym": "s", "bid": "f", "ask": "f"}
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_client.side_effect = client_side_effect
 
     res = introspect_kdb(mock_client, filter_sensitive=True)
     assert "trades" in res["tables"]
@@ -668,20 +675,42 @@ def test_introspect_kdb_edge_cases():
 
     # 2. client with sendSync
     mock_sync = MagicMock(spec=["sendSync"])
-    mock_sync.sendSync.side_effect = [
-        ["orders"],
-        [("id", "i"), ("amount", "f")],
-    ]
+
+    def sync_side_effect(q):
+        if q == "tables[]":
+            return ["orders"]
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        if q == "meta `orders":
+            return [("id", "i"), ("amount", "f")]
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_sync.sendSync.side_effect = sync_side_effect
     res_sync = introspect_kdb(mock_sync)
     assert "orders" in res_sync["tables"]
     assert len(res_sync["tables"]["orders"]["columns"]) == 2
 
     # 3. client with execute
     mock_exec = MagicMock(spec=["execute", "fetchall"])
-    mock_exec.fetchall.side_effect = [
-        [("ticks",)],
-        [("sym", "s"), ("px", "f")],
-    ]
+
+    # We need to simulate execute capturing the query, and fetchall returning based on it
+    exec_state = {"q": None}
+
+    def exec_side_effect(q):
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        exec_state["q"] = q
+
+    def fetchall_side_effect():
+        q = exec_state["q"]
+        if q == "tables[]":
+            return [("ticks",)]
+        if q == "meta `ticks":
+            return [("sym", "s"), ("px", "f")]
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_exec.execute.side_effect = exec_side_effect
+    mock_exec.fetchall.side_effect = fetchall_side_effect
     res_exec = introspect_kdb(mock_exec)
     assert "ticks" in res_exec["tables"]
 

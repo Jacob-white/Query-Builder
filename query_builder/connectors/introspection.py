@@ -3274,23 +3274,53 @@ def introspect_kdb(
         }
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            meta_res = None
-            q_query = f"meta `{tbl}"
+
+        # Attempt to batch fetch metadata for all tables at once
+        batched_meta = None
+        if table_names:
+            batch_query = f"{{x!meta each x}} `{'`'.join(table_names)}"
+            batched_meta_res = None
             with contextlib.suppress(Exception):
                 if (
                     _has_attr(client_or_conn, "q")
                     and getattr(client_or_conn, "q", None) is not None
                     and callable(getattr(client_or_conn, "q", None))
                 ):
-                    meta_res = client_or_conn.q(q_query)
+                    batched_meta_res = client_or_conn.q(batch_query)
                 elif _has_attr(client_or_conn, "sendSync"):
-                    meta_res = client_or_conn.sendSync(q_query)
+                    batched_meta_res = client_or_conn.sendSync(batch_query)
                 elif _has_attr(client_or_conn, "execute"):
-                    client_or_conn.execute(q_query)
-                    meta_res = client_or_conn.fetchall()
+                    client_or_conn.execute(batch_query)
+                    batched_meta_res = client_or_conn.fetchall()
                 elif callable(client_or_conn):
-                    meta_res = client_or_conn(q_query)
+                    batched_meta_res = client_or_conn(batch_query)
+
+            if batched_meta_res is not None:
+                if hasattr(batched_meta_res, "items"):
+                    batched_meta = dict(batched_meta_res.items())
+                elif isinstance(batched_meta_res, dict):
+                    batched_meta = batched_meta_res
+
+        for tbl in table_names:
+            meta_res = None
+            if batched_meta is not None and tbl in batched_meta:
+                meta_res = batched_meta[tbl]
+            else:
+                q_query = f"meta `{tbl}"
+                with contextlib.suppress(Exception):
+                    if (
+                        _has_attr(client_or_conn, "q")
+                        and getattr(client_or_conn, "q", None) is not None
+                        and callable(getattr(client_or_conn, "q", None))
+                    ):
+                        meta_res = client_or_conn.q(q_query)
+                    elif _has_attr(client_or_conn, "sendSync"):
+                        meta_res = client_or_conn.sendSync(q_query)
+                    elif _has_attr(client_or_conn, "execute"):
+                        client_or_conn.execute(q_query)
+                        meta_res = client_or_conn.fetchall()
+                    elif callable(client_or_conn):
+                        meta_res = client_or_conn(q_query)
 
             cols: list[dict[str, Any]] = []
             if meta_res is not None:
