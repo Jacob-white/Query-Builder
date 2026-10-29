@@ -38,7 +38,11 @@ class QuestDBConnector(PostgresConnector):
             with self.get_cursor() as cur:
                 cur.execute("SELECT table_name FROM tables()")
                 names = sorted(
-                    [str(r[0]) for r in cur.fetchall() if r and r[0] and not str(r[0]).startswith("telemetry")]
+                    [
+                        str(r[0])
+                        for r in cur.fetchall()
+                        if r and r[0] and not str(r[0]).startswith("telemetry")
+                    ]
                 )
                 tables: dict[str, dict[str, Any]] = {}
 
