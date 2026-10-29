@@ -52,7 +52,6 @@ def _clean_table_name(tbl: Any) -> str:
     return tbl
 
 
-
 def _get_table_columns(tables_meta: dict[str, Any], table_name: str) -> list[Any]:
     raw = tables_meta.get(table_name, {}) if isinstance(tables_meta, dict) else {}
     if hasattr(raw, "to_dict"):
@@ -65,7 +64,10 @@ def _get_table_columns(tables_meta: dict[str, Any], table_name: str) -> list[Any
         tbl_meta = {}
     return tbl_meta.get("columns", [])
 
-def _check_explicit_fks(clean_left: str, clean_right: str, foreign_keys: list[Any]) -> dict[str, Any] | None:
+
+def _check_explicit_fks(
+    clean_left: str, clean_right: str, foreign_keys: list[Any]
+) -> dict[str, Any] | None:
     for fk in foreign_keys:
         if isinstance(fk, dict):
             fk_tbl = _clean_table_name(fk.get("table", ""))
@@ -102,7 +104,10 @@ def _check_explicit_fks(clean_left: str, clean_right: str, foreign_keys: list[An
             }
     return None
 
-def _check_relationships(clean_left: str, clean_right: str, relationships: list[Any]) -> dict[str, Any] | None:
+
+def _check_relationships(
+    clean_left: str, clean_right: str, relationships: list[Any]
+) -> dict[str, Any] | None:
     for rel in relationships:
         if isinstance(rel, dict):
             src_tbl = _clean_table_name(rel.get("source_table", ""))
@@ -137,7 +142,14 @@ def _check_relationships(clean_left: str, clean_right: str, relationships: list[
             }
     return None
 
-def _check_canonical_match(clean_left: str, clean_right: str, left_col_names: set[str], right_col_names: set[str], effective_canon: Sequence[str]) -> dict[str, Any] | None:
+
+def _check_canonical_match(
+    clean_left: str,
+    clean_right: str,
+    left_col_names: set[str],
+    right_col_names: set[str],
+    effective_canon: Sequence[str],
+) -> dict[str, Any] | None:
     for col in effective_canon:
         if col in left_col_names and col in right_col_names:
             return {
@@ -150,6 +162,7 @@ def _check_canonical_match(clean_left: str, clean_right: str, left_col_names: se
             }
     return None
 
+
 def _singular_variants(tbl: str) -> list[str]:
     variants = [tbl]
     if tbl.endswith("ies") and len(tbl) > 3:
@@ -160,7 +173,13 @@ def _singular_variants(tbl: str) -> list[str]:
         variants.append(tbl[:-1])
     return variants
 
-def _check_inferred_fks(clean_left: str, clean_right: str, left_col_names: set[str], right_col_names: set[str]) -> dict[str, Any] | None:
+
+def _check_inferred_fks(
+    clean_left: str,
+    clean_right: str,
+    left_col_names: set[str],
+    right_col_names: set[str],
+) -> dict[str, Any] | None:
     for stem_left in _singular_variants(clean_left):
         right_fk_candidate = f"{stem_left}_id"
         if right_fk_candidate in right_col_names and "id" in left_col_names:
@@ -186,7 +205,10 @@ def _check_inferred_fks(clean_left: str, clean_right: str, left_col_names: set[s
             }
     return None
 
-def _get_pk_fallback(clean_left: str, clean_right: str, left_cols: list[Any], right_cols: list[Any]) -> dict[str, Any]:
+
+def _get_pk_fallback(
+    clean_left: str, clean_right: str, left_cols: list[Any], right_cols: list[Any]
+) -> dict[str, Any]:
     left_pk = "id"
     for c in left_cols:
         if (isinstance(c, dict) and c.get("is_primary")) or getattr(
@@ -268,11 +290,15 @@ def find_best_join_condition(
     effective_canon = _get_effective_canon(canonical_columns, schema_data)
 
     # 2. Canonical entity ID matches
-    if canon_match := _check_canonical_match(clean_left, clean_right, left_col_names, right_col_names, effective_canon):
+    if canon_match := _check_canonical_match(
+        clean_left, clean_right, left_col_names, right_col_names, effective_canon
+    ):
         return canon_match
 
     # 3. Direct table named foreign key heuristics
-    if inf_match := _check_inferred_fks(clean_left, clean_right, left_col_names, right_col_names):
+    if inf_match := _check_inferred_fks(
+        clean_left, clean_right, left_col_names, right_col_names
+    ):
         return inf_match
 
     # 4. Primary key or fallback column
