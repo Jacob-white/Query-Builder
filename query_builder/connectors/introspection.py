@@ -7,6 +7,7 @@ and foreign key relationships across supported SQL database engines.
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import re
 from collections.abc import Generator
@@ -2029,6 +2030,7 @@ def introspect_cosmosdb(
         sample_query = "SELECT * FROM c OFFSET 0 LIMIT 100"
         if hasattr(target, "get_database_client"):
             db_client = target.get_database_client(database)
+            c_ids = []
             for container in db_client.list_containers():
                 c_id = (
                     container.get("id")
@@ -2036,12 +2038,21 @@ def introspect_cosmosdb(
                     else getattr(container, "id", None)
                 )
                 if c_id:
-                    proxy = db_client.get_container_client(c_id)
-                    samples[str(c_id)] = list(
-                        proxy.query_items(
-                            query=sample_query, enable_cross_partition_query=True
-                        )
+                    c_ids.append(c_id)
+
+            def _fetch_container(c_id: str) -> tuple[str, list[dict[str, Any]]]:
+                proxy = db_client.get_container_client(c_id)
+                return c_id, list(
+                    proxy.query_items(
+                        query=sample_query, enable_cross_partition_query=True
                     )
+                )
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(32, len(c_ids) or 1)
+            ) as executor:
+                for c_id, docs in executor.map(_fetch_container, c_ids):
+                    samples[str(c_id)] = docs
         elif hasattr(target, "query_items"):  # a single container client
             name = str(getattr(target, "id", None) or "items")
             samples[name] = list(
