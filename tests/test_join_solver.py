@@ -328,3 +328,26 @@ def test_find_join_path_prioritizes_confirmed_fk_over_inferred():
     }
     path = find_join_path(["a"], "c", schema)
     assert [step["table"] for step in path] == ["b_confirmed", "c"]
+
+
+def test_build_adjacency_graph_add_edge():
+    from query_builder.join_solver import _build_adjacency_graph
+
+    foreign_keys = [
+        {"table": "a", "foreign_table": "b"},
+        {"table": "b", "foreign_table": "c"},
+        # Duplicate edge to test that it is not added multiple times
+        {"table": "a", "foreign_table": "b"},
+    ]
+
+    adj = _build_adjacency_graph(foreign_keys, [], {}, [])
+
+    # Check that bidirectional edges are properly created
+    assert "b" in adj["a"]
+    assert "a" in adj["b"]
+    assert "c" in adj["b"]
+    assert "b" in adj["c"]
+
+    # Check that duplicates are prevented
+    assert adj["a"].count("b") == 1
+    assert adj["b"].count("a") == 1
