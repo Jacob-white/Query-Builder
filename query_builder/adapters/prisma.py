@@ -276,6 +276,177 @@ def _through_last_list_close(text: str) -> str:
     return text[: closing.end() if closing else cut]
 
 
+def _parse_enums(text: str) -> dict[str, list[str]]:
+    enums: dict[str, list[str]] = {}
+    enum_blocks = _find_blocks(text, _ENUM_HEADER_RE)
+    for enum_name, enum_body in enum_blocks:
+        values = []
+        for raw_line in enum_body.strip().splitlines():
+            clean_line = raw_line.split("//")[0].strip()
+            if clean_line:
+                values.append(clean_line)
+        enums[enum_name] = values
+    return enums
+
+
+def _extract_model_to_table(model_blocks: list[tuple[str, str]]) -> dict[str, str]:
+    model_to_table: dict[str, str] = {}
+    for model_name, model_body in model_blocks:
+        map_match = re.search(r'@@map\(\s*["\']([^"\']+)["\']\s*\)', model_body)
+        model_to_table[model_name] = map_match.group(1) if map_match else model_name
+    return model_to_table
+
+
+def _parse_default_value(clean_line: str) -> Any:
+    default_val: Any = None
+    def_idx = clean_line.find("@default(")
+    if def_idx != -1:
+        start = def_idx + len("@default(")
+        depth = 1
+        end = start
+        while end < len(clean_line) and depth > 0:
+            if clean_line[end] == "(":
+                depth += 1
+            elif clean_line[end] == ")":
+                depth -= 1
+            end += 1
+        if depth == 0:
+            raw_def = clean_line[start : end - 1].strip()
+            if (raw_def.startswith('"') and raw_def.endswith('"')) or (
+                raw_def.startswith("'") and raw_def.endswith("'")
+            ):
+                default_val = raw_def[1:-1]
+            elif raw_def.lower() in ("true", "false"):
+                default_val = raw_def.lower() == "true"
+            elif raw_def.isdigit():
+                default_val = int(raw_def)
+            else:
+                try:
+                    default_val = float(raw_def)
+                except ValueError:
+                    default_val = raw_def
+    return default_val
+
+
+def _scan_relations(
+    model_body: str, model_to_table: dict[str, str]
+) -> dict[str, tuple[str, str]]:
+    relation_map: dict[str, tuple[str, str]] = {}
+    for line in model_body.splitlines():
+        clean_line = line.split("//")[0].strip()
+        if not clean_line or clean_line.startswith("@@"):
+            continue
+        rel_m = _match_relation(clean_line)
+        if rel_m:
+            parts = clean_line.split()
+            if len(parts) >= 2:
+                rel_type = parts[1].replace("?", "").replace("[]", "")
+                target_table = model_to_table.get(rel_type, rel_type)
+                from_fields = [f.strip() for f in rel_m[0].split(",") if f.strip()]
+                to_fields = [f.strip() for f in rel_m[1].split(",") if f.strip()]
+                if from_fields and to_fields:
+                    relation_map[from_fields[0]] = (target_table, to_fields[0])
+    return relation_map
+
+
+def _parse_prisma_model(
+    model_name: str,
+    model_body: str,
+    model_to_table: dict[str, str],
+    enums: dict[str, list[str]],
+) -> tuple[str, TableSchema]:
+    map_match = re.search(r'@@map\(\s*["\']([^"\']+)["\']\s*\)', model_body)
+    table_name = map_match.group(1) if map_match else model_name
+
+    composite_pk: list[str] = []
+    pk_match = _ID_LIST_RE.search(_through_last_list_close(model_body))
+    if pk_match:
+        composite_pk = [f.strip() for f in pk_match.group(1).split(",") if f.strip()]
+
+    relation_map = _scan_relations(model_body, model_to_table)
+
+    columns: list[ColumnSchema] = []
+    foreign_keys: list[ForeignKey] = []
+    primary_keys: list[str] = list(composite_pk)
+
+    for line in model_body.splitlines():
+        comment: str | None = None
+        if "///" in line:
+            comment = line.split("///", 1)[1].strip()
+        clean_line = line.split("//")[0].strip()
+        if not clean_line or clean_line.startswith("@@"):
+            continue
+
+        parts = clean_line.split()
+        if len(parts) < 2:
+            continue
+
+        field_name = parts[0]
+        raw_field_type = parts[1]
+
+        base_type = raw_field_type.rstrip("?").rstrip("[]")
+        if base_type in model_to_table:
+            continue
+
+        is_nullable = raw_field_type.endswith("?")
+
+        col_map_m = re.search(r'@map\(\s*["\']([^"\']+)["\']\s*\)', clean_line)
+        col_name = col_map_m.group(1) if col_map_m else field_name
+
+        is_primary = "@id" in clean_line or field_name in composite_pk
+        if is_primary and col_name not in primary_keys:
+            primary_keys.append(col_name)
+
+        default_val = _parse_default_value(clean_line)
+
+        col_enums: list[str] | None = None
+        if base_type in enums:
+            data_type = "string"
+            col_enums = enums[base_type]
+        else:
+            data_type = PRISMA_TYPE_MAP.get(
+                base_type.lower(), normalize_type_name(base_type)
+            )
+
+        fk: ForeignKey | None = None
+        relation = relation_map.get(field_name) or relation_map.get(col_name)
+        if relation is not None:
+            tgt_tbl, tgt_col = relation
+            fk = ForeignKey(
+                table=table_name,
+                column=col_name,
+                foreign_table=tgt_tbl,
+                foreign_column=tgt_col,
+            )
+            foreign_keys.append(fk)
+
+        columns.append(
+            ColumnSchema(
+                name=col_name,
+                data_type=data_type,
+                is_nullable=is_nullable,
+                is_primary=is_primary,
+                default=default_val,
+                comment=comment,
+                enums=col_enums,
+                foreign_key=fk,
+            )
+        )
+
+    table_enums: dict[str, list[str]] = {}
+    for c in columns:
+        if c.enums:
+            table_enums[c.name] = c.enums
+
+    return table_name, TableSchema(
+        name=table_name,
+        columns=columns,
+        primary_keys=primary_keys,
+        foreign_keys=foreign_keys,
+        enums=table_enums,
+    )
+
+
 def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
     """
     Parses a Prisma schema definition string, file path, or DMMF dictionary
@@ -292,170 +463,16 @@ def from_prisma(source: str | dict[str, Any]) -> SchemaDict:
 
     text = read_source(source)
 
-    # 1. Parse Enums: enum <Name> { ... }
-    enums: dict[str, list[str]] = {}
-    enum_blocks = _find_blocks(text, _ENUM_HEADER_RE)
-    for enum_name, enum_body in enum_blocks:
-        values = []
-        for raw_line in enum_body.strip().splitlines():
-            clean_line = raw_line.split("//")[0].strip()
-            if clean_line:
-                values.append(clean_line)
-        enums[enum_name] = values
-
-    # 2. Extract model name to @@map name
+    enums = _parse_enums(text)
     model_blocks = _find_blocks(text, _MODEL_HEADER_RE)
-    model_to_table: dict[str, str] = {}
-    for model_name, model_body in model_blocks:
-        map_match = re.search(r'@@map\(\s*["\']([^"\']+)["\']\s*\)', model_body)
-        model_to_table[model_name] = map_match.group(1) if map_match else model_name
+    model_to_table = _extract_model_to_table(model_blocks)
 
     tables = SchemaDict()
 
     for model_name, model_body in model_blocks:
-        map_match = re.search(r'@@map\(\s*["\']([^"\']+)["\']\s*\)', model_body)
-        table_name = map_match.group(1) if map_match else model_name
-
-        # Check composite primary keys: @@id([field1, field2])
-        composite_pk: list[str] = []
-        pk_match = _ID_LIST_RE.search(_through_last_list_close(model_body))
-        if pk_match:
-            composite_pk = [
-                f.strip() for f in pk_match.group(1).split(",") if f.strip()
-            ]
-
-        # Scan relation directives
-        # e.g.: user User @relation(fields: [userId], references: [id])
-        relation_map: dict[str, tuple[str, str]] = {}
-
-        for line in model_body.splitlines():
-            clean_line = line.split("//")[0].strip()
-            if not clean_line or clean_line.startswith("@@"):
-                continue
-            rel_m = _match_relation(clean_line)
-            if rel_m:
-                parts = clean_line.split()
-                if len(parts) >= 2:
-                    rel_type = parts[1].replace("?", "").replace("[]", "")
-                    target_table = model_to_table.get(rel_type, rel_type)
-                    from_fields = [f.strip() for f in rel_m[0].split(",") if f.strip()]
-                    to_fields = [f.strip() for f in rel_m[1].split(",") if f.strip()]
-                    if from_fields and to_fields:
-                        relation_map[from_fields[0]] = (target_table, to_fields[0])
-
-        columns: list[ColumnSchema] = []
-        foreign_keys: list[ForeignKey] = []
-        primary_keys: list[str] = list(composite_pk)
-
-        for line in model_body.splitlines():
-            comment: str | None = None
-            if "///" in line:
-                comment = line.split("///", 1)[1].strip()
-            clean_line = line.split("//")[0].strip()
-            if not clean_line or clean_line.startswith("@@"):
-                continue
-
-            parts = clean_line.split()
-            if len(parts) < 2:
-                continue
-
-            field_name = parts[0]
-            raw_field_type = parts[1]
-
-            # If field_type is a relation model or list of relation models, skip if not column
-            base_type = raw_field_type.rstrip("?").rstrip("[]")
-            if base_type in model_to_table:
-                # Virtual relation field
-                continue
-
-            # Check nullability
-            is_nullable = raw_field_type.endswith("?")
-
-            # Column mapping via @map("...")
-            col_map_m = re.search(r'@map\(\s*["\']([^"\']+)["\']\s*\)', clean_line)
-            col_name = col_map_m.group(1) if col_map_m else field_name
-
-            # Primary key via @id
-            is_primary = "@id" in clean_line or field_name in composite_pk
-            if is_primary and col_name not in primary_keys:
-                primary_keys.append(col_name)
-
-            # Default value via @default(...)
-            default_val: Any = None
-            def_idx = clean_line.find("@default(")
-            if def_idx != -1:
-                start = def_idx + len("@default(")
-                depth = 1
-                end = start
-                while end < len(clean_line) and depth > 0:
-                    if clean_line[end] == "(":
-                        depth += 1
-                    elif clean_line[end] == ")":
-                        depth -= 1
-                    end += 1
-                if depth == 0:
-                    raw_def = clean_line[start : end - 1].strip()
-                    if (raw_def.startswith('"') and raw_def.endswith('"')) or (
-                        raw_def.startswith("'") and raw_def.endswith("'")
-                    ):
-                        default_val = raw_def[1:-1]
-                    elif raw_def.lower() in ("true", "false"):
-                        default_val = raw_def.lower() == "true"
-                    elif raw_def.isdigit():
-                        default_val = int(raw_def)
-                    else:
-                        try:
-                            default_val = float(raw_def)
-                        except ValueError:
-                            default_val = raw_def
-
-            # Check enum
-            col_enums: list[str] | None = None
-            if base_type in enums:
-                data_type = "string"
-                col_enums = enums[base_type]
-            else:
-                data_type = PRISMA_TYPE_MAP.get(
-                    base_type.lower(), normalize_type_name(base_type)
-                )
-
-            # Check foreign key
-            fk: ForeignKey | None = None
-            relation = relation_map.get(field_name) or relation_map.get(col_name)
-            if relation is not None:
-                tgt_tbl, tgt_col = relation
-                fk = ForeignKey(
-                    table=table_name,
-                    column=col_name,
-                    foreign_table=tgt_tbl,
-                    foreign_column=tgt_col,
-                )
-                foreign_keys.append(fk)
-
-            columns.append(
-                ColumnSchema(
-                    name=col_name,
-                    data_type=data_type,
-                    is_nullable=is_nullable,
-                    is_primary=is_primary,
-                    default=default_val,
-                    comment=comment,
-                    enums=col_enums,
-                    foreign_key=fk,
-                )
-            )
-
-        table_enums: dict[str, list[str]] = {}
-        for c in columns:
-            if c.enums:
-                table_enums[c.name] = c.enums
-
-        tables[table_name] = TableSchema(
-            name=table_name,
-            columns=columns,
-            primary_keys=primary_keys,
-            foreign_keys=foreign_keys,
-            enums=table_enums,
+        table_name, table_schema = _parse_prisma_model(
+            model_name, model_body, model_to_table, enums
         )
+        tables[table_name] = table_schema
 
     return tables
