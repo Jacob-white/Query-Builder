@@ -1506,10 +1506,72 @@ def introspect_tdengine(
         table_rows = cursor.fetchall()
         table_names = [r[0] for r in table_rows if r and r[0]]
 
+        # Fast path using information_schema (supported in TDengine 3.x)
+        table_cols_map: dict[str, list[dict[str, Any]]] = {}
+        with contextlib.suppress(Exception):
+            cursor.execute(
+                f"SELECT * FROM information_schema.ins_columns WHERE db_name = '{database}';"
+            )
+            desc = cursor.description
+            if desc:
+                col_names = [d[0].lower() for d in desc]
+                t_idx = (
+                    col_names.index("table_name") if "table_name" in col_names else -1
+                )
+                c_idx = col_names.index("col_name") if "col_name" in col_names else -1
+                type_idx = (
+                    col_names.index("type")
+                    if "type" in col_names
+                    else (
+                        col_names.index("col_type") if "col_type" in col_names else -1
+                    )
+                )
+
+                if t_idx >= 0 and c_idx >= 0 and type_idx >= 0:
+                    for r in cursor.fetchall():
+                        if r and len(r) > max(t_idx, c_idx, type_idx):
+                            t_name = str(r[t_idx])
+                            c_name = str(r[c_idx])
+                            d_type = str(r[type_idx])
+                            if t_name not in table_cols_map:
+                                table_cols_map[t_name] = []
+                            table_cols_map[t_name].append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                }
+                            )
+
         tables: dict[str, dict[str, Any]] = {}
+        for tbl in table_names:
+            if tbl in table_cols_map:
+                cols: list[dict[str, Any]] = []
+                for idx, col_info in enumerate(table_cols_map[tbl]):
+                    c_name = col_info["name"]
+                    d_type = col_info["data_type"]
+                    is_pk = (idx == 0) or c_name.lower() == "ts"
+                    cols.append(
+                        {
+                            "name": c_name,
+                            "data_type": d_type,
+                            "is_nullable": not is_pk,
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+                has_user = any(c["name"] == "user_id" for c in cols)
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+
+        remaining_tables = [t for t in table_names if t not in tables]
         batch_size = 100
-        for i in range(0, len(table_names), batch_size):
-            batch = table_names[i : i + batch_size]
+        for i in range(0, len(remaining_tables), batch_size):
+            batch = remaining_tables[i : i + batch_size]
             success = False
             batch_cols_map: dict[str, list[dict[str, Any]]] = {}
             try:
@@ -1548,7 +1610,7 @@ def introspect_tdengine(
 
             if not success:
                 for tbl in batch:
-                    cols: list[dict[str, Any]] = []
+                    cols = []
                     with contextlib.suppress(Exception):
                         cursor.execute(f"DESCRIBE `{tbl}`;")
                         col_rows = cursor.fetchall()
@@ -1566,12 +1628,10 @@ def introspect_tdengine(
                                         "comment": None,
                                     }
                                 )
-
-                    has_user = any(c["name"] == "user_id" for c in cols)
                     tables[tbl] = {
                         "name": tbl,
                         "columns": cols,
-                        "has_user_id": has_user,
+                        "has_user_id": any(c["name"] == "user_id" for c in cols),
                         "user_col": "user_id",
                         "comment": None,
                     }
