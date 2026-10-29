@@ -162,13 +162,19 @@ def test_questdb_introspection_uses_native_catalog_functions():
     cur = MagicMock()
     cur.fetchall.side_effect = [
         [("trades",), ("telemetry",), ("it's",)],
-        [("ts", "TIMESTAMP"), ("user_id", "INT")],
-        [("v", "DOUBLE")],
+        # The next fetchall should return the batched columns result
+        [
+            ("it's", "ts", "TIMESTAMP"),
+            ("it's", "user_id", "INT"),
+            ("trades", "v", "DOUBLE"),
+        ],
     ]
     snap = QuestDBConnector(cursor=cur).introspect_schema()
     assert sorted(snap["tables"]) == ["it's", "trades"]  # telemetry* is internal
     assert snap["tables"]["it's"]["has_user_id"] is True  # tables go in sorted order
-    assert "table_columns('it''s')" in cur.execute.call_args_list[-2].args[0]
+
+    # In batched approach, the final query executed was the UNION ALL one.
+    assert "table_columns('it''s')" in cur.execute.call_args_list[-1].args[0]
 
     bad = MagicMock()
     bad.execute.side_effect = RuntimeError("boom")

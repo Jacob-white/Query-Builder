@@ -2781,8 +2781,8 @@ def test_d1_connector_lifecycle_and_execution():
     mock_sqlite_cur.fetchall.side_effect = [
         [("users",)],
         [
-            (0, "id", "INTEGER", 1, None, 1),
-            (1, "user_id", "INTEGER", 0, None, 0),
+            ("users", 0, "id", "INTEGER", 1, None, 1),
+            ("users", 1, "user_id", "INTEGER", 0, None, 0),
         ],
         [],
     ]

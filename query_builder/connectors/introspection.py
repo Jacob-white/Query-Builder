@@ -7,8 +7,10 @@ and foreign key relationships across supported SQL database engines.
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import re
+from collections import defaultdict
 from collections.abc import Generator
 from typing import Any
 
@@ -37,78 +39,169 @@ def introspect_sqlite(cursor: Any, filter_sensitive: bool = True) -> dict[str, A
         foreign_keys: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        for tbl in table_names:
-            # Table columns (skip virtual tables whose custom tokenizer/module is not loaded)
-            safe_tbl = tbl.replace('"', '""')
-            try:
-                cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
-                cols_meta = cursor.fetchall()
-            except Exception as tbl_exc:  # noqa: BLE001
-                err_msg = str(tbl_exc).lower()
-                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
-                    continue
-                raise
-            cols: list[dict[str, Any]] = []
-            has_user = False
+        # Attempt to batch query using table-valued PRAGMA functions
+        batched_success = False
+        try:
+            cursor.execute(
+                """
+                SELECT m.name, p.cid, p.name, p.type, p."notnull", p.dflt_value, p.pk
+                FROM sqlite_master m
+                JOIN pragma_table_info(m.name) p
+                WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%';
+                """
+            )
+            all_cols_meta = cursor.fetchall()
 
-            for c in cols_meta:
-                # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
-                col_name = str(c[1])
-                data_type = str(c[2]) if c[2] else "text"
-                is_nullable = not bool(c[3])
-                is_pk = bool(c[5])
-                if col_name == "user_id":
-                    has_user = True
+            cursor.execute(
+                """
+                SELECT m.name, f.id, f.seq, f."table", f."from", f."to", f.on_update, f.on_delete, f.match
+                FROM sqlite_master m
+                JOIN pragma_foreign_key_list(m.name) f
+                WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%';
+                """
+            )
+            all_fk_rows = cursor.fetchall()
+            batched_success = True
+        except Exception:  # noqa: BLE001
+            # Fallback to N+1 if table-valued functions are unsupported or a virtual table crashes the query
+            batched_success = False
 
-                cols.append(
-                    {
-                        "name": col_name,
-                        "data_type": data_type,
-                        "is_nullable": is_nullable,
-                        "is_primary": is_pk,
-                        "comment": None,
-                    }
-                )
+        if batched_success:
+            # Group by table name
+            cols_by_table: dict[str, list[Any]] = defaultdict(list)
+            for c_b in all_cols_meta:
+                cols_by_table[str(c_b[0])].append(c_b[1:])
 
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+            fks_by_table: dict[str, list[Any]] = defaultdict(list)
+            for fk_b in all_fk_rows:
+                fks_by_table[str(fk_b[0])].append(fk_b[1:])
 
-            # Foreign keys
-            try:
-                cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
-                fk_rows = cursor.fetchall()
-            except Exception as fk_exc:  # noqa: BLE001
-                err_msg = str(fk_exc).lower()
-                if "unknown tokenizer" in err_msg or "no such module" in err_msg:
-                    continue
-                raise
-            for fk in fk_rows:
-                # id, seq, table, from, to, on_update, on_delete, match
-                target_table = str(fk[2])
-                from_col = str(fk[3])
-                to_col = str(fk[4]) if fk[4] else "id"
+            for tbl in table_names:
+                cols_meta_b = cols_by_table.get(tbl, [])
+                cols_b: list[dict[str, Any]] = []
+                has_user = False
 
-                foreign_keys.append(
-                    {
-                        "table": tbl,
-                        "column": from_col,
-                        "foreign_table": target_table,
-                        "foreign_column": to_col,
-                    }
-                )
-                relationships.append(
-                    {
-                        "source_table": tbl,
-                        "source_column": from_col,
-                        "target_table": target_table,
-                        "target_column": to_col,
-                    }
-                )
+                for c in cols_meta_b:
+                    col_name = str(c[1])
+                    data_type = str(c[2]) if c[2] else "text"
+                    is_nullable = not bool(c[3])
+                    is_pk = bool(c[5])
+                    if col_name == "user_id":
+                        has_user = True
+
+                    cols_b.append(
+                        {
+                            "name": col_name,
+                            "data_type": data_type,
+                            "is_nullable": is_nullable,
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols_b,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+
+                fk_rows = fks_by_table.get(tbl, [])
+                for fk in fk_rows:
+                    target_table = str(fk[2])
+                    from_col = str(fk[3])
+                    to_col = str(fk[4]) if fk[4] else "id"
+
+                    foreign_keys.append(
+                        {
+                            "table": tbl,
+                            "column": from_col,
+                            "foreign_table": target_table,
+                            "foreign_column": to_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": tbl,
+                            "source_column": from_col,
+                            "target_table": target_table,
+                            "target_column": to_col,
+                        }
+                    )
+        else:
+            for tbl in table_names:
+                # Table columns (skip virtual tables whose custom tokenizer/module is not loaded)
+                safe_tbl = tbl.replace('"', '""')
+                try:
+                    cursor.execute(f'PRAGMA table_info("{safe_tbl}");')
+                    cols_meta = cursor.fetchall()
+                except Exception as tbl_exc:  # noqa: BLE001
+                    err_msg = str(tbl_exc).lower()
+                    if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                        continue
+                    raise
+                cols: list[dict[str, Any]] = []
+                has_user = False
+
+                for c in cols_meta:
+                    # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+                    col_name = str(c[1])
+                    data_type = str(c[2]) if c[2] else "text"
+                    is_nullable = not bool(c[3])
+                    is_pk = bool(c[5])
+                    if col_name == "user_id":
+                        has_user = True
+
+                    cols.append(
+                        {
+                            "name": col_name,
+                            "data_type": data_type,
+                            "is_nullable": is_nullable,
+                            "is_primary": is_pk,
+                            "comment": None,
+                        }
+                    )
+
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
+
+                # Foreign keys
+                try:
+                    cursor.execute(f'PRAGMA foreign_key_list("{safe_tbl}");')
+                    fk_rows = cursor.fetchall()
+                except Exception as fk_exc:  # noqa: BLE001
+                    err_msg = str(fk_exc).lower()
+                    if "unknown tokenizer" in err_msg or "no such module" in err_msg:
+                        continue
+                    raise
+                for fk in fk_rows:
+                    # id, seq, table, from, to, on_update, on_delete, match
+                    target_table = str(fk[2])
+                    from_col = str(fk[3])
+                    to_col = str(fk[4]) if fk[4] else "id"
+
+                    foreign_keys.append(
+                        {
+                            "table": tbl,
+                            "column": from_col,
+                            "foreign_table": target_table,
+                            "foreign_column": to_col,
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source_table": tbl,
+                            "source_column": from_col,
+                            "target_table": target_table,
+                            "target_column": to_col,
+                        }
+                    )
 
         raw_snapshot = {
             "tables": tables,
@@ -1159,17 +1252,39 @@ def introspect_sparksql(
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
 
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = []
-            with contextlib.suppress(Exception):
-                cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+        tables: dict[str, dict[str, Any]] = {
+            tbl: {
+                "name": tbl,
+                "columns": [],
+                "has_user_id": False,
+                "user_col": "user_id",
+                "comment": None,
+            }
+            for tbl in table_names
+        }
+
+        # Try batch fetching columns first to avoid N+1 queries
+        batch_success = False
+        if table_names:
+            try:
+                cur.execute(
+                    """
+                    SELECT table_name, column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = %s
+                    ORDER BY table_name, ordinal_position;
+                    """,
+                    [schema_name],
+                )
                 col_rows = cur.fetchall()
                 for cr in col_rows:
-                    if cr and cr[0] and not str(cr[0]).startswith("#"):
-                        c_name = str(cr[0]).strip()
-                        d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
-                        cols.append(
+                    if not cr or len(cr) < 3:
+                        continue
+                    tbl_name = str(cr[0]).strip()
+                    c_name = str(cr[1]).strip()
+                    d_type = str(cr[2]).strip()
+                    if tbl_name in tables and c_name and not c_name.startswith("#"):
+                        tables[tbl_name]["columns"].append(
                             {
                                 "name": c_name,
                                 "data_type": d_type,
@@ -1178,15 +1293,32 @@ def introspect_sparksql(
                                 "comment": None,
                             }
                         )
+                        if c_name == "user_id":
+                            tables[tbl_name]["has_user_id"] = True
+                batch_success = True
+            except Exception:  # noqa: BLE001
+                batch_success = False
 
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+        if not batch_success:
+            for tbl in table_names:
+                with contextlib.suppress(Exception):
+                    cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+                    col_rows = cur.fetchall()
+                    for cr in col_rows:
+                        if cr and cr[0] and not str(cr[0]).startswith("#"):
+                            c_name = str(cr[0]).strip()
+                            d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
+                            tables[tbl]["columns"].append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name.lower() == "id",
+                                    "comment": None,
+                                }
+                            )
+                            if c_name == "user_id":
+                                tables[tbl]["has_user_id"] = True
 
         raw_snapshot = {
             "tables": tables,
@@ -1412,8 +1544,8 @@ def introspect_tdengine(
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
-            cols: list[dict[str, Any]] = []
             if tbl in table_cols_map:
+                cols: list[dict[str, Any]] = []
                 for idx, col_info in enumerate(table_cols_map[tbl]):
                     c_name = col_info["name"]
                     d_type = col_info["data_type"]
@@ -1427,33 +1559,82 @@ def introspect_tdengine(
                             "comment": None,
                         }
                     )
-            else:
-                with contextlib.suppress(Exception):
-                    cursor.execute(f"DESCRIBE `{tbl}`;")
-                    col_rows = cursor.fetchall()
-                    for idx, cr in enumerate(col_rows):
-                        if cr:
-                            c_name = str(cr[0])
-                            d_type = str(cr[1]) if len(cr) > 1 else "VARCHAR"
-                            is_pk = (idx == 0) or c_name.lower() == "ts"
-                            cols.append(
-                                {
-                                    "name": c_name,
-                                    "data_type": d_type,
-                                    "is_nullable": not is_pk,
-                                    "is_primary": is_pk,
-                                    "comment": None,
-                                }
-                            )
+                has_user = any(c["name"] == "user_id" for c in cols)
+                tables[tbl] = {
+                    "name": tbl,
+                    "columns": cols,
+                    "has_user_id": has_user,
+                    "user_col": "user_id",
+                    "comment": None,
+                }
 
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+        remaining_tables = [t for t in table_names if t not in tables]
+        batch_size = 100
+        for i in range(0, len(remaining_tables), batch_size):
+            batch = remaining_tables[i : i + batch_size]
+            success = False
+            batch_cols_map: dict[str, list[dict[str, Any]]] = {}
+            try:
+                if len(batch) > 1 and hasattr(cursor, "nextset"):
+                    query = "".join(f"DESCRIBE `{tbl}`;" for tbl in batch)
+                    cursor.execute(query)
+                    for tbl in batch:
+                        col_rows = cursor.fetchall()
+                        for idx, cr in enumerate(col_rows):
+                            if cr:
+                                c_name = str(cr[0])
+                                d_type = str(cr[1]) if len(cr) > 1 else "VARCHAR"
+                                is_pk = (idx == 0) or c_name.lower() == "ts"
+                                batch_cols_map.setdefault(tbl, []).append(
+                                    {
+                                        "name": c_name,
+                                        "data_type": d_type,
+                                        "is_nullable": not is_pk,
+                                        "is_primary": is_pk,
+                                        "comment": None,
+                                    }
+                                )
+                        if cursor.nextset() is None:
+                            break
+                    success = True
+                    for k, v in batch_cols_map.items():
+                        tables[k] = {
+                            "name": k,
+                            "columns": v,
+                            "has_user_id": any(c["name"] == "user_id" for c in v),
+                            "user_col": "user_id",
+                            "comment": None,
+                        }
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+            if not success:
+                for tbl in batch:
+                    cols = []
+                    with contextlib.suppress(Exception):
+                        cursor.execute(f"DESCRIBE `{tbl}`;")
+                        col_rows = cursor.fetchall()
+                        for idx, cr in enumerate(col_rows):
+                            if cr:
+                                c_name = str(cr[0])
+                                d_type = str(cr[1]) if len(cr) > 1 else "VARCHAR"
+                                is_pk = (idx == 0) or c_name.lower() == "ts"
+                                cols.append(
+                                    {
+                                        "name": c_name,
+                                        "data_type": d_type,
+                                        "is_nullable": not is_pk,
+                                        "is_primary": is_pk,
+                                        "comment": None,
+                                    }
+                                )
+                    tables[tbl] = {
+                        "name": tbl,
+                        "columns": cols,
+                        "has_user_id": any(c["name"] == "user_id" for c in cols),
+                        "user_col": "user_id",
+                        "comment": None,
+                    }
 
         raw_snapshot = {
             "tables": tables,
@@ -2080,6 +2261,7 @@ def introspect_cosmosdb(
         sample_query = "SELECT * FROM c OFFSET 0 LIMIT 100"
         if hasattr(target, "get_database_client"):
             db_client = target.get_database_client(database)
+            c_ids = []
             for container in db_client.list_containers():
                 c_id = (
                     container.get("id")
@@ -2087,12 +2269,21 @@ def introspect_cosmosdb(
                     else getattr(container, "id", None)
                 )
                 if c_id:
-                    proxy = db_client.get_container_client(c_id)
-                    samples[str(c_id)] = list(
-                        proxy.query_items(
-                            query=sample_query, enable_cross_partition_query=True
-                        )
+                    c_ids.append(c_id)
+
+            def _fetch_container(c_id: str) -> tuple[str, list[dict[str, Any]]]:
+                proxy = db_client.get_container_client(c_id)
+                return c_id, list(
+                    proxy.query_items(
+                        query=sample_query, enable_cross_partition_query=True
                     )
+                )
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(32, len(c_ids) or 1)
+            ) as executor:
+                for c_id, docs in executor.map(_fetch_container, c_ids):
+                    samples[str(c_id)] = docs
         elif hasattr(target, "query_items"):  # a single container client
             name = str(getattr(target, "id", None) or "items")
             samples[name] = list(
@@ -2215,28 +2406,71 @@ def introspect_doris(
                     }
                 )
         except Exception:  # noqa: BLE001
-            for tbl in table_names:
-                cursor.execute(f"DESCRIBE `{tbl}`;")
-                col_rows = cursor.fetchall()
-                for r in col_rows:
-                    c_name = str(r[0])
-                    if filter_sensitive and _is_sensitive_column(c_name):
-                        continue
-                    d_type = str(r[1]) if len(r) > 1 else "string"
-                    is_null = str(r[2]) if len(r) > 2 else "YES"
-                    col_key = str(r[3]).upper() if len(r) > 3 and r[3] else ""
-                    is_pk = (col_key in ("PRI", "UNI", "YES")) or (
-                        c_name.lower() == "id"
-                    )
-                    table_cols_map.setdefault(tbl, []).append(
-                        {
-                            "name": c_name,
-                            "data_type": d_type,
-                            "is_nullable": is_null.upper() in ("YES", "TRUE", "Y", "1"),
-                            "is_primary": is_pk,
-                            "comment": None,
-                        }
-                    )
+            batch_size = 100
+            for i in range(0, len(table_names), batch_size):
+                batch = table_names[i : i + batch_size]
+                success = False
+                batch_cols_map: dict[str, list[dict[str, Any]]] = {}
+                try:
+                    if len(batch) > 1 and hasattr(cursor, "nextset"):
+                        query = "".join(f"DESCRIBE `{tbl}`;" for tbl in batch)
+                        cursor.execute(query)
+                        for tbl in batch:
+                            col_rows = cursor.fetchall()
+                            for r in col_rows:
+                                c_name = str(r[0])
+                                if filter_sensitive and _is_sensitive_column(c_name):
+                                    continue
+                                d_type = str(r[1]) if len(r) > 1 else "string"
+                                is_null = str(r[2]) if len(r) > 2 else "YES"
+                                col_key = (
+                                    str(r[3]).upper() if len(r) > 3 and r[3] else ""
+                                )
+                                is_pk = (col_key in ("PRI", "UNI", "YES")) or (
+                                    c_name.lower() == "id"
+                                )
+                                batch_cols_map.setdefault(tbl, []).append(
+                                    {
+                                        "name": c_name,
+                                        "data_type": d_type,
+                                        "is_nullable": is_null.upper()
+                                        in ("YES", "TRUE", "Y", "1"),
+                                        "is_primary": is_pk,
+                                        "comment": None,
+                                    }
+                                )
+                            if cursor.nextset() is None:
+                                break
+                        success = True
+                        for k, v in batch_cols_map.items():
+                            table_cols_map.setdefault(k, []).extend(v)
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+                if not success:
+                    for tbl in batch:
+                        cursor.execute(f"DESCRIBE `{tbl}`;")
+                        col_rows = cursor.fetchall()
+                        for r in col_rows:
+                            c_name = str(r[0])
+                            if filter_sensitive and _is_sensitive_column(c_name):
+                                continue
+                            d_type = str(r[1]) if len(r) > 1 else "string"
+                            is_null = str(r[2]) if len(r) > 2 else "YES"
+                            col_key = str(r[3]).upper() if len(r) > 3 and r[3] else ""
+                            is_pk = (col_key in ("PRI", "UNI", "YES")) or (
+                                c_name.lower() == "id"
+                            )
+                            table_cols_map.setdefault(tbl, []).append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": is_null.upper()
+                                    in ("YES", "TRUE", "Y", "1"),
+                                    "is_primary": is_pk,
+                                    "comment": None,
+                                }
+                            )
 
         tables: dict[str, dict[str, Any]] = {}
         for tbl in table_names:
@@ -2277,37 +2511,82 @@ def introspect_impala(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
-            col_rows = cursor.fetchall()
-            cols: list[dict[str, Any]] = []
-            has_user = False
-            for r in col_rows:
-                c_name = str(r[0]).strip()
-                if not c_name or c_name.startswith("#"):
-                    continue
-                if filter_sensitive and _is_sensitive_column(c_name):
-                    continue
-                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
-                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
-                if c_name == "user_id":
-                    has_user = True
-                cols.append(
-                    {
-                        "name": c_name,
-                        "data_type": d_type,
-                        "is_nullable": True,
-                        "is_primary": c_name == "id",
-                        "comment": comment,
+        batch_size = 100
+        for i in range(0, len(table_names), batch_size):
+            batch = table_names[i : i + batch_size]
+            success = False
+            batch_cols_map: dict[str, list[dict[str, Any]]] = {}
+            try:
+                if len(batch) > 1 and hasattr(cursor, "nextset"):
+                    query = "".join(f"DESCRIBE `{database}`.`{tbl}`;" for tbl in batch)
+                    cursor.execute(query)
+                    for tbl in batch:
+                        col_rows = cursor.fetchall()
+                        for r in col_rows:
+                            c_name = str(r[0]).strip()
+                            if not c_name or c_name.startswith("#"):
+                                continue
+                            if filter_sensitive and _is_sensitive_column(c_name):
+                                continue
+                            d_type = (
+                                str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                            )
+                            comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                            batch_cols_map.setdefault(tbl, []).append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name == "id",
+                                    "comment": comment,
+                                }
+                            )
+                        if cursor.nextset() is None:
+                            break
+                    success = True
+                    for k, v in batch_cols_map.items():
+                        tables[k] = {
+                            "name": k,
+                            "columns": v,
+                            "has_user_id": any(c["name"] == "user_id" for c in v),
+                            "user_col": "user_id",
+                            "comment": None,
+                        }
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+            if not success:
+                for tbl in batch:
+                    cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+                    col_rows = cursor.fetchall()
+                    cols: list[dict[str, Any]] = []
+                    has_user = False
+                    for r in col_rows:
+                        c_name = str(r[0]).strip()
+                        if not c_name or c_name.startswith("#"):
+                            continue
+                        if filter_sensitive and _is_sensitive_column(c_name):
+                            continue
+                        d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                        comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                        if c_name == "user_id":
+                            has_user = True
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name == "id",
+                                "comment": comment,
+                            }
+                        )
+                    tables[tbl] = {
+                        "name": tbl,
+                        "columns": cols,
+                        "has_user_id": has_user,
+                        "user_col": "user_id",
+                        "comment": None,
                     }
-                )
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
 
         raw_snapshot = {
             "tables": tables,
@@ -2336,37 +2615,82 @@ def introspect_hive(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
-            col_rows = cursor.fetchall()
-            cols: list[dict[str, Any]] = []
-            has_user = False
-            for r in col_rows:
-                c_name = str(r[0]).strip()
-                if not c_name or c_name.startswith("#"):
-                    continue
-                if filter_sensitive and _is_sensitive_column(c_name):
-                    continue
-                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
-                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
-                if c_name == "user_id":
-                    has_user = True
-                cols.append(
-                    {
-                        "name": c_name,
-                        "data_type": d_type,
-                        "is_nullable": True,
-                        "is_primary": c_name == "id",
-                        "comment": comment,
+        batch_size = 100
+        for i in range(0, len(table_names), batch_size):
+            batch = table_names[i : i + batch_size]
+            success = False
+            batch_cols_map: dict[str, list[dict[str, Any]]] = {}
+            try:
+                if len(batch) > 1 and hasattr(cursor, "nextset"):
+                    query = "".join(f"DESCRIBE `{database}`.`{tbl}`;" for tbl in batch)
+                    cursor.execute(query)
+                    for tbl in batch:
+                        col_rows = cursor.fetchall()
+                        for r in col_rows:
+                            c_name = str(r[0]).strip()
+                            if not c_name or c_name.startswith("#"):
+                                continue
+                            if filter_sensitive and _is_sensitive_column(c_name):
+                                continue
+                            d_type = (
+                                str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                            )
+                            comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                            batch_cols_map.setdefault(tbl, []).append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name == "id",
+                                    "comment": comment,
+                                }
+                            )
+                        if cursor.nextset() is None:
+                            break
+                    success = True
+                    for k, v in batch_cols_map.items():
+                        tables[k] = {
+                            "name": k,
+                            "columns": v,
+                            "has_user_id": any(c["name"] == "user_id" for c in v),
+                            "user_col": "user_id",
+                            "comment": None,
+                        }
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+            if not success:
+                for tbl in batch:
+                    cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+                    col_rows = cursor.fetchall()
+                    cols: list[dict[str, Any]] = []
+                    has_user = False
+                    for r in col_rows:
+                        c_name = str(r[0]).strip()
+                        if not c_name or c_name.startswith("#"):
+                            continue
+                        if filter_sensitive and _is_sensitive_column(c_name):
+                            continue
+                        d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                        comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                        if c_name == "user_id":
+                            has_user = True
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name == "id",
+                                "comment": comment,
+                            }
+                        )
+                    tables[tbl] = {
+                        "name": tbl,
+                        "columns": cols,
+                        "has_user_id": has_user,
+                        "user_col": "user_id",
+                        "comment": None,
                     }
-                )
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
 
         raw_snapshot = {
             "tables": tables,
@@ -2395,37 +2719,82 @@ def introspect_kyuubi(
         table_names = [r[0] for r in table_rows if r and r[0]]
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
-            col_rows = cursor.fetchall()
-            cols: list[dict[str, Any]] = []
-            has_user = False
-            for r in col_rows:
-                c_name = str(r[0]).strip()
-                if not c_name or c_name.startswith("#"):
-                    continue
-                if filter_sensitive and _is_sensitive_column(c_name):
-                    continue
-                d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
-                comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
-                if c_name == "user_id":
-                    has_user = True
-                cols.append(
-                    {
-                        "name": c_name,
-                        "data_type": d_type,
-                        "is_nullable": True,
-                        "is_primary": c_name == "id",
-                        "comment": comment,
+        batch_size = 100
+        for i in range(0, len(table_names), batch_size):
+            batch = table_names[i : i + batch_size]
+            success = False
+            batch_cols_map: dict[str, list[dict[str, Any]]] = {}
+            try:
+                if len(batch) > 1 and hasattr(cursor, "nextset"):
+                    query = "".join(f"DESCRIBE `{database}`.`{tbl}`;" for tbl in batch)
+                    cursor.execute(query)
+                    for tbl in batch:
+                        col_rows = cursor.fetchall()
+                        for r in col_rows:
+                            c_name = str(r[0]).strip()
+                            if not c_name or c_name.startswith("#"):
+                                continue
+                            if filter_sensitive and _is_sensitive_column(c_name):
+                                continue
+                            d_type = (
+                                str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                            )
+                            comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                            batch_cols_map.setdefault(tbl, []).append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name == "id",
+                                    "comment": comment,
+                                }
+                            )
+                        if cursor.nextset() is None:
+                            break
+                    success = True
+                    for k, v in batch_cols_map.items():
+                        tables[k] = {
+                            "name": k,
+                            "columns": v,
+                            "has_user_id": any(c["name"] == "user_id" for c in v),
+                            "user_col": "user_id",
+                            "comment": None,
+                        }
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+            if not success:
+                for tbl in batch:
+                    cursor.execute(f"DESCRIBE `{database}`.`{tbl}`;")
+                    col_rows = cursor.fetchall()
+                    cols: list[dict[str, Any]] = []
+                    has_user = False
+                    for r in col_rows:
+                        c_name = str(r[0]).strip()
+                        if not c_name or c_name.startswith("#"):
+                            continue
+                        if filter_sensitive and _is_sensitive_column(c_name):
+                            continue
+                        d_type = str(r[1]).strip() if len(r) > 1 and r[1] else "string"
+                        comment = str(r[2]).strip() if len(r) > 2 and r[2] else None
+                        if c_name == "user_id":
+                            has_user = True
+                        cols.append(
+                            {
+                                "name": c_name,
+                                "data_type": d_type,
+                                "is_nullable": True,
+                                "is_primary": c_name == "id",
+                                "comment": comment,
+                            }
+                        )
+                    tables[tbl] = {
+                        "name": tbl,
+                        "columns": cols,
+                        "has_user_id": has_user,
+                        "user_col": "user_id",
+                        "comment": None,
                     }
-                )
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
 
         raw_snapshot = {
             "tables": tables,
@@ -3107,23 +3476,53 @@ def introspect_kdb(
         }
 
         tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            meta_res = None
-            q_query = f"meta `{tbl}"
+
+        # Attempt to batch fetch metadata for all tables at once
+        batched_meta = None
+        if table_names:
+            batch_query = f"{{x!meta each x}} `{'`'.join(table_names)}"
+            batched_meta_res = None
             with contextlib.suppress(Exception):
                 if (
                     _has_attr(client_or_conn, "q")
                     and getattr(client_or_conn, "q", None) is not None
                     and callable(getattr(client_or_conn, "q", None))
                 ):
-                    meta_res = client_or_conn.q(q_query)
+                    batched_meta_res = client_or_conn.q(batch_query)
                 elif _has_attr(client_or_conn, "sendSync"):
-                    meta_res = client_or_conn.sendSync(q_query)
+                    batched_meta_res = client_or_conn.sendSync(batch_query)
                 elif _has_attr(client_or_conn, "execute"):
-                    client_or_conn.execute(q_query)
-                    meta_res = client_or_conn.fetchall()
+                    client_or_conn.execute(batch_query)
+                    batched_meta_res = client_or_conn.fetchall()
                 elif callable(client_or_conn):
-                    meta_res = client_or_conn(q_query)
+                    batched_meta_res = client_or_conn(batch_query)
+
+            if batched_meta_res is not None:
+                if hasattr(batched_meta_res, "items"):
+                    batched_meta = dict(batched_meta_res.items())
+                elif isinstance(batched_meta_res, dict):
+                    batched_meta = batched_meta_res
+
+        for tbl in table_names:
+            meta_res = None
+            if batched_meta is not None and tbl in batched_meta:
+                meta_res = batched_meta[tbl]
+            else:
+                q_query = f"meta `{tbl}"
+                with contextlib.suppress(Exception):
+                    if (
+                        _has_attr(client_or_conn, "q")
+                        and getattr(client_or_conn, "q", None) is not None
+                        and callable(getattr(client_or_conn, "q", None))
+                    ):
+                        meta_res = client_or_conn.q(q_query)
+                    elif _has_attr(client_or_conn, "sendSync"):
+                        meta_res = client_or_conn.sendSync(q_query)
+                    elif _has_attr(client_or_conn, "execute"):
+                        client_or_conn.execute(q_query)
+                        meta_res = client_or_conn.fetchall()
+                    elif callable(client_or_conn):
+                        meta_res = client_or_conn(q_query)
 
             cols: list[dict[str, Any]] = []
             if meta_res is not None:

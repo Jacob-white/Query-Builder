@@ -1,0 +1,34 @@
+--- query_builder/connectors/couchbase.py
++++ query_builder/connectors/couchbase.py
+@@ -14,6 +14,7 @@
+     DriverNotInstalledError,
+     IntrospectionError,
+ )
++import concurrent.futures
+ from query_builder.schema import normalize_schema_snapshot
+
+
+@@ -192,20 +193,12 @@
+                 )
+                 rows = cur.fetchall()
+                 table_names = [str(r[0]) for r in rows if r and r[0]]
+-                tables: dict[str, dict[str, Any]] = {}
+-                for tbl in table_names:
+-                    cur.execute(
+-                        f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`"
+-                    )
+-                    inf_rows = cur.fetchall()
+-                    cols: list[dict[str, Any]] = []
+-                    has_user = False
+-                    if inf_rows and len(inf_rows) > 0:
+-                        first_inf = inf_rows[0]
+-                        if isinstance(first_inf, (list, tuple)) and len(first_inf) > 0:
+-                            sample = (
+-                                first_inf[0] if isinstance(first_inf[0], dict) else {}
+-                            )
+-                        elif isinstance(first_inf, dict):
+-                            sample = first_inf
+-                        else:
+-                            sample = {}
+-
+-                        properties = sample.get("properties", {})

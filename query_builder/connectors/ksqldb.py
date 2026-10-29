@@ -87,12 +87,13 @@ class _KsqlDBCursorAdapter:
                     if c.strip()
                 ]
                 self.description = [(c,) for c in cols] if cols else [("row",)]
-                rows = []
+                rows: list[Any] = []
+                _append = rows.append
                 for item in data[1:]:
                     if isinstance(item, dict) and "row" in item:
-                        rows.append(item.get("row", {}).get("columns", []))
+                        _append(item.get("row", {}).get("columns", []))
                     elif isinstance(item, list):
-                        rows.append(item)
+                        _append(item)
                 self._rows = rows
             elif (
                 isinstance(data, list)
@@ -101,8 +102,10 @@ class _KsqlDBCursorAdapter:
                 and "statementText" in data[0]
             ):
                 self.description = [("statementText",), ("status",)]
+                default_cmd = "ksqlDB command"
+                success = "SUCCESS"
                 self._rows = [
-                    [d.get("statementText", "ksqlDB command"), "SUCCESS"] for d in data
+                    [d.get("statementText", default_cmd), success] for d in data
                 ]
             else:
                 self.description = [("statementText",), ("status",)]

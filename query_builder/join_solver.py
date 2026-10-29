@@ -52,87 +52,22 @@ def _clean_table_name(tbl: Any) -> str:
     return tbl
 
 
-def find_best_join_condition(
-    left_table: str,
-    right_table: str,
-    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
-    canonical_columns: Sequence[str] | None = None,
-) -> dict[str, Any]:
-    """
-    Determines the best join condition between two tables.
-    Order of evaluation:
-    1. Explicit foreign key constraint (direct or reverse).
-    2. Shared canonical entity columns (e.g. firm_id, user_id, project_id).
-    3. Direct entity name matching (e.g. table has '<other_table>_id').
-    4. Primary key / fallback column match.
-    """
-    clean_left = _clean_table_name(left_table)
-    clean_right = _clean_table_name(right_table)
-    if not clean_left or not clean_right:
-        return {
-            "left_table": clean_left or "t1",
-            "left_col": "id",
-            "right_table": clean_right or "t2",
-            "right_col": "id",
-            "is_fk": False,
-            "reason": "Fallback condition for empty/invalid table name",
-        }
-
-    if hasattr(schema_data, "tables") and hasattr(schema_data, "foreign_keys"):
-        tables_meta = getattr(schema_data, "tables", {})
-        foreign_keys = getattr(schema_data, "foreign_keys", [])
-        relationships = getattr(schema_data, "relationships", [])
-    elif isinstance(schema_data, dict):
-        tables_meta = schema_data.get("tables", {})
-        foreign_keys = schema_data.get("foreign_keys", [])
-        relationships = schema_data.get("relationships", [])
+def _get_table_columns(tables_meta: dict[str, Any], table_name: str) -> list[Any]:
+    raw = tables_meta.get(table_name, {}) if isinstance(tables_meta, dict) else {}
+    if hasattr(raw, "to_dict"):
+        tbl_meta = raw.to_dict()
+    elif isinstance(raw, dict):
+        tbl_meta = raw
+    elif hasattr(raw, "columns"):
+        tbl_meta = {"columns": getattr(raw, "columns", [])}
     else:
-        tables_meta = {}
-        foreign_keys = []
-        relationships = []
+        tbl_meta = {}
+    return tbl_meta.get("columns", [])
 
-    if not isinstance(tables_meta, dict):
-        tables_meta = {}
-    if not isinstance(foreign_keys, list):
-        foreign_keys = []
-    if not isinstance(relationships, list):
-        relationships = []
 
-    raw_left = tables_meta.get(clean_left, {}) if isinstance(tables_meta, dict) else {}
-    if hasattr(raw_left, "to_dict"):
-        left_tbl_meta = raw_left.to_dict()
-    elif isinstance(raw_left, dict):
-        left_tbl_meta = raw_left
-    elif hasattr(raw_left, "columns"):
-        left_tbl_meta = {"columns": getattr(raw_left, "columns", [])}
-    else:
-        left_tbl_meta = {}
-
-    raw_right = (
-        tables_meta.get(clean_right, {}) if isinstance(tables_meta, dict) else {}
-    )
-    if hasattr(raw_right, "to_dict"):
-        right_tbl_meta = raw_right.to_dict()
-    elif isinstance(raw_right, dict):
-        right_tbl_meta = raw_right
-    elif hasattr(raw_right, "columns"):
-        right_tbl_meta = {"columns": getattr(raw_right, "columns", [])}
-    else:
-        right_tbl_meta = {}
-
-    left_cols = left_tbl_meta.get("columns", [])
-    right_cols = right_tbl_meta.get("columns", [])
-
-    left_col_names = {
-        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
-        for c in left_cols
-    }
-    right_col_names = {
-        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
-        for c in right_cols
-    }
-
-    # 1. Explicit FK match
+def _check_explicit_fks(
+    clean_left: str, clean_right: str, foreign_keys: list[Any]
+) -> dict[str, Any] | None:
     for fk in foreign_keys:
         if isinstance(fk, dict):
             fk_tbl = _clean_table_name(fk.get("table", ""))
@@ -167,8 +102,12 @@ def find_best_join_condition(
                 "is_fk": True,
                 "reason": "Schema foreign key constraint",
             }
+    return None
 
-    # 1b. Explicit relationship match
+
+def _check_relationships(
+    clean_left: str, clean_right: str, relationships: list[Any]
+) -> dict[str, Any] | None:
     for rel in relationships:
         if isinstance(rel, dict):
             src_tbl = _clean_table_name(rel.get("source_table", ""))
@@ -201,18 +140,16 @@ def find_best_join_condition(
                 "is_fk": True,
                 "reason": "Schema foreign key constraint",
             }
+    return None
 
-    effective_canon: Sequence[str] = CANONICAL_ENTITY_COLUMNS
-    if canonical_columns:
-        effective_canon = canonical_columns
-    elif isinstance(schema_data, dict) and schema_data.get("canonical_columns"):
-        effective_canon = schema_data["canonical_columns"]
-    elif schema_data is not None and (
-        canon_attr := getattr(schema_data, "canonical_columns", None)
-    ):
-        effective_canon = canon_attr
 
-    # 2. Canonical entity ID matches
+def _check_canonical_match(
+    clean_left: str,
+    clean_right: str,
+    left_col_names: set[str],
+    right_col_names: set[str],
+    effective_canon: Sequence[str],
+) -> dict[str, Any] | None:
     for col in effective_canon:
         if col in left_col_names and col in right_col_names:
             return {
@@ -223,18 +160,26 @@ def find_best_join_condition(
                 "is_fk": False,
                 "reason": f"Canonical identifier match ({col})",
             }
+    return None
 
-    # 3. Direct table named foreign key heuristics (e.g. left='user' or 'users', right has 'user_id')
-    def _singular_variants(tbl: str) -> list[str]:
-        variants = [tbl]
-        if tbl.endswith("ies") and len(tbl) > 3:
-            variants.append(f"{tbl[:-3]}y")
-        if tbl.endswith("es") and len(tbl) > 2:
-            variants.append(tbl[:-2])
-        if tbl.endswith("s") and len(tbl) > 1:
-            variants.append(tbl[:-1])
-        return variants
 
+def _singular_variants(tbl: str) -> list[str]:
+    variants = [tbl]
+    if tbl.endswith("ies") and len(tbl) > 3:
+        variants.append(f"{tbl[:-3]}y")
+    if tbl.endswith("es") and len(tbl) > 2:
+        variants.append(tbl[:-2])
+    if tbl.endswith("s") and len(tbl) > 1:
+        variants.append(tbl[:-1])
+    return variants
+
+
+def _check_inferred_fks(
+    clean_left: str,
+    clean_right: str,
+    left_col_names: set[str],
+    right_col_names: set[str],
+) -> dict[str, Any] | None:
     for stem_left in _singular_variants(clean_left):
         right_fk_candidate = f"{stem_left}_id"
         if right_fk_candidate in right_col_names and "id" in left_col_names:
@@ -258,8 +203,12 @@ def find_best_join_condition(
                 "is_fk": True,
                 "reason": f"Inferred foreign key ({clean_left}.{left_fk_candidate} -> {clean_right}.id)",
             }
+    return None
 
-    # 4. Primary key or fallback column
+
+def _get_pk_fallback(
+    clean_left: str, clean_right: str, left_cols: list[Any], right_cols: list[Any]
+) -> dict[str, Any]:
     left_pk = "id"
     for c in left_cols:
         if (isinstance(c, dict) and c.get("is_primary")) or getattr(
@@ -288,6 +237,72 @@ def find_best_join_condition(
         "is_fk": False,
         "reason": "Primary key fallback",
     }
+
+
+def find_best_join_condition(
+    left_table: str,
+    right_table: str,
+    schema_data: dict[str, Any] | SchemaSnapshot | None = None,
+    canonical_columns: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Determines the best join condition between two tables.
+    Order of evaluation:
+    1. Explicit foreign key constraint (direct or reverse).
+    2. Shared canonical entity columns (e.g. firm_id, user_id, project_id).
+    3. Direct entity name matching (e.g. table has '<other_table>_id').
+    4. Primary key / fallback column match.
+    """
+    clean_left = _clean_table_name(left_table)
+    clean_right = _clean_table_name(right_table)
+    if not clean_left or not clean_right:
+        return {
+            "left_table": clean_left or "t1",
+            "left_col": "id",
+            "right_table": clean_right or "t2",
+            "right_col": "id",
+            "is_fk": False,
+            "reason": "Fallback condition for empty/invalid table name",
+        }
+
+    tables_meta, foreign_keys, relationships = _extract_schema_metadata(schema_data)
+
+    left_cols = _get_table_columns(tables_meta, clean_left)
+    right_cols = _get_table_columns(tables_meta, clean_right)
+
+    left_col_names = {
+        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
+        for c in left_cols
+    }
+    right_col_names = {
+        c["name"] if isinstance(c, dict) else getattr(c, "name", str(c))
+        for c in right_cols
+    }
+
+    # 1. Explicit FK match
+    if fk_match := _check_explicit_fks(clean_left, clean_right, foreign_keys):
+        return fk_match
+
+    # 1b. Explicit relationship match
+    if rel_match := _check_relationships(clean_left, clean_right, relationships):
+        return rel_match
+
+    effective_canon = _get_effective_canon(canonical_columns, schema_data)
+
+    # 2. Canonical entity ID matches
+    if canon_match := _check_canonical_match(
+        clean_left, clean_right, left_col_names, right_col_names, effective_canon
+    ):
+        return canon_match
+
+    # 3. Direct table named foreign key heuristics
+    if inf_match := _check_inferred_fks(
+        clean_left, clean_right, left_col_names, right_col_names
+    ):
+        return inf_match
+
+    # 4. Primary key or fallback column
+    return _get_pk_fallback(clean_left, clean_right, left_cols, right_cols)
 
 
 def _get_safe_join_type(default_join_type: str) -> str:
