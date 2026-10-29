@@ -119,6 +119,28 @@ def test_introspect_doris_happy_and_fallback():
     assert "customers" in res_fb["tables"]
     assert len(res_fb["tables"]["customers"]["columns"]) == 2
 
+    # 2b. Fallback path to simple information_schema query when column_key raises
+    mock_cursor_simple = MagicMock()
+
+    def _exec_simple_effect(sql, *args, **kwargs):
+        if "column_key" in sql:
+            raise RuntimeError("Unknown column column_key")
+
+    mock_cursor_simple.execute.side_effect = _exec_simple_effect
+    mock_cursor_simple.fetchall.side_effect = [
+        # tables
+        [("customers",)],
+        # simple columns: table_name, column_name, data_type, is_nullable
+        [
+            ("customers", "id", "BIGINT", "NO"),
+            ("customers", "name", "VARCHAR(100)", "YES"),
+        ],
+    ]
+    res_simple = introspect_doris(mock_cursor_simple, database="mydb")
+    assert "customers" in res_simple["tables"]
+    assert len(res_simple["tables"]["customers"]["columns"]) == 2
+    assert res_simple["tables"]["customers"]["columns"][0]["is_primary"] is True
+
     # 3. Error path
     mock_bad = MagicMock()
     mock_bad.execute.side_effect = RuntimeError("Fatal connection drop")
