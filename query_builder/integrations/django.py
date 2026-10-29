@@ -1031,33 +1031,36 @@ def create_django_urls(
     ]
 
 
-def create_drf_views(
+def _make_capabilitiesview(
+    drf_api_view: Any,
+    drf_response: Any,
     connector: Any,
-    security: SecurityPolicy | dict[str, Any] | None = None,
-    tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None]
-    | None = None,
-    capabilities: EngineCapabilities | dict[str, Any] | None = None,
-    ai_provider: Any = None,
-) -> dict[str, type[APIView]]:
-    """Generates Django REST Framework APIView classes for Query-Builder."""
-    PermissionDenied, ValidationError, _, drf_response, drf_api_view = _get_drf()
-
-    policy = _get_effective_policy(security, tenant_resolver is not None)
-    effective_capabilities: EngineCapabilities = (
-        capabilities
-        if isinstance(capabilities, EngineCapabilities)
-        else (
-            EngineCapabilities.from_dict(capabilities)
-            if isinstance(capabilities, dict)
-            else EngineCapabilities.default()
-        )
-    )
-
-    class CapabilitiesView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class CapabilitiesView(drf_api_view):  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
             return drf_response({"capabilities": effective_capabilities.to_dict()})
 
-    class SchemaView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return CapabilitiesView
+
+
+def _make_schemaview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class SchemaView(drf_api_view):  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             snapshot = _exec_conn_method(conn, "introspect_schema")
@@ -1066,7 +1069,21 @@ def create_drf_views(
             data = _filter_schema_tables(data, policy)
             return drf_response(data)
 
-    class CompileView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return SchemaView
+
+
+def _make_compileview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class CompileView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1111,7 +1128,21 @@ def create_drf_views(
                 }
             )
 
-    class ValidateView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return CompileView
+
+
+def _make_validateview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ValidateView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             sql = request.data.get("sql")
             if not sql:
@@ -1121,7 +1152,21 @@ def create_drf_views(
             )
             return drf_response(res)
 
-    class ExecuteView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return ValidateView
+
+
+def _make_executeview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExecuteView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1182,7 +1227,21 @@ def create_drf_views(
                 }
             )
 
-    class ExportView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return ExecuteView
+
+
+def _make_exportview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExportView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> HttpResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1253,7 +1312,21 @@ def create_drf_views(
             resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
             return resp
 
-    class ExportStreamView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExportView
+
+
+def _make_exportstreamview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExportStreamView(drf_api_view):
         def post(self, request: DRFRequest) -> HttpResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1317,7 +1390,21 @@ def create_drf_views(
             resp = _stream_download(stream_iter, fmt)
             return resp
 
-    class ExplainView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExportStreamView
+
+
+def _make_explainview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExplainView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             target_spec = request.data.get("spec") or request.data.get("query")
@@ -1378,7 +1465,21 @@ def create_drf_views(
                 }
             )
 
-    class JoinPathView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExplainView
+
+
+def _make_joinpathview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class JoinPathView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             active_tables = request.data.get("active_tables", [])
             target_table = request.data.get("target_table", "")
@@ -1406,7 +1507,21 @@ def create_drf_views(
                 }
             )
 
-    class NlqView(drf_api_view):  # type: ignore[misc, valid-type]
+    return JoinPathView
+
+
+def _make_nlqview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class NlqView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             prompt = str(request.data.get("prompt", "")).strip()
             if not prompt:
@@ -1467,6 +1582,142 @@ def create_drf_views(
                     "warnings": ai_res.warnings,
                 }
             )
+
+    return NlqView
+
+
+def create_drf_views(
+    connector: Any,
+    security: SecurityPolicy | dict[str, Any] | None = None,
+    tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None]
+    | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
+    ai_provider: Any = None,
+) -> dict[str, type[APIView]]:
+    """Generates Django REST Framework APIView classes for Query-Builder."""
+    PermissionDenied, ValidationError, _, drf_response, drf_api_view = _get_drf()
+
+    policy = _get_effective_policy(security, tenant_resolver is not None)
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (
+            EngineCapabilities.from_dict(capabilities)
+            if isinstance(capabilities, dict)
+            else EngineCapabilities.default()
+        )
+    )
+
+    CapabilitiesView = _make_capabilitiesview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    SchemaView = _make_schemaview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    CompileView = _make_compileview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ValidateView = _make_validateview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExecuteView = _make_executeview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExportView = _make_exportview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExportStreamView = _make_exportstreamview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExplainView = _make_explainview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    JoinPathView = _make_joinpathview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    NlqView = _make_nlqview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
 
     return {
         "SchemaView": SchemaView,
