@@ -453,6 +453,23 @@ def test_the_operator_can_extend_the_allow_list(db_path: str) -> None:
 
 
 # -------------------------------------------------------------------------- CORS
+def test_cors_origin_for_behavior() -> None:
+    security = ServerSecurity(
+        tenant_resolver=header_tenant_resolver(),
+        cors_origins=("https://trusted.com",),
+    )
+    assert security.cors_origin_for("https://trusted.com") == "https://trusted.com"
+    assert security.cors_origin_for("https://untrusted.com") is None
+    assert security.cors_origin_for(None) is None
+    assert security.cors_origin_for("") is None
+
+    empty_cors_security = ServerSecurity(
+        tenant_resolver=header_tenant_resolver(),
+    )
+    assert empty_cors_security.cors_origin_for("https://trusted.com") is None
+    assert empty_cors_security.cors_origin_for(None) is None
+
+
 def test_secure_mode_sends_no_wildcard_cors(secure: Client) -> None:
     _, _, headers = secure.post(
         "/api/v1/execute", {"spec": SPEC}, {**ACME, "Origin": "https://evil.example"}
