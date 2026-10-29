@@ -87,7 +87,7 @@ class _KsqlDBCursorAdapter:
                     if c.strip()
                 ]
                 self.description = [(c,) for c in cols] if cols else [("row",)]
-                rows = []
+                rows: list[Any] = []
                 _append = rows.append
                 for item in data[1:]:
                     if isinstance(item, dict) and "row" in item:
