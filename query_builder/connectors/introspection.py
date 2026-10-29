@@ -13,7 +13,6 @@ from collections.abc import Generator
 from typing import Any
 
 from query_builder.connectors.base import DriverNotInstalledError, IntrospectionError
-from query_builder.dialects.base import _validate_identifier
 from query_builder.schema import normalize_schema_snapshot
 
 
@@ -1128,13 +1127,9 @@ def introspect_sparksql(
     cursor_or_session: Any, schema_name: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Spark SQL schema using SHOW TABLES or INFORMATION_SCHEMA."""
-<<<<<<< HEAD
-    _validate_identifier(schema_name)
-=======
     if not _is_valid_identifier(schema_name):
         raise IntrospectionError(f"Invalid schema identifier: {schema_name}")
 
->>>>>>> origin/main
     cur = None
     own_cur = False
     try:
@@ -2222,13 +2217,9 @@ def introspect_impala(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Impala schema using SHOW TABLES and DESCRIBE."""
-<<<<<<< HEAD
-    _validate_identifier(database)
-=======
     if not _is_valid_identifier(database):
         raise IntrospectionError(f"Invalid database identifier: {database}")
 
->>>>>>> origin/main
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
@@ -2285,13 +2276,9 @@ def introspect_hive(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Hive lakehouse schema via HiveServer2 metadata."""
-<<<<<<< HEAD
-    _validate_identifier(database)
-=======
     if not _is_valid_identifier(database):
         raise IntrospectionError(f"Invalid database identifier: {database}")
 
->>>>>>> origin/main
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
@@ -2348,13 +2335,9 @@ def introspect_kyuubi(
     cursor: Any, database: str = "default", filter_sensitive: bool = True
 ) -> dict[str, Any]:
     """Introspects Apache Kyuubi multi-tenant query gateway schema."""
-<<<<<<< HEAD
-    _validate_identifier(database)
-=======
     if not _is_valid_identifier(database):
         raise IntrospectionError(f"Invalid database identifier: {database}")
 
->>>>>>> origin/main
     try:
         cursor.execute(f"SHOW TABLES IN `{database}`;")
         table_rows = cursor.fetchall()
