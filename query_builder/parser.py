@@ -562,32 +562,15 @@ def find_top_level_operator(cond_str: str) -> tuple[str, int, int] | None:
     return None
 
 
-def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
-    """Parses raw SQL query string into a structured QuerySpec dataclass instance."""
-    if not sql or not isinstance(sql, str):
-        return None
+def _resolve_col_alias(col_ident: str, alias_to_table: dict[str, str]) -> str:
+    if "." in col_ident:
+        prefix, rest = col_ident.split(".", 1)
+        if prefix in alias_to_table:
+            return f"{alias_to_table[prefix]}.{rest}"
+    return col_ident
 
-    # Strip SQL comments
-    clean_sql = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
-    clean_sql = strip_block_comments(clean_sql).strip()
 
-    # Strip trailing semicolons
-    clean_sql = strip_trailing_semicolons(clean_sql).strip()
-    if not clean_sql:
-        return None
-
-    # Must begin with SELECT or WITH
-    if not re.match(r"^(SELECT|WITH)\b", clean_sql, re.IGNORECASE):
-        return None
-
-    # Reject non-SELECT or destructive statements
-    disallow_pattern = re.compile(
-        r"\b(UNION|INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|DROP\s+|ALTER\s+|TRUNCATE\s+)\b",
-        re.IGNORECASE,
-    )
-    if disallow_pattern.search(clean_sql):
-        return None
-
+def _parse_ctes(clean_sql: str, dialect: str) -> tuple[list[CteSpec], str] | None:
     ctes: list[CteSpec] = []
     if re.match(r"^WITH\b", clean_sql, re.IGNORECASE):
         is_recursive = bool(re.match(r"^WITH\s+RECURSIVE\b", clean_sql, re.IGNORECASE))
@@ -683,37 +666,15 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                             query=QuerySpec(table=first_token),
                         )
                     )
+            return ctes, clean_sql
         else:
             return None
+    return ctes, clean_sql
 
-    tokens = find_top_level_clauses(clean_sql)
-    if not tokens:
-        return None
 
-    clause_map: dict[str, str] = {}
-    join_clauses: list[dict[str, str]] = []
-
-    for idx, curr in enumerate(tokens):
-        next_tok = tokens[idx + 1] if idx + 1 < len(tokens) else None
-        start = curr.index + curr.length
-        end = next_tok.index if next_tok else len(clean_sql)
-        content = clean_sql[start:end].strip()
-
-        if curr.keyword.endswith("JOIN"):
-            j_type = (
-                "LEFT JOIN"
-                if curr.keyword in ("JOIN", "LEFT OUTER JOIN")
-                else "RIGHT JOIN"
-                if curr.keyword == "RIGHT OUTER JOIN"
-                else "FULL JOIN"
-                if curr.keyword == "FULL OUTER JOIN"
-                else curr.keyword
-            )
-            join_clauses.append({"type": j_type, "content": content})
-        else:
-            clause_map[curr.keyword] = content
-
-    # 1. Primary Table (FROM) & Table Alias Map
+def _parse_from(
+    clause_map: dict[str, str], join_clauses: list[dict[str, str]]
+) -> tuple[str, dict[str, str]] | None:
     from_content = clause_map.get("FROM")
     if not from_content:
         return None
@@ -741,14 +702,12 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     if t_alias and t_alias.upper() != "AS":
                         alias_to_table[t_alias] = t_name
 
-    def _resolve_col_alias(col_ident: str) -> str:
-        if "." in col_ident:
-            prefix, rest = col_ident.split(".", 1)
-            if prefix in alias_to_table:
-                return f"{alias_to_table[prefix]}.{rest}"
-        return col_ident
+    return primary_table, alias_to_table
 
-    # 2. Projections & DISTINCT (SELECT)
+
+def _parse_select(
+    clause_map: dict[str, str], alias_to_table: dict[str, str]
+) -> tuple[bool, list[str | dict[str, Any]], list[WindowFunctionSpec]]:
     select_content = clause_map.get("SELECT", "")
     is_distinct = False
     if re.match(r"^DISTINCT\s+", select_content, re.IGNORECASE):
@@ -774,7 +733,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 args_str = win_match.args.strip()
                 args = (
                     [
-                        _resolve_col_alias(clean_identifier(a.strip()))
+                        _resolve_col_alias(clean_identifier(a.strip()), alias_to_table)
                         for a in args_str.split(",")
                     ]
                     if args_str
@@ -793,7 +752,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 )
                 if p_match is not None:
                     partition_by = [
-                        _resolve_col_alias(clean_identifier(c.strip()))
+                        _resolve_col_alias(clean_identifier(c.strip()), alias_to_table)
                         for c in p_match.split(",")
                         if c.strip()
                     ]
@@ -804,7 +763,9 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     order_chunks = split_top_level(o_match.strip(), r"^,")
                     for oc in order_chunks:
                         parts = oc["value"].strip().split()
-                        col_s = _resolve_col_alias(clean_identifier(parts[0]))
+                        col_s = _resolve_col_alias(
+                            clean_identifier(parts[0]), alias_to_table
+                        )
                         upper_parts = [p.upper() for p in parts[1:]]
                         direction = "desc" if "DESC" in upper_parts else "asc"
                         win_nulls: str | None = None
@@ -835,7 +796,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if date_trunc_match:
                 grain = date_trunc_match.group(1).lower()
                 inner_col = _resolve_col_alias(
-                    clean_identifier(_arg_after_comma(date_trunc_match.group(2)))
+                    clean_identifier(_arg_after_comma(date_trunc_match.group(2))),
+                    alias_to_table,
                 )
                 alias = (
                     clean_identifier(date_trunc_match.group(3))
@@ -852,7 +814,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if datetrunc_mssql_match:
                 grain = datetrunc_mssql_match.group(1).lower()
                 inner_col = _resolve_col_alias(
-                    clean_identifier(_arg_after_comma(datetrunc_mssql_match.group(2)))
+                    clean_identifier(_arg_after_comma(datetrunc_mssql_match.group(2))),
+                    alias_to_table,
                 )
                 alias = (
                     clean_identifier(datetrunc_mssql_match.group(3))
@@ -873,7 +836,8 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if filter_agg_match:
                 agg_name = filter_agg_match.group(1).upper()
                 inner_col = _resolve_col_alias(
-                    clean_identifier(_agg_argument(filter_agg_match.group(2)))
+                    clean_identifier(_agg_argument(filter_agg_match.group(2))),
+                    alias_to_table,
                 )
                 alias = (
                     clean_identifier(filter_agg_match.group(4))
@@ -900,7 +864,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 ):
                     agg_name = "count_distinct"
                 inner_col = _resolve_col_alias(
-                    clean_identifier(_agg_argument(agg_match.group(2)))
+                    clean_identifier(_agg_argument(agg_match.group(2))), alias_to_table
                 )
                 alias = (
                     clean_identifier(agg_match.group(3)) if agg_match.group(3) else None
@@ -919,7 +883,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             )
             if col_alias_match and "(" not in col_expr and ")" not in col_expr:
                 col_name = _resolve_col_alias(
-                    clean_identifier(col_alias_match.group(1))
+                    clean_identifier(col_alias_match.group(1)), alias_to_table
                 )
                 alias = (
                     clean_identifier(col_alias_match.group(2))
@@ -954,7 +918,14 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     }
                 )
 
-    # 3. Joins
+    return is_distinct, columns, window_functions
+
+
+def _parse_joins(
+    join_clauses: list[dict[str, str]],
+    primary_table: str,
+    alias_to_table: dict[str, str],
+) -> list[JoinSpec]:
     joins: list[JoinSpec] = []
     for jc in join_clauses:
         on_idx = jc["content"].upper().find(" ON ")
@@ -975,8 +946,12 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         right_col = "id"
 
         if on_match:
-            left_expr = _resolve_col_alias(clean_identifier(on_match.group(1)))
-            right_expr = _resolve_col_alias(clean_identifier(on_match.group(2)))
+            left_expr = _resolve_col_alias(
+                clean_identifier(on_match.group(1)), alias_to_table
+            )
+            right_expr = _resolve_col_alias(
+                clean_identifier(on_match.group(2)), alias_to_table
+            )
 
             l_parts = left_expr.split(".")
             r_parts = right_expr.split(".")
@@ -1009,8 +984,12 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                 ],
             )
         )
+    return joins
 
-    # 4. Filters (WHERE)
+
+def _parse_where(
+    clause_map: dict[str, str], primary_table: str, alias_to_table: dict[str, str]
+) -> tuple[list[FilterSpec], str]:
     filters: list[FilterSpec] = []
     filter_join = "AND"
 
@@ -1032,7 +1011,7 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             if found_op:
                 matched_op, op_index, op_length = found_op
                 col_str = _resolve_col_alias(
-                    clean_identifier(cond_str[:op_index].strip())
+                    clean_identifier(cond_str[:op_index].strip()), alias_to_table
                 )
                 after_op = cond_str[op_index + op_length :].strip()
 
@@ -1082,14 +1061,19 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
             for f in filters:
                 f.combiner = None
 
-    # 5. Order By
+    return filters, filter_join
+
+
+def _parse_order_by(
+    clause_map: dict[str, str], primary_table: str, alias_to_table: dict[str, str]
+) -> list[OrderBySpec]:
     order_by: list[OrderBySpec] = []
     order_content = clause_map.get("ORDER BY")
     if order_content:
         sort_chunks = split_top_level(order_content, r"^,")
         for sc in sort_chunks:
             parts = sc["value"].strip().split()
-            col_str = _resolve_col_alias(clean_identifier(parts[0]))
+            col_str = _resolve_col_alias(clean_identifier(parts[0]), alias_to_table)
             upper_parts = [p.upper() for p in parts[1:]]
             dir_str = "desc" if "DESC" in upper_parts else "asc"
             nulls_val: str | None = None
@@ -1114,8 +1098,12 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     nulls=nulls_val,
                 )
             )
+    return order_by
 
-    # 6. Having
+
+def _parse_having(
+    clause_map: dict[str, str], alias_to_table: dict[str, str]
+) -> list[HavingSpec]:
     having: list[HavingSpec] = []
     having_content = clause_map.get("HAVING")
     if having_content:
@@ -1134,15 +1122,19 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
                     r"^DISTINCT\b", inner_raw, re.IGNORECASE
                 ):
                     h_agg = "count_distinct"
-                h_col = _resolve_col_alias(clean_identifier(_agg_argument(inner_raw)))
+                h_col = _resolve_col_alias(
+                    clean_identifier(_agg_argument(inner_raw)), alias_to_table
+                )
                 h_op = h_match.group(3)
                 if h_op == "<>":
                     h_op = "!="
                 h_val_raw = h_match.group(4).strip()
                 h_val = parse_literal_value(h_val_raw)
                 having.append(HavingSpec(column=h_col, agg=h_agg, op=h_op, value=h_val))
+    return having
 
-    # 7. Pagination (LIMIT & OFFSET)
+
+def _parse_pagination(clause_map: dict[str, str]) -> tuple[int, int]:
     limit = 50
     offset = 0
 
@@ -1157,6 +1149,91 @@ def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
         off_match = re.match(r"^(\d+)", offset_content)
         if off_match:
             offset = int(off_match.group(1))
+
+    return limit, offset
+
+
+def parse_sql_to_spec(sql: str, dialect: str = "postgres") -> QuerySpec | None:
+    """Parses raw SQL query string into a structured QuerySpec dataclass instance."""
+    if not sql or not isinstance(sql, str):
+        return None
+
+    # Strip SQL comments
+    clean_sql = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
+    clean_sql = strip_block_comments(clean_sql).strip()
+
+    # Strip trailing semicolons
+    clean_sql = strip_trailing_semicolons(clean_sql).strip()
+    if not clean_sql:
+        return None
+
+    # Must begin with SELECT or WITH
+    if not re.match(r"^(SELECT|WITH)\b", clean_sql, re.IGNORECASE):
+        return None
+
+    # Reject non-SELECT or destructive statements
+    disallow_pattern = re.compile(
+        r"\b(UNION|INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|DROP\s+|ALTER\s+|TRUNCATE\s+)\b",
+        re.IGNORECASE,
+    )
+    if disallow_pattern.search(clean_sql):
+        return None
+
+    cte_result = _parse_ctes(clean_sql, dialect)
+    if cte_result is None:
+        return None
+    ctes, clean_sql = cte_result
+
+    tokens = find_top_level_clauses(clean_sql)
+    if not tokens:
+        return None
+
+    clause_map: dict[str, str] = {}
+    join_clauses: list[dict[str, str]] = []
+
+    for idx, curr in enumerate(tokens):
+        next_tok = tokens[idx + 1] if idx + 1 < len(tokens) else None
+        start = curr.index + curr.length
+        end = next_tok.index if next_tok else len(clean_sql)
+        content = clean_sql[start:end].strip()
+
+        if curr.keyword.endswith("JOIN"):
+            j_type = (
+                "LEFT JOIN"
+                if curr.keyword in ("JOIN", "LEFT OUTER JOIN")
+                else "RIGHT JOIN"
+                if curr.keyword == "RIGHT OUTER JOIN"
+                else "FULL JOIN"
+                if curr.keyword == "FULL OUTER JOIN"
+                else curr.keyword
+            )
+            join_clauses.append({"type": j_type, "content": content})
+        else:
+            clause_map[curr.keyword] = content
+
+    # 1. Primary Table (FROM) & Table Alias Map
+    from_result = _parse_from(clause_map, join_clauses)
+    if from_result is None:
+        return None
+    primary_table, alias_to_table = from_result
+
+    # 2. Projections & DISTINCT (SELECT)
+    is_distinct, columns, window_functions = _parse_select(clause_map, alias_to_table)
+
+    # 3. Joins
+    joins = _parse_joins(join_clauses, primary_table, alias_to_table)
+
+    # 4. Filters (WHERE)
+    filters, filter_join = _parse_where(clause_map, primary_table, alias_to_table)
+
+    # 5. Order By
+    order_by = _parse_order_by(clause_map, primary_table, alias_to_table)
+
+    # 6. Having
+    having = _parse_having(clause_map, alias_to_table)
+
+    # 7. Pagination (LIMIT & OFFSET)
+    limit, offset = _parse_pagination(clause_map)
 
     return QuerySpec(
         table=primary_table,
