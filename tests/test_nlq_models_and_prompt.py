@@ -494,10 +494,16 @@ def test_fastapi_nlq_routes_and_sqlite_introspection_edges(tmp_path) -> None:
     fake_cursor = MagicMock()
     fake_cursor.fetchall.side_effect = [
         [("fts_tbl",), ("good_tbl",)],
-        [(0, "id", "INTEGER", 1, None, 1)],
+        [("good_tbl", 0, "id", "INTEGER", 1, None, 1)],
     ]
 
     def fake_exec(sql: str) -> None:
+        if (
+            "pragma_table_info" in sql.lower()
+            or "pragma_foreign_key_list" in sql.lower()
+        ):
+            # Batched query fails if virtual tables crash it
+            raise sqlite3.OperationalError("unknown tokenizer: custom_tok")
         if 'table_info("fts_tbl")' in sql:
             raise sqlite3.OperationalError("unknown tokenizer: custom_tok")
         if 'foreign_key_list("good_tbl")' in sql:

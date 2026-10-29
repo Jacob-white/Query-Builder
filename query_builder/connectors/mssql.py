@@ -34,6 +34,7 @@ class MSSQLConnector(BaseConnector):
     ) -> None:
         super().__init__(connection=connection, cursor=cursor, **config)
         self.schema_name = schema_name
+        self._current_lock_timeout: int | None = None
 
     def connect(self) -> Any:
         if self._connection is not None:
@@ -71,7 +72,10 @@ class MSSQLConnector(BaseConnector):
             low_level.query_timeout = seconds
         elif conn is not None and hasattr(conn, "timeout"):
             conn.timeout = seconds
-        cursor.execute(f"SET LOCK_TIMEOUT {int(timeout_ms)};")
+
+        if self._current_lock_timeout != timeout_ms:
+            cursor.execute(f"SET LOCK_TIMEOUT {int(timeout_ms)};")
+            self._current_lock_timeout = timeout_ms
 
     def test_connection(self) -> dict[str, Any]:
         info = super().test_connection()

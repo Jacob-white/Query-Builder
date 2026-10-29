@@ -193,9 +193,9 @@ class PolarsConnector(BaseConnector):
                             }
                         )
                 else:
-                    # Discover columns by querying 0 rows
-                    sampled = ctx.execute(f'SELECT * FROM "{tbl}" LIMIT 0').collect()
-                    for c_name, c_type in sampled.schema.items():
+                    # Discover columns by requesting the schema from the lazy frame
+                    lazy_schema = ctx.execute(f'SELECT * FROM "{tbl}"').collect_schema()
+                    for c_name, c_type in lazy_schema.items():
                         c_str = str(c_name)
                         if c_str == "user_id":
                             has_user = True

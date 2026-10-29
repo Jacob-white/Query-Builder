@@ -664,12 +664,11 @@ def test_spark_adapter_and_lifecycle_branches():
 def test_introspection_missing_branches():
     # 1. Spark SQL: empty/falsy row and comment row
     mock_spark_cur = MagicMock(spec=["execute", "fetchall"])
-
-    def execute_side_effect(query, params=None):
-        if "information_schema.columns" in query:
-            raise RuntimeError("fallback")
-
-    mock_spark_cur.execute.side_effect = execute_side_effect
+    mock_spark_cur.execute.side_effect = [
+        None,  # SHOW TABLES
+        RuntimeError("info schema columns fail"),  # information_schema.columns
+        None,  # DESCRIBE TABLE
+    ]
     mock_spark_cur.fetchall.side_effect = [
         [(), ("main", "tbl1")],  # first is empty tuple
         [None, ("# Comment",), ("id", "bigint")],  # comment and None
