@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import time
 from typing import Any
 
@@ -28,7 +29,11 @@ def _use_database(conn: Any, database: str) -> None:
     so every unqualified table name resolved against ``default``)."""
     if not hasattr(conn, "cursor"):
         return
-    if database and database != "default" and not database.replace("_", "").isalnum():
+    if (
+        database
+        and database != "default"
+        and not re.match(r"^[a-zA-Z0-9_]+$", database)
+    ):
         raise ConnectionFailedError(f"Invalid chDB database name: {database!r}")
     cur = conn.cursor()
     try:
