@@ -1159,17 +1159,39 @@ def introspect_sparksql(
             table_rows = cur.fetchall()
             table_names = [r[0] for r in table_rows if r and r[0]]
 
-        tables: dict[str, dict[str, Any]] = {}
-        for tbl in table_names:
-            cols: list[dict[str, Any]] = []
-            with contextlib.suppress(Exception):
-                cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+        tables: dict[str, dict[str, Any]] = {
+            tbl: {
+                "name": tbl,
+                "columns": [],
+                "has_user_id": False,
+                "user_col": "user_id",
+                "comment": None,
+            }
+            for tbl in table_names
+        }
+
+        # Try batch fetching columns first to avoid N+1 queries
+        batch_success = False
+        if table_names:
+            try:
+                cur.execute(
+                    """
+                    SELECT table_name, column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = %s
+                    ORDER BY table_name, ordinal_position;
+                    """,
+                    [schema_name],
+                )
                 col_rows = cur.fetchall()
                 for cr in col_rows:
-                    if cr and cr[0] and not str(cr[0]).startswith("#"):
-                        c_name = str(cr[0]).strip()
-                        d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
-                        cols.append(
+                    if not cr or len(cr) < 3:
+                        continue
+                    tbl_name = str(cr[0]).strip()
+                    c_name = str(cr[1]).strip()
+                    d_type = str(cr[2]).strip()
+                    if tbl_name in tables and c_name and not c_name.startswith("#"):
+                        tables[tbl_name]["columns"].append(
                             {
                                 "name": c_name,
                                 "data_type": d_type,
@@ -1178,15 +1200,32 @@ def introspect_sparksql(
                                 "comment": None,
                             }
                         )
+                        if c_name == "user_id":
+                            tables[tbl_name]["has_user_id"] = True
+                batch_success = True
+            except Exception:  # noqa: BLE001
+                batch_success = False
 
-            has_user = any(c["name"] == "user_id" for c in cols)
-            tables[tbl] = {
-                "name": tbl,
-                "columns": cols,
-                "has_user_id": has_user,
-                "user_col": "user_id",
-                "comment": None,
-            }
+        if not batch_success:
+            for tbl in table_names:
+                with contextlib.suppress(Exception):
+                    cur.execute(f"DESCRIBE TABLE `{schema_name}`.`{tbl}`;")
+                    col_rows = cur.fetchall()
+                    for cr in col_rows:
+                        if cr and cr[0] and not str(cr[0]).startswith("#"):
+                            c_name = str(cr[0]).strip()
+                            d_type = str(cr[1]).strip() if len(cr) > 1 else "string"
+                            tables[tbl]["columns"].append(
+                                {
+                                    "name": c_name,
+                                    "data_type": d_type,
+                                    "is_nullable": True,
+                                    "is_primary": c_name.lower() == "id",
+                                    "comment": None,
+                                }
+                            )
+                            if c_name == "user_id":
+                                tables[tbl]["has_user_id"] = True
 
         raw_snapshot = {
             "tables": tables,
