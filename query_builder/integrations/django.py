@@ -1031,33 +1031,36 @@ def create_django_urls(
     ]
 
 
-def create_drf_views(
+def _make_capabilitiesview(
+    drf_api_view: Any,
+    drf_response: Any,
     connector: Any,
-    security: SecurityPolicy | dict[str, Any] | None = None,
-    tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None]
-    | None = None,
-    capabilities: EngineCapabilities | dict[str, Any] | None = None,
-    ai_provider: Any = None,
-) -> dict[str, type[APIView]]:
-    """Generates Django REST Framework APIView classes for Query-Builder."""
-    PermissionDenied, ValidationError, _, drf_response, drf_api_view = _get_drf()
-
-    policy = _get_effective_policy(security, tenant_resolver is not None)
-    effective_capabilities: EngineCapabilities = (
-        capabilities
-        if isinstance(capabilities, EngineCapabilities)
-        else (
-            EngineCapabilities.from_dict(capabilities)
-            if isinstance(capabilities, dict)
-            else EngineCapabilities.default()
-        )
-    )
-
-    class CapabilitiesView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class CapabilitiesView(drf_api_view):  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
             return drf_response({"capabilities": effective_capabilities.to_dict()})
 
-    class SchemaView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return CapabilitiesView
+
+
+def _make_schemaview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class SchemaView(drf_api_view):  # dynamic DRF base class
         def get(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             snapshot = _exec_conn_method(conn, "introspect_schema")
@@ -1066,7 +1069,21 @@ def create_drf_views(
             data = _filter_schema_tables(data, policy)
             return drf_response(data)
 
-    class CompileView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return SchemaView
+
+
+def _make_compileview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class CompileView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1111,7 +1128,21 @@ def create_drf_views(
                 }
             )
 
-    class ValidateView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return CompileView
+
+
+def _make_validateview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ValidateView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             sql = request.data.get("sql")
             if not sql:
@@ -1121,7 +1152,21 @@ def create_drf_views(
             )
             return drf_response(res)
 
-    class ExecuteView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return ValidateView
+
+
+def _make_executeview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExecuteView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1182,7 +1227,21 @@ def create_drf_views(
                 }
             )
 
-    class ExportView(drf_api_view):  # type: ignore[misc, valid-type]  # dynamic DRF base class
+    return ExecuteView
+
+
+def _make_exportview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExportView(drf_api_view):  # dynamic DRF base class
         def post(self, request: DRFRequest) -> HttpResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1253,7 +1312,21 @@ def create_drf_views(
             resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
             return resp
 
-    class ExportStreamView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExportView
+
+
+def _make_exportstreamview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExportStreamView(drf_api_view):
         def post(self, request: DRFRequest) -> HttpResponse:
             conn = _resolve_conn(connector)
             tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
@@ -1317,7 +1390,21 @@ def create_drf_views(
             resp = _stream_download(stream_iter, fmt)
             return resp
 
-    class ExplainView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExportStreamView
+
+
+def _make_explainview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class ExplainView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             conn = _resolve_conn(connector)
             target_spec = request.data.get("spec") or request.data.get("query")
@@ -1378,7 +1465,21 @@ def create_drf_views(
                 }
             )
 
-    class JoinPathView(drf_api_view):  # type: ignore[misc, valid-type]
+    return ExplainView
+
+
+def _make_joinpathview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class JoinPathView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             active_tables = request.data.get("active_tables", [])
             target_table = request.data.get("target_table", "")
@@ -1406,7 +1507,21 @@ def create_drf_views(
                 }
             )
 
-    class NlqView(drf_api_view):  # type: ignore[misc, valid-type]
+    return JoinPathView
+
+
+def _make_nlqview(
+    drf_api_view: Any,
+    drf_response: Any,
+    connector: Any,
+    policy: Any,
+    effective_capabilities: Any,
+    tenant_resolver: Any,
+    ValidationError: Any,
+    PermissionDenied: Any,
+    ai_provider: Any,
+) -> Any:
+    class NlqView(drf_api_view):
         def post(self, request: DRFRequest) -> DRFResponse:
             prompt = str(request.data.get("prompt", "")).strip()
             if not prompt:
@@ -1468,6 +1583,142 @@ def create_drf_views(
                 }
             )
 
+    return NlqView
+
+
+def create_drf_views(
+    connector: Any,
+    security: SecurityPolicy | dict[str, Any] | None = None,
+    tenant_resolver: Callable[[DRFRequest], TenantContext | dict[str, Any] | str | None]
+    | None = None,
+    capabilities: EngineCapabilities | dict[str, Any] | None = None,
+    ai_provider: Any = None,
+) -> dict[str, type[APIView]]:
+    """Generates Django REST Framework APIView classes for Query-Builder."""
+    PermissionDenied, ValidationError, _, drf_response, drf_api_view = _get_drf()
+
+    policy = _get_effective_policy(security, tenant_resolver is not None)
+    effective_capabilities: EngineCapabilities = (
+        capabilities
+        if isinstance(capabilities, EngineCapabilities)
+        else (
+            EngineCapabilities.from_dict(capabilities)
+            if isinstance(capabilities, dict)
+            else EngineCapabilities.default()
+        )
+    )
+
+    CapabilitiesView = _make_capabilitiesview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    SchemaView = _make_schemaview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    CompileView = _make_compileview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ValidateView = _make_validateview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExecuteView = _make_executeview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExportView = _make_exportview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExportStreamView = _make_exportstreamview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    ExplainView = _make_explainview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    JoinPathView = _make_joinpathview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+    NlqView = _make_nlqview(
+        drf_api_view,
+        drf_response,
+        connector,
+        policy,
+        effective_capabilities,
+        tenant_resolver,
+        ValidationError,
+        PermissionDenied,
+        ai_provider,
+    )
+
     return {
         "SchemaView": SchemaView,
         "CompileView": CompileView,
@@ -1490,6 +1741,378 @@ def create_drf_views(
         "nlq": NlqView,
         "capabilities": CapabilitiesView,
     }
+
+
+class _NinjaHandlers:
+    def __init__(
+        self,
+        connector: Any,
+        policy: SecurityPolicy | None,
+        tenant_resolver: Callable[[Any], TenantContext | dict[str, Any] | str | None]
+        | None,
+        effective_capabilities: EngineCapabilities,
+        ai_provider: Any,
+        HttpError: Any,
+    ):
+        self.connector = connector
+        self.policy = policy
+        self.tenant_resolver = tenant_resolver
+        self.effective_capabilities = effective_capabilities
+        self.ai_provider = ai_provider
+        self.HttpError = HttpError
+
+    def get_capabilities(self, request: HttpRequest) -> dict[str, Any]:
+        return {"capabilities": self.effective_capabilities.to_dict()}
+
+    def get_schema(self, request: HttpRequest) -> dict[str, Any]:
+        conn = _resolve_conn(self.connector)
+        snapshot = _exec_conn_method(conn, "introspect_schema")
+        data = _normalize_schema_snapshot(snapshot)
+        data["capabilities"] = self.effective_capabilities.to_dict()
+        return _filter_schema_tables(data, self.policy)
+
+    def compile_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            conn = _resolve_conn(self.connector)
+            tenant_ctx = _resolve_tenant_sync(request, self.tenant_resolver)
+            spec = payload.get("spec")
+            if not spec:
+                raise self.HttpError(400, "Missing required 'spec'")
+            active_spec = spec
+            if self.policy is not None or tenant_ctx is not None:
+                active_spec = apply_security_policy(
+                    spec, context=tenant_ctx, policy=self.policy
+                )
+            dialect = payload.get("dialect") or getattr(
+                conn, "dialect_name", "postgres"
+            )
+            compiler = QueryCompiler(
+                active_spec,
+                schema=payload.get("schema"),
+                dialect=dialect,
+                capabilities=self.effective_capabilities,
+            )
+            sql, params, c_sql, c_params = compiler.compile()
+            val_res = validate_sql_ast(sql, dialect=dialect)
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                raise self.HttpError(
+                    403, f"Security violation: {'; '.join(violations)}"
+                )
+        except PermissionError as exc:
+            raise self.HttpError(401, _unauthorized_message(exc)) from exc
+        except SecurityError as exc:
+            raise self.HttpError(403, str(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise self.HttpError(
+                403, disabled_feature_message(exc, self.effective_capabilities)
+            ) from exc
+        return {
+            "sql": sql,
+            "params": params,
+            "count_sql": c_sql,
+            "count_params": c_params,
+            "dialect": dialect,
+        }
+
+    def validate_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        sql = payload.get("sql")
+        if not sql:
+            raise self.HttpError(400, "Missing required 'sql'")
+        return validate_sql_ast(sql, allowed_schemas=payload.get("allowed_schemas"))
+
+    def execute_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            conn = _resolve_conn(self.connector)
+            tenant_ctx = _resolve_tenant_sync(request, self.tenant_resolver)
+            spec = payload.get("spec") or payload.get("query")
+            sql = payload.get("sql")
+            if not spec and not sql:
+                raise self.HttpError(400, "Either 'spec' or 'sql' must be provided")
+
+            if spec is not None:
+                _require_spec_capabilities(spec, self.effective_capabilities)
+
+                active_spec = spec
+                if self.policy is not None or tenant_ctx is not None:
+                    active_spec = apply_security_policy(
+                        spec, context=tenant_ctx, policy=self.policy
+                    )
+                res = _exec_conn_method(
+                    conn,
+                    "execute",
+                    active_spec,
+                    statement_timeout_ms=payload.get("timeout_ms"),
+                )
+                return res.to_dict() if hasattr(res, "to_dict") else res
+
+            if not isinstance(sql, str):
+                raise self.HttpError(400, "'sql' must be a string")
+
+            if not self.effective_capabilities.is_enabled("raw_sql"):
+                raise self.HttpError(
+                    403, "Feature 'raw_sql' is disabled in engine capabilities."
+                )
+
+            if _is_tenant_isolation_active(self.policy, tenant_ctx, payload):
+                raise self.HttpError(
+                    403, "Raw SQL execution restricted under tenant isolation."
+                )
+
+            val_res = validate_sql_ast(
+                sql, allowed_schemas=payload.get("allowed_schemas")
+            )
+            if not val_res.get("valid") or not val_res.get("is_read_only"):
+                violations = val_res.get(
+                    "violations", ["Query failed AST safety validation."]
+                )
+                raise self.HttpError(
+                    403, f"Security violation: {'; '.join(violations)}"
+                )
+
+            cols, rows, latency = _exec_conn_method(
+                conn, "execute_raw", sql, payload.get("params") or []
+            )
+            return {
+                "columns": cols,
+                "rows": rows,
+                "count": len(rows),
+                "latency_ms": round(latency, 2),
+                "dialect": getattr(conn, "dialect_name", "sqlite"),
+                "sql": sql,
+            }
+        except PermissionError as exc:
+            raise self.HttpError(401, _unauthorized_message(exc)) from exc
+        except SecurityError as exc:
+            raise self.HttpError(403, str(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise self.HttpError(
+                403, disabled_feature_message(exc, self.effective_capabilities)
+            ) from exc
+
+    def export_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> HttpResponse:
+        try:
+            conn = _resolve_conn(self.connector)
+            tenant_ctx = _resolve_tenant_sync(request, self.tenant_resolver)
+            fmt = payload.get("format", "csv")
+
+            if payload.get("rows") is not None:
+                export_data = {
+                    "rows": payload["rows"],
+                    "columns": payload.get("columns", []),
+                }
+            elif payload.get("spec") is not None:
+                active_spec = payload["spec"]
+                _require_spec_capabilities(active_spec, self.effective_capabilities)
+                if self.policy is not None or tenant_ctx is not None:
+                    active_spec = apply_security_policy(
+                        active_spec, context=tenant_ctx, policy=self.policy
+                    )
+                res = _exec_conn_method(conn, "execute", active_spec)
+                export_data = {
+                    "rows": res.get("rows", [])
+                    if isinstance(res, dict)
+                    else getattr(res, "rows", []),
+                    "columns": res.get("columns", [])
+                    if isinstance(res, dict)
+                    else getattr(res, "columns", []),
+                }
+            elif payload.get("sql") is not None:
+                sql_val = payload["sql"]
+                if not isinstance(sql_val, str):
+                    raise self.HttpError(400, "'sql' must be a string")
+                if not self.effective_capabilities.is_enabled("raw_sql"):
+                    raise self.HttpError(
+                        403, "Feature 'raw_sql' is disabled in engine capabilities."
+                    )
+                if _is_tenant_isolation_active(self.policy, tenant_ctx, payload):
+                    raise self.HttpError(
+                        403, "Raw SQL export restricted under tenant isolation."
+                    )
+                val_res = validate_sql_ast(
+                    sql_val, allowed_schemas=payload.get("allowed_schemas")
+                )
+                if not val_res.get("valid") or not val_res.get("is_read_only"):
+                    violations = val_res.get(
+                        "violations", ["Query failed AST safety validation."]
+                    )
+                    raise self.HttpError(
+                        403, f"Security violation: {'; '.join(violations)}"
+                    )
+                cols, rows, _ = _exec_conn_method(
+                    conn, "execute_raw", sql_val, payload.get("params") or []
+                )
+                export_data = {"rows": rows, "columns": cols}
+            else:
+                raise self.HttpError(400, "Missing export data source")
+
+            content_bytes, mime_type, ext = export_dataset(export_data, format=fmt)
+            resp = HttpResponse(content_bytes, content_type=mime_type)
+            resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
+            return resp
+        except PermissionError as exc:
+            raise self.HttpError(401, _unauthorized_message(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise self.HttpError(
+                403, disabled_feature_message(exc, self.effective_capabilities)
+            ) from exc
+        except SecurityError as exc:
+            raise self.HttpError(403, str(exc)) from exc
+
+    def explain_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            conn = _resolve_conn(self.connector)
+            target_spec = payload.get("spec") or payload.get("query")
+            if (
+                not target_spec
+                or not isinstance(target_spec, dict)
+                or not target_spec.get("table")
+            ):
+                raise self.HttpError(
+                    400, "Missing required 'table' in query specification."
+                )
+            tenant_ctx = _resolve_tenant_sync(request, self.tenant_resolver)
+            schema_snap = payload.get("schema") or payload.get("schema_snapshot")
+            active_spec = target_spec
+            if self.policy is not None or tenant_ctx is not None:
+                active_spec = apply_security_policy(
+                    target_spec,
+                    schema=schema_snap,
+                    context=tenant_ctx,
+                    policy=self.policy,
+                )
+            dialect = payload.get("dialect") or getattr(
+                conn, "dialect_name", "postgres"
+            )
+            compiler = QueryCompiler(
+                active_spec,
+                schema=schema_snap,
+                dialect=dialect,
+                capabilities=self.effective_capabilities,
+            )
+            sql, params = compiler.compile()[0:2]
+            plan = estimate_plan_from_spec(active_spec, schema=schema_snap)
+            perf = analyze_query_performance(
+                active_spec,
+                sql=sql,
+                dialect=str(dialect or "postgres"),
+                schema_snapshot=schema_snap,
+            )
+            rec_indexes = recommend_indexes(active_spec, schema_snapshot=schema_snap)
+            return {
+                "sql": sql,
+                "params": params,
+                "dialect": dialect,
+                "plan": plan.to_dict() if hasattr(plan, "to_dict") else plan,
+                "performance": perf,
+                "recommended_indexes": rec_indexes,
+            }
+        except PermissionError as exc:
+            raise self.HttpError(401, _unauthorized_message(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise self.HttpError(
+                403, disabled_feature_message(exc, self.effective_capabilities)
+            ) from exc
+        except SecurityError as exc:
+            raise self.HttpError(403, str(exc)) from exc
+
+    def join_path_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        active_tables = payload.get("active_tables", [])
+        target_table = payload.get("target_table", "")
+        if not active_tables or not target_table:
+            raise self.HttpError(
+                400, "Both 'active_tables' and 'target_table' are required."
+            )
+        schema_data = payload.get("schema") or payload.get("schema_snapshot")
+        if schema_data is None:
+            conn = _resolve_conn(self.connector)
+            raw_schema = _exec_conn_method(conn, "introspect_schema")
+            schema_data = _normalize_schema_snapshot(raw_schema)
+        schema_data = _filter_schema_tables(schema_data, self.policy)
+        path_steps = find_join_path(
+            active_tables,
+            target_table,
+            schema_data=schema_data,
+        )
+        return {
+            "path": path_steps,
+            "connected": bool(path_steps),
+            "target_table": target_table,
+        }
+
+    def nlq_query(
+        self, request: HttpRequest, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            prompt = str(payload.get("prompt", "")).strip()
+            if not prompt:
+                raise self.HttpError(400, "Prompt must not be empty.")
+            conn = _resolve_conn(self.connector)
+            tenant_ctx = _resolve_tenant_sync(request, self.tenant_resolver)
+            schema_data = payload.get("schema") or payload.get("schema_snapshot")
+            if schema_data is None:
+                raw_schema = _exec_conn_method(conn, "introspect_schema")
+                schema_data = _normalize_schema_snapshot(raw_schema)
+            schema_data = _filter_schema_tables(schema_data, self.policy)
+            dialect_str = str(
+                payload.get("dialect")
+                or getattr(conn, "dialect_name", "postgres")
+                or "postgres"
+            )
+            from query_builder.ai.client import ask_ai
+
+            ai_res = ask_ai(
+                prompt=prompt,
+                ai=self.ai_provider,
+                schema=schema_data,
+                dialect=dialect_str,
+                options=payload.get("options"),
+            )
+            raw_spec = dict(ai_res.spec)
+            if self.policy is not None or tenant_ctx is not None:
+                raw_spec = apply_security_policy(
+                    raw_spec,
+                    schema=schema_data,
+                    context=tenant_ctx,
+                    policy=self.policy,
+                )
+            compiler = QueryCompiler(
+                raw_spec,
+                schema=schema_data,
+                dialect=dialect_str,
+                capabilities=self.effective_capabilities,
+            )
+            final_sql, final_params = compiler.compile()[0:2]
+            return {
+                "spec": raw_spec,
+                "sql": final_sql,
+                "params": final_params,
+                "explanation": ai_res.explanation,
+                "confidence": ai_res.confidence,
+                "warnings": ai_res.warnings,
+            }
+        except PermissionError as exc:
+            raise self.HttpError(401, _unauthorized_message(exc)) from exc
+        except DisabledFeatureError as exc:
+            raise self.HttpError(
+                403, disabled_feature_message(exc, self.effective_capabilities)
+            ) from exc
+        except SecurityError as exc:
+            raise self.HttpError(403, str(exc)) from exc
 
 
 def create_ninja_router(
@@ -1520,346 +2143,51 @@ def create_ninja_router(
         )
     )
 
+    handlers = _NinjaHandlers(
+        connector=connector,
+        policy=policy,
+        tenant_resolver=tenant_resolver,
+        effective_capabilities=effective_capabilities,
+        ai_provider=ai_provider,
+        HttpError=HttpError,
+    )
+
     @router.get("/capabilities")
     def get_capabilities(request: HttpRequest) -> dict[str, Any]:
-        return {"capabilities": effective_capabilities.to_dict()}
+        return handlers.get_capabilities(request)
 
     @router.get("/schema")
     def get_schema(request: HttpRequest) -> dict[str, Any]:
-        conn = _resolve_conn(connector)
-        snapshot = _exec_conn_method(conn, "introspect_schema")
-        data = _normalize_schema_snapshot(snapshot)
-        data["capabilities"] = effective_capabilities.to_dict()
-        return _filter_schema_tables(data, policy)
+        return handlers.get_schema(request)
 
     @router.post("/compile")
     def compile_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            conn = _resolve_conn(connector)
-            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-            spec = payload.get("spec")
-            if not spec:
-                raise HttpError(400, "Missing required 'spec'")
-            active_spec = spec
-            if policy is not None or tenant_ctx is not None:
-                active_spec = apply_security_policy(
-                    spec, context=tenant_ctx, policy=policy
-                )
-            dialect = payload.get("dialect") or getattr(
-                conn, "dialect_name", "postgres"
-            )
-            compiler = QueryCompiler(
-                active_spec,
-                schema=payload.get("schema"),
-                dialect=dialect,
-                capabilities=effective_capabilities,
-            )
-            sql, params, c_sql, c_params = compiler.compile()
-            val_res = validate_sql_ast(sql, dialect=dialect)
-            if not val_res.get("valid") or not val_res.get("is_read_only"):
-                violations = val_res.get(
-                    "violations", ["Query failed AST safety validation."]
-                )
-                raise HttpError(403, f"Security violation: {'; '.join(violations)}")
-        except PermissionError as exc:
-            raise HttpError(401, _unauthorized_message(exc)) from exc
-        except SecurityError as exc:
-            raise HttpError(403, str(exc)) from exc
-        except DisabledFeatureError as exc:
-            raise HttpError(
-                403, disabled_feature_message(exc, effective_capabilities)
-            ) from exc
-        return {
-            "sql": sql,
-            "params": params,
-            "count_sql": c_sql,
-            "count_params": c_params,
-            "dialect": dialect,
-        }
+        return handlers.compile_query(request, payload)
 
     @router.post("/validate")
     def validate_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        sql = payload.get("sql")
-        if not sql:
-            raise HttpError(400, "Missing required 'sql'")
-        return validate_sql_ast(sql, allowed_schemas=payload.get("allowed_schemas"))
+        return handlers.validate_query(request, payload)
 
     @router.post("/execute")
     def execute_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            conn = _resolve_conn(connector)
-            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-            spec = payload.get("spec") or payload.get("query")
-            sql = payload.get("sql")
-            if not spec and not sql:
-                raise HttpError(400, "Either 'spec' or 'sql' must be provided")
-
-            if spec is not None:
-                _require_spec_capabilities(spec, effective_capabilities)
-
-                active_spec = spec
-                if policy is not None or tenant_ctx is not None:
-                    active_spec = apply_security_policy(
-                        spec, context=tenant_ctx, policy=policy
-                    )
-                res = _exec_conn_method(
-                    conn,
-                    "execute",
-                    active_spec,
-                    statement_timeout_ms=payload.get("timeout_ms"),
-                )
-                return res.to_dict() if hasattr(res, "to_dict") else res
-
-            if not isinstance(sql, str):
-                raise HttpError(400, "'sql' must be a string")
-
-            if not effective_capabilities.is_enabled("raw_sql"):
-                raise HttpError(
-                    403, "Feature 'raw_sql' is disabled in engine capabilities."
-                )
-
-            if _is_tenant_isolation_active(policy, tenant_ctx, payload):
-                raise HttpError(
-                    403, "Raw SQL execution restricted under tenant isolation."
-                )
-
-            val_res = validate_sql_ast(
-                sql, allowed_schemas=payload.get("allowed_schemas")
-            )
-            if not val_res.get("valid") or not val_res.get("is_read_only"):
-                violations = val_res.get(
-                    "violations", ["Query failed AST safety validation."]
-                )
-                raise HttpError(403, f"Security violation: {'; '.join(violations)}")
-
-            cols, rows, latency = _exec_conn_method(
-                conn, "execute_raw", sql, payload.get("params") or []
-            )
-            return {
-                "columns": cols,
-                "rows": rows,
-                "count": len(rows),
-                "latency_ms": round(latency, 2),
-                "dialect": getattr(conn, "dialect_name", "sqlite"),
-                "sql": sql,
-            }
-        except PermissionError as exc:
-            raise HttpError(401, _unauthorized_message(exc)) from exc
-        except SecurityError as exc:
-            raise HttpError(403, str(exc)) from exc
-        except DisabledFeatureError as exc:
-            raise HttpError(
-                403, disabled_feature_message(exc, effective_capabilities)
-            ) from exc
+        return handlers.execute_query(request, payload)
 
     @router.post("/export")
     def export_query(request: HttpRequest, payload: dict[str, Any]) -> HttpResponse:
-        try:
-            conn = _resolve_conn(connector)
-            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-            fmt = payload.get("format", "csv")
-
-            if payload.get("rows") is not None:
-                export_data = {
-                    "rows": payload["rows"],
-                    "columns": payload.get("columns", []),
-                }
-            elif payload.get("spec") is not None:
-                active_spec = payload["spec"]
-                _require_spec_capabilities(active_spec, effective_capabilities)
-                if policy is not None or tenant_ctx is not None:
-                    active_spec = apply_security_policy(
-                        active_spec, context=tenant_ctx, policy=policy
-                    )
-                res = _exec_conn_method(conn, "execute", active_spec)
-                export_data = {
-                    "rows": res.get("rows", [])
-                    if isinstance(res, dict)
-                    else getattr(res, "rows", []),
-                    "columns": res.get("columns", [])
-                    if isinstance(res, dict)
-                    else getattr(res, "columns", []),
-                }
-            elif payload.get("sql") is not None:
-                sql_val = payload["sql"]
-                if not isinstance(sql_val, str):
-                    raise HttpError(400, "'sql' must be a string")
-                if not effective_capabilities.is_enabled("raw_sql"):
-                    raise HttpError(
-                        403, "Feature 'raw_sql' is disabled in engine capabilities."
-                    )
-                if _is_tenant_isolation_active(policy, tenant_ctx, payload):
-                    raise HttpError(
-                        403, "Raw SQL export restricted under tenant isolation."
-                    )
-                val_res = validate_sql_ast(
-                    sql_val, allowed_schemas=payload.get("allowed_schemas")
-                )
-                if not val_res.get("valid") or not val_res.get("is_read_only"):
-                    violations = val_res.get(
-                        "violations", ["Query failed AST safety validation."]
-                    )
-                    raise HttpError(403, f"Security violation: {'; '.join(violations)}")
-                cols, rows, _ = _exec_conn_method(
-                    conn, "execute_raw", sql_val, payload.get("params") or []
-                )
-                export_data = {"rows": rows, "columns": cols}
-            else:
-                raise HttpError(400, "Missing export data source")
-
-            content_bytes, mime_type, ext = export_dataset(export_data, format=fmt)
-            resp = HttpResponse(content_bytes, content_type=mime_type)
-            resp["Content-Disposition"] = f'attachment; filename="export.{ext}"'
-            return resp
-        except PermissionError as exc:
-            raise HttpError(401, _unauthorized_message(exc)) from exc
-        except DisabledFeatureError as exc:
-            raise HttpError(
-                403, disabled_feature_message(exc, effective_capabilities)
-            ) from exc
-        except SecurityError as exc:
-            raise HttpError(403, str(exc)) from exc
+        return handlers.export_query(request, payload)
 
     @router.post("/explain")
     def explain_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            conn = _resolve_conn(connector)
-            target_spec = payload.get("spec") or payload.get("query")
-            if (
-                not target_spec
-                or not isinstance(target_spec, dict)
-                or not target_spec.get("table")
-            ):
-                raise HttpError(400, "Missing required 'table' in query specification.")
-            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-            schema_snap = payload.get("schema") or payload.get("schema_snapshot")
-            active_spec = target_spec
-            if policy is not None or tenant_ctx is not None:
-                active_spec = apply_security_policy(
-                    target_spec,
-                    schema=schema_snap,
-                    context=tenant_ctx,
-                    policy=policy,
-                )
-            dialect = payload.get("dialect") or getattr(
-                conn, "dialect_name", "postgres"
-            )
-            compiler = QueryCompiler(
-                active_spec,
-                schema=schema_snap,
-                dialect=dialect,
-                capabilities=effective_capabilities,
-            )
-            sql, params = compiler.compile()[0:2]
-            plan = estimate_plan_from_spec(active_spec, schema=schema_snap)
-            perf = analyze_query_performance(
-                active_spec,
-                sql=sql,
-                dialect=str(dialect or "postgres"),
-                schema_snapshot=schema_snap,
-            )
-            rec_indexes = recommend_indexes(active_spec, schema_snapshot=schema_snap)
-            return {
-                "sql": sql,
-                "params": params,
-                "dialect": dialect,
-                "plan": plan.to_dict() if hasattr(plan, "to_dict") else plan,
-                "performance": perf,
-                "recommended_indexes": rec_indexes,
-            }
-        except PermissionError as exc:
-            raise HttpError(401, _unauthorized_message(exc)) from exc
-        except DisabledFeatureError as exc:
-            raise HttpError(
-                403, disabled_feature_message(exc, effective_capabilities)
-            ) from exc
-        except SecurityError as exc:
-            raise HttpError(403, str(exc)) from exc
+        return handlers.explain_query(request, payload)
 
     @router.post("/join-path")
     def join_path_query(
         request: HttpRequest, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        active_tables = payload.get("active_tables", [])
-        target_table = payload.get("target_table", "")
-        if not active_tables or not target_table:
-            raise HttpError(
-                400, "Both 'active_tables' and 'target_table' are required."
-            )
-        schema_data = payload.get("schema") or payload.get("schema_snapshot")
-        if schema_data is None:
-            conn = _resolve_conn(connector)
-            raw_schema = _exec_conn_method(conn, "introspect_schema")
-            schema_data = _normalize_schema_snapshot(raw_schema)
-        schema_data = _filter_schema_tables(schema_data, policy)
-        path_steps = find_join_path(
-            active_tables,
-            target_table,
-            schema_data=schema_data,
-        )
-        return {
-            "path": path_steps,
-            "connected": bool(path_steps),
-            "target_table": target_table,
-        }
+        return handlers.join_path_query(request, payload)
 
     @router.post("/nlq")
     def nlq_query(request: HttpRequest, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            prompt = str(payload.get("prompt", "")).strip()
-            if not prompt:
-                raise HttpError(400, "Prompt must not be empty.")
-            conn = _resolve_conn(connector)
-            tenant_ctx = _resolve_tenant_sync(request, tenant_resolver)
-            schema_data = payload.get("schema") or payload.get("schema_snapshot")
-            if schema_data is None:
-                raw_schema = _exec_conn_method(conn, "introspect_schema")
-                schema_data = _normalize_schema_snapshot(raw_schema)
-            schema_data = _filter_schema_tables(schema_data, policy)
-            dialect_str = str(
-                payload.get("dialect")
-                or getattr(conn, "dialect_name", "postgres")
-                or "postgres"
-            )
-            from query_builder.ai.client import ask_ai
-
-            ai_res = ask_ai(
-                prompt=prompt,
-                ai=ai_provider,
-                schema=schema_data,
-                dialect=dialect_str,
-                options=payload.get("options"),
-            )
-            raw_spec = dict(ai_res.spec)
-            if policy is not None or tenant_ctx is not None:
-                raw_spec = apply_security_policy(
-                    raw_spec,
-                    schema=schema_data,
-                    context=tenant_ctx,
-                    policy=policy,
-                )
-            compiler = QueryCompiler(
-                raw_spec,
-                schema=schema_data,
-                dialect=dialect_str,
-                capabilities=effective_capabilities,
-            )
-            final_sql, final_params = compiler.compile()[0:2]
-            return {
-                "spec": raw_spec,
-                "sql": final_sql,
-                "params": final_params,
-                "explanation": ai_res.explanation,
-                "confidence": ai_res.confidence,
-                "warnings": ai_res.warnings,
-            }
-        except PermissionError as exc:
-            raise HttpError(401, _unauthorized_message(exc)) from exc
-        except DisabledFeatureError as exc:
-            raise HttpError(
-                403, disabled_feature_message(exc, effective_capabilities)
-            ) from exc
-        except SecurityError as exc:
-            raise HttpError(403, str(exc)) from exc
+        return handlers.nlq_query(request, payload)
 
     return router

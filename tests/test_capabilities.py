@@ -10,6 +10,90 @@ from query_builder import (
     FeatureTier,
     QueryCompiler,
 )
+from query_builder.capabilities import disabled_feature_message
+
+
+def test_require_feature():
+    caps = EngineCapabilities.default()
+    # Should not raise for standard/advanced features
+    caps.require_feature("projections")
+    caps.require_feature("ctes")
+
+    caps_disabled = EngineCapabilities(ctes=FeatureTier.DISABLED)
+    with pytest.raises(DisabledFeatureError) as exc_info:
+        caps_disabled.require_feature("ctes")
+
+    assert exc_info.value.feature_name == "ctes"
+
+
+def test_capabilities_custom_overrides():
+    caps = EngineCapabilities(
+        custom_overrides={"my_feature": FeatureTier.ADVANCED, "other": "standard"}
+    )
+
+    assert caps.get_tier("my_feature") == FeatureTier.ADVANCED
+    assert caps.get_tier("other") == "standard"
+    assert caps.get_tier("ctes") == FeatureTier.ADVANCED
+
+    d = caps.to_dict()
+    assert d["my_feature"] == "advanced"
+    assert d["other"] == "standard"
+
+    d2 = {"projections": "standard", "custom1": "disabled"}
+    caps2 = EngineCapabilities.from_dict(d2)
+    assert caps2.custom_overrides["custom1"] == FeatureTier.DISABLED
+
+
+def test_capabilities_from_dict_parsing():
+    d = {
+        "ctes": FeatureTier.STANDARD,
+        "window_functions": True,
+        "analytical_grouping": False,
+        "raw_sql": "std",
+        "query_plan": "adv",
+        "calculated_fields": "off",
+        "custom_expressions": "none",
+        "schema_tools": "unknown_string",
+    }
+    caps = EngineCapabilities.from_dict(d)
+
+    assert caps.ctes == FeatureTier.STANDARD
+    assert caps.window_functions == FeatureTier.STANDARD
+    assert caps.analytical_grouping == FeatureTier.DISABLED
+    assert caps.raw_sql == FeatureTier.STANDARD
+    assert caps.query_plan == FeatureTier.ADVANCED
+    assert caps.calculated_fields == FeatureTier.DISABLED
+    assert caps.custom_expressions == FeatureTier.DISABLED
+    assert caps.schema_tools == FeatureTier.STANDARD
+
+
+def test_capabilities_presets():
+    pu = EngineCapabilities.power_user()
+    assert pu.ctes == FeatureTier.ADVANCED
+    assert pu.projections == FeatureTier.STANDARD
+
+    full = EngineCapabilities.full()
+    assert full.ctes == FeatureTier.STANDARD
+    assert full.vector_search == FeatureTier.STANDARD
+    assert full.analytical_grouping == FeatureTier.STANDARD
+
+
+def test_disabled_feature_message():
+    exc = DisabledFeatureError("ctes")
+    msg = disabled_feature_message(exc, None)
+    assert "Feature 'ctes' is disabled" in msg
+
+    exc2 = DisabledFeatureError("my_custom")
+    caps = EngineCapabilities(custom_overrides={"my_custom": FeatureTier.DISABLED})
+    msg2 = disabled_feature_message(exc2, caps)
+    assert "Feature 'my_custom' is disabled" in msg2
+
+    exc3 = DisabledFeatureError("unknown_evil_feature")
+    msg3 = disabled_feature_message(exc3, None)
+    assert (
+        msg3
+        == "A feature used by this query is disabled in the active engine capabilities."
+    )
 
 
 def test_capabilities_default_and_serialization():

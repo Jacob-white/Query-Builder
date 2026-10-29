@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from query_builder.export import MIME_TYPES
-from query_builder.server import create_server
+from query_builder.server import create_server, serve_swagger_ui_html
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +78,16 @@ def test_server_docs_endpoint(server_base_url: str):
     assert "text/html" in headers.get("content-type", "")
     assert b"Swagger UI" in body
     assert b"/openapi.json" in body
+
+
+def test_serve_swagger_ui_html():
+    html_content = serve_swagger_ui_html()
+    assert isinstance(html_content, str)
+    assert "<title>Query Builder - Swagger UI</title>" in html_content
+    assert '<div id="swagger-ui"></div>' in html_content
+    assert "url: '/openapi.json'" in html_content
+    assert "<!DOCTYPE html>" in html_content
+    assert '<html lang="en">' in html_content
 
 
 def test_server_openapi_spec_endpoint(server_base_url: str):

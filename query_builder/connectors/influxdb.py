@@ -54,15 +54,29 @@ class _InfluxCursorAdapter:
                 )
             else:
                 table_or_res = self.client.query(sql)
-            if hasattr(table_or_res, "column_names") and hasattr(
-                table_or_res, "to_pylist"
+            if hasattr(table_or_res, "column_names") and (
+                hasattr(table_or_res, "to_pydict") or hasattr(table_or_res, "to_pylist")
             ):
-                self.description = [(col,) for col in table_or_res.column_names]
-                pylist = table_or_res.to_pylist()
-                self._rows = [
-                    [row.get(col) for col in table_or_res.column_names]
-                    for row in pylist
-                ]
+                column_names = table_or_res.column_names
+                self.description = [(col,) for col in column_names]
+                if hasattr(table_or_res, "to_pydict"):
+                    pydict = table_or_res.to_pydict()
+                    if column_names:
+                        self._rows = list(
+                            map(
+                                list,
+                                zip(
+                                    *(pydict[col] for col in column_names), strict=False
+                                ),
+                            )
+                        )
+                    else:
+                        self._rows = []
+                else:
+                    pylist = table_or_res.to_pylist()
+                    self._rows = [
+                        [row.get(col) for col in column_names] for row in pylist
+                    ]
             elif hasattr(table_or_res, "fetchall"):
                 self.description = getattr(table_or_res, "description", None)
                 self._rows = list(table_or_res.fetchall())

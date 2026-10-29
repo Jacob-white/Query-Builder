@@ -816,3 +816,10 @@ def test_format_having_placeholder():
     sqlite = get_dialect("sqlite")
     assert sqlite.format_having_placeholder(123) == "?"
     assert sqlite.format_having_placeholder("abc") == "?"
+
+    informix = get_dialect("informix")
+    assert informix.format_having_placeholder(True) == "?"
+    assert informix.format_having_placeholder(False) == "?"
+    assert informix.format_having_placeholder(123) == "CAST(? AS BIGINT)"
+    assert informix.format_having_placeholder(1.23) == "CAST(? AS FLOAT)"
+    assert informix.format_having_placeholder("abc") == "?"

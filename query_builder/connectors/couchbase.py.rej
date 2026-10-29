@@ -1,0 +1,106 @@
+--- couchbase.py
++++ couchbase.py
+@@ -220,53 +221,53 @@
+                 )
+                 rows = cur.fetchall()
+                 table_names = [str(r[0]) for r in rows if r and r[0]]
+-                tables: dict[str, dict[str, Any]] = {}
+-                for tbl in table_names:
+-                    cur.execute(
+-                        f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`"
+-                    )
+-                    inf_rows = cur.fetchall()
+-                    cols: list[dict[str, Any]] = []
+-                    has_user = False
+-                    if inf_rows and len(inf_rows) > 0:
+-                        first_inf = inf_rows[0]
+-                        if isinstance(first_inf, (list, tuple)) and len(first_inf) > 0:
+-                            sample = (
+-                                first_inf[0] if isinstance(first_inf[0], dict) else {}
+-                            )
+-                        elif isinstance(first_inf, dict):
+-                            sample = first_inf
+-                        else:
+-                            sample = {}
+-
+-                        properties = sample.get("properties", {})
+-                        for p_name, p_val in properties.items():
+-                            if p_name == "user_id":
+-                                has_user = True
+-                            data_type = (
+-                                p_val.get("type", "string")
+-                                if isinstance(p_val, dict)
+-                                else (str(p_val) if p_val else "string")
+-                            )
+-                            if isinstance(data_type, list):  # mixed-type attribute
+-                                data_type = "|".join(str(t) for t in data_type)
+-                            cols.append(
+-                                {
+-                                    "name": p_name,
+-                                    "data_type": data_type,
+-                                    "is_nullable": True,
+-                                    "is_primary": p_name == "id",
+-                                    "comment": None,
+-                                }
+-                            )
+-                    tables[tbl] = {
+-                        "name": tbl,
+-                        "columns": cols,
+-                        "has_user_id": has_user,
+-                        "user_col": "user_id",
+-                        "comment": None,
+-                    }
+-                return normalize_schema_snapshot(
+-                    {"tables": tables, "foreign_keys": [], "relationships": []},
+-                    filter_sensitive=filter_sensitive,
+-                )
++
++            def fetch_infer(tbl: str) -> tuple[str, list[Any]]:
++                with self.get_cursor() as t_cur:
++                    t_cur.execute(f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`")
++                    return tbl, t_cur.fetchall()
++
++            tables: dict[str, dict[str, Any]] = {}
++            # ThreadPoolExecutor is used to perform N queries concurrently
++            with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(table_names) or 1)) as executor:
++                future_to_tbl = {executor.submit(fetch_infer, tbl): tbl for tbl in table_names}
++                for future in concurrent.futures.as_completed(future_to_tbl):
++                    tbl, inf_rows = future.result()
++
++                    cols: list[dict[str, Any]] = []
++                    has_user = False
++                    if inf_rows and len(inf_rows) > 0:
++                        first_inf = inf_rows[0]
++                        if isinstance(first_inf, (list, tuple)) and len(first_inf) > 0:
++                            sample = (
++                                first_inf[0] if isinstance(first_inf[0], dict) else {}
++                            )
++                        elif isinstance(first_inf, dict):
++                            sample = first_inf
++                        else:
++                            sample = {}
++
++                        properties = sample.get("properties", {})
++                        for p_name, p_val in properties.items():
++                            if p_name == "user_id":
++                                has_user = True
++                            data_type = (
++                                p_val.get("type", "string")
++                                if isinstance(p_val, dict)
++                                else (str(p_val) if p_val else "string")
++                            )
++                            if isinstance(data_type, list):  # mixed-type attribute
++                                data_type = "|".join(str(t) for t in data_type)
++                            cols.append(
++                                {
++                                    "name": p_name,
++                                    "data_type": data_type,
++                                    "is_nullable": True,
++                                    "is_primary": p_name == "id",
++                                    "comment": None,
++                                }
++                            )
++                    tables[tbl] = {
++                        "name": tbl,
++                        "columns": cols,
++                        "has_user_id": has_user,

@@ -221,12 +221,29 @@ class CouchbaseConnector(BaseConnector):
                 )
                 rows = cur.fetchall()
                 table_names = [str(r[0]) for r in rows if r and r[0]]
-                tables: dict[str, dict[str, Any]] = {}
-                for tbl in table_names:
-                    cur.execute(
-                        f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`"
-                    )
-                    inf_rows = cur.fetchall()
+            except Exception as exc:
+                raise IntrospectionError(
+                    f"Failed to introspect Couchbase schema: {exc}"
+                ) from exc
+
+        def fetch_infer(tbl: str) -> tuple[str, list[Any]]:
+            with self.get_cursor() as t_cur:
+                t_cur.execute(f"INFER `{self.bucket_name}`.`{self.scope_name}`.`{tbl}`")
+                return tbl, t_cur.fetchall()
+
+        try:
+            import concurrent.futures
+
+            tables: dict[str, dict[str, Any]] = {}
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(10, len(table_names) or 1)
+            ) as executor:
+                future_to_tbl = {
+                    executor.submit(fetch_infer, tbl): tbl for tbl in table_names
+                }
+                for future in concurrent.futures.as_completed(future_to_tbl):
+                    tbl, inf_rows = future.result()
+
                     cols: list[dict[str, Any]] = []
                     has_user = False
                     if inf_rows and len(inf_rows) > 0:
@@ -267,14 +284,14 @@ class CouchbaseConnector(BaseConnector):
                         "user_col": "user_id",
                         "comment": None,
                     }
-                return normalize_schema_snapshot(
-                    {"tables": tables, "foreign_keys": [], "relationships": []},
-                    filter_sensitive=filter_sensitive,
-                )
-            except Exception as exc:
-                raise IntrospectionError(
-                    f"Failed to introspect Couchbase schema: {exc}"
-                ) from exc
+            return normalize_schema_snapshot(
+                {"tables": tables, "foreign_keys": [], "relationships": []},
+                filter_sensitive=filter_sensitive,
+            )
+        except Exception as exc:
+            raise IntrospectionError(
+                f"Failed to introspect Couchbase schema: {exc}"
+            ) from exc
 
 
 N1QLConnector = CouchbaseConnector

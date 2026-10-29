@@ -646,6 +646,67 @@ class AsyncBaseConnector(ABC):
             "spec_table": spec_table,
         }
 
+    def _setup_execution_context(
+        self,
+        statement_timeout_ms: int | None,
+        timeout_ms: int | None,
+        security: SecurityConfig | None,
+        context: dict[str, Any] | None,
+        middleware: MiddlewarePipeline | list[LifecycleInterceptor] | None,
+    ) -> tuple[SecurityConfig, int, dict[str, Any], MiddlewarePipeline]:
+        sec = security or getattr(self, "security", None) or get_security_config()
+        timeout = (
+            timeout_ms
+            if timeout_ms is not None
+            else (
+                statement_timeout_ms
+                if statement_timeout_ms is not None
+                else (sec.execution.statement_timeout_ms or self.default_timeout_ms)
+            )
+        )
+        if timeout <= 0:
+            raise ValueError("statement_timeout_ms must be positive.")
+
+        ctx = context if context is not None else {}
+        ctx.setdefault("statement_timeout_ms", timeout)
+        ctx.setdefault("security", sec)
+
+        pipeline = (
+            MiddlewarePipeline.ensure(middleware)
+            if middleware is not None
+            else self.middleware
+        )
+        return sec, timeout, ctx, pipeline
+
+    def _handle_execution_error(
+        self,
+        exc: Exception,
+        sec: SecurityConfig,
+        pipeline: MiddlewarePipeline,
+        ctx: dict[str, Any],
+        spec_table: str,
+        user_id: Any,
+    ) -> Exception:
+        scrubbed_exc = self._scrub_exception(exc, security_config=sec)
+        pipeline.run_error(scrubbed_exc, ctx)
+        if sec and sec.logging.emit_audit_events:
+            t_id = (
+                getattr(ctx.get("tenant_context"), "tenant_id", None)
+                if ctx is not None
+                else None
+            )
+            self.telemetry_collector.record_audit_event(
+                event_type="query_execution",
+                action="execute",
+                resource=str(spec_table),
+                status="error",
+                tenant_id=t_id,
+                user_id=str(user_id) if user_id is not None else None,
+                error_message=str(scrubbed_exc),
+                details={"dialect": self.dialect_name},
+            )
+        return scrubbed_exc
+
     def _finalize_execution_result_async(
         self,
         process_res: dict[str, Any],
@@ -762,28 +823,8 @@ class AsyncBaseConnector(ABC):
         and executes count and paginated data queries asynchronously with middleware hooks
         and security governance boundaries.
         """
-        sec = security or getattr(self, "security", None) or get_security_config()
-
-        timeout = (
-            timeout_ms
-            if timeout_ms is not None
-            else (
-                statement_timeout_ms
-                if statement_timeout_ms is not None
-                else (sec.execution.statement_timeout_ms or self.default_timeout_ms)
-            )
-        )
-        if timeout <= 0:
-            raise ValueError("statement_timeout_ms must be positive.")
-
-        ctx = context if context is not None else {}
-        ctx.setdefault("statement_timeout_ms", timeout)
-        ctx.setdefault("security", sec)
-
-        pipeline = (
-            MiddlewarePipeline.ensure(middleware)
-            if middleware is not None
-            else self.middleware
+        sec, timeout, ctx, pipeline = self._setup_execution_context(
+            statement_timeout_ms, timeout_ms, security, context, middleware
         )
 
         spec_table = "unknown"
@@ -812,26 +853,10 @@ class AsyncBaseConnector(ABC):
             return self._finalize_execution_result_async(
                 process_res, sec, pipeline, ctx, user_id
             )
-
         except Exception as exc:
-            scrubbed_exc = self._scrub_exception(exc, security_config=sec)
-            pipeline.run_error(scrubbed_exc, ctx)
-            if sec and sec.logging.emit_audit_events:
-                t_id = (
-                    getattr(ctx.get("tenant_context"), "tenant_id", None)
-                    if "ctx" in locals()
-                    else None
-                )
-                self.telemetry_collector.record_audit_event(
-                    event_type="query_execution",
-                    action="execute",
-                    resource=str(spec_table),
-                    status="error",
-                    tenant_id=t_id,
-                    user_id=str(user_id) if user_id is not None else None,
-                    error_message=str(scrubbed_exc),
-                    details={"dialect": self.dialect_name},
-                )
+            scrubbed_exc = self._handle_execution_error(
+                exc, sec, pipeline, ctx, spec_table, user_id
+            )
             if scrubbed_exc is exc:
                 raise
             raise scrubbed_exc from None

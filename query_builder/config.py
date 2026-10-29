@@ -471,37 +471,9 @@ def _parse_list(val: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def load_security_config_from_env(
-    env: Mapping[str, str] | None = None,
-) -> SecurityConfig:
-    """
-    Load a SecurityConfig instance from environment variables.
-
-    If env is None, defaults to os.environ.
-    Resolves base profile from QB_SECURITY_PROFILE (defaulting to 'production')
-    and overrides any explicitly set QB_* environment variables.
-    """
-    source = os.environ if env is None else env
-
-    profile_name = source.get("QB_SECURITY_PROFILE", "production")
-    config = SecurityProfile.from_name(profile_name)
-
-    # Check for unknown or misspelled QB_* environment variables
-    for k in list(source.keys()):
-        if k.startswith("QB_") and k not in KNOWN_QB_ENV_VARS:
-            if any(k.startswith(p) for p in IGNORED_QB_ENV_PREFIXES):
-                continue
-            close = difflib.get_close_matches(
-                k, list(KNOWN_QB_ENV_VARS), n=1, cutoff=0.6
-            )
-            suggestion = f"; did you mean '{close[0]}'?" if close else ""
-            warnings.warn(
-                f"Unknown environment variable '{k}' is ignored{suggestion}",
-                UserWarning,
-                stacklevel=2,
-            )
-
-    # --- Network Overrides ---
+def _apply_network_env_overrides(
+    source: Mapping[str, str], config: SecurityConfig
+) -> None:
     if "QB_ALLOW_PRIVATE_NETWORKS" in source:
         config.network.allow_private_networks = _parse_bool(
             source["QB_ALLOW_PRIVATE_NETWORKS"], "QB_ALLOW_PRIVATE_NETWORKS"
@@ -533,7 +505,10 @@ def load_security_config_from_env(
     if "QB_BLOCKED_HOSTNAMES" in source:
         config.network.blocked_hostnames = _parse_list(source["QB_BLOCKED_HOSTNAMES"])
 
-    # --- Execution Overrides ---
+
+def _apply_execution_env_overrides(
+    source: Mapping[str, str], config: SecurityConfig
+) -> None:
     if "QB_ENFORCE_READ_ONLY" in source:
         config.execution.enforce_read_only_session = _parse_bool(
             source["QB_ENFORCE_READ_ONLY"], "QB_ENFORCE_READ_ONLY"
@@ -595,7 +570,10 @@ def load_security_config_from_env(
                 f"QB_MAX_CACHE_ENTRIES must be greater than 0, got {config.execution.max_cache_entries}"
             )
 
-    # --- Validation Overrides ---
+
+def _apply_validation_env_overrides(
+    source: Mapping[str, str], config: SecurityConfig
+) -> None:
     if "QB_VALIDATE_AST" in source:
         config.validation.validate_ast = _parse_bool(
             source["QB_VALIDATE_AST"], "QB_VALIDATE_AST"
@@ -630,7 +608,10 @@ def load_security_config_from_env(
             source["QB_RESTRICTED_TABLES"]
         )
 
-    # --- Privacy Overrides ---
+
+def _apply_privacy_env_overrides(
+    source: Mapping[str, str], config: SecurityConfig
+) -> None:
     if "QB_ENFORCE_TENANT_ISOLATION" in source:
         config.privacy.enforce_tenant_isolation = _parse_bool(
             source["QB_ENFORCE_TENANT_ISOLATION"], "QB_ENFORCE_TENANT_ISOLATION"
@@ -658,7 +639,10 @@ def load_security_config_from_env(
                 ) from e
         config.privacy.sensitive_column_patterns = pats
 
-    # --- Logging Overrides ---
+
+def _apply_logging_env_overrides(
+    source: Mapping[str, str], config: SecurityConfig
+) -> None:
     if "QB_MASK_CREDENTIALS" in source:
         config.logging.mask_credentials = _parse_bool(
             source["QB_MASK_CREDENTIALS"], "QB_MASK_CREDENTIALS"
@@ -681,6 +665,52 @@ def load_security_config_from_env(
                     f"Invalid regex in QB_SENSITIVE_KEY_PATTERNS: '{p}': {e}"
                 ) from e
         config.logging.sensitive_key_patterns = pats
+
+
+def load_security_config_from_env(
+    env: Mapping[str, str] | None = None,
+) -> SecurityConfig:
+    """
+    Load a SecurityConfig instance from environment variables.
+
+    If env is None, defaults to os.environ.
+    Resolves base profile from QB_SECURITY_PROFILE (defaulting to 'production')
+    and overrides any explicitly set QB_* environment variables.
+    """
+    source = os.environ if env is None else env
+
+    profile_name = source.get("QB_SECURITY_PROFILE", "production")
+    config = SecurityProfile.from_name(profile_name)
+
+    # Check for unknown or misspelled QB_* environment variables
+    for k in list(source.keys()):
+        if k.startswith("QB_") and k not in KNOWN_QB_ENV_VARS:
+            if any(k.startswith(p) for p in IGNORED_QB_ENV_PREFIXES):
+                continue
+            close = difflib.get_close_matches(
+                k, list(KNOWN_QB_ENV_VARS), n=1, cutoff=0.6
+            )
+            suggestion = f"; did you mean '{close[0]}'?" if close else ""
+            warnings.warn(
+                f"Unknown environment variable '{k}' is ignored{suggestion}",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    # --- Network Overrides ---
+    _apply_network_env_overrides(source, config)
+
+    # --- Execution Overrides ---
+    _apply_execution_env_overrides(source, config)
+
+    # --- Validation Overrides ---
+    _apply_validation_env_overrides(source, config)
+
+    # --- Privacy Overrides ---
+    _apply_privacy_env_overrides(source, config)
+
+    # --- Logging Overrides ---
+    _apply_logging_env_overrides(source, config)
 
     return config
 

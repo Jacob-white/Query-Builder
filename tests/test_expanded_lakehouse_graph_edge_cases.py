@@ -119,6 +119,28 @@ def test_introspect_doris_happy_and_fallback():
     assert "customers" in res_fb["tables"]
     assert len(res_fb["tables"]["customers"]["columns"]) == 2
 
+    # 2b. Fallback path to simple information_schema query when column_key raises
+    mock_cursor_simple = MagicMock()
+
+    def _exec_simple_effect(sql, *args, **kwargs):
+        if "column_key" in sql:
+            raise RuntimeError("Unknown column column_key")
+
+    mock_cursor_simple.execute.side_effect = _exec_simple_effect
+    mock_cursor_simple.fetchall.side_effect = [
+        # tables
+        [("customers",)],
+        # simple columns: table_name, column_name, data_type, is_nullable
+        [
+            ("customers", "id", "BIGINT", "NO"),
+            ("customers", "name", "VARCHAR(100)", "YES"),
+        ],
+    ]
+    res_simple = introspect_doris(mock_cursor_simple, database="mydb")
+    assert "customers" in res_simple["tables"]
+    assert len(res_simple["tables"]["customers"]["columns"]) == 2
+    assert res_simple["tables"]["customers"]["columns"][0]["is_primary"] is True
+
     # 3. Error path
     mock_bad = MagicMock()
     mock_bad.execute.side_effect = RuntimeError("Fatal connection drop")
@@ -653,11 +675,18 @@ def test_introspect_kdb_edge_cases():
     mock_client.return_value = ("trades", "quotes")
 
     # Meta response as dictionary / items
-    mock_client.side_effect = [
-        ("trades", "quotes"),
-        {"time": "p", "sym": "s", "price": "f", "secret_token": "s"},
-        {"sym": "s", "bid": "f", "ask": "f"},
-    ]
+    def client_side_effect(q):
+        if q == "tables[]":
+            return ("trades", "quotes")
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        if q == "meta `trades":
+            return {"time": "p", "sym": "s", "price": "f", "secret_token": "s"}
+        if q == "meta `quotes":
+            return {"sym": "s", "bid": "f", "ask": "f"}
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_client.side_effect = client_side_effect
 
     res = introspect_kdb(mock_client, filter_sensitive=True)
     assert "trades" in res["tables"]
@@ -668,20 +697,42 @@ def test_introspect_kdb_edge_cases():
 
     # 2. client with sendSync
     mock_sync = MagicMock(spec=["sendSync"])
-    mock_sync.sendSync.side_effect = [
-        ["orders"],
-        [("id", "i"), ("amount", "f")],
-    ]
+
+    def sync_side_effect(q):
+        if q == "tables[]":
+            return ["orders"]
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        if q == "meta `orders":
+            return [("id", "i"), ("amount", "f")]
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_sync.sendSync.side_effect = sync_side_effect
     res_sync = introspect_kdb(mock_sync)
     assert "orders" in res_sync["tables"]
     assert len(res_sync["tables"]["orders"]["columns"]) == 2
 
     # 3. client with execute
     mock_exec = MagicMock(spec=["execute", "fetchall"])
-    mock_exec.fetchall.side_effect = [
-        [("ticks",)],
-        [("sym", "s"), ("px", "f")],
-    ]
+
+    # We need to simulate execute capturing the query, and fetchall returning based on it
+    exec_state = {"q": None}
+
+    def exec_side_effect(q):
+        if q.startswith("{x!meta each x}"):
+            raise Exception("not supported")
+        exec_state["q"] = q
+
+    def fetchall_side_effect():
+        q = exec_state["q"]
+        if q == "tables[]":
+            return [("ticks",)]
+        if q == "meta `ticks":
+            return [("sym", "s"), ("px", "f")]
+        raise ValueError(f"Unexpected query: {q}")
+
+    mock_exec.execute.side_effect = exec_side_effect
+    mock_exec.fetchall.side_effect = fetchall_side_effect
     res_exec = introspect_kdb(mock_exec)
     assert "ticks" in res_exec["tables"]
 

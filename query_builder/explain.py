@@ -186,65 +186,67 @@ def _resolve_mysql_op_child(
     )
 
 
-def parse_mysql_plan(raw_plan: dict[str, Any] | list[Any] | str) -> QueryPlanNode:
-    """Parses MySQL EXPLAIN FORMAT=JSON or tabular EXPLAIN rows into a QueryPlanNode tree."""
-    if isinstance(raw_plan, str):
-        try:
-            parsed = json.loads(raw_plan)
-            if isinstance(parsed, (dict, list)):
-                return parse_mysql_plan(parsed)
-        except ValueError:
-            pass
-        return QueryPlanNode(
-            node_type="Seq Scan",
-            cost_estimate=100.0,
-            rows_estimated=100,
-            filter_predicate=raw_plan,
-        )
+def _parse_mysql_plan_str(raw_plan: str) -> QueryPlanNode:
+    """Parses a MySQL EXPLAIN FORMAT=JSON string."""
+    try:
+        parsed = json.loads(raw_plan)
+        if isinstance(parsed, (dict, list)):
+            return parse_mysql_plan(parsed)
+    except ValueError:
+        pass
+    return QueryPlanNode(
+        node_type="Seq Scan",
+        cost_estimate=100.0,
+        rows_estimated=100,
+        filter_predicate=raw_plan,
+    )
 
-    if isinstance(raw_plan, list):
-        children: list[QueryPlanNode] = []
-        total_cost = 0.0
-        total_rows = 0
-        for row in raw_plan:
-            if not isinstance(row, dict):
-                continue
-            if "query_block" in row:
-                return parse_mysql_plan(row)
-            table_name = row.get("table") or row.get("table_name")
-            access_type = str(
-                row.get("type") or row.get("access_type") or "ALL"
-            ).upper()
-            key = row.get("key")
-            rows_est = int(row.get("rows") or 0)
-            extra = row.get("Extra") or row.get("filtered")
-            node_type = (
-                "Index Scan"
-                if (key or access_type in ("REF", "EQ_REF", "RANGE", "CONST", "INDEX"))
-                else "Seq Scan"
-            )
-            node_cost = float(max(rows_est, 10))
-            total_cost += node_cost
-            total_rows = max(total_rows, rows_est)
-            children.append(
-                QueryPlanNode(
-                    node_type=node_type,
-                    table=str(table_name) if table_name else None,
-                    cost_estimate=node_cost,
-                    rows_estimated=rows_est,
-                    filter_predicate=str(extra) if extra else None,
-                    index_name=str(key) if key else None,
-                )
-            )
-        if len(children) == 1:
-            return children[0]
-        return QueryPlanNode(
-            node_type="Nested Loop" if len(children) > 1 else "Execution Plan",
-            cost_estimate=total_cost or 100.0,
-            rows_estimated=total_rows or 50,
-            children=children,
-        )
 
+def _parse_mysql_plan_list(raw_plan: list[Any]) -> QueryPlanNode:
+    """Parses a MySQL tabular EXPLAIN list of rows."""
+    children: list[QueryPlanNode] = []
+    total_cost = 0.0
+    total_rows = 0
+    for row in raw_plan:
+        if not isinstance(row, dict):
+            continue
+        if "query_block" in row:
+            return parse_mysql_plan(row)
+        table_name = row.get("table") or row.get("table_name")
+        access_type = str(row.get("type") or row.get("access_type") or "ALL").upper()
+        key = row.get("key")
+        rows_est = int(row.get("rows") or 0)
+        extra = row.get("Extra") or row.get("filtered")
+        node_type = (
+            "Index Scan"
+            if (key or access_type in ("REF", "EQ_REF", "RANGE", "CONST", "INDEX"))
+            else "Seq Scan"
+        )
+        node_cost = float(max(rows_est, 10))
+        total_cost += node_cost
+        total_rows = max(total_rows, rows_est)
+        children.append(
+            QueryPlanNode(
+                node_type=node_type,
+                table=str(table_name) if table_name else None,
+                cost_estimate=node_cost,
+                rows_estimated=rows_est,
+                filter_predicate=str(extra) if extra else None,
+                index_name=str(key) if key else None,
+            )
+        )
+    if len(children) == 1:
+        return children[0]
+    return QueryPlanNode(
+        node_type="Nested Loop" if len(children) > 1 else "Execution Plan",
+        cost_estimate=total_cost or 100.0,
+        rows_estimated=total_rows or 50,
+        children=children,
+    )
+
+
+def _parse_mysql_query_block(raw_plan: dict[str, Any]) -> QueryPlanNode:
+    """Parses a MySQL EXPLAIN FORMAT=JSON query_block dictionary."""
     qb = raw_plan.get("query_block", raw_plan)
     if not isinstance(qb, dict):
         return QueryPlanNode(
@@ -352,6 +354,20 @@ def parse_mysql_plan(raw_plan: dict[str, Any] | list[Any] | str) -> QueryPlanNod
         )
 
     return current
+
+
+def parse_mysql_plan(raw_plan: dict[str, Any] | list[Any] | str) -> QueryPlanNode:
+    """Parses MySQL EXPLAIN FORMAT=JSON or tabular EXPLAIN rows into a QueryPlanNode tree."""
+    if isinstance(raw_plan, str):
+        return _parse_mysql_plan_str(raw_plan)
+    if isinstance(raw_plan, list):
+        return _parse_mysql_plan_list(raw_plan)
+    if isinstance(raw_plan, dict):
+        return _parse_mysql_query_block(raw_plan)
+
+    return QueryPlanNode(
+        node_type="Execution Plan", cost_estimate=100.0, rows_estimated=50
+    )
 
 
 def parse_sqlite_plan(raw_plan: list[Any] | dict[str, Any] | str) -> QueryPlanNode:

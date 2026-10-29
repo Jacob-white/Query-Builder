@@ -753,6 +753,181 @@ def _validate_address_keys(
                         validate_network_target(url=raw, network_config=network_config)
 
 
+def _resolve_network_config(
+    network_config: Any | None, config: dict[str, Any] | Any | None
+) -> Any:
+    if network_config is not None:
+        return network_config
+
+    from query_builder.config import (
+        NetworkSecurityConfig,
+        SecurityConfig,
+        get_security_config,
+    )
+
+    if isinstance(config, NetworkSecurityConfig):
+        return config
+    if isinstance(config, SecurityConfig):
+        return config.network
+    if isinstance(config, dict):
+        if "security" in config:
+            sec = config["security"]
+            if isinstance(sec, SecurityConfig):
+                return sec.network
+            if isinstance(sec, NetworkSecurityConfig):
+                return sec
+            return get_security_config().network
+        if "network" in config:
+            net = config["network"]
+            if isinstance(net, NetworkSecurityConfig):
+                return net
+            return get_security_config().network
+    return get_security_config().network
+
+
+def _validate_ca_bundle(network_config: Any) -> None:
+    if network_config.ca_bundle_path and not os.path.exists(
+        network_config.ca_bundle_path
+    ):
+        raise SecurityError(
+            f"CA bundle file does not exist: {network_config.ca_bundle_path}"
+        )
+
+
+def _extract_config_targets(
+    config: dict[str, Any],
+    host: str | None,
+    port: int | None,
+    url: str | None,
+    network_config: Any,
+) -> tuple[str | None, int | None, str | None]:
+    if host is None:
+        host = (
+            config.get("host")
+            or config.get("hostname")
+            or config.get("address")
+            or config.get("server")
+        )
+    if port is None:
+        port = config.get("port")
+
+    candidate_urls: list[str] = []
+    for key in (
+        "url",
+        "uri",
+        "connection_string",
+        "dsn",
+        "endpoint",
+        "flight_endpoint",
+    ):
+        val = config.get(key)
+        if val is not None:
+            val_str = str(val).strip()
+            if val_str and val_str not in candidate_urls:
+                candidate_urls.append(val_str)
+
+    for raw_str in candidate_urls:
+        kv_target = _parse_keyvalue_dsn(raw_str)
+        if kv_target is not None:
+            kv_host, kv_port = kv_target
+            if host is None:
+                host = kv_host
+            elif kv_host != host:
+                validate_network_target(
+                    host=kv_host,
+                    port=kv_port or port,
+                    network_config=network_config,
+                )
+            if port is None and kv_port is not None:
+                port = kv_port
+            continue
+        if "://" in raw_str:
+            if "," in raw_str.split("://", 1)[1].split("/", 1)[0]:
+                continue
+            if url is None:
+                url = raw_str
+            elif raw_str != url:
+                validate_network_target(
+                    url=raw_str,
+                    network_config=network_config,
+                )
+        else:
+            if ":" in raw_str and not raw_str.startswith("["):
+                parts = raw_str.rsplit(":", 1)
+                raw_host = parts[0]
+                raw_port = None
+                try:
+                    raw_port = int(parts[1])
+                except ValueError:
+                    pass
+            else:
+                raw_host = raw_str
+                raw_port = None
+
+            if host is None:
+                host = raw_host
+            elif raw_host != host:
+                validate_network_target(
+                    host=raw_host,
+                    port=raw_port or port,
+                    network_config=network_config,
+                )
+            if port is None and raw_port is not None:
+                port = raw_port
+
+    contact_points = config.get("contact_points")
+    if contact_points:
+        if isinstance(contact_points, str):
+            pts = [p.strip() for p in contact_points.split(",") if p.strip()]
+        elif isinstance(contact_points, (list, tuple, set)):
+            pts = list(contact_points)
+        else:
+            pts = [contact_points]
+        for pt in pts:
+            pt_host = str(pt).strip()
+            pt_port = port
+            if ":" in pt_host and not pt_host.startswith("["):
+                p_parts = pt_host.rsplit(":", 1)
+                pt_host = p_parts[0]
+                try:
+                    pt_port = int(p_parts[1])
+                except ValueError:
+                    pass
+            validate_network_target(
+                host=pt_host,
+                port=pt_port,
+                network_config=network_config,
+            )
+
+    _validate_address_keys(config, network_config, set())
+    return host, port, url
+
+
+def _validate_tls_enforcement(
+    network_config: Any, parsed_url: Any | None, config: dict[str, Any] | Any | None
+) -> None:
+    if not network_config.enforce_tls:
+        return
+    if parsed_url:
+        scheme = parsed_url.scheme.lower()
+        if scheme in ("http", "ws", "ftp", "telnet"):
+            raise SecurityError(
+                f"TLS is enforced but URL uses insecure scheme: '{scheme}'"
+            )
+    if config is not None and isinstance(config, dict):
+        ssl_val = config.get("ssl")
+        tls_val = config.get("tls")
+        sslmode_val = str(config.get("sslmode", "")).lower()
+        if (
+            ssl_val is False
+            or tls_val is False
+            or sslmode_val in ("disable", "disabled")
+        ):
+            raise SecurityError(
+                "TLS is enforced but SSL/TLS is explicitly disabled in configuration."
+            )
+
+
 def validate_network_target(
     host: str | None = None,
     port: int | None = None,
@@ -770,144 +945,16 @@ def validate_network_target(
     - Validates CA bundle file existence and enforces TLS when configured.
     """
     # 1. Resolve network_config
-    if network_config is None:
-        from query_builder.config import (
-            NetworkSecurityConfig,
-            SecurityConfig,
-            get_security_config,
-        )
-
-        if isinstance(config, NetworkSecurityConfig):
-            network_config = config
-        elif isinstance(config, SecurityConfig):
-            network_config = config.network
-        elif isinstance(config, dict) and "security" in config:
-            sec = config["security"]
-            if isinstance(sec, SecurityConfig):
-                network_config = sec.network
-            elif isinstance(sec, NetworkSecurityConfig):
-                network_config = sec
-            else:
-                network_config = get_security_config().network
-        elif isinstance(config, dict) and "network" in config:
-            net = config["network"]
-            network_config = (
-                net
-                if isinstance(net, NetworkSecurityConfig)
-                else get_security_config().network
-            )
-        else:
-            network_config = get_security_config().network
+    network_config = _resolve_network_config(network_config, config)
 
     # 2. CA bundle file existence check
-    if network_config.ca_bundle_path and not os.path.exists(
-        network_config.ca_bundle_path
-    ):
-        raise SecurityError(
-            f"CA bundle file does not exist: {network_config.ca_bundle_path}"
-        )
+    _validate_ca_bundle(network_config)
 
     # 3. Extract connection properties from config if not provided
     if config is not None and isinstance(config, dict):
-        if host is None:
-            host = (
-                config.get("host")
-                or config.get("hostname")
-                or config.get("address")
-                or config.get("server")
-            )
-        if port is None:
-            port = config.get("port")
-
-        candidate_urls: list[str] = []
-        for key in (
-            "url",
-            "uri",
-            "connection_string",
-            "dsn",
-            "endpoint",
-            "flight_endpoint",
-        ):
-            val = config.get(key)
-            if val is not None:
-                val_str = str(val).strip()
-                if val_str and val_str not in candidate_urls:
-                    candidate_urls.append(val_str)
-
-        for raw_str in candidate_urls:
-            kv_target = _parse_keyvalue_dsn(raw_str)
-            if kv_target is not None:
-                kv_host, kv_port = kv_target
-                if host is None:
-                    host = kv_host
-                elif kv_host != host:
-                    validate_network_target(
-                        host=kv_host,
-                        port=kv_port or port,
-                        network_config=network_config,
-                    )
-                if port is None and kv_port is not None:
-                    port = kv_port
-                continue
-            if "://" in raw_str:
-                if "," in raw_str.split("://", 1)[1].split("/", 1)[0]:
-                    continue  # multi-host (replica set): validated host by host below
-                if url is None:
-                    url = raw_str
-                elif raw_str != url:
-                    validate_network_target(
-                        url=raw_str,
-                        network_config=network_config,
-                    )
-            else:
-                if ":" in raw_str and not raw_str.startswith("["):
-                    parts = raw_str.rsplit(":", 1)
-                    raw_host = parts[0]
-                    raw_port = None
-                    try:
-                        raw_port = int(parts[1])
-                    except ValueError:
-                        pass
-                else:
-                    raw_host = raw_str
-                    raw_port = None
-
-                if host is None:
-                    host = raw_host
-                elif raw_host != host:
-                    validate_network_target(
-                        host=raw_host,
-                        port=raw_port or port,
-                        network_config=network_config,
-                    )
-                if port is None and raw_port is not None:
-                    port = raw_port
-
-        contact_points = config.get("contact_points")
-        if contact_points:
-            if isinstance(contact_points, str):
-                pts = [p.strip() for p in contact_points.split(",") if p.strip()]
-            elif isinstance(contact_points, (list, tuple, set)):
-                pts = list(contact_points)
-            else:
-                pts = [contact_points]
-            for pt in pts:
-                pt_host = str(pt).strip()
-                pt_port = port
-                if ":" in pt_host and not pt_host.startswith("["):
-                    p_parts = pt_host.rsplit(":", 1)
-                    pt_host = p_parts[0]
-                    try:
-                        pt_port = int(p_parts[1])
-                    except ValueError:
-                        pass
-                validate_network_target(
-                    host=pt_host,
-                    port=pt_port,
-                    network_config=network_config,
-                )
-
-        _validate_address_keys(config, network_config, set())
+        host, port, url = _extract_config_targets(
+            config, host, port, url, network_config
+        )
 
     parsed_url = None
     if url:
@@ -917,25 +964,7 @@ def validate_network_target(
             raise SecurityError(f"Invalid network target URL '{url}': {exc}") from exc
 
     # 4. Enforce TLS settings
-    if network_config.enforce_tls:
-        if parsed_url:
-            scheme = parsed_url.scheme.lower()
-            if scheme in ("http", "ws", "ftp", "telnet"):
-                raise SecurityError(
-                    f"TLS is enforced but URL uses insecure scheme: '{scheme}'"
-                )
-        if config is not None and isinstance(config, dict):
-            ssl_val = config.get("ssl")
-            tls_val = config.get("tls")
-            sslmode_val = str(config.get("sslmode", "")).lower()
-            if (
-                ssl_val is False
-                or tls_val is False
-                or sslmode_val in ("disable", "disabled")
-            ):
-                raise SecurityError(
-                    "TLS is enforced but SSL/TLS is explicitly disabled in configuration."
-                )
+    _validate_tls_enforcement(network_config, parsed_url, config)
 
     # 5. Extract host/port from URL if needed
     url_host: str | None = None
@@ -1069,41 +1098,33 @@ def scrub_secrets(value: Any, patterns: list[str] | None = None) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
-    """
-    Calculates deterministic AST complexity score across projections, joins,
-    filters, subqueries, group by, order by, and window functions.
-    """
+def _normalize_spec_to_dict(spec: dict[str, Any] | QuerySpec) -> dict[str, Any] | None:
     if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
+        return asdict(spec)  # type: ignore[arg-type]
     elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return 0
+        return spec
+    return None
 
-    table = spec_dict.get("table")
+
+def _score_table(table: Any) -> int:
     if isinstance(table, (dict, QuerySpec)) or hasattr(table, "__dataclass_fields__"):
         subq_tbl: Any = (
             table.get("subquery", table)
             if isinstance(table, dict) and "subquery" in table
             else table
         )
-        sub_score = (
-            calculate_ast_complexity(subq_tbl)
-            if isinstance(subq_tbl, (dict, QuerySpec))
-            or hasattr(subq_tbl, "__dataclass_fields__")
-            else 0
-        )
+        sub_score = calculate_ast_complexity(subq_tbl)
         if sub_score == 0:
             return 0
-        score = 5 + sub_score
+        return 5 + sub_score
     elif isinstance(table, str) and table.strip():
-        score = 1  # Base query table
-    else:
-        return 0
+        return 1
+    return 0
 
-    # Projections / columns
-    for col in spec_dict.get("columns", []):
+
+def _score_columns(columns: list[Any]) -> int:
+    score = 0
+    for col in columns:
         score += 1
         if isinstance(col, dict):
             if col.get("agg") or col.get("aggregation") or col.get("func"):
@@ -1116,9 +1137,21 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
                 agg in col_upper for agg in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(")
             ):
                 score += 2
+        # Case When columns handling combined into _score_columns (or separate if needed)
+        if isinstance(col, dict) and "case_when" in col:
+            cw = col["case_when"]
+            branches = (
+                cw.get("branches", [])
+                if isinstance(cw, dict)
+                else getattr(cw, "branches", [])
+            )
+            score += 2 * max(1, len(branches))
+    return score
 
-    # Joins
-    for join in spec_dict.get("joins", []):
+
+def _score_joins(joins: list[Any]) -> int:
+    score = 0
+    for join in joins:
         if isinstance(join, dict):
             j_type = str(join.get("type", "LEFT")).upper()
         else:
@@ -1128,9 +1161,12 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             score += 10
         else:
             score += 5
+    return score
 
-    # Filters
-    for flt in spec_dict.get("filters", []):
+
+def _score_filters(filters: list[Any]) -> int:
+    score = 0
+    for flt in filters:
         score += 2
         op = flt.get("op", "") if isinstance(flt, dict) else getattr(flt, "op", "")
         if str(op).lower() in ("like", "ilike", "regex", "matches"):
@@ -1148,24 +1184,11 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
         )
         if target_subq is not None:
             score += 10 + calculate_ast_complexity(target_subq)
+    return score
 
-    # Group By
-    group_by = spec_dict.get("group_by", [])
-    if group_by:
-        score += 3 + len(group_by)
 
-    # Having
-    having = spec_dict.get("having", [])
-    if having:
-        score += 3 + (2 * len(having))
-
-    # Order By
-    order_by = spec_dict.get("order_by", [])
-    if order_by:
-        score += 2 + len(order_by)
-
-    # Subqueries / CTEs
-    ctes = spec_dict.get("ctes") or spec_dict.get("subqueries") or []
+def _score_ctes(ctes: list[Any]) -> int:
+    score = 0
     for cte in ctes:
         score += 10
         if isinstance(cte, dict):
@@ -1178,22 +1201,11 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             cte_query = getattr(cte, "query", None)
             if isinstance(cte_query, (dict, QuerySpec)):
                 score += calculate_ast_complexity(cte_query)
+    return score
 
-    # Window functions
-    win_funcs = spec_dict.get("window_functions") or spec_dict.get("window")
-    if win_funcs:
-        score += 5 * len(win_funcs) if isinstance(win_funcs, list) else 5
 
-    # Vector search
-    if spec_dict.get("vector_search"):
-        score += 5
-
-    # Hybrid search
-    if spec_dict.get("hybrid_search"):
-        score += 8
-
-    # Set Operations
-    set_ops = spec_dict.get("set_operations") or []
+def _score_set_operations(set_ops: list[Any]) -> int:
+    score = 0
     for so in set_ops:
         score += 10
         if isinstance(so, dict):
@@ -1204,20 +1216,53 @@ def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
             q = so.query
             if isinstance(q, (dict, QuerySpec)):
                 score += calculate_ast_complexity(q)
+    return score
 
-    # Case When columns
-    cols = spec_dict.get("columns") or []
-    for c in cols:
-        if isinstance(c, dict) and "case_when" in c:
-            cw = c["case_when"]
-            branches = (
-                cw.get("branches", [])
-                if isinstance(cw, dict)
-                else getattr(cw, "branches", [])
-            )
-            score += 2 * max(1, len(branches))
 
-    # Grouping Type
+def calculate_ast_complexity(spec: dict[str, Any] | QuerySpec) -> int:
+    """
+    Calculates deterministic AST complexity score across projections, joins,
+    filters, subqueries, group by, order by, and window functions.
+    """
+    spec_dict = _normalize_spec_to_dict(spec)
+    if not spec_dict:
+        return 0
+
+    table_score = _score_table(spec_dict.get("table"))
+    if table_score == 0:
+        return 0
+
+    score = table_score
+    score += _score_columns(spec_dict.get("columns", []))
+    score += _score_joins(spec_dict.get("joins", []))
+    score += _score_filters(spec_dict.get("filters", []))
+
+    group_by = spec_dict.get("group_by", [])
+    if group_by:
+        score += 3 + len(group_by)
+
+    having = spec_dict.get("having", [])
+    if having:
+        score += 3 + (2 * len(having))
+
+    order_by = spec_dict.get("order_by", [])
+    if order_by:
+        score += 2 + len(order_by)
+
+    score += _score_ctes(spec_dict.get("ctes") or spec_dict.get("subqueries") or [])
+
+    win_funcs = spec_dict.get("window_functions") or spec_dict.get("window")
+    if win_funcs:
+        score += 5 * len(win_funcs) if isinstance(win_funcs, list) else 5
+
+    if spec_dict.get("vector_search"):
+        score += 5
+
+    if spec_dict.get("hybrid_search"):
+        score += 8
+
+    score += _score_set_operations(spec_dict.get("set_operations") or [])
+
     if spec_dict.get("grouping_type"):
         score += 4
 
@@ -1229,11 +1274,8 @@ def check_cartesian_products(spec: dict[str, Any] | QuerySpec) -> None:
     Validates query specification to detect unbounded Cartesian products,
     missing join conditions, or prohibited CROSS JOIN expressions.
     """
-    if isinstance(spec, QuerySpec) or hasattr(spec, "__dataclass_fields__"):
-        spec_dict: dict[str, Any] = asdict(spec)  # type: ignore[arg-type]  # narrowed to a dataclass by the __dataclass_fields__ check
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
+    spec_dict = _normalize_spec_to_dict(spec)
+    if not spec_dict:
         return
 
     joins = spec_dict.get("joins", [])
