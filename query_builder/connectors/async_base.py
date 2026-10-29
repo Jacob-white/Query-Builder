@@ -435,7 +435,6 @@ class AsyncBaseConnector(ABC):
         """Executes a raw SQL statement asynchronously against the database."""
         raise NotImplementedError("Subclasses must implement execute_raw()")
 
-
     async def _process_raw_query_async(
         self,
         sql: str | None,
@@ -503,7 +502,6 @@ class AsyncBaseConnector(ABC):
             "spec_table": "unknown",
         }
 
-
     async def _process_spec_query_async(
         self,
         spec: Any,
@@ -540,7 +538,10 @@ class AsyncBaseConnector(ABC):
         if sec.execution.prevent_cartesian_products:
             check_cartesian_products(spec_dict)
         joins = spec_dict.get("joins", [])
-        if sec.execution.max_join_depth > 0 and len(joins) > sec.execution.max_join_depth:
+        if (
+            sec.execution.max_join_depth > 0
+            and len(joins) > sec.execution.max_join_depth
+        ):
             raise SecurityError(
                 f"Query join depth ({len(joins)}) exceeds maximum allowed limit ({sec.execution.max_join_depth})."
             )
@@ -645,7 +646,6 @@ class AsyncBaseConnector(ABC):
             "spec_table": spec_table,
         }
 
-
     def _finalize_execution_result_async(
         self,
         process_res: dict[str, Any],
@@ -674,10 +674,13 @@ class AsyncBaseConnector(ABC):
         if sec.privacy.sensitive_column_patterns and dict_rows:
             t_ctx = ctx.get("tenant_context")
             is_admin = bool(
-                t_ctx and any(str(r).lower() == "admin" for r in getattr(t_ctx, "roles", []))
+                t_ctx
+                and any(str(r).lower() == "admin" for r in getattr(t_ctx, "roles", []))
             )
             if not is_admin:
-                compiled_pats = [re.compile(p) for p in sec.privacy.sensitive_column_patterns]
+                compiled_pats = [
+                    re.compile(p) for p in sec.privacy.sensitive_column_patterns
+                ]
                 strat = sec.privacy.masking_strategy
                 masked_rows = []
                 for row in dict_rows:
@@ -685,7 +688,9 @@ class AsyncBaseConnector(ABC):
                         row_copy = dict(row)
                         for col_k, col_v in row_copy.items():
                             if any(p.search(str(col_k)) for p in compiled_pats):
-                                row_copy[col_k] = apply_column_masking(col_v, strategy=strat)
+                                row_copy[col_k] = apply_column_masking(
+                                    col_v, strategy=strat
+                                )
                         masked_rows.append(row_copy)
                     else:
                         masked_rows.append(row)
@@ -789,7 +794,15 @@ class AsyncBaseConnector(ABC):
                 )
             else:
                 short_circuited, process_res = await self._process_spec_query_async(
-                    spec, schema, user_id, sec, validate_ast, pipeline, ctx, timeout, kwargs
+                    spec,
+                    schema,
+                    user_id,
+                    sec,
+                    validate_ast,
+                    pipeline,
+                    ctx,
+                    timeout,
+                    kwargs,
                 )
 
             if short_circuited:
@@ -804,7 +817,11 @@ class AsyncBaseConnector(ABC):
             scrubbed_exc = self._scrub_exception(exc, security_config=sec)
             pipeline.run_error(scrubbed_exc, ctx)
             if sec and sec.logging.emit_audit_events:
-                t_id = getattr(ctx.get("tenant_context"), "tenant_id", None) if "ctx" in locals() else None
+                t_id = (
+                    getattr(ctx.get("tenant_context"), "tenant_id", None)
+                    if "ctx" in locals()
+                    else None
+                )
                 self.telemetry_collector.record_audit_event(
                     event_type="query_execution",
                     action="execute",
@@ -818,7 +835,6 @@ class AsyncBaseConnector(ABC):
             if scrubbed_exc is exc:
                 raise
             raise scrubbed_exc from None
-
 
 
 for _name in _EGRESS_GUARDED_METHODS:

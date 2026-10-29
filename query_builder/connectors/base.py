@@ -532,7 +532,6 @@ class BaseConnector(ABC):
                 raise
             raise mapped from exc
 
-
     def _process_raw_query_sync(
         self,
         sql: str | None,
@@ -589,6 +588,7 @@ class BaseConnector(ABC):
                 )
         except Exception as db_exc:
             from query_builder.connectors.base import raise_mapped
+
             raise_mapped(db_exc)
 
         return False, {
@@ -601,7 +601,6 @@ class BaseConnector(ABC):
             "total_count": len(dict_rows),
             "spec_table": "unknown",
         }
-
 
     def _process_spec_query_sync(
         self,
@@ -639,7 +638,10 @@ class BaseConnector(ABC):
         if sec.execution.prevent_cartesian_products:
             check_cartesian_products(spec_dict)
         joins = spec_dict.get("joins", [])
-        if sec.execution.max_join_depth > 0 and len(joins) > sec.execution.max_join_depth:
+        if (
+            sec.execution.max_join_depth > 0
+            and len(joins) > sec.execution.max_join_depth
+        ):
             raise SecurityError(
                 f"Query join depth ({len(joins)}) exceeds maximum allowed limit ({sec.execution.max_join_depth})."
             )
@@ -728,6 +730,7 @@ class BaseConnector(ABC):
                 )
         except Exception as db_exc:
             from query_builder.connectors.base import raise_mapped
+
             raise_mapped(db_exc)
 
         return False, {
@@ -740,7 +743,6 @@ class BaseConnector(ABC):
             "total_count": total_count,
             "spec_table": spec_table,
         }
-
 
     def _finalize_execution_result_sync(
         self,
@@ -773,10 +775,13 @@ class BaseConnector(ABC):
         if sec.privacy.sensitive_column_patterns and dict_rows:
             t_ctx = ctx.get("tenant_context")
             is_admin = bool(
-                t_ctx and any(str(r).lower() == "admin" for r in getattr(t_ctx, "roles", []))
+                t_ctx
+                and any(str(r).lower() == "admin" for r in getattr(t_ctx, "roles", []))
             )
             if not is_admin:
-                compiled_pats = [re.compile(p) for p in sec.privacy.sensitive_column_patterns]
+                compiled_pats = [
+                    re.compile(p) for p in sec.privacy.sensitive_column_patterns
+                ]
                 strat = sec.privacy.masking_strategy
                 masked_rows = []
                 for row in dict_rows:
@@ -784,7 +789,9 @@ class BaseConnector(ABC):
                         row_copy = dict(row)
                         for col_k, col_v in row_copy.items():
                             if any(p.search(str(col_k)) for p in compiled_pats):
-                                row_copy[col_k] = apply_column_masking(col_v, strategy=strat)
+                                row_copy[col_k] = apply_column_masking(
+                                    col_v, strategy=strat
+                                )
                         masked_rows.append(row_copy)
                     else:
                         masked_rows.append(row)
@@ -836,6 +843,7 @@ class BaseConnector(ABC):
         raw_result["cached"] = False
         if use_cache and cache_key is not None:
             from query_builder.cache import get_global_cache
+
             get_global_cache().set(cache_key, raw_result, ttl=cache_ttl)
 
         return pipeline.run_post_execute(raw_result, ctx)
@@ -909,7 +917,15 @@ class BaseConnector(ABC):
                 )
             else:
                 short_circuited, process_res = self._process_spec_query_sync(
-                    spec, schema, user_id, sec, validate_ast, pipeline, ctx, timeout, kwargs
+                    spec,
+                    schema,
+                    user_id,
+                    sec,
+                    validate_ast,
+                    pipeline,
+                    ctx,
+                    timeout,
+                    kwargs,
                 )
 
             if short_circuited:
@@ -917,14 +933,25 @@ class BaseConnector(ABC):
 
             spec_table = process_res.get("spec_table", "unknown")
             return self._finalize_execution_result_sync(
-                process_res, sec, pipeline, ctx, user_id, use_cache, cache_key, cache_ttl
+                process_res,
+                sec,
+                pipeline,
+                ctx,
+                user_id,
+                use_cache,
+                cache_key,
+                cache_ttl,
             )
 
         except Exception as exc:
             scrubbed_exc = self._scrub_exception(exc, security_config=sec)
             pipeline.run_error(scrubbed_exc, ctx)
             if sec and sec.logging.emit_audit_events:
-                t_id = getattr(ctx.get("tenant_context"), "tenant_id", None) if "ctx" in locals() else None
+                t_id = (
+                    getattr(ctx.get("tenant_context"), "tenant_id", None)
+                    if "ctx" in locals()
+                    else None
+                )
                 self.telemetry_collector.record_audit_event(
                     event_type="query_execution",
                     action="execute",
@@ -938,7 +965,6 @@ class BaseConnector(ABC):
             if scrubbed_exc is exc:
                 raise
             raise scrubbed_exc from None
-
 
     def introspect_schema(self, filter_sensitive: bool = True) -> dict[str, Any]:
         """
