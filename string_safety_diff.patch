@@ -1,0 +1,54 @@
+--- query_builder/ast_validator.py
++++ query_builder/ast_validator.py
+@@ -1000,6 +1000,34 @@
+     }
+
+
++def _pre_parse_safety_check(clean: str, max_sql_length: int) -> dict[str, Any] | None:
++    if not clean:
++        return {
++            "valid": False,
++            "ast_validated": False,
++            "statement_type": "NONE",
++            "is_read_only": True,
++            "violations": ["Query string is empty."],
++            "injection_risk": "NONE",
++            "message": "No query provided.",
++        }
++    if len(clean) > max_sql_length:
++        return {
++            "valid": False,
++            "ast_validated": False,
++            "statement_type": "NONE",
++            "is_read_only": False,
++            "violations": [
++                f"Query length ({len(clean)}) exceeds maximum allowed length ({max_sql_length})."
++            ],
++            "injection_risk": "HIGH",
++            "message": "Query length exceeds maximum allowed limit.",
++        }
++    if "\x00" in clean:
++        return {
++            "valid": False,
++            "ast_validated": False,
++            "statement_type": "NONE",
++            "is_read_only": False,
++            "violations": ["Null byte detected in query string."],
++            "injection_risk": "CRITICAL",
++            "message": "Null byte injection blocked.",
++        }
++    return None
++
++
++def _get_syntax_obfuscation_violations(clean: str) -> list[str]:
++    violations: list[str] = []
++    if re.search(r"[\uff1b\u037e\u2044]", clean):
++        violations.append("Obfuscated statement separator detected.")
++    if any(ord(c) < 32 and c not in ("\t", "\n", "\r") for c in clean):
++        violations.append("Disallowed control character detected in query string.")
++    if "/*!" in clean:
++        violations.append("Forbidden executable comment syntax ('/*!... */') detected.")
++    return violations
++
++
+ def validate_sql_ast(

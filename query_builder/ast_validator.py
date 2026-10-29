@@ -999,38 +999,7 @@ def _finalize(
     }
 
 
-def validate_sql_ast(
-    raw_sql: str,
-    allowed_schemas: list[str] | None = None,
-    restricted_tables: set[str] | None = None,
-    restricted_keywords: set[str] | None = None,
-    restricted_schema_patterns: list[str] | None = None,
-    allow_cte: bool = True,
-    allow_recursive_cte: bool = False,
-    max_sql_length: int = MAX_SQL_LENGTH,
-    max_ast_tokens: int = MAX_AST_TOKENS,
-    dialect: str | None = None,
-) -> dict[str, Any]:
-    """
-    Performs Abstract Syntax Tree (AST) validation using sqlparse.
-    Verifies that:
-    1. The SQL string is non-empty and within length bounds.
-    2. No null bytes, disallowed control characters, or executable comment tricks are present.
-    3. Exactly one non-empty statement exists (rejecting semicolon query chaining/injection).
-    4. The statement type is 'SELECT' (or safe CTE WITH where the root operation is SELECT).
-    5. No AST tokens match restricted DDL/DML mutation keywords or injection functions.
-    6. No restricted security, credential, or administration tables are accessed.
-    7. No restricted system/catalog schemas are queried without explicit authorization.
-
-    Two independent layers must BOTH accept the query (defense in depth): the legacy
-    sqlparse/lexer layer and the sqlglot structural layer (``query_builder.sql_ast``).
-    Violations are unioned; structural-layer messages carry the ``[sqlglot-ast] `` prefix
-    and the result's ``violation_layers`` maps each layer to its messages.  ``dialect``
-    (optional) selects the sqlglot dialect; unknown/None unions several interpretations.
-
-    Returns a dictionary detailing validation status, detected statement type, violations, and injection risk.
-    """
-    clean = (raw_sql or "").strip()
+def _pre_parse_safety_check(clean: str, max_sql_length: int) -> dict[str, Any] | None:
     if not clean:
         return {
             "valid": False,
@@ -1066,6 +1035,10 @@ def validate_sql_ast(
             "message": "Null byte injection blocked.",
         }
 
+    return None
+
+
+def _get_syntax_obfuscation_violations(clean: str) -> list[str]:
     violations: list[str] = []
 
     if re.search(r"[\uff1b\u037e\u2044]", clean):
@@ -1076,6 +1049,153 @@ def validate_sql_ast(
 
     if "/*!" in clean:
         violations.append("Forbidden executable comment syntax ('/*!... */') detected.")
+
+    return violations
+
+
+def _analyze_statement_type(
+    stmt: sqlparse.sql.Statement, clean: str, allow_cte: bool, allow_recursive_cte: bool
+) -> tuple[str, bool, str, str, list[str]]:
+    stmt_type = stmt.get_type()
+    violations: list[str] = []
+
+    # Find the first non-comment, non-whitespace token
+    first_token = None
+    for tok in stmt.tokens:
+        if not tok.is_whitespace and tok.ttype not in (
+            sqlparse.tokens.Comment,
+            sqlparse.tokens.Comment.Single,
+            sqlparse.tokens.Comment.Multiline,
+        ):
+            first_token = tok
+            break
+
+    first_val = first_token.value.upper() if first_token else ""
+    is_cte = first_val == "WITH"
+    cte_root = _extract_cte_root_statement(stmt) if is_cte else ""
+
+    # Support parenthesized queries like ((SELECT 1))
+    if stmt_type == "UNKNOWN" and clean.startswith("("):
+        for tok in stmt.flatten():
+            if (
+                not tok.is_whitespace
+                and tok.ttype
+                not in (
+                    sqlparse.tokens.Comment,
+                    sqlparse.tokens.Comment.Single,
+                    sqlparse.tokens.Comment.Multiline,
+                )
+                and tok.value not in ("(", ")")
+            ):
+                inner_val = tok.value.upper().strip('"[]`')
+                if inner_val == "SELECT":
+                    stmt_type = "SELECT"
+                elif (
+                    tok.ttype in (Keyword, DML, DDL)
+                    or inner_val in RESTRICTED_MUTATION_KEYWORDS
+                ):
+                    stmt_type = inner_val
+                break
+
+    if is_cte:
+        if not allow_cte:
+            violations.append("Common Table Expressions (WITH) are not permitted.")
+        elif not allow_recursive_cte and re.search(
+            r"\bRECURSIVE\b", clean, re.IGNORECASE
+        ):
+            violations.append(
+                "Recursive Common Table Expressions (WITH RECURSIVE) are not permitted."
+            )
+        elif cte_root != "SELECT":
+            violations.append(
+                f"Restricted statement type: {cte_root}. Only SELECT queries are permitted."
+            )
+            stmt_type = cte_root
+        else:
+            stmt_type = "SELECT"
+    elif stmt_type != "SELECT":
+        detected_name = stmt_type if stmt_type else (first_val or "UNKNOWN")
+        violations.append(
+            f"Restricted statement type: {detected_name}. Only SELECT queries are permitted."
+        )
+
+    return stmt_type, is_cte, cte_root, first_val, violations
+
+
+def _inspect_sqlparse_tokens(
+    tokens_list: list[Any], effective_keywords: set[str], set_scope_ok: bool
+) -> list[str]:
+    violations: list[str] = []
+    for tok in tokens_list:
+        if tok.is_whitespace or tok.ttype in (
+            sqlparse.tokens.Comment,
+            sqlparse.tokens.Comment.Single,
+            sqlparse.tokens.Comment.Multiline,
+        ):
+            continue
+        if tok.ttype in (
+            sqlparse.tokens.Literal.String,
+            sqlparse.tokens.Literal.String.Single,
+            sqlparse.tokens.String.Single,
+        ):
+            continue
+
+        raw_val = tok.value.strip()
+        is_quoted = (
+            (raw_val.startswith('"') and raw_val.endswith('"'))
+            or (raw_val.startswith("`") and raw_val.endswith("`"))
+            or (raw_val.startswith("[") and raw_val.endswith("]"))
+        )
+        val = raw_val.upper().strip('"[]`')
+
+        if not is_quoted and (
+            tok.ttype in (Keyword, DML, DDL) or val in effective_keywords
+        ):
+            if val in effective_keywords:
+                violations.append(f"Forbidden mutation keyword: '{val}'")
+            elif val == "SET" and not set_scope_ok:
+                violations.append("Forbidden session modification keyword: 'SET'")
+    return violations
+
+
+def validate_sql_ast(
+    raw_sql: str,
+    allowed_schemas: list[str] | None = None,
+    restricted_tables: set[str] | None = None,
+    restricted_keywords: set[str] | None = None,
+    restricted_schema_patterns: list[str] | None = None,
+    allow_cte: bool = True,
+    allow_recursive_cte: bool = False,
+    max_sql_length: int = MAX_SQL_LENGTH,
+    max_ast_tokens: int = MAX_AST_TOKENS,
+    dialect: str | None = None,
+) -> dict[str, Any]:
+    """
+    Performs Abstract Syntax Tree (AST) validation using sqlparse.
+    Verifies that:
+    1. The SQL string is non-empty and within length bounds.
+    2. No null bytes, disallowed control characters, or executable comment tricks are present.
+    3. Exactly one non-empty statement exists (rejecting semicolon query chaining/injection).
+    4. The statement type is 'SELECT' (or safe CTE WITH where the root operation is SELECT).
+    5. No AST tokens match restricted DDL/DML mutation keywords or injection functions.
+    6. No restricted security, credential, or administration tables are accessed.
+    7. No restricted system/catalog schemas are queried without explicit authorization.
+
+    Two independent layers must BOTH accept the query (defense in depth): the legacy
+    sqlparse/lexer layer and the sqlglot structural layer (``query_builder.sql_ast``).
+    Violations are unioned; structural-layer messages carry the ``[sqlglot-ast] `` prefix
+    and the result's ``violation_layers`` maps each layer to its messages.  ``dialect``
+    (optional) selects the sqlglot dialect; unknown/None unions several interpretations.
+
+    Returns a dictionary detailing validation status, detected statement type, violations, and injection risk.
+    """
+    clean = (raw_sql or "").strip()
+
+    safety_result = _pre_parse_safety_check(clean, max_sql_length)
+    if safety_result is not None:
+        return safety_result
+
+    violations: list[str] = _get_syntax_obfuscation_violations(clean)
 
     if sqlparse is None:
         return {
@@ -1147,67 +1267,11 @@ def validate_sql_ast(
         }
 
     stmt = statements[0]
-    stmt_type = stmt.get_type()
 
-    # Find the first non-comment, non-whitespace token
-    first_token = None
-    for tok in stmt.tokens:
-        if not tok.is_whitespace and tok.ttype not in (
-            sqlparse.tokens.Comment,
-            sqlparse.tokens.Comment.Single,
-            sqlparse.tokens.Comment.Multiline,
-        ):
-            first_token = tok
-            break
-
-    first_val = first_token.value.upper() if first_token else ""
-    is_cte = first_val == "WITH"
-    cte_root = _extract_cte_root_statement(stmt) if is_cte else ""
-
-    # Support parenthesized queries like ((SELECT 1))
-    if stmt_type == "UNKNOWN" and clean.startswith("("):
-        for tok in stmt.flatten():
-            if (
-                not tok.is_whitespace
-                and tok.ttype
-                not in (
-                    sqlparse.tokens.Comment,
-                    sqlparse.tokens.Comment.Single,
-                    sqlparse.tokens.Comment.Multiline,
-                )
-                and tok.value not in ("(", ")")
-            ):
-                inner_val = tok.value.upper().strip('"[]`')
-                if inner_val == "SELECT":
-                    stmt_type = "SELECT"
-                elif (
-                    tok.ttype in (Keyword, DML, DDL)
-                    or inner_val in RESTRICTED_MUTATION_KEYWORDS
-                ):
-                    stmt_type = inner_val
-                break
-
-    if is_cte:
-        if not allow_cte:
-            violations.append("Common Table Expressions (WITH) are not permitted.")
-        elif not allow_recursive_cte and re.search(
-            r"\bRECURSIVE\b", clean, re.IGNORECASE
-        ):
-            violations.append(
-                "Recursive Common Table Expressions (WITH RECURSIVE) are not permitted."
-            )
-        elif cte_root != "SELECT":
-            violations.append(
-                f"Restricted statement type: {cte_root}. Only SELECT queries are permitted."
-            )
-            stmt_type = cte_root
-        else:
-            stmt_type = "SELECT"
-    elif stmt_type != "SELECT":
-        detected_name = stmt_type if stmt_type else (first_val or "UNKNOWN")
-        violations.append(
-            f"Restricted statement type: {detected_name}. Only SELECT queries are permitted."
-        )
+    stmt_type, is_cte, cte_root, first_val, type_violations = _analyze_statement_type(
+        stmt, clean, allow_cte, allow_recursive_cte
+    )
+    violations.extend(type_violations)
 
     effective_keywords = (
         restricted_keywords
@@ -1257,35 +1321,8 @@ def validate_sql_ast(
     )
 
     # Deep token inspection for mutation keywords (sqlparse's own lexing of the raw text)
-    for tok in tokens_list:
-        if tok.is_whitespace or tok.ttype in (
-            sqlparse.tokens.Comment,
-            sqlparse.tokens.Comment.Single,
-            sqlparse.tokens.Comment.Multiline,
-        ):
-            continue
-        if tok.ttype in (
-            sqlparse.tokens.Literal.String,
-            sqlparse.tokens.Literal.String.Single,
-            sqlparse.tokens.String.Single,
-        ):
-            continue
-
-        raw_val = tok.value.strip()
-        is_quoted = (
-            (raw_val.startswith('"') and raw_val.endswith('"'))
-            or (raw_val.startswith("`") and raw_val.endswith("`"))
-            or (raw_val.startswith("[") and raw_val.endswith("]"))
-        )
-        val = raw_val.upper().strip('"[]`')
-
-        if not is_quoted and (
-            tok.ttype in (Keyword, DML, DDL) or val in effective_keywords
-        ):
-            if val in effective_keywords:
-                violations.append(f"Forbidden mutation keyword: '{val}'")
-            elif val == "SET" and not set_scope_ok:
-                violations.append("Forbidden session modification keyword: 'SET'")
+    mutation_violations = _inspect_sqlparse_tokens(tokens_list, effective_keywords, set_scope_ok)
+    violations.extend(mutation_violations)
 
     for stripped, masked in variants:
         _check_variant(
