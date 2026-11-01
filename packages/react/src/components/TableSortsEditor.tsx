@@ -663,6 +663,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                       disabled={idx === 0}
                       onClick={() => handleMoveSort(idx, -1)}
                       title="Move sort priority up"
+                      aria-label="Move sort priority up"
                       style={{
                         background: "var(--qb-color-background, #090d16)",
                         border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
@@ -682,6 +683,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                       disabled={idx === sorts.length - 1}
                       onClick={() => handleMoveSort(idx, 1)}
                       title="Move sort priority down"
+                      aria-label="Move sort priority down"
                       style={{
                         background: "var(--qb-color-background, #090d16)",
                         border: "1px solid var(--qb-color-border, rgba(255, 255, 255, 0.1))",
