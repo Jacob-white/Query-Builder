@@ -24,7 +24,9 @@ export interface TableCardProps {
   classNames?: QueryBuilderClassNames;
 }
 
-export const TableCard: React.FC<TableCardProps> = ({
+// ⚡ Bolt: Wrapped TableCard in React.memo() to prevent unnecessary re-renders
+// Expected impact: Reduces render cycles during query builder state updates, especially on large schemas.
+export const TableCard: React.FC<TableCardProps> = React.memo(({
   table,
   isSelected,
   selectedColumns,
@@ -959,4 +961,4 @@ export const TableCard: React.FC<TableCardProps> = ({
       )}
     </div>
   );
-};
+});
