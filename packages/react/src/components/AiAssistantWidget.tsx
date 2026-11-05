@@ -235,6 +235,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
                         }
                   }
                   title="Close widget"
+                  aria-label="Close widget"
                 >
                   ✕
                 </button>
