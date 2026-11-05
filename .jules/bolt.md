@@ -1,0 +1,3 @@
+## 2024-11-05 - [TableCard React.memo() Performance Win]
+**Learning:** In complex query builder schemas, components like `TableCard` can experience frequent state updates (due to root level UI states changing like layout flags, sidebars, or other table selections). This creates significant render thrashing because many prop references appear to change even when a specific table's local UI state hasn't.
+**Action:** Always wrap heavy/frequent UI components, such as `TableCard`, with `React.memo()` in the query builder to prevent unnecessary re-renders when parent state updates do not actually impact the component's rendered output.
