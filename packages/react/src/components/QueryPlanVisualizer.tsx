@@ -530,6 +530,7 @@ export const QueryPlanVisualizer: React.FC<QueryPlanVisualizerProps> = ({
                 </strong>
                 <button
                   type="button"
+                  aria-label="Close selected node"
                   onClick={() => setSelectedNode(null)}
                   style={s({
                     background: "none",

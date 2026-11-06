@@ -243,7 +243,7 @@ describe("QueryPlanVisualizer Component", () => {
     expect(screen.getByText("customer_id = 123")).toBeTruthy();
 
     // Dismiss the selected node details by clicking the ✕ button
-    const closeDetailsBtn = screen.getByRole("button", { name: "✕" });
+    const closeDetailsBtn = screen.getByRole("button", { name: "Close selected node" });
     fireEvent.click(closeDetailsBtn);
     expect(screen.queryByText("Selected Node: Index Scan")).toBeNull();
 
