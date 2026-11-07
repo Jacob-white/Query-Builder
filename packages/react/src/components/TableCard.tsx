@@ -24,7 +24,10 @@ export interface TableCardProps {
   classNames?: QueryBuilderClassNames;
 }
 
-export const TableCard: React.FC<TableCardProps> = ({
+export const TableCard: React.FC<TableCardProps> = React.memo(({
+  // ⚡ Bolt Optimization: Wrapped TableCard in React.memo() to prevent unnecessary re-renders
+  // Expected impact: Reduces CPU overhead during complex query builder operations by avoiding redundant render cycles
+  // Verification: Check React DevTools Profiler to ensure TableCard does not re-render when its props are unchanged
   table,
   isSelected,
   selectedColumns,
@@ -959,4 +962,4 @@ export const TableCard: React.FC<TableCardProps> = ({
       )}
     </div>
   );
-};
+});
