@@ -659,6 +659,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                   <div style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
                     <button
                       type="button"
+                      aria-label="Move sort priority up"
                       data-qb="sort-move-up"
                       disabled={idx === 0}
                       onClick={() => handleMoveSort(idx, -1)}
@@ -678,6 +679,7 @@ export const TableSortsEditor: React.FC<TableSortsEditorProps> = ({
                     </button>
                     <button
                       type="button"
+                      aria-label="Move sort priority down"
                       data-qb="sort-move-down"
                       disabled={idx === sorts.length - 1}
                       onClick={() => handleMoveSort(idx, 1)}

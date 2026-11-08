@@ -119,6 +119,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
       {!isOpen && widgetPosition === "floating-bottom-right" && (
         <button
           type="button"
+          aria-label="Open AI Assistant"
           data-testid="ai-widget-launcher"
           onClick={() => setOpen(true)}
           style={
@@ -220,6 +221,7 @@ export const AiAssistantWidget: React.FC<AiAssistantWidgetProps> = ({
               {widgetPosition === "floating-bottom-right" && (
                 <button
                   type="button"
+                  aria-label="Close AI Assistant"
                   data-testid="ai-widget-close"
                   onClick={() => setOpen(false)}
                   style={
