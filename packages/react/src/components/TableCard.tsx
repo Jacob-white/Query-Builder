@@ -24,7 +24,8 @@ export interface TableCardProps {
   classNames?: QueryBuilderClassNames;
 }
 
-export const TableCard: React.FC<TableCardProps> = ({
+// ⚡ Bolt: Wrapped TableCard in React.memo() to prevent unnecessary re-renders when parent query state changes
+export const TableCard = React.memo(({
   table,
   isSelected,
   selectedColumns,
@@ -43,7 +44,7 @@ export const TableCard: React.FC<TableCardProps> = ({
   fieldRenderers,
   className,
   classNames,
-}) => {
+}: TableCardProps) => {
   const ctx = useQueryBuilderContext();
   const effectiveFieldRenderers = fieldRenderers ?? ctx?.fieldRenderers;
   const [columnSearch, setColumnSearch] = useState("");
@@ -959,4 +960,4 @@ export const TableCard: React.FC<TableCardProps> = ({
       )}
     </div>
   );
-};
+});
