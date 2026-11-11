@@ -522,6 +522,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                           cursor: "pointer",
                         }}
                         title={`Span: ${spanW} cols`}
+                        aria-label={`Resize tile to ${spanW === 4 ? 1 : spanW + 1} columns`}
                         data-testid={`resize-tile-${tile.id}`}
                       >
                         {spanW}x
@@ -539,6 +540,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                           cursor: "pointer",
                         }}
                         title="Duplicate"
+                        aria-label="Duplicate tile"
                         data-testid={`duplicate-tile-${tile.id}`}
                       >
                         📑
@@ -556,6 +558,7 @@ export const DashboardWorkbench: React.FC<DashboardWorkbenchProps> = ({
                           cursor: "pointer",
                         }}
                         title="Remove"
+                        aria-label="Remove tile"
                         data-testid={`remove-tile-${tile.id}`}
                       >
                         🗑
